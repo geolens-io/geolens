@@ -48,7 +48,7 @@ grep -q 'generated_admin_pw=true' "$INSTALL_SH" \
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 pgfns="$work/pgfns.sh"
-for fn in generate_jwt_secret generate_password get_env_value get_env_value_decoded update_env_value compose_env_value ensure_postgres_password warn_if_database_volume_exists; do
+for fn in generate_jwt_secret generate_password get_env_value get_env_value_decoded update_env_value compose_env_value ensure_postgres_password ensure_dedicated_signing_keys warn_if_database_volume_exists; do
   awk -v fn="$fn" '$0 ~ "^" fn "\\(\\) \\{" {f=1} f{print} f&&/^}/{exit}' "$INSTALL_SH" >>"$pgfns"
 done
 say() { :; }
@@ -146,5 +146,22 @@ for body in 'export POSTGRES_PASSWORD=existing' 'POSTGRES_PASSWORD='; do
   run_ensure false 0 0 && unchanged || { echo "FAIL: [$body] without the reader stopped or changed .env"; exit 1; }
 done
 mv "$work/common.sh" scripts/lib/common.sh
+
+# TILE_SIGNING_SECRET and SESSION_SECRET_KEY: generated, distinct and 32+ long
+# only for a .env this run created; an existing .env stays byte-identical.
+write_env 'POSTGRES_PASSWORD=x'
+( ENV_CREATED=true; ensure_dedicated_signing_keys ) \
+  || { echo "FAIL: ensure_dedicated_signing_keys failed on a new .env"; exit 1; }
+tile_v="$(get_env_value TILE_SIGNING_SECRET)"; sess_v="$(get_env_value SESSION_SECRET_KEY)"
+[ "${#tile_v}" -ge 32 ] && [ "${#sess_v}" -ge 32 ] && [ "$tile_v" != "$sess_v" ] \
+  || { echo "FAIL: a new .env did not get two distinct 32+ character keys"; exit 1; }
+[ "$(file_mode)" = "-rw-------" ] || { echo "FAIL: a new .env lost mode 600"; exit 1; }
+write_env 'POSTGRES_PASSWORD=x'
+( ENV_CREATED=false; ensure_dedicated_signing_keys )
+unchanged || { echo "FAIL: an existing .env was changed by the signing keys step"; exit 1; }
+write_env 'TILE_SIGNING_SECRET=keepme'
+( ENV_CREATED=true; ensure_dedicated_signing_keys )
+[ "$(get_env_value TILE_SIGNING_SECRET)" = keepme ] && [ -n "$(get_env_value SESSION_SECRET_KEY)" ] \
+  || { echo "FAIL: a key already set in a new .env was replaced"; exit 1; }
 
 echo "PASS: install.sh secret generation (SEC-010 / SEC-011)"

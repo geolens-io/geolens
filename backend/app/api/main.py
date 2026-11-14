@@ -135,6 +135,36 @@ def _warn_if_cors_unset(settings_obj, log) -> None:
         )
 
 
+def _session_secret(settings_obj) -> str:
+    """Session cookie key: the dedicated key, else JWT_SECRET_KEY unchanged."""
+    return (
+        settings_obj.session_secret_key or settings_obj.jwt_secret_key
+    ).get_secret_value()
+
+
+def _warn_if_dedicated_keys_unset(settings_obj, log) -> None:
+    """Warn once at startup when a production install shares the JWT secret.
+
+    Tile signing and the session cookie fall back to JWT_SECRET_KEY when their
+    own key is unset, so rotating one secret silently rotates all three.
+    """
+    if not settings_obj.is_production:
+        return
+    for name, value in (
+        ("TILE_SIGNING_SECRET", settings_obj.tile_signing_secret),
+        ("SESSION_SECRET_KEY", settings_obj.session_secret_key),
+    ):
+        if value is None:
+            log.warning(
+                "dedicated_key_unset",
+                message=(
+                    f"{name} is unset in production; falling back to "
+                    "JWT_SECRET_KEY. Set it to a separate secret "
+                    "(openssl rand -hex 32), the same on every API replica."
+                ),
+            )
+
+
 async def seed_initial_admin() -> None:
     """Create an initial admin user if none exist.
 
@@ -377,6 +407,7 @@ async def lifespan(app: FastAPI):
 
     # Surface unset CORS_ALLOWED_ORIGINS in production once.
     _warn_if_cors_unset(settings, logger)
+    _warn_if_dedicated_keys_unset(settings, logger)
 
     # The rate-limit storage decision is made at import, before
     # setup_logging() above, so its notices are queued rather than logged
@@ -989,7 +1020,7 @@ app.add_middleware(DesktopEntryGateMiddleware)
 # session cookie. Same settings.is_production used for docs gating above.
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.jwt_secret_key.get_secret_value(),
+    secret_key=_session_secret(settings),
     https_only=settings.is_production,
 )
 app.add_middleware(RequestLoggingMiddleware)

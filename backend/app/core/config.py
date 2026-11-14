@@ -503,6 +503,7 @@ class Settings(
     redis_url: str | None = None  # unset refuses token-protected service dispatch
     cdn_base_url: str | None = None
     tile_signing_secret: SecretStr | None = None
+    session_secret_key: SecretStr | None = None
     tile_cache_ttl: int = Field(default=3600, ge=0)
 
     database_url_override: str | None = None
@@ -687,6 +688,7 @@ class Settings(
         "s3_addressing_style",
         "database_ssl_ca_cert",
         "tile_signing_secret",
+        "session_secret_key",
         # An uncommented-but-empty .env line arrives as "", which
         # would otherwise reach validate_known_bad_credentials' Fernet check
         # and fail boot on a config shape that means "not set".
@@ -1133,6 +1135,36 @@ class Settings(
                 f"{BCRYPT_MAX_PASSWORD_BYTES}. Generate a shorter value with "
                 "`openssl rand -base64 16` and set it in your .env."
             )
+        return self
+
+    @model_validator(mode="after")
+    def validate_dedicated_signing_keys(self) -> "Settings":
+        """Reject a dedicated key that is short, the JWT secret, or shared."""
+        jwt_value = self.jwt_secret_key.get_secret_value()
+        seen: dict[str, str] = {}
+        for name, configured in (
+            ("TILE_SIGNING_SECRET", self.tile_signing_secret),
+            ("SESSION_SECRET_KEY", self.session_secret_key),
+        ):
+            if configured is None:
+                continue
+            raw = configured.get_secret_value()
+            if len(raw) < 32:
+                raise ValueError(
+                    f"{name} must be at least 32 characters. "
+                    "Generate one with: openssl rand -hex 32"
+                )
+            if raw == jwt_value:
+                raise ValueError(
+                    f"{name} must not be the same value as JWT_SECRET_KEY. "
+                    "A dedicated key exists to separate it from the JWT secret."
+                )
+            for other_name, other_raw in seen.items():
+                if raw == other_raw:
+                    raise ValueError(
+                        f"{name} must not be the same value as {other_name}."
+                    )
+            seen[name] = raw
         return self
 
     @model_validator(mode="after")

@@ -2850,6 +2850,15 @@ predate step 3 above and `JWT_SECRET_KEY` has changed since. Add the missing
 key, or re-enter those providers' credentials in the admin UI under Settings >
 Auth & Security, which rewrites them under the current key.
 
+### Dedicated TILE_SIGNING_SECRET and SESSION_SECRET_KEY
+
+Both are optional and fall back to `JWT_SECRET_KEY`. Setting either on a
+running install changes the key it signs with: signed tile URLs minted before
+the change stop verifying until the page reloads them, and OAuth sign-ins in
+progress restart. Use at least 32 characters (`openssl rand -hex 32`), a
+different value for each, and the same value on every API replica. The
+installer generates both only for a `.env` it creates.
+
 ### Rotating JWT_SECRET_KEY
 
 ```bash
