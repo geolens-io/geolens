@@ -501,6 +501,7 @@ def refresh_layers(
         "isn't migrated"
         for layer in wanted
         if _layer_key(layer) not in entry.layer_datasets
+        and _layer_key(layer) not in entry.shared
     ]
     return added + _bring_each(
         ctx, item, entry, partial(_start_refresh, ctx, row, entry)
@@ -740,10 +741,14 @@ def _dataset_titles(item: Mapping[str, Any], entry: ItemState) -> dict[str, str]
             for key, dataset in entry.layer_datasets.items()
         }
     recorded = (entry.import_pass or {}).get("layers") or {}
-    if not recorded or set(recorded) != set(entry.layer_datasets):
+    if not recorded or set(recorded) != {*entry.layer_datasets, *entry.shared}:
         return {}
     titles = _titles(base, [(r["label"], r["layer_id"]) for r in recorded.values()])
-    return {entry.layer_datasets[key]: t for key, t in zip(recorded, titles)}
+    return {
+        entry.layer_datasets[key]: t
+        for key, t in zip(recorded, titles)
+        if key in entry.layer_datasets
+    }
 
 
 def _apply_visibility(

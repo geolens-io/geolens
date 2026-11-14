@@ -134,14 +134,15 @@ def _dataset_for(
     if sub:
         # An index the run imported no dataset for is another layer's, not
         # the sole dataset's.
-        found = source.layer_datasets.get(sub.group(1))
+        found = source.layer_datasets.get(sub.group(1)) or source.shared.get(
+            sub.group(1)
+        )
         if found is None and sub.group(1) == "0" and JOB_KEY in source.layer_datasets:
             # A single-layer file has one layer, which a web map calls 0.
             return source.layer_datasets[JOB_KEY]
         return found
-    if len(source.dataset_ids) == 1:
-        return source.dataset_ids[0]
-    return None
+    held = list(dict.fromkeys([*source.dataset_ids, *source.shared.values()]))
+    return held[0] if len(held) == 1 else None
 
 
 def _sourced_layers(

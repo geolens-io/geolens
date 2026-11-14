@@ -30,6 +30,7 @@ from .arcgis_migrate_session import (
     operator_or_nobody_wrote_last,
     refuse_credentials,
 )
+from .arcgis_migrate_shared import Reuse, reuse_notes, take_over
 from .arcgis_migrate_state import DONE, EXISTS, ItemState
 
 GROUP_LAYER = "Group Layer"
@@ -309,7 +310,8 @@ def _import_layer(
     visibility: str,
     entry: ItemState,
 ) -> bool:
-    """Import one layer; True when GeoLens already had it.
+    """Import one layer; True when GeoLens already had it from before the
+    migration or from the item that owns the service.
 
     A job a previous run committed for the layer is waited for instead of
     importing the layer again; only a job that ended without a dataset is
@@ -351,11 +353,19 @@ def _import_layer(
         existing = _existing_dataset(exc)
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
-        if existing not in entry.reused:
+        if existing in _owner_datasets(ctx, row["id"]):
+            entry.shared[key] = existing
+            return True
+        donor = _donor(ctx, row["id"], existing)
+        if donor is not None:
+            reuse, held = donor
+            notes = reuse_notes(reuse.item, reuse.owner, [existing])
+            take_over(entry, held, existing, notes, both_recorded=False)
+        elif existing not in entry.reused:
             entry.reused.append(existing)
         _apply_target(ctx, entry, existing, title_visibility)
         entry.layer_datasets[key] = existing
-        return True
+        return donor is None
     # Recorded before the commit is sent: if its answer is lost, a rerun
     # finds this job rather than importing the layer a second time.
     entry.job_ids.append(str(previewed.job_id))
@@ -365,6 +375,40 @@ def _import_layer(
     entry.layer_datasets[key] = _wait_for_dataset(ctx, previewed.job_id, title)
     del entry.layer_jobs[key]
     return False
+
+
+def _owner_datasets(ctx: MigrationContext, item_id: str) -> set[str]:
+    """The datasets held by the item owning the service *item_id* imports."""
+    reuse = ctx.shared_services.get(item_id)
+    entry = ctx.items.get(reuse.owner["id"]) if reuse else None
+    return set(entry.layer_datasets.values()) if entry else set()
+
+
+def _donor(
+    ctx: MigrationContext, item_id: str, dataset: str
+) -> tuple[Reuse, ItemState] | None:
+    """The item over *item_id*'s service, and its state, that holds *dataset*
+    as its own: one that ran before ownership was decided."""
+    for other, reuse in ctx.shared_services.items():
+        entry = ctx.items.get(other)
+        if (
+            reuse.owner["id"] == item_id
+            and entry is not None
+            and dataset in entry.layer_datasets.values()
+        ):
+            return reuse, entry
+    return None
+
+
+def _shared_notes(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> list[str]:
+    reuse = ctx.shared_services.get(item["id"])
+    return reuse_notes(
+        item,
+        reuse.owner if reuse else None,
+        list(dict.fromkeys(entry.shared.values())),
+    )
 
 
 # GeoLens's refusal to narrow a dataset that its owner's shared maps show.
@@ -522,10 +566,14 @@ def _resume_import(
         base, [(rec["label"], rec["layer_id"]) for rec in recorded.values()]
     )
     for (key, _rec), title in zip(recorded.items(), titles):
-        _apply_target(
-            ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
-        )
-    return ItemResult(notes=entry.import_pass["notes"])
+        if key in entry.layer_datasets:
+            _apply_target(
+                ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
+            )
+    return ItemResult(
+        status=DONE if entry.layer_datasets else EXISTS,
+        notes=[*entry.import_pass["notes"], *_shared_notes(ctx, item, entry)],
+    )
 
 
 def import_layers(
@@ -534,10 +582,11 @@ def import_layers(
     """Import the item's feature layers and tables, one dataset each.
 
     Layers a previous run imported are not imported again. A layer GeoLens
-    already holds for the operator (409 ``duplicate_source``) is reused. The
-    item is ``exists`` when GeoLens already held every layer. A rerun of an
-    item whose import stage finished resumes from the recorded datasets
-    without probing the service again.
+    already holds for the operator (409 ``duplicate_source``) is reused; one
+    the item owning the service imported is recorded as shared and never
+    written. The item is ``exists`` when GeoLens already held every layer. A
+    rerun of an item whose import stage finished resumes from the recorded
+    datasets without probing the service again.
     """
     from geolens.api.datasets import probe_service_url_services_probe_post as probe_api
     from geolens.models.probe_request import ProbeRequest
@@ -583,6 +632,7 @@ def import_layers(
         entry.layer_datasets.clear()
         entry.layer_jobs.clear()
         entry.dataset_ids.clear()
+        entry.shared.clear()
     entry.service_url = row["url"]
     entry.left_behind = _redacted(ctx, left_behind)
     entry.attachments = attachment_flags(wanted)
@@ -595,6 +645,9 @@ def import_layers(
 
     found = 0
     for layer, title in zip(wanted, titles):
+        if _layer_key(layer) in entry.shared:
+            found += 1
+            continue
         pinned = entry.layer_datasets.get(_layer_key(layer))
         if pinned:
             # The plan may have been edited since that layer was imported.
@@ -606,6 +659,13 @@ def import_layers(
         )
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
         ctx.save()
+    # Another item's dataset carries that item's follow-ups, not this one's.
+    entry.attachments = {
+        k: v for k, v in entry.attachments.items() if k not in entry.shared
+    }
+    entry.relationships = {
+        k: v for k, v in entry.relationships.items() if k not in entry.shared
+    }
     entry.import_pass = {
         "notes": _redacted(ctx, notes),
         "layers": {
@@ -616,4 +676,7 @@ def import_layers(
             for layer in wanted
         },
     }
-    return ItemResult(status=EXISTS if found == len(wanted) else DONE, notes=notes)
+    return ItemResult(
+        status=EXISTS if found == len(wanted) else DONE,
+        notes=[*notes, *_shared_notes(ctx, item, entry)],
+    )

@@ -151,6 +151,9 @@ class ItemState:
     # Datasets GeoLens already held that the import reused, whose owner's
     # edits from before the migration are taken as they are.
     reused: list[str] = field(default_factory=list)
+    # Service layer -> the dataset another plan item over the same service
+    # imported and writes; this item never writes it.
+    shared: dict[str, str] = field(default_factory=dict)
     # Layer -> its committed ingest job, until the job yields the dataset.
     layer_jobs: dict[str, str] = field(default_factory=dict)
     # The coordinate columns a CSV's pending upload job is committed with.
@@ -257,7 +260,9 @@ class ItemState:
         return bool(
             self.status in FINISHED
             and self.export is not None
-            and not (self.dataset_ids or self.layer_datasets or self.map_id)
+            and not (
+                self.dataset_ids or self.layer_datasets or self.shared or self.map_id
+            )
         )
 
     def unsettled_reason(self) -> str | None:

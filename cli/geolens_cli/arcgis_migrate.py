@@ -79,6 +79,7 @@ from .arcgis_migrate_groups import (
 from .arcgis_migrate_report import build_run_report, write_run_report
 from .arcgis_migrate_files import FILE_TYPES, import_file
 from .arcgis_migrate_layers import _import_recorded, import_layers
+from .arcgis_migrate_shared import reconcile, service_owners
 from .arcgis_migrate_refresh import (
     Refresher,
     changed_in_geolens,
@@ -228,8 +229,17 @@ class MigrateOptions:
     accept: frozenset[str] = frozenset()
 
 
-def order_items(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    """*items* with every item after the plan items it ``depends_on``.
+def _depends(item: Mapping[str, Any], after: Mapping[str, str]) -> list[str]:
+    """The item's ``depends_on``, plus the item owning the service it shares."""
+    owner = after.get(item["id"])
+    return [*item["depends_on"], *([owner] if owner else [])]
+
+
+def order_items(
+    items: list[Mapping[str, Any]], after: Mapping[str, str] | None = None
+) -> list[Mapping[str, Any]]:
+    """*items* with every item after the plan items it ``depends_on``, and
+    after the item owning a service it shares (*after*).
 
     Ties keep plan order. A dependency missing from the plan, or marked
     removed and so never run, doesn't hold an item back. An unlisted item is
@@ -243,7 +253,7 @@ def order_items(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
         if item.get("unlisted")
         else {
             d
-            for d in item["depends_on"]
+            for d in _depends(item, after or {})
             if d in index and d != item["id"] and d not in removed
         }
         for item in items
@@ -271,7 +281,10 @@ def order_items(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
 
 
 def _wanted(
-    by_id: Mapping[str, Mapping[str, Any]], only: list[str], state: MigrationState
+    by_id: Mapping[str, Mapping[str, Any]],
+    only: list[str],
+    state: MigrationState,
+    after: Mapping[str, str],
 ) -> set[str]:
     """The --only items plus every plan item they depend on that still has
     to run: an unfinished one, or a finished one ``_needs_run`` runs again."""
@@ -293,7 +306,7 @@ def _wanted(
         wanted.add(item_id)
         if by_id[item_id].get("removed") or by_id[item_id].get("unlisted"):
             continue
-        for dep in by_id[item_id]["depends_on"]:
+        for dep in _depends(by_id[item_id], after):
             if dep in by_id and (
                 state.status(dep) not in FINISHED
                 or _needs_run(by_id[dep], state.items.get(dep), no_retry=False)
@@ -326,12 +339,17 @@ def _needs_run(
 
 
 def select_items(
-    plan: Mapping[str, Any], state: MigrationState, only: list[str], no_retry: bool
+    plan: Mapping[str, Any],
+    state: MigrationState,
+    only: list[str],
+    no_retry: bool,
+    after: Mapping[str, str] | None = None,
 ) -> list[Mapping[str, Any]]:
-    """The plan items this run executes, in order."""
-    ordered = order_items(plan["items"])
+    """The plan items this run executes, in order; *after* maps an item to
+    the item owning the service it shares, which runs first."""
+    ordered = order_items(plan["items"], after)
     by_id = {item["id"]: item for item in ordered}
-    wanted = _wanted(by_id, only, state) if only else set(by_id)
+    wanted = _wanted(by_id, only, state, after or {}) if only else set(by_id)
     return [
         item
         for item in ordered
@@ -1079,12 +1097,15 @@ class RunSummary:
 
 
 def _unmet(
-    item: Mapping[str, Any], by_id: Mapping[str, Any], state: MigrationState
+    item: Mapping[str, Any],
+    by_id: Mapping[str, Any],
+    state: MigrationState,
+    after: Mapping[str, str],
 ) -> list[str]:
     # A removed dependency never runs, so like a missing one it holds nothing back.
     return [
         dep
-        for dep in item["depends_on"]
+        for dep in _depends(item, after)
         if dep in by_id
         and dep != item["id"]
         and not by_id[dep].get("removed")
@@ -1319,6 +1340,7 @@ def run_items(
     """Run the items to import, then bring the finished *refresh* items up to
     date unless the run stopped."""
     by_id = {item["id"]: item for item in plan["items"]}
+    after = {i: reuse.owner["id"] for i, reuse in ctx.shared_services.items()}
     summary = summary or RunSummary()
     for item in to_run:
         if item["action"] == _plan.SKIP:
@@ -1331,7 +1353,7 @@ def run_items(
         if handler is None:
             summary.unavailable.append(item["id"])
             continue
-        unmet = _unmet(item, by_id, state)
+        unmet = _unmet(item, by_id, state, after)
         if unmet:
             summary.waiting.append({"item": item["id"], "waiting_on": unmet})
             continue
@@ -2032,10 +2054,14 @@ def _run(
         )
         to_run = select_items(plan, state, opts.only, opts.no_retry)
         refresh = select_refresh(plan, state, opts.only)
-        touched = [*to_run, *refresh]
         rows, portal_info, inventory_groups = _inventory_rows(
-            plan, opts.plan_path, touched
+            plan, opts.plan_path, [*to_run, *refresh]
         )
+        shared = service_owners(plan["items"], rows)
+        if shared:
+            after = {i: reuse.owner["id"] for i, reuse in shared.items()}
+            to_run = select_items(plan, state, opts.only, opts.no_retry, after)
+        touched = [*to_run, *refresh]
         # A dry run makes only the sign-in the run starts with.
         portal = (
             None
@@ -2200,6 +2226,7 @@ def _run(
         web_origin=_web_origin(instance),
         basemap_map={u: b for u, b in plan.get("basemap_map", {}).items() if b},
         aliases={i["id"]: i["alias_of"] for i in plan["items"] if i.get("alias_of")},
+        shared_services=shared,
         importable=frozenset(
             i["id"]
             for i in plan["items"]
@@ -2217,6 +2244,10 @@ def _run(
     stopped: str | None = "stopped by an unexpected error"
     try:
         summary = RunSummary()
+        # Before any write, so an item that took another's dataset in an
+        # earlier run hands it back before a handover or refresh touches it.
+        if reconcile(state.items, shared):
+            state.save()
         hand_over(ctx, state, owners, summary, opts.only)
         run_items(
             ctx, plan, state, to_run, owners.by_item, refresh, owners.pending, summary

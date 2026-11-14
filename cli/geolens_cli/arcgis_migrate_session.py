@@ -250,6 +250,9 @@ class MigrationContext:
     # A skipped hosted view's item id -> the parent item whose datasets stand
     # in for it, from the plan's alias_of.
     aliases: dict[str, str] = field(default_factory=dict)
+    # A plan item over a service another plan item owns -> the two items
+    # (arcgis_migrate_shared.Reuse); only the owner writes what they share.
+    shared_services: dict[str, Any] = field(default_factory=dict)
     portal_root: str = ""
     redact: Callable[[str], str] = str
     # The GeoLens operator's user id, whose writes a rerun recognises as its own.
