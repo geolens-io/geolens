@@ -1380,7 +1380,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1201,
     # Central settings and boot-validation debt, including the service-credential
     # http allowlist; split by configuration domain before raising further.
-    "backend/app/core/config.py": 1511,
+    "backend/app/core/config.py": 1515,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, model defaults that follow the selected LLM provider, and SQL
     # reads of a committed flag.
@@ -1434,9 +1434,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/router.py": 1766,
     # Native search and OGC Records share visibility, query parsing and pagination;
     # the collections routes also answer under the desktop entry's gate.
-    "backend/app/modules/catalog/search/router.py": 1451,
+    "backend/app/modules/catalog/search/router.py": 1459,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1936,
+    "backend/app/standards/stac/router.py": 1939,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 2954,

@@ -20,6 +20,7 @@ from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.core.tile_scope import tile_template_query, vector_tile_template
 from app.modules.auth.dependencies import (
+    bound_anonymous_reads,
     get_optional_user,
     request_carries_credentials,
 )
@@ -213,7 +214,8 @@ ogc_router = APIRouter(
 # Must be registered AFTER collections_router in main.py to avoid
 # /collections/{dataset_id} catching literal paths like /collections/datasets.
 ogc_features_router = APIRouter(
-    tags=["OGC Features"], dependencies=[Depends(desktop_entry_gate)]
+    tags=["OGC Features"],
+    dependencies=[Depends(desktop_entry_gate), Depends(bound_anonymous_reads)],
 )
 
 

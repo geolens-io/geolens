@@ -21,7 +21,7 @@ from app.core.record_types import (
 )
 from app.platform.assets.keys import is_public_asset_key
 from app.platform.extensions import get_catalog_port
-from app.modules.auth.dependencies import get_optional_user
+from app.modules.auth.dependencies import bound_anonymous_reads, get_optional_user
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
     check_dataset_access_or_anonymous,
@@ -417,6 +417,8 @@ async def _handle_search(
 
 
 search_router = APIRouter(prefix="/search", tags=["Search"])
+# Not router-wide: the saved-search routes included below write.
+_ANONYMOUS_READ = [Depends(bound_anonymous_reads)]
 
 
 _SUPPORTED_FILTER_LANGS = ("cql2-text", "cql2-json")
@@ -490,9 +492,13 @@ def _finalize_semantic_search_claim(request: Request) -> None:
     response_model=FacetCountResponse,
     include_in_schema=False,
     summary="Get search facet counts",
+    dependencies=_ANONYMOUS_READ,
 )
 @search_router.get(
-    "/facets/", response_model=FacetCountResponse, summary="Get search facet counts"
+    "/facets/",
+    response_model=FacetCountResponse,
+    summary="Get search facet counts",
+    dependencies=_ANONYMOUS_READ,
 )
 # Facets embed the query, so both routes draw on one semantic-search bucket. No
 # override_defaults: this limit_value is callable, so the global rate-limit
@@ -586,12 +592,14 @@ async def search_facets_endpoint(
     response_model=OGCFeatureCollectionResponse,
     include_in_schema=False,
     summary="Search datasets",
+    dependencies=_ANONYMOUS_READ,
 )
 @search_router.get(
     "/datasets/",
     response_model=OGCFeatureCollectionResponse,
     responses={400: BAD_REQUEST_RESPONSE},
     summary="Search datasets",
+    dependencies=_ANONYMOUS_READ,
 )
 # The facets route's callable-limit note above applies here too: this route
 # can be the second of the pair.
@@ -621,7 +629,7 @@ async def search_datasets_endpoint(
 
 collections_router = APIRouter(
     prefix="/collections",
-    dependencies=[Depends(desktop_entry_gate)],
+    dependencies=[Depends(desktop_entry_gate), Depends(bound_anonymous_reads)],
     tags=["OGC Features"],
     responses=ERROR_RESPONSES_PUBLIC,
 )

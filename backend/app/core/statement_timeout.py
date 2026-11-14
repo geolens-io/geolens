@@ -24,8 +24,13 @@ value here would kill that working transaction along with an abandoned one.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import structlog
 from sqlalchemy import event, text
+
+if TYPE_CHECKING:
+    from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger(__name__)
 
@@ -37,6 +42,23 @@ def statement_timeout_ms() -> int:
     from app.core.config import settings
 
     return max(0, int(settings.db_statement_timeout_seconds)) * 1000
+
+
+def anonymous_read_timeout_ms() -> int:
+    """The anonymous read deadline in milliseconds, capped at the API-wide one;
+    0 means none shorter applies."""
+    from app.core.config import settings
+
+    anonymous_ms = max(0, int(settings.db_anonymous_read_timeout_seconds)) * 1000
+    api_ms = statement_timeout_ms()
+    return min(anonymous_ms, api_ms) if anonymous_ms and api_ms else anonymous_ms
+
+
+async def apply_anonymous_read_timeout(db: AsyncSession) -> None:
+    """Hold the rest of *db*'s current transaction to the anonymous read deadline."""
+    timeout_ms = int(anonymous_read_timeout_ms())
+    if timeout_ms > 0:
+        await db.execute(text(f"SET LOCAL statement_timeout = {timeout_ms}"))
 
 
 def install_api_statement_timeout(engine) -> None:

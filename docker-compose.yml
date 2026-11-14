@@ -47,6 +47,7 @@ x-db-ssl-env: &db-ssl-env
   DB_POOL_RECYCLE: "${DB_POOL_RECYCLE:-1800}"
   # Every backend process loads it through app.core.config; only get_db applies it.
   DB_STATEMENT_TIMEOUT_SECONDS: "${DB_STATEMENT_TIMEOUT_SECONDS:-300}"
+  DB_ANONYMOUS_READ_TIMEOUT_SECONDS: "${DB_ANONYMOUS_READ_TIMEOUT_SECONDS:-30}"
 
 x-storage-env: &storage-env
   STORAGE_PROVIDER: "${STORAGE_PROVIDER:-local}"

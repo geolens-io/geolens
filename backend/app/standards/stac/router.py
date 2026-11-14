@@ -30,6 +30,7 @@ from app.core.config import settings
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.modules.auth.dependencies import (
+    bound_anonymous_reads,
     get_optional_user,
     get_optional_user_no_security_schema,
 )
@@ -91,7 +92,9 @@ from app.standards.stac.serializer import (
 )
 from app.platform.storage import get_storage
 
-stac_router = APIRouter(prefix="/stac", tags=["STAC"])
+stac_router = APIRouter(
+    prefix="/stac", tags=["STAC"], dependencies=[Depends(bound_anonymous_reads)]
+)
 
 
 class GeoJSONResponse(JSONResponse):

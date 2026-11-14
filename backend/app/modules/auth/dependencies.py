@@ -20,6 +20,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.identity import Identity
+from app.core.statement_timeout import apply_anonymous_read_timeout
 from app.modules.auth.models import ApiKey, User
 from app.modules.auth.permissions import get_user_roles
 from app.platform.extensions import get_identity_extension, get_permission_extension
@@ -689,6 +690,16 @@ async def _resolve_optional_identity(
     return user
 
 
+_ANONYMOUS_READ_DEADLINE = "anonymous_read_deadline"
+
+
+async def bound_anonymous_reads(request: Request) -> None:
+    """Router dependency: a caller ``get_optional_user`` resolves to no one reads
+    under the shorter anonymous statement deadline for the rest of the request's
+    transaction. Embed and share links read anonymously."""
+    setattr(request.state, _ANONYMOUS_READ_DEADLINE, True)
+
+
 async def get_optional_user(
     request: Request,
     token: Annotated[str | None, Depends(oauth2_scheme_optional)],
@@ -708,6 +719,8 @@ async def get_optional_user(
     """
     user = await _resolve_optional_identity(request, token, db)
     reject_unresolvable_credentials(request, user)
+    if user is None and getattr(request.state, _ANONYMOUS_READ_DEADLINE, False):
+        await apply_anonymous_read_timeout(db)
     return user
 
 

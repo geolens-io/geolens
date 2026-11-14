@@ -81,6 +81,8 @@ and releases use semantic versioning.
 ### Security
 - An admin transfer of a map to another owner revokes the map's embed tokens, which served with the previous owner's rights, so they stop being accepted at once; the new owner mints a fresh one, and the `map.transfer_owner` audit entry counts the tokens revoked. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.
 - While public visibility is restricted to admins, an embed token a non-admin minted on a private or internal map stops being accepted at once for tiles, features and the shared-map view, and is accepted again if the setting is turned off. Tile URLs already signed through such a token keep working until they expire, at most 16 minutes.
+- OGC API, STAC and catalog search reads by a caller with no API key or sign-in, embed and share links included, now stop after 30 seconds of database time (`DB_ANONYMOUS_READ_TIMEOUT_SECONDS`, never more than `DB_STATEMENT_TIMEOUT_SECONDS`) and answer `503`, which a client can retry; signed-in callers and API keys keep the 300-second limit.
+- The web server now caches, for 5 seconds, the story frame policy it asks the API for on every app page, so a burst of page loads makes one API request. A host removed from the approved story frame hosts can still be framed by pages loaded up to 5 seconds after the change.
 
 ## [1.31.0] - 2026-11-10
 
