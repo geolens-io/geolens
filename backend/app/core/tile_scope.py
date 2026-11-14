@@ -8,6 +8,7 @@ without a port, which no overlay can replace on one side only.
 
 from __future__ import annotations
 
+import uuid
 from urllib.parse import urlencode
 
 from app.core.tenancy import tenant_bound_scope
@@ -27,6 +28,32 @@ def tile_signature_scope(resource: str, publication_version: int | None) -> str:
     ordinary edit. A NULL counter reads as 0 on both sides.
     """
     return tenant_bound_scope(f"{resource}:p{int(publication_version or 0)}")
+
+
+def bind_scope_to_embed_token(scope: str, token_id: uuid.UUID) -> str:
+    """Return ``scope`` naming the embed token a template is minted through.
+
+    The signature covers the scope, so the id can be neither removed nor
+    swapped, and the verifier holds the template to that token's liveness.
+    """
+    return f"{scope}:e{token_id.hex}"
+
+
+def split_embed_binding(scope: str) -> tuple[str, uuid.UUID | None]:
+    """Split a signed scope into the unbound scope and the embed token it names.
+
+    An unbound scope ends in the ``:p<N>`` segment of
+    :func:`tile_signature_scope`, so a final ``:e<hex>`` segment is unambiguous.
+    """
+    base, _, last = scope.rpartition(":")
+    if base and last.startswith("e") and len(last) == 33:
+        try:
+            token_id = uuid.UUID(hex=last[1:])
+        except ValueError:
+            return scope, None
+        if token_id.hex == last[1:]:
+            return base, token_id
+    return scope, None
 
 
 TILE_PUBLICATION_VERSION_PARAM = "pv"

@@ -19,6 +19,7 @@ from app.core.public_urls import (
 )
 from app.core.tenancy import is_multi_tenant
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
+from app.platform.cache.memory import InMemoryCacheProvider
 from app.platform.cache.provider import get_cache
 from app.platform.cache.revocation import (
     UNKNOWN_GENERATION,
@@ -60,6 +61,15 @@ EMBED_TOKEN_REVOCATION_DENIAL_TTL_SECONDS = 300
 # change, so it trusts a cached entry until this TTL expires. Lower = shorter
 # exposure, more DB reads; see platform/cache/revocation.py.
 EMBED_TOKEN_POSITIVE_TTL_SECONDS = 300
+
+# How long a tile template signed through an embed token keeps working after
+# the token stops being accepted.
+EMBED_TOKEN_LIVENESS_TTL_SECONDS = 60
+
+# Answers liveness while the shared cache is unreachable, which would otherwise
+# put a database read on every tile. Revocations never reach it; the TTL above
+# is what bounds a stale answer, in this store and the shared one alike.
+_liveness_fallback = InMemoryCacheProvider(max_entries=4096)
 
 
 def _embed_token_cache_key(token_hash: str) -> str:
@@ -612,6 +622,11 @@ async def update_embed_token(
     return token
 
 
+def _accepting(now: datetime) -> tuple:
+    """The row conditions under which a token is accepted at ``now``."""
+    return (EmbedToken.is_active.is_(True), EmbedToken.expires_at > now)
+
+
 async def resolve_embed_scope_for_map(
     db: AsyncSession,
     raw_token: str,
@@ -638,8 +653,7 @@ async def resolve_embed_scope_for_map(
         select(EmbedToken).where(
             EmbedToken.token_hash == token_hash,
             EmbedToken.map_id == map_id,
-            EmbedToken.is_active.is_(True),
-            EmbedToken.expires_at > datetime.now(timezone.utc),
+            *_accepting(datetime.now(timezone.utc)),
         )
     )
     token = result.scalar_one_or_none()
@@ -662,13 +676,56 @@ async def resolve_embed_scope_for_map(
     return await datasets_account_can_read(db, scoped, token.created_by)
 
 
-async def validate_embed_token_access(
+def _optional_uuid(raw: object) -> uuid.UUID | None:
+    return uuid.UUID(str(raw)) if raw else None
+
+
+async def _grant_admits_dataset(
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    *,
+    map_id: uuid.UUID | None,
+    minter_id: uuid.UUID | None,
+    tenant_id: uuid.UUID | str | None,
+    scoped_dataset_ids: list,
+) -> bool:
+    """Whether an accepted token's grant still covers ``dataset_id``.
+
+    ``scoped_dataset_ids`` is a mint-time snapshot, so the map's audience, the
+    public-visibility setting and the minter's own access are re-read live.
+    """
+    if str(dataset_id) not in scoped_dataset_ids:
+        return False
+
+    # Fail-closed tenant-equality check, inert in single_tenant.
+    if is_multi_tenant():
+        # The dataset's tenant from a fresh query (no re-mint, no cache).
+        dataset = await get_processing_port().get_dataset(db, dataset_id)
+        dataset_tenant = getattr(dataset, "tenant_id", None) if dataset else None
+
+        # Explicit NULL guard. `None != None` is False, so without this a
+        # legacy NULL-tenant token would pass the equality check against any
+        # NULL-tenant dataset.
+        token_tenant = _optional_uuid(tenant_id)
+        if token_tenant is None or dataset_tenant is None:
+            return False
+        if token_tenant != dataset_tenant:
+            return False
+
+    if map_id is None:
+        return False
+    if not await map_embeds_dataset(db, map_id, dataset_id, minter_id=minter_id):
+        return False
+    return dataset_id in await datasets_account_can_read(db, [dataset_id], minter_id)
+
+
+async def accepted_embed_token_id(
     raw_token: str,
     dataset_id: uuid.UUID,
     db: AsyncSession,
     request: Request | None = None,
-) -> bool:
-    """Validate an embed token grants access to a specific dataset.
+) -> uuid.UUID | None:
+    """The id of the embed token if it grants access to ``dataset_id``, else None.
 
     Uses cache with 5-min TTL, falling back to DB lookup.
     Checks allowed_origins when domain-locking is enabled.
@@ -677,7 +734,7 @@ async def validate_embed_token_access(
     # Hosted validation needs a verified tenant context; deny generically
     # rather than let cache-key construction raise and become an error oracle.
     if is_multi_tenant() and not tenant_cache_context_available():
-        return False
+        return None
 
     token_hash = hashlib.sha256(raw_token.encode()).hexdigest()
     cache_key = _embed_token_cache_key(token_hash)
@@ -700,7 +757,7 @@ async def validate_embed_token_access(
     # private data, so it may only come from the store every worker shares.
     cached = await cache.get(cache_key, security=True)
     if cached is not None and not cached.get("is_valid", False):
-        return False
+        return None
 
     # An entry stamped with an older generation than the DB's current one is
     # not evidence about the token now: this is what makes a revoke performed
@@ -718,17 +775,21 @@ async def validate_embed_token_access(
     if cached is not None:
         # Re-check expiry on every cache hit so a token can't stay valid past
         # its real expires_at for up to the positive-TTL window. An entry
-        # without expires_at or the minter is treated as a miss.
+        # without expires_at, the minter or the token id is treated as a miss.
         now = datetime.now(timezone.utc)
         cached_expires_at_str = cached.get("expires_at")
-        if cached_expires_at_str is None or "created_by" not in cached:
+        if (
+            cached_expires_at_str is None
+            or "created_by" not in cached
+            or not cached.get("token_id")
+        ):
             await cache.delete(cache_key)
             cached = None
         else:
             cached_expires_at = datetime.fromisoformat(cached_expires_at_str)
             if now >= cached_expires_at:
                 await cache.delete(cache_key)
-                return False
+                return None
             allowed_origins = cached.get("allowed_origins")
             scoped_dataset_ids = cached.get("scoped_dataset_ids", [])
 
@@ -736,9 +797,7 @@ async def validate_embed_token_access(
         now = datetime.now(timezone.utc)
         result = await db.execute(
             select(EmbedToken).where(
-                EmbedToken.token_hash == token_hash,
-                EmbedToken.is_active.is_(True),
-                EmbedToken.expires_at > now,
+                EmbedToken.token_hash == token_hash, *_accepting(now)
             )
         )
         token = result.scalar_one_or_none()
@@ -747,7 +806,7 @@ async def validate_embed_token_access(
             # security=True keeps the negative out of the process-local
             # fallback too, for symmetry with the positive path.
             await cache.set(cache_key, {"is_valid": False}, ttl=300, security=True)
-            return False
+            return None
 
         allowed_origins = token.allowed_origins
         scoped_dataset_ids = token.scoped_dataset_ids
@@ -771,6 +830,7 @@ async def validate_embed_token_access(
                 cache_key,
                 {
                     "is_valid": True,
+                    "token_id": str(token.id),
                     "scoped_dataset_ids": scoped_dataset_ids,
                     "allowed_origins": allowed_origins,
                     "map_id": str(token.map_id),
@@ -787,48 +847,30 @@ async def validate_embed_token_access(
     # Domain-locking check, before dataset scope. Shares ONE reader with
     # resolve_embed_scope_for_map so the two cannot drift.
     if not await _request_origin_is_allowed(db, request, allowed_origins):
-        return False
+        return None
 
-    if str(dataset_id) not in scoped_dataset_ids:
-        return False
-
-    # Fail-closed tenant-equality check, inert in single_tenant.
-    if is_multi_tenant():
-        if token is not None:
-            token_tenant = token.tenant_id
-        else:
-            raw_tid = cached.get("tenant_id") if cached else None  # type: ignore[union-attr]
-            token_tenant = uuid.UUID(raw_tid) if raw_tid else None
-
-        # The dataset's tenant from a fresh query (no re-mint, no cache).
-        dataset = await get_processing_port().get_dataset(db, dataset_id)
-        dataset_tenant = getattr(dataset, "tenant_id", None) if dataset else None
-
-        # Explicit NULL guard. `None != None` is False, so without this a
-        # legacy NULL-tenant token would pass the equality check against any
-        # NULL-tenant dataset.
-        if token_tenant is None or dataset_tenant is None:
-            return False
-        if token_tenant != dataset_tenant:
-            return False
-
-    # Re-checked live on both cache paths: scoped_dataset_ids is a mint-time
-    # snapshot, and the map's audience or the public-visibility setting may
-    # have changed since (see _map_admits_embed_token).
     if token is not None:
-        live_map_id: uuid.UUID | None = token.map_id
-        minter_id = token.created_by
+        token_id: uuid.UUID = token.id
+        admits = await _grant_admits_dataset(
+            db,
+            dataset_id,
+            map_id=token.map_id,
+            minter_id=token.created_by,
+            tenant_id=token.tenant_id,
+            scoped_dataset_ids=scoped_dataset_ids,
+        )
     else:
-        raw_map_id = cached.get("map_id") if cached else None  # type: ignore[union-attr]
-        live_map_id = uuid.UUID(raw_map_id) if raw_map_id else None
-        raw_minter = cached.get("created_by") if cached else None  # type: ignore[union-attr]
-        minter_id = uuid.UUID(raw_minter) if raw_minter else None
-    if live_map_id is None:
-        return False
-    if not await map_embeds_dataset(db, live_map_id, dataset_id, minter_id=minter_id):
-        return False
-    if dataset_id not in await datasets_account_can_read(db, [dataset_id], minter_id):
-        return False
+        token_id = uuid.UUID(cached["token_id"])  # type: ignore[index]
+        admits = await _grant_admits_dataset(
+            db,
+            dataset_id,
+            map_id=_optional_uuid(cached.get("map_id")),  # type: ignore[union-attr]
+            minter_id=_optional_uuid(cached.get("created_by")),  # type: ignore[union-attr]
+            tenant_id=cached.get("tenant_id"),  # type: ignore[union-attr]
+            scoped_dataset_ids=scoped_dataset_ids,
+        )
+    if not admits:
+        return None
 
     if token is not None:
         # Separate session: this authorization helper must not commit the
@@ -845,7 +887,64 @@ async def validate_embed_token_access(
         _usage_bump_tasks.add(task)
         task.add_done_callback(_usage_bump_tasks.discard)
 
-    return True
+    return token_id
+
+
+async def validate_embed_token_access(
+    raw_token: str,
+    dataset_id: uuid.UUID,
+    db: AsyncSession,
+    request: Request | None = None,
+) -> bool:
+    """Validate an embed token grants access to a specific dataset.
+
+    See :func:`accepted_embed_token_id`, which decides it.
+    """
+    return await accepted_embed_token_id(raw_token, dataset_id, db, request) is not None
+
+
+async def embed_token_still_admits(
+    db: AsyncSession, token_id: uuid.UUID, dataset_id: uuid.UUID
+) -> bool:
+    """Whether the embed token ``token_id`` is still accepted for ``dataset_id``.
+
+    For a tile template signed through the token: the rule of
+    :func:`accepted_embed_token_id` minus the request origin, which was checked
+    when the template was minted. The answer is cached for at most
+    ``EMBED_TOKEN_LIVENESS_TTL_SECONDS``, so a revoked, expired or no longer
+    admitted token stops authorizing its templates within that bound.
+    """
+    if is_multi_tenant() and not tenant_cache_context_available():
+        return False
+    cache = get_cache()
+    cache_key = tenant_cache_key(f"embed_token_liveness:{token_id}:{dataset_id}")
+    cached = await cache.get(cache_key, security=True)
+    if cached is None:
+        cached = await _liveness_fallback.get(cache_key)
+    if isinstance(cached, dict) and isinstance(cached.get("admits"), bool):
+        return cached["admits"]
+
+    now = datetime.now(timezone.utc)
+    token = (
+        await db.execute(
+            select(EmbedToken).where(EmbedToken.id == token_id, *_accepting(now))
+        )
+    ).scalar_one_or_none()
+    admits = token is not None and await _grant_admits_dataset(
+        db,
+        dataset_id,
+        map_id=token.map_id,
+        minter_id=token.created_by,
+        tenant_id=token.tenant_id,
+        scoped_dataset_ids=token.scoped_dataset_ids or [],
+    )
+    ttl = EMBED_TOKEN_LIVENESS_TTL_SECONDS
+    if token is not None and admits:
+        ttl = min(ttl, int((token.expires_at - now).total_seconds()))
+    if ttl > 0:
+        await cache.set(cache_key, {"admits": admits}, ttl=ttl, security=True)
+        await _liveness_fallback.set(cache_key, {"admits": admits}, ttl=ttl)
+    return admits
 
 
 async def embed_token_map_shows_attribute_table(
@@ -862,8 +961,7 @@ async def embed_token_map_shows_attribute_table(
         await db.execute(
             select(EmbedToken.map_id).where(
                 EmbedToken.token_hash == token_hash,
-                EmbedToken.is_active.is_(True),
-                EmbedToken.expires_at > datetime.now(timezone.utc),
+                *_accepting(datetime.now(timezone.utc)),
             )
         )
     ).scalar_one_or_none()

@@ -191,6 +191,7 @@ async def _validate(request, allowed_origins: list[str] | None, monkeypatch) -> 
     cache.get = AsyncMock(
         return_value={
             "is_valid": True,
+            "token_id": "00000000-0000-0000-0000-0000000000e1",
             "scoped_dataset_ids": [str(DATASET_ID)],
             "allowed_origins": allowed_origins,
             "map_id": str(MAP_ID),

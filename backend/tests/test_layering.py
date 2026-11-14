@@ -1439,7 +1439,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/stac/router.py": 1942,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2954,
+    "backend/app/processing/tiles/router.py": 2998,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1766,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
@@ -1453,9 +1453,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 620,
-    # Embed tokens share origin/scope checks, revocation, cached-denial behavior
-    # and the token map's reader settings and audience.
-    "backend/app/modules/embed_tokens/service.py": 1008,
+    # Embed tokens share origin/scope checks, revocation, cached-denial behavior,
+    # the token map's reader settings and audience, and signed-template liveness.
+    "backend/app/modules/embed_tokens/service.py": 1106,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, batch
     # inserts reuse the single-insert validation, batch deletes the prior-envelope

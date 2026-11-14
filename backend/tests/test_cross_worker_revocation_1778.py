@@ -463,6 +463,7 @@ class TestTheValidatorRefusesAStaleGeneration:
     def _positive(self, generation: int) -> dict:
         return {
             "is_valid": True,
+            "token_id": "00000000-0000-0000-0000-0000000000e1",
             "scoped_dataset_ids": [str(DATASET_ID)],
             "allowed_origins": None,
             "map_id": str(uuid.uuid4()),

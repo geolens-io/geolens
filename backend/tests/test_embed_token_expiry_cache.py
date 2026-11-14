@@ -120,6 +120,7 @@ class TestEmbedTokenExpiryCacheHit:
         # does — note: no expires_at is stored here, which is the bug.
         cache._store[cache_key] = {
             "is_valid": True,
+            "token_id": "00000000-0000-0000-0000-0000000000e1",
             "scoped_dataset_ids": [str(dataset_id)],
             "allowed_origins": None,
             "map_id": str(uuid.uuid4()),
@@ -169,6 +170,7 @@ class TestEmbedTokenExpiryCacheHit:
         cache_key = _token_cache_key(raw_token)
         cache._store[cache_key] = {
             "is_valid": True,
+            "token_id": "00000000-0000-0000-0000-0000000000e1",
             "scoped_dataset_ids": [str(dataset_id)],
             "allowed_origins": None,
             "map_id": str(uuid.uuid4()),
@@ -216,6 +218,7 @@ class TestEmbedTokenExpiryCacheHit:
         # Prime cache WITH expires_at (the fixed code stores it this way)
         cache._store[cache_key] = {
             "is_valid": True,
+            "token_id": "00000000-0000-0000-0000-0000000000e1",
             "scoped_dataset_ids": [str(dataset_id)],
             "allowed_origins": None,
             "map_id": str(uuid.uuid4()),
