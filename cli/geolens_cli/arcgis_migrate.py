@@ -31,6 +31,7 @@ import typer
 
 from . import arcgis_oauth
 from . import arcgis_plan as _plan
+from .arcgis_inventory import ADDED_BY_URL
 from . import output as _output
 from ._sdk_helpers import (
     EXIT_AUTH,
@@ -327,6 +328,35 @@ def _needs_run(
     if status == FAILED and no_retry:
         return False
     return not (status == SKIPPED and item["action"] == _plan.SKIP)
+
+
+def keep_recorded_imports(
+    plan: Mapping[str, Any], state: MigrationState
+) -> dict[str, Any]:
+    """*plan* with each item it exports by default only because the portal
+    shows it was added by URL kept as ``import_file`` while the state records
+    an earlier run's import of it: a pending upload or job, a fan-out, or
+    datasets. That import is finished or refreshed rather than stranded, and
+    the item is marked ``kept_import`` for its follow-up."""
+    items = []
+    for item in plan["items"]:
+        entry = state.items.get(item["id"])
+        default = (item.get("defaults") or {}).get("action", item["action"])
+        if (
+            entry is not None
+            and item["action"] == _plan.EXPORT_ONLY == default
+            and item["reason"].split(";", 1)[0] == ADDED_BY_URL
+            and (
+                entry.pending_upload
+                or entry.layer_jobs
+                or entry.fan_out
+                or entry.layer_datasets
+                or entry.dataset_ids
+            )
+        ):
+            item = {**item, "action": _plan.IMPORT_FILE, "kept_import": True}
+        items.append(item)
+    return {**plan, "items": items}
 
 
 def select_items(
@@ -2021,6 +2051,7 @@ def _run(
             redact,
             persist=not opts.dry_run,
         )
+        plan = keep_recorded_imports(plan, state)
         to_run = select_items(plan, state, opts.only, opts.no_retry)
         refresh = select_refresh(plan, state, opts.only)
         touched = [*to_run, *refresh]

@@ -1775,3 +1775,97 @@ def test_an_import_left_part_way_resumes_after_the_inventory_shows_a_url(
     entry = _state(plan_file)["items"][D3]
     assert entry["status"] == "done" and entry["export"] is None
     assert entry["dataset_ids"]
+
+
+def _replan_as_added_by_url(runner, plan_file: Path, portal: FakePortal) -> None:
+    """The portal now shows D3 was added by URL: a fresh inventory, merged into
+    the plan with ``geolens arcgis plan`` as an operator would."""
+    from geolens_cli.main import app
+
+    inventory = plan_file.parent / "arcgis-inventory.json"
+    report = json.loads(inventory.read_text())
+    for row in report["items"]:
+        if row["id"] == D3:
+            row.update(BY_URL, reason="added_by_url_no_file")
+    inventory.write_text(json.dumps(report))
+    result = runner.invoke(app, ["arcgis", "plan", str(inventory)])
+    assert result.exit_code == 0, result.output
+    [item] = [i for i in json.loads(plan_file.read_text())["items"] if i["id"] == D3]
+    assert item["action"] == "export_only"
+    _by_url(portal)
+
+
+def _follow_ups(plan_file: Path, kind: str) -> list[str]:
+    report = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    return [f["item"] for f in report["follow_ups"] if f["kind"] == kind]
+
+
+@pytest.mark.parametrize(
+    ("kind", "uploads"),
+    [
+        ("pending_upload", 1),
+        ("committed_job", 1),
+        ("fan_out", 1),
+        ("pinned_dataset", 0),
+    ],
+)
+def test_a_replanned_export_still_finishes_an_import_an_earlier_run_left(
+    runner, tmp_path, geolens, portal, kind, uploads
+):
+    files = FakeFiles(
+        geolens, layer_names=["Roads", "Parcels"] if kind == "fan_out" else None
+    )
+    plan_file = _plan(tmp_path)
+    _interrupt(kind, files, plan_file, runner)
+    _replan_as_added_by_url(runner, plan_file, portal)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert len(files.uploads) == uploads
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "done" and entry["export"] is None
+    assert entry["dataset_ids"]
+    assert entry["pending_upload"] is None and not entry["layer_jobs"]
+    assert _follow_ups(plan_file, "import_kept") == [D3]
+
+
+def test_a_replanned_export_of_a_finished_import_still_checks_its_file(
+    runner, tmp_path, geolens, portal
+):
+    FakeFiles(geolens)
+    plan_file = _plan(tmp_path)
+    assert _migrate(runner, plan_file, "--only", D3)[0].exit_code == 0
+    datasets = _state(plan_file)["items"][D3]["dataset_ids"]
+    _replan_as_added_by_url(runner, plan_file, portal)
+
+    result, payload = _migrate(runner, plan_file, "--only", D3)
+
+    assert payload["refreshed"] == [D3], result.output
+    [reason] = payload["not_up_to_date"][D3]
+    assert reason.startswith("not replaced: the portal says the item has no file now")
+    entry = _state(plan_file)["items"][D3]
+    assert entry["dataset_ids"] == datasets and entry["export"] is None
+
+
+def test_cutover_refuses_while_a_replanned_items_import_is_unfinished(
+    runner, tmp_path, geolens, portal
+):
+    files = FakeFiles(geolens)
+    plan_file = _plan(tmp_path)
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != D3:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    _interrupt("pending_upload", files, plan_file, runner)
+    _replan_as_added_by_url(runner, plan_file, portal)
+    files.preview = lambda job: (502, _problem(502, "gateway lost the answer"))
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+    [check] = payload["cutover"]["checks"]
+    assert [found["item"] for found in check["items"]] == [D3]
+    assert _state(plan_file)["items"][D3]["pending_upload"]

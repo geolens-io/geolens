@@ -111,6 +111,15 @@ def _follow_ups(
         if status == FAILED and entry is not None:
             kind = "quota" if "refused the upload" in (entry.error or "") else "failed"
             add(item["id"], kind, entry.error or "failed")
+        if item.get("kept_import"):
+            add(
+                item["id"],
+                "import_kept",
+                "the plan exports it because the portal shows it was added by "
+                "URL, but an earlier run's import of it is recorded, so it stays "
+                "an import_file item: reruns finish that import and keep its "
+                "datasets up to date",
+            )
         for note in notes:
             if any(marker in note for marker in _SKIPPED_LAYER):
                 add(item["id"], "skipped_layer", note)
