@@ -1042,7 +1042,8 @@ def test_reseed_keeps_a_retired_name_on_another_dataset(built):
     assert set(cam._RETIRED_TREE_LAYERS) <= _names(api, map_id)
 
 
-def test_reseed_keeps_a_layer_a_saved_widget_still_reads(built):
+def test_reseed_keeps_a_retired_layer_a_shown_widget_reads(built):
+    """A readable widget someone added on a retired layer keeps that layer."""
     api, h = built
     map_id = cam.seed_tree_dashboard(h, api)
     _legacy(api, map_id)
@@ -1051,7 +1052,7 @@ def test_reseed_keeps_a_layer_a_saved_widget_still_reads(built):
         for x in api.maps[map_id]["layers"]
         if x["display_name"] == "Trees planted since 2008"
     )
-    future = {"type": "future_widget", "layer_id": kept["id"]}
+    future = {"type": "table", "v": 1, "layer_id": kept["id"]}
     real = api.set_view
 
     def preserving(map_id, **fields):

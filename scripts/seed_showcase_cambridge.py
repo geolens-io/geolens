@@ -9,7 +9,8 @@ data": no title or description says the city uses or endorses GeoLens.
 The builders take the seeder module (or any object that carries the names in
 ``SEEDER_HELPERS``) as their first argument, so this file imports nothing from
 ``seed-showcase.py``. Every builder finds its content by title or name and
-updates it in place on a rerun. None deletes anything, and ``force`` is ignored
+updates it in place on a rerun. None deletes anything except the tree
+dashboard's retired hidden layers, and ``force`` is ignored
 for that reason: ``--force`` does not rebuild the parcels upload, the derived
 parcel datasets or the imported map. Delete them first to rebuild.
 """
@@ -1144,7 +1145,11 @@ _RETIRED_TREE_LAYERS = (
 
 
 def _drop_retired_tree_layers(api, map_id: str, trees_ds: str) -> None:
-    """Delete a retired hidden layer of the trees dataset that no saved widget reads."""
+    """Delete a retired hidden layer of the trees dataset that no shown widget reads.
+
+    The read-back omits widgets the server only preserves (unknown type, newer
+    version), so such a widget on a retired layer loses its layer.
+    """
     stored = api.get_map(map_id)
     used = {
         w.get("layer_id")
