@@ -29,6 +29,7 @@ import typer
 from . import arcgis_report as _report
 from ._sdk_helpers import EXIT_NETWORK, long_request_timeout
 from .arcgis_migrate_export import _modified, _safe_relative, _stop_if_token_refused
+from .arcgis_item_metadata import html_to_text
 from .arcgis_migrate_files import JOB_KEY
 from .arcgis_migrate_layers import _trusted
 from .arcgis_migrate_refresh import KEEP_GEOLENS
@@ -42,8 +43,15 @@ from .arcgis_migrate_session import (
     WriteRaced,
 )
 from .arcgis_plan import IMPORT_MAP
-from .arcgis_migrate_state import DONE, EXISTS, FINISHED, ItemState, whole_number
-from .arcgis_portal import PortalError, redact_json, sanitize_url
+from .arcgis_migrate_state import (
+    DONE,
+    EXISTS,
+    FINISHED,
+    SKIPPED,
+    ItemState,
+    whole_number,
+)
+from .arcgis_portal import PortalError, holds_secret, redact_json, sanitize_url
 
 LOSS_DIRNAME = "webmap-loss"
 _ITEM_ID = re.compile(r"[0-9A-Za-z]{32}")
@@ -73,6 +81,15 @@ _UNREADABLE_NOTE = (
     "layers not translated again because this account can't read their "
     "datasets, so their map layers were left as they are"
 )
+_EMPTY_MAP_NOTE = (
+    "the GeoLens map has no layers, which an earlier run created before a web "
+    "map with no layer to carry was skipped; it was left as it is"
+)
+# The most a map's description holds, as PUT /maps/{id} caps it.
+_DESCRIPTION_MAX = 2000
+# The first GeoLens release whose web map import takes a description.
+_DESCRIPTION_SINCE_TUPLE = (1, 32, 0)
+_DESCRIPTION_SINCE = "1.32"
 # How many layers a map may hold, as PUT /maps/{id} caps them.
 _MAX_LAYERS = 200
 # What a map's notes may hold, as PUT /maps/{id} caps them.
@@ -300,16 +317,17 @@ def _fetch(ctx: MigrationContext, item_id: str) -> dict[str, Any]:
     return redact_json(data, ctx.redact)
 
 
-def _read_item(ctx: MigrationContext, item_id: str) -> Mapping[str, Any]:
-    """The portal item, or an empty one when it can't be read."""
+def _read_item(ctx: MigrationContext, item_id: str) -> Mapping[str, Any] | None:
+    """The portal item, an empty one when the run has no portal session, or
+    None when the portal's answer can't be read."""
     if ctx.portal is None:
         return {}
     try:
         info = ctx.portal.client.get_json(f"content/items/{item_id}")
     except PortalError as exc:
         _stop_if_token_refused(exc)
-        return {}
-    return info if isinstance(info, dict) else {}
+        return None
+    return info if isinstance(info, dict) else None
 
 
 class _NoThumbnail(Exception):
@@ -451,6 +469,11 @@ def _map_problem(
     return None, found
 
 
+def _empty_map(entry: ItemState, found: Any) -> bool:
+    """Whether the map holds no layer and this command never made one."""
+    return getattr(found, "layer_count", 1) == 0 and not entry.layer_ids
+
+
 def refresh_map(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> list[str]:
@@ -488,7 +511,12 @@ def _check_map(
         return problems
     if found.thumbnail_url or isinstance(info, dict):
         entry.notes = [
-            *(note for note in entry.notes if not note.startswith(_THUMBNAIL_NOTE)),
+            *(
+                note
+                for note in entry.notes
+                if not note.startswith(_THUMBNAIL_NOTE) and note != _EMPTY_MAP_NOTE
+            ),
+            *([_EMPTY_MAP_NOTE] if _empty_map(entry, found) else []),
             *(
                 []
                 if found.thumbnail_url
@@ -686,7 +714,9 @@ def _record_write(entry: ItemState, after: Mapping[str, Any], saved: Any) -> Non
         *(
             n
             for n in entry.notes
-            if n != _NO_VIEW_NOTE and not n.startswith(_UNREADABLE_NOTE)
+            if n != _NO_VIEW_NOTE
+            and not n.startswith(_UNREADABLE_NOTE)
+            and not (n == _EMPTY_MAP_NOTE and getattr(saved, "layer_count", 1) != 0)
         ),
         *([_NO_VIEW_NOTE] if after["kept_view"] else []),
         *(
@@ -1209,6 +1239,7 @@ def _import_body(
     *,
     dry_run: bool = False,
     matches: Mapping[str, str] | None = None,
+    description: str | None = None,
 ) -> Any:
     """The import request for *webmap*, its layers matched to the run's
     datasets (or to *matches*) and their source styling filled in."""
@@ -1243,7 +1274,60 @@ def _import_body(
         ),
         dataset_matches=ArcgisWebmapImportRequestDatasetMatches.from_dict(matches),
         dry_run=dry_run,
+        **({"description": description} if description else {}),
     )
+
+
+def _uncarried(webmap: Mapping[str, Any]) -> str:
+    """The layer types of *webmap* that no GeoLens layer can be made from."""
+    counts: dict[str, int] = {}
+    for layer in _walk(webmap.get("operationalLayers")):
+        if layer.get("featureCollection") is not None:
+            kind = "feature collection"
+        elif _translatable(layer):
+            kind = "feature layer (its service was not imported)"
+        else:
+            kind = str(layer.get("layerType") or "layer of an unknown type")
+        counts[kind] = counts.get(kind, 0) + 1
+    if not counts:
+        return "the web map has no operational layers"
+    return "no layer of the web map can be carried over: " + ", ".join(
+        f"{n} {kind}" for kind, n in counts.items()
+    )
+
+
+# Notes the import leaves in the pending loss report until it is written.
+_CARRY_NOTES = "carry_notes"
+_DESCRIPTION_NOTE = "the web map's summary was not carried over as the map description"
+
+
+def _description(
+    ctx: MigrationContext, info: Mapping[str, Any]
+) -> tuple[str | None, list[str]]:
+    """The map description to send and notes on why there is none. The summary
+    is checked for this run's credentials before it is cut to the limit."""
+    raw = info.get("snippet")
+    text = html_to_text(raw)
+    if not text:
+        return None, []
+    if holds_secret([raw, text], ctx.redact):
+        return None, [f"{_DESCRIPTION_NOTE}: it holds this run's ArcGIS credential"]
+    version = _server_version(ctx)
+    if not _accepts_description(version):
+        return None, [
+            f"{_DESCRIPTION_NOTE}: it needs GeoLens {_DESCRIPTION_SINCE} or newer"
+        ]
+    return text[:_DESCRIPTION_MAX], []
+
+
+def _accepts_description(version: str | None) -> bool:
+    """Whether the server and the SDK take a description on a web map import."""
+    from geolens.models.arcgis_webmap_import_request import ArcgisWebmapImportRequest
+
+    if "description" not in getattr(ArcgisWebmapImportRequest, "__annotations__", {}):
+        return False
+    found = re.match(r"(\d+)\.(\d+)\.(\d+)", version or "")
+    return bool(found) and tuple(map(int, found.groups())) >= _DESCRIPTION_SINCE_TUPLE
 
 
 def import_map(
@@ -1262,10 +1346,32 @@ def import_map(
         import_arcgis_webmap_endpoint_maps_import_arcgis_webmap_post as import_webmap,
     )
 
-    info = _read_item(ctx, item["id"])
+    read = _read_item(ctx, item["id"])
+    info = read or {}
     webmap = _fetch(ctx, item["id"])
     matches = match_datasets(ctx, webmap)
-    body = _import_body(ctx, item, webmap, matches=matches)
+    try:
+        with long_request_timeout(ctx.geolens.client):
+            planned = ctx.geolens.call(
+                import_webmap.sync_detailed,
+                expected=201,
+                body=_import_body(ctx, item, webmap, dry_run=True, matches=matches),
+            )
+    except GeoLensError as exc:
+        raise ItemFailed(f"the web map import failed, {exc}") from None
+    # An older SDK leaves the field out of the model, which can't be told from
+    # a translation with no layer.
+    if isinstance(getattr(planned, "layers", None), list) and not planned.layers:
+        entry.pending_loss = _pending_loss(planned)
+        ctx.save()
+        finished = _finish_loss(ctx, item["id"], entry)
+        return ItemResult(status=SKIPPED, notes=[_uncarried(webmap), *finished.notes])
+    description, description_notes = _description(ctx, info)
+    if read is None:
+        description_notes = [
+            f"{_DESCRIPTION_NOTE}: the web map's metadata could not be read"
+        ]
+    body = _import_body(ctx, item, webmap, matches=matches, description=description)
     try:
         with long_request_timeout(ctx.geolens.client):
             result = ctx.geolens.call(
@@ -1294,7 +1400,10 @@ def import_map(
     entry.pending_layers = _unimported(ctx, webmap, matches)
     # Kept in the state until the loss report file is written, so a failed
     # write is finished on the rerun instead of dropping the losses.
-    entry.pending_loss = _pending_loss(result)
+    entry.pending_loss = {
+        **_pending_loss(result),
+        _CARRY_NOTES: description_notes,
+    }
     ctx.save()
     thumbnail_notes = carry_thumbnail(ctx, item["id"], info, entry.map_id)
     finished = _finish_loss(ctx, item["id"], entry)
@@ -1331,6 +1440,7 @@ def _finish_loss(
     that is done, so a rerun finishes what a failure or interruption left."""
     payload = entry.pending_loss or {}
     notes: list[str] = []
+    carried = [n for n in payload.get(_CARRY_NOTES, []) if isinstance(n, str)]
     unmatched = [
         layer.get("title") or layer.get("layer_id")
         for layer in payload.get("unmatched_layers", [])
@@ -1349,8 +1459,10 @@ def _finish_loss(
         entry.loss_report_path = _write_loss(ctx, item_id, payload)
     else:
         _remove_loss(ctx, item_id)
+        entry.loss_report_path = None
     if replace_notes:
         entry.notes = [*(n for n in entry.notes if not _LOSS_NOTE.match(n)), *notes]
+    notes.extend(n for n in carried if n not in notes)
     entry.pending_loss = None
     ctx.save()
     return ItemResult(status=DONE, notes=notes)

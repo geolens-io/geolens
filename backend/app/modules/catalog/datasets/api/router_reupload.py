@@ -85,6 +85,7 @@ from app.modules.catalog.sources.adapters.arcgis import (
     normalize_arcgis_url,
 )
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
+from app.modules.catalog.sources.preview import ServicePreviewTimeoutError
 from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.platform.service_auth import (
     credential_or_422,
@@ -666,6 +667,8 @@ async def reupload_service_preview(
             layer_arg,
             credential=credential,
         )
+    except ServicePreviewTimeoutError as exc:
+        raise exc.http_error() from None
     except IngestionError:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

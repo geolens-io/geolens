@@ -77,6 +77,18 @@ def _map(owner: str = OPERATOR) -> dict[str, Any]:
     }
 
 
+def _translated_layer() -> dict[str, Any]:
+    return {
+        "dataset_id": dataset_id("Parcels"),
+        "sort_order": 0,
+        "opacity": 1.0,
+        "paint": {"fill-color": "#336699"},
+        "layout": {},
+        "style_config": {},
+        "layer_type": "vector_geolens",
+    }
+
+
 def _response(*, lost: int = 0, unmatched: list[dict] | None = None) -> dict:
     items = [
         {"path": f"$.p{n}", "kind": "popup_expression", "detail": ""}
@@ -84,7 +96,7 @@ def _response(*, lost: int = 0, unmatched: list[dict] | None = None) -> dict:
     ]
     return {
         "map": _map(),
-        "layers": [],
+        "layers": [_translated_layer()],
         "layer_ids": {"parcels_0": LAYER_ID.format(1), "view_0": LAYER_ID.format(2)},
         "loss_report": {"items": items, "summary": {"popup_expression": lost}},
         "unmatched_layers": unmatched or [],
@@ -118,7 +130,17 @@ def _services(geolens) -> None:
 
 
 def _sent(geolens) -> list[Any]:
-    return [s for s in geolens.seen if s.url.endswith("/maps/import/arcgis-webmap/")]
+    """The import requests, without the dry run that precedes each create."""
+    sent = [s for s in geolens.seen if s.url.endswith("/maps/import/arcgis-webmap/")]
+    return [
+        s
+        for n, s in enumerate(sent)
+        if not (
+            s.json().get("dry_run")
+            and n + 1 < len(sent)
+            and not sent[n + 1].json().get("dry_run")
+        )
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -1332,6 +1354,7 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     _services(geolens)
     parcels = dataset_id("Parcels")
     unreadable: set[str] = set()
+    created: list[int] = []
 
     def translate(seen):
         body = seen.json()
@@ -1339,6 +1362,9 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
         if set(body["dataset_matches"].values()) & unreadable:
             return (404, {"title": "Not Found", "status": 404, "detail": "nope"})
         if not body.get("dry_run"):
+            created.append(1)
+            return (201, _response())
+        if not created:
             return (201, _response())
         return (201, {**_translated(parcels), "layers": [], "layer_sources": []})
 

@@ -1906,6 +1906,19 @@
             "description": "Return the translation without creating a map.",
             "title": "Dry Run",
             "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Description of the new map.",
+            "title": "Description"
           }
         },
         "required": [
@@ -68639,6 +68652,16 @@
               }
             },
             "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad gateway \u2014 an upstream provider failed"
           },
           "503": {
             "content": {

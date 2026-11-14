@@ -34,6 +34,12 @@ describe('API error localization boundary', () => {
     expect(translateApiErrorDetail(detail, 422)).toContain(text);
   });
 
+  it('maps a timed-out service preview to its own message, not the unavailable one', () => {
+    const detail = { code: 'service_preview_timeout', message: 'English diagnostic' };
+    expect(classifyApiError(detail, 502).key).toBe('errors.uploadServicePreviewTimeout');
+    expect(translateApiErrorDetail(detail, 502)).toContain('took too long to preview');
+  });
+
   it('maps known backend details to stable keys', () => {
     expect(classifyApiError('Dataset not found', 404)).toEqual({
       key: 'errors.datasetNotFound',
