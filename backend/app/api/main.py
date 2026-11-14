@@ -105,13 +105,21 @@ def _session_secret(settings_obj) -> str:
     ).get_secret_value()
 
 
+_TILE_KEY_REFUSAL = (
+    "GeoLens 1.33.0, not before 2027-02-10, will refuse to start with it. "
+    "Set a new value of at least 32 characters (`openssl rand -hex 32`), the "
+    "same on every API replica. Signed tile URLs issued under the old key stop "
+    "verifying until the page reloads them."
+)
+
+
 def _warn_on_weak_signing_keys(settings_obj, log) -> None:
     """Production startup warnings for the session and tile signing keys.
 
     An unset SESSION_SECRET_KEY shares the JWT secret. A configured
-    TILE_SIGNING_SECRET that is short or equal to the JWT secret still boots,
-    since the setting predates the check. Unset TILE_SIGNING_SECRET warns in
-    signing.py.
+    TILE_SIGNING_SECRET that is short, known-public or equal to the JWT secret
+    still boots; the short and known-public cases name the release that will
+    refuse them. Unset TILE_SIGNING_SECRET warns in signing.py.
     """
     if not settings_obj.is_production:
         return
@@ -132,15 +140,14 @@ def _warn_on_weak_signing_keys(settings_obj, log) -> None:
                 "tile_signing_secret_weak",
                 message=(
                     "TILE_SIGNING_SECRET is shorter than 32 characters. "
-                    "Replace it with `openssl rand -hex 32`."
+                    f"{_TILE_KEY_REFUSAL}"
                 ),
             )
         if raw in KNOWN_PUBLIC_CREDENTIALS:
             log.warning(
                 "tile_signing_secret_weak",
                 message=(
-                    "TILE_SIGNING_SECRET is a known-public value. Replace it "
-                    "with `openssl rand -hex 32`."
+                    f"TILE_SIGNING_SECRET is a known-public value. {_TILE_KEY_REFUSAL}"
                 ),
             )
         if raw == settings_obj.jwt_secret_key.get_secret_value():
