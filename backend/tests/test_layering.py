@@ -1340,7 +1340,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/api/main.py": 1234,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
-    "backend/app/modules/catalog/maps/schemas.py": 1606,
+    "backend/app/modules/catalog/maps/schemas.py": 1590,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
@@ -1357,13 +1357,13 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/publish_followups.py": 1477,
     # What every ingest strategy shares: the task app, job lifecycle and phase
     # sessions, finalization, and the reupload table swap and catalog write.
-    "backend/app/processing/ingest/tasks_common.py": 1421,
+    "backend/app/processing/ingest/tasks_common.py": 1423,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
     # review of the changes its preview showed, and the live-table comparison
     # that lets a refresh or file re-upload of unchanged data publish nothing.
-    "backend/app/processing/ingest/tasks_reupload.py": 1906,
+    "backend/app/processing/ingest/tasks_reupload.py": 1908,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1438,7 +1438,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/stac/router.py": 1942,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2954,
+    "backend/app/processing/tiles/router.py": 2998,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1766,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
@@ -1452,9 +1452,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 620,
-    # Embed tokens share origin/scope checks, revocation, cached-denial behavior
-    # and the token map's reader settings and audience.
-    "backend/app/modules/embed_tokens/service.py": 1008,
+    # Embed tokens share origin/scope checks, revocation, cached-denial behavior,
+    # the token map's reader settings and audience, and signed-template liveness.
+    "backend/app/modules/embed_tokens/service.py": 1148,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, batch
     # inserts reuse the single-insert validation, batch deletes the prior-envelope

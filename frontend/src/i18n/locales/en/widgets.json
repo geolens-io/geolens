@@ -151,6 +151,7 @@
     "viewScopeUnavailable": "Showing the whole layer: this dashboard hides its map.",
     "filterIgnored": "Shows all features: the layer's filter can't be applied to these numbers.",
     "filterIgnoredWithPicks": "Applies your filters, but not the layer's own filter, which can't be applied to these numbers.",
+    "ownFilterUnsupported": "This widget's own filter can't be applied here, so it shows no numbers.",
     "tooWide": "Too many features in view. Zoom in to see these numbers.",
     "loadFailed": "These numbers couldn't be loaded.",
     "columnUnavailable": "This widget's column isn't available here.",
@@ -192,6 +193,8 @@
     "preview": "Preview",
     "previewPanel": "Preview panel",
     "embedColumnHint": "Embedded copies of this map can't show this column.",
+    "filterTitle": "Only count features where…",
+    "filterHelp": "Applies to this widget only, on top of the layer's own filter.",
     "previewPanelDescription": "The panel as readers see it, with a placeholder for the map.",
     "previewMap": "Map",
     "stat": "Statistic",
@@ -217,7 +220,9 @@
       "viewWithoutGeometry": "This layer has no geometry, so the widget can't follow the map view. Set it to cover the whole layer.",
       "notSortable": "“{{column}}” can't be sorted. Pick another before saving.",
       "notListable": "“{{column}}” can't be listed. Pick another before saving.",
-      "notDate": "“{{column}}” isn't a date column. Pick another before saving."
+      "notDate": "“{{column}}” isn't a date column. Pick another before saving.",
+      "filterUnsupported": "This filter can't be applied to the widget's numbers. Change or remove a condition before saving.",
+      "filterTooLarge": "This filter, with the layer's own, holds more values or text than a widget can send. Remove some conditions or values before saving."
     },
     "maxWidgets": "A dashboard holds at most {{max}} widgets.",
     "reference": "Reference value",

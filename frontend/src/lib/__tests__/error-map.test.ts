@@ -100,6 +100,17 @@ describe('API error localization boundary', () => {
     allowed_stages: allowed,
   });
 
+  it("says a refused dashboard widget's filter is the problem when the save names one", () => {
+    const refused = (reason: string) => ({
+      message: "Some dashboard widgets can't be saved on this map",
+      widget_ids: ['w1'],
+      widgets: [{ id: 'w1', layer_id: 'l1', reason }],
+    });
+    expect(classifyApiError(refused('filter_invalid'), 422)).toEqual({ key: 'errors.dashboardWidgetFilterRefused' });
+    expect(classifyApiError(refused('filter_too_large'), 422)).toEqual({ key: 'errors.dashboardWidgetFilterRefused' });
+    expect(classifyApiError(refused('layer_unavailable'), 422)).toEqual({ key: 'errors.dashboardWidgetsRefused' });
+  });
+
   it('names the refused workflow edge and the steps still open to the caller', () => {
     const detail = denial('pending_review', 'published', ['approved', 'draft']);
     expect(classifyApiError(detail, 422)).toEqual({

@@ -57,7 +57,9 @@ function titleColumn(columns: readonly WidgetColumn[]): { title_column?: string 
 
 export const featureListWidget = defineWidget<FeatureListConfig>({
   type: 'feature_list',
-  v: 1,
+  v: 2,
+  storedVersion: () => 1,
+  filterVersion: 2,
   surfaces: ['dashboard'],
   labelKey: 'types.feature_list.label',
   i18nKeys: [

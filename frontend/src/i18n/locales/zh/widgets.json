@@ -151,6 +151,7 @@
     "viewScopeUnavailable": "显示整个图层：此仪表板已隐藏其地图。",
     "filterIgnored": "显示全部要素：图层的筛选条件无法应用于这些数字。",
     "filterIgnoredWithPicks": "已应用你的筛选条件，但未应用图层自身的筛选条件，因为它无法用于这些数字。",
+    "ownFilterUnsupported": "此小组件自身的筛选条件无法在此应用，因此不显示数字。",
     "tooWide": "视图中的要素过多。请放大地图以查看这些数字。",
     "loadFailed": "无法加载这些数字。",
     "columnUnavailable": "此小组件的列在此处不可用。",
@@ -192,6 +193,8 @@
     "preview": "预览",
     "previewPanel": "预览面板",
     "embedColumnHint": "此地图的嵌入副本无法显示此列。",
+    "filterTitle": "仅统计满足以下条件的要素…",
+    "filterHelp": "仅作用于此小组件，并叠加在图层自身的筛选条件之上。",
     "previewPanelDescription": "读者所见的面板，地图处为占位。",
     "previewMap": "地图",
     "stat": "统计量",
@@ -217,7 +220,9 @@
       "viewWithoutGeometry": "此图层没有几何，小组件无法跟随地图视图。请将其设为统计整个图层。",
       "notSortable": "无法按“{{column}}”排序。请在保存前选择其他列。",
       "notListable": "无法列出“{{column}}”。请在保存前选择其他列。",
-      "notDate": "“{{column}}”不是日期列。请在保存前选择其他列。"
+      "notDate": "“{{column}}”不是日期列。请在保存前选择其他列。",
+      "filterUnsupported": "此筛选条件无法应用于小组件的数字。保存前请修改或删除某个条件。",
+      "filterTooLarge": "此筛选条件与图层自身的筛选条件合计包含的值或文本超出了小组件可发送的上限。保存前请删除部分条件或值。"
     },
     "maxWidgets": "一个仪表板最多包含 {{max}} 个小组件。",
     "reference": "参考值",

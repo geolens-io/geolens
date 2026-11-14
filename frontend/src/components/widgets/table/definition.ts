@@ -61,7 +61,9 @@ function parseTableConfig(config: unknown): TableConfig | null {
 
 export const tableWidget = defineWidget<TableConfig>({
   type: 'table',
-  v: 1,
+  v: 2,
+  storedVersion: () => 1,
+  filterVersion: 2,
   surfaces: ['dashboard'],
   labelKey: 'types.table.label',
   i18nKeys: [

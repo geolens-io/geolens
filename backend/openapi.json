@@ -2826,6 +2826,19 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "bar_chart",
             "title": "Type",
@@ -2834,7 +2847,8 @@
           "v": {
             "enum": [
               1,
-              2
+              2,
+              3
             ],
             "title": "V",
             "type": "integer"
@@ -4078,13 +4092,29 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "category_selector",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },
@@ -10788,13 +10818,29 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "feature_list",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },
@@ -11854,13 +11900,29 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "histogram",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },
@@ -12154,16 +12216,30 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "indicator",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "description": "`2` when the config sets any reference option, else `1`. A `1` that sets one is refused.",
+            "description": "`3` with a `filter`, else `2` when the config sets any reference option, else `1`. An older `v` that sets one is refused.",
             "enum": [
               1,
-              2
+              2,
+              3
             ],
             "title": "V",
             "type": "integer"
@@ -17960,13 +18036,29 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "pie_chart",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },
@@ -25375,13 +25467,29 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "table",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },

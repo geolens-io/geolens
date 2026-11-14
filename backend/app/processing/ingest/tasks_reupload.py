@@ -9,7 +9,7 @@ import structlog
 from sqlalchemy import exists, select, text, update
 
 from app.core.db.tenant_session import tenant_task
-from app.core.failure_reason import FixedReason
+from app.core.failure_reason import FixedReason, failure_code, redact_failure_reason
 from app.core.upload_errors import geometry_loss_refusal
 from app.core.url_redaction import scrub_secret_from_exception
 from app.platform.catalog_locks import (
@@ -1228,7 +1228,9 @@ def _service_refresh_error_code(exc: BaseException) -> str:
         return exc.code
     if getattr(exc, "code", None) in (498, 499, SERVICE_AUTH_REFUSED_CODE):
         return "credential_expired"
-    return "service_refresh_failed"
+    # Every FixedReason code has a frontend translation (test_job_failure_codes).
+    fixed = failure_code(redact_failure_reason(exc))
+    return fixed or "service_refresh_failed"
 
 
 async def _enforce_refresh_publication_fence(

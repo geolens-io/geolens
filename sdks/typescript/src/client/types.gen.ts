@@ -1690,13 +1690,19 @@ export type BarChartWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'bar_chart';
     /**
      * V
      */
-    v: 1 | 2;
+    v: 1 | 2 | 3;
     config: BarChartConfig;
 };
 
@@ -2521,13 +2527,19 @@ export type CategorySelectorWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'category_selector';
     /**
      * V
      */
-    v: 1;
+    v: 1 | 2;
     config: CategorySelectorConfig;
 };
 
@@ -6321,13 +6333,19 @@ export type FeatureListWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'feature_list';
     /**
      * V
      */
-    v: 1;
+    v: 1 | 2;
     config: FeatureListConfig;
 };
 
@@ -6979,13 +6997,19 @@ export type HistogramWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'histogram';
     /**
      * V
      */
-    v: 1;
+    v: 1 | 2;
     config: HistogramConfig;
 };
 
@@ -7157,15 +7181,21 @@ export type IndicatorWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'indicator';
     /**
      * V
      *
-     * `2` when the config sets any reference option, else `1`. A `1` that sets one is refused.
+     * `3` with a `filter`, else `2` when the config sets any reference option, else `1`. An older `v` that sets one is refused.
      */
-    v: 1 | 2;
+    v: 1 | 2 | 3;
     config: IndicatorConfig;
 };
 
@@ -10382,13 +10412,19 @@ export type PieChartWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'pie_chart';
     /**
      * V
      */
-    v: 1;
+    v: 1 | 2;
     config: PieChartConfig;
 };
 
@@ -14693,13 +14729,19 @@ export type TableWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'table';
     /**
      * V
      */
-    v: 1;
+    v: 1 | 2;
     config: TableConfig;
 };
 

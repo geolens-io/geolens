@@ -571,6 +571,7 @@
     "dashboardTooNew": "此仪表板由较新版本的 GeoLens 保存，无法在此更改。",
     "dashboardTooManyWidgets": "一个仪表板最多包含 50 个小组件。保存前请移除一些。",
     "dashboardWidgetsRefused": "部分仪表板小组件使用了不在此地图上或您无法读取的图层。请移除它们或选择其他图层。",
+    "dashboardWidgetFilterRefused": "某个仪表板小组件的筛选条件无法用于其图层：服务器拒绝了其中一个条件，或者它与图层自身的筛选条件合计过大。请在仪表板面板中检查。",
     "storyImageUnreadable": "该文件不是可读取的图片。",
     "storyImageTooLarge": "图片过大。请上传小于 50 MB 且像素更少的文件。",
     "storyImageUnsupported": "只能上传 PNG、JPEG 和 WebP 图片。",
