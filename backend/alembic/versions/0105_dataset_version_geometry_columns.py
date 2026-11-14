@@ -1,15 +1,15 @@
 """Retain the columns each version's geometry was built from.
 
-Revision ID: 0104_dataset_version_geometry_columns
-Revises: 0103_database_origin
+Revision ID: 0105_dataset_version_geometry_columns
+Revises: 0104_map_author_api_keys
 """
 
 from typing import Sequence, Union
 
 from alembic import op
 
-revision: str = "0104_dataset_version_geometry_columns"
-down_revision: Union[str, None] = "0103_database_origin"
+revision: str = "0105_dataset_version_geometry_columns"
+down_revision: Union[str, None] = "0104_map_author_api_keys"
 branch_labels: Union[str, Sequence[str], None] = None
 depends_on: Union[str, Sequence[str], None] = None
 
