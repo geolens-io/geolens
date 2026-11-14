@@ -68,11 +68,12 @@ def _render_query(described: Mapping[str, Any]) -> list[tuple[str, str]]:
 
     Each band is stretched over its own probed min/max, as an ingested
     quicklook is stretched over its pixels, and over its dtype's range when
-    no statistics were read.
+    no statistics were read. Bands are always named: with no count recorded,
+    Titiler would otherwise read every band of the file.
     """
     band_count = described.get("band_count") or 1
     bands = (1, 2, 3) if band_count >= 3 else (1,)
-    query = [("bidx", str(band)) for band in bands] if band_count >= 2 else []
+    query = [("bidx", str(band)) for band in bands]
     dtype = str(described.get("dtype") or "uint8").lower()
     if dtype == "uint8":
         return query
@@ -204,10 +205,15 @@ async def draw_remote_quicklooks(
                 keys = await _draw_one(dataset_id, url, described, deadline, written)
                 return dataset_id, keys
 
-        drawn = await asyncio.gather(
-            *(bounded(dataset_id, *target) for dataset_id, target in targets.items())
-        )
+        # A task group, not gather: a cancelled batch waits for every draw,
+        # including a put still draining, before the cleanup deletes its keys.
+        async with asyncio.TaskGroup() as group:
+            tasks = [
+                group.create_task(bounded(dataset_id, *target))
+                for dataset_id, target in targets.items()
+            ]
         written.settled()
+    drawn = (task.result() for task in tasks)
     return {dataset_id: keys for dataset_id, keys in drawn if keys is not None}
 
 

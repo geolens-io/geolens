@@ -155,7 +155,13 @@ def test_bands_and_stretch_follow_the_probe() -> None:
         ("rescale", "0,65535"),
         ("rescale", "0,65535"),
     ]
-    assert remote_quicklook._render_query({"band_count": 1, "dtype": "uint8"}) == []
+    assert remote_quicklook._render_query({"band_count": 1, "dtype": "uint8"}) == [
+        ("bidx", "1")
+    ]
+    # An asset whose probe failed at import records no count or dtype.
+    assert remote_quicklook._render_query({"band_count": None, "dtype": None}) == [
+        ("bidx", "1")
+    ]
 
 
 class TestImport:
@@ -338,7 +344,7 @@ async def test_a_cancelled_batch_deletes_what_it_already_stored(
     released = asyncio.Event()
 
     async def _one_quick_one_stuck(request: httpx.Request) -> httpx.Response:
-        if "bidx" in request.url.params:
+        if len(request.url.params.get_list("bidx")) == 3:
             await released.wait()
         size = int(request.url.params["max_size"])
         return httpx.Response(200, content=_PNG[size])
@@ -363,6 +369,49 @@ async def test_a_cancelled_batch_deletes_what_it_already_stored(
     assert await _stored_quicklooks() == []
 
 
+async def test_a_batch_cancelled_mid_upload_waits_for_it_before_cleaning_up(
+    client, monkeypatch
+) -> None:
+    """A put that lands after the cancel is still deleted; no key survives."""
+    from app.core.async_io import run_in_thread_draining_capture_cancel
+
+    storage = get_storage()
+    real_put = storage.put
+    uploading = asyncio.Event()
+
+    async def landing_put(key, data):
+        uploading.set()
+        # Like the providers' puts: the write finishes even when cancelled.
+        _, cancelled = await run_in_thread_draining_capture_cancel(time.sleep, 0.3)
+        await real_put(key, data)
+        if cancelled is not None:
+            raise cancelled
+
+    monkeypatch.setattr(storage, "put", landing_put)
+
+    async def _one_quick_one_stuck(request: httpx.Request) -> httpx.Response:
+        if len(request.url.params.get_list("bidx")) == 3:
+            await asyncio.sleep(30)
+        size = int(request.url.params["max_size"])
+        return httpx.Response(200, content=_PNG[size])
+
+    _titiler(monkeypatch, _one_quick_one_stuck)
+    batch = asyncio.ensure_future(
+        remote_quicklook.draw_remote_quicklooks(
+            {
+                uuid.uuid4(): ("https://cogs.example.com/a.tif", {"band_count": 1}),
+                uuid.uuid4(): ("https://cogs.example.com/b.tif", {"band_count": 3}),
+            }
+        )
+    )
+    await asyncio.wait_for(uploading.wait(), timeout=5)
+    batch.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await batch
+    await asyncio.sleep(0.6)
+    assert await _stored_quicklooks() == []
+
+
 class TestRefresh:
     async def test_an_existing_remote_cog_gets_its_thumbnail_on_refresh(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
@@ -379,7 +428,8 @@ class TestRefresh:
         )
 
         assert (await _run_for(dataset.id)).status == "succeeded"
-        assert len(seen) == 2
+        # The stored row records no band count, so band 1 is named explicitly.
+        assert [r.url.params.get_list("bidx") for r in seen] == [["1"], ["1"]]
         raster = await _raster_asset(dataset.id)
         assert await get_storage().get(raster.quicklook_256_uri) == _PNG[256]
         assert await get_storage().get(raster.quicklook_512_uri) == _PNG[512]
