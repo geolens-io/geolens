@@ -7,13 +7,14 @@ from __future__ import annotations
 import ast
 import asyncio
 import json
+import threading
 from pathlib import Path
 
 import httpx
 import pytest
 
 from geolens_mcp import server, styles
-from geolens_mcp.authoring import GeoLensAPI
+from geolens_mcp.authoring import AUTHOR_KEY_NEEDED, GeoLensAPI
 
 MAP = "11111111-1111-4111-8111-111111111111"
 DS = "22222222-2222-4222-8222-222222222222"
@@ -77,11 +78,35 @@ def _settable_fields() -> dict[str, set[str]]:
 SETTABLE = _settable_fields()
 
 
+AUTHOR_KEY = "glk_abcdefgh" + "x" * 30 + "wxyz"
+KEYS_ROUTE = ("GET", "/api/auth/api-keys/")
+
+
+def _key_list(scope, key=AUTHOR_KEY, is_active=True):
+    other = {
+        "fingerprint": "glk_zzzzzzzz…0000",
+        "scope": "map_author",
+        "is_active": True,
+    }
+    mine = {
+        "fingerprint": f"{key[:12]}…{key[-4:]}",
+        "scope": scope,
+        "is_active": is_active,
+    }
+    return (200, {"items": [other, mine], "total": 2})
+
+
 class Stack:
-    """A stub GeoLens API that records every request."""
+    """A stub GeoLens API that records every request.
+
+    A route answers ``(status, body)`` or a callable of the request that
+    returns one. The
+    key list names the configured key a map_author key unless a test says
+    otherwise.
+    """
 
     def __init__(self, routes):
-        self.routes = routes
+        self.routes = {KEYS_ROUTE: _key_list("map_author"), **routes}
         self.requests: list[httpx.Request] = []
 
     def handler(self, request: httpx.Request) -> httpx.Response:
@@ -89,15 +114,20 @@ class Stack:
         key = (request.method, request.url.path)
         if key not in self.routes:
             return httpx.Response(404, json={"detail": f"no route {key}"})
-        status, body = self.routes[key]
+        answer = self.routes[key]
+        status, body = answer(request) if callable(answer) else answer
         return httpx.Response(status, json=body)
 
-    def api(self) -> GeoLensAPI:
+    def api(self, headers=None) -> GeoLensAPI:
         http = httpx.Client(
             base_url="https://geolens.example.com/api",
             transport=httpx.MockTransport(self.handler),
+            headers={"X-Api-Key": AUTHOR_KEY} if headers is None else headers,
         )
         return GeoLensAPI(http)
+
+    def data_requests(self) -> list[httpx.Request]:
+        return [r for r in self.requests if r.url.path != KEYS_ROUTE[1]]
 
     def writes(self) -> list[tuple[str, str, dict]]:
         return [
@@ -781,3 +811,260 @@ def test_expressions_match_the_builder_colour_ramp_tests():
     assert styles.color_property("LineString") == "line-color"
     assert styles.color_property("MultiPoint") == "circle-color"
     assert styles.color_property(None) == "fill-color"
+
+
+# --- the credential ---
+
+_TOOL_CALLS = {
+    "create_map": lambda: server.create_map("Parks"),
+    "add_layer": lambda: server.add_layer(MAP, DS),
+    "update_layer_style": lambda: server.update_layer_style(
+        MAP, LAYER, popup_fields=["zone"]
+    ),
+    "set_camera": lambda: server.set_camera(MAP, zoom=3),
+    "set_basemap": lambda: server.set_basemap(MAP, "blank"),
+}
+_ALL_ROUTES = {
+    **_layer_routes(),
+    **_map_with(DEFAULT_POLYGON_LAYER),
+    ("POST", "/api/maps/"): (201, {"id": MAP}),
+    ("PUT", f"/api/maps/{MAP}"): (200, {"id": MAP}),
+}
+
+
+@pytest.mark.parametrize(
+    ("headers", "keys_answer"),
+    [
+        ({}, None),
+        ({"Authorization": "Bearer a.jwt.token"}, None),
+        (None, _key_list("read_only")),
+        (None, _key_list("full")),
+        (None, (403, {"detail": {"code": "api_key_scope"}})),
+        (None, (401, {"detail": "Not authenticated"})),
+        (None, _key_list("dataset_write")),
+        (None, _key_list("map_author", is_active=False)),
+        (None, (200, {"items": [], "total": 0})),
+    ],
+    ids=[
+        "no-credential",
+        "token",
+        "read_only",
+        "full",
+        "publish",
+        "dataset-key",
+        "dataset-key-listed",
+        "revoked",
+        "unlisted",
+    ],
+)
+@pytest.mark.parametrize("tool", sorted(_TOOL_CALLS))
+def test_only_a_map_author_key_may_author(monkeypatch, headers, keys_answer, tool):
+    routes = dict(_ALL_ROUTES)
+    if keys_answer is not None:
+        routes[KEYS_ROUTE] = keys_answer
+    stack = Stack(routes)
+    monkeypatch.setattr(server, "_api", stack.api(headers))
+
+    with pytest.raises(RuntimeError) as excinfo:
+        _TOOL_CALLS[tool]()
+
+    assert str(excinfo.value) == AUTHOR_KEY_NEEDED
+    assert stack.data_requests() == []
+    if headers is not None:
+        assert stack.requests == []
+
+
+def test_the_key_check_runs_once_per_process():
+    stack = Stack({("PUT", f"/api/maps/{MAP}"): (200, {"id": MAP})})
+    api = stack.api()
+
+    api.update_map_view(MAP, {"zoom": 3})
+    api.update_map_view(MAP, {"zoom": 4})
+
+    assert [r.url.path for r in stack.requests].count(KEYS_ROUTE[1]) == 1
+
+
+def test_the_key_is_found_on_a_later_page():
+    def keys(request):
+        if request.url.params["skip"] == "0":
+            filler = {"fingerprint": "glk_other000…1111", "scope": "full"}
+            return 200, {"items": [filler] * 200, "total": 201}
+        return _key_list("map_author")[0], {
+            "items": [_key_list("map_author")[1]["items"][1]],
+            "total": 201,
+        }
+
+    stack = Stack({KEYS_ROUTE: keys, ("PUT", f"/api/maps/{MAP}"): (200, {"id": MAP})})
+
+    stack.api().update_map_view(MAP, {"zoom": 3})
+
+    assert ("PUT", f"/api/maps/{MAP}", {"zoom": 3}) in stack.writes()
+
+
+# --- cancellation ---
+
+
+def _cancel_while_blocked(monkeypatch, stack, gate, started, call, done):
+    """Cancel the MCP call while a request blocks on ``gate``, then let it go."""
+    monkeypatch.setattr(server, "_api", stack.api())
+
+    async def scenario():
+        task = asyncio.create_task(server.mcp.call_tool(*call))
+        await asyncio.to_thread(started.wait, 5)
+        task.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await task
+        gate.set()
+        await asyncio.to_thread(done.wait, 5)
+
+    asyncio.run(scenario())
+
+
+def _blocking(answer, started, gate):
+    def respond(request):
+        started.set()
+        gate.wait(5)
+        return answer
+
+    return respond
+
+
+def _finished(monkeypatch, name):
+    done = threading.Event()
+    original = getattr(GeoLensAPI, name)
+
+    def wrapped(self, *args, **kwargs):
+        try:
+            return original(self, *args, **kwargs)
+        finally:
+            done.set()
+
+    monkeypatch.setattr(GeoLensAPI, name, wrapped)
+    return done
+
+
+def test_a_call_cancelled_while_preparing_writes_nothing(monkeypatch):
+    started, gate = threading.Event(), threading.Event()
+    basemaps = (200, [{"id": "positron", "enabled": True}])
+    stack = Stack(
+        {
+            ("GET", "/api/settings/basemaps/"): _blocking(basemaps, started, gate),
+            ("POST", "/api/maps/"): (201, {"id": MAP}),
+            ("PUT", f"/api/maps/{MAP}"): (200, {"id": MAP}),
+        }
+    )
+    done = _finished(monkeypatch, "create_map")
+
+    _cancel_while_blocked(
+        monkeypatch,
+        stack,
+        gate,
+        started,
+        ("create_map", {"name": "Parks", "basemap": "positron"}),
+        done,
+    )
+
+    assert done.is_set()
+    assert stack.writes() == []
+
+
+def test_a_call_cancelled_after_adding_a_layer_does_not_style_it(monkeypatch):
+    started, gate = threading.Event(), threading.Event()
+    routes = _layer_routes()
+    post = routes[("POST", f"/api/maps/{MAP}/layers")]
+    routes[("POST", f"/api/maps/{MAP}/layers")] = _blocking(post, started, gate)
+    stack = Stack(routes)
+    done = _finished(monkeypatch, "add_layer")
+
+    _cancel_while_blocked(
+        monkeypatch,
+        stack,
+        gate,
+        started,
+        (
+            "add_layer",
+            {
+                "map_id": MAP,
+                "dataset_id": DS,
+                "style": {"type": "single", "color": "#ffffff"},
+            },
+        ),
+        done,
+    )
+
+    assert done.is_set()
+    assert [m for m, _, _ in stack.writes()] == ["POST"]
+
+
+# --- what a colour replaces ---
+
+
+@pytest.mark.parametrize("stash", ["fill_color_saved", "fillColorSaved"])
+@pytest.mark.parametrize(
+    "style",
+    [
+        {"type": "categories", "column": "zone"},
+        {"type": "classes", "column": "population", "breaks": [10, 50]},
+    ],
+    ids=["categories", "classes"],
+)
+def test_a_classification_replaces_a_fill_pattern(style, stash):
+    patterned = {
+        **DEFAULT_POLYGON_LAYER,
+        "paint": {"fill-pattern": "geolens:hatch", "fill-opacity": 0.3},
+        "style_config": {"builder": {"outline_color": "#1e40af", stash: "#ff0000"}},
+    }
+    stack = Stack(
+        {
+            **_map_with(patterned),
+            ("GET", f"/api/datasets/{DS}/columns/zone/values/"): (
+                200,
+                {"values": ["a", "b"], "count": 2},
+            ),
+            ("PATCH", f"/api/maps/{MAP}/layers"): (200, {}),
+        }
+    )
+
+    stack.api().update_layer_style(MAP, LAYER, style=style)
+
+    layer = _patched_layer(stack)
+    assert "fill-pattern" not in layer["paint"]
+    assert isinstance(layer["paint"]["fill-color"], list)
+    assert layer["style_config"]["builder"] == {"outline_color": "#1e40af"}
+
+
+@pytest.mark.parametrize("gradient_key", ["lineGradient", "line_gradient"])
+def test_a_single_colour_replaces_a_line_gradient(gradient_key):
+    gradient = [
+        "interpolate",
+        ["linear"],
+        ["line-progress"],
+        0,
+        "#000000",
+        1,
+        "#ffffff",
+    ]
+    graded = {
+        **DEFAULT_POLYGON_LAYER,
+        "dataset_geometry_type": "LineString",
+        "paint": {"line-color": "#3b82f6", "line-width": 2, "line-gradient": gradient},
+        "style_config": {
+            "builder": {
+                gradient_key: {"stops": [{"position": 0, "color": "#000000"}]},
+                "arrow_color": "#111111",
+            }
+        },
+    }
+    stack = Stack(
+        {**_map_with(graded), ("PATCH", f"/api/maps/{MAP}/layers"): (200, {})}
+    )
+
+    stack.api().update_layer_style(
+        MAP, LAYER, style={"type": "single", "color": "#00ff00"}
+    )
+
+    assert _patched_layer(stack) == {
+        "id": LAYER,
+        "paint": {"line-color": "#00ff00", "line-width": 2},
+        "style_config": {"builder": {"arrow_color": "#111111"}},
+    }

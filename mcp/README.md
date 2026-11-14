@@ -32,10 +32,10 @@ aggregate(dataset_id="<id>", request={"op": "group_by", "group_column": "borough
 
 ## Map authoring
 
-These tools need a `map_author` API key in `GEOLENS_API_KEY`. Create one in Settings under API Keys with the Map author scope. The key reads what a read-only key reads, and it can change only the maps it created: it can't edit a map made in the app or by another key, delete anything, rename a map or layer, or share a map. Without such a key these tools answer with an error that says so.
+These tools need a `map_author` API key in `GEOLENS_API_KEY`. Create one in Settings under API Keys with the Map author scope. The key reads what a read-only key reads, and it can change only the maps it created: it can't edit a map made in the app or by another key, delete anything, rename a map or layer, or share a map. These tools refuse to run with any other credential, including a full or publish key or `GEOLENS_TOKEN`, and say so; the read tools keep working with it.
 
 - `create_map`: a private map with an optional description and basemap. Returns its id and app URL.
-- `add_layer`: adds a dataset as the map's top layer, with an optional style and popup fields.
+- `add_layer`: adds a dataset as a layer, with an optional style and popup fields. Each new layer is drawn beneath the layers already on the map and the key can't reorder them, so add the layer you want on top first.
 - `update_layer_style`: restyles a layer or changes its popup fields.
 - `set_camera`, `set_basemap`: the view the map opens at and its basemap.
 

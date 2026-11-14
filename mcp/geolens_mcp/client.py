@@ -90,6 +90,14 @@ class ConfigError(RuntimeError):
     """Raised when required MCP configuration (e.g. GEOLENS_INSTANCE) is absent."""
 
 
+class APIError(RuntimeError):
+    """An HTTP error answer from the GeoLens API, with its status code."""
+
+    def __init__(self, message: str, status: int) -> None:
+        super().__init__(message)
+        self.status = status
+
+
 def _has_api_prefix(url: str) -> bool:
     # Idempotency guard: an `api` path segment anywhere means `/api` is present.
     path = urlsplit(url).path.rstrip("/")
@@ -375,10 +383,11 @@ class GeoLensReadOnlyAPI:
                 if denied and exc.response.status_code in (401, 403)
                 else ""
             )
-            raise RuntimeError(
+            raise APIError(
                 f"{lead}GeoLens API {exc.response.status_code} for {path}"
                 + (f": {detail}" if detail else "")
-                + (f" (Retry-After: {retry_after})" if retry_after else "")
+                + (f" (Retry-After: {retry_after})" if retry_after else ""),
+                exc.response.status_code,
             ) from exc
         except httpx.HTTPError as exc:
             raise RuntimeError(f"Could not reach GeoLens API at {path}: {exc}") from exc

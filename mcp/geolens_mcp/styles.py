@@ -439,29 +439,49 @@ def _pick_colors(
     return ramp, ramp_colors(ramp, needed)
 
 
+# Builder keys under style_config.builder, in both stored spellings.
+_FILL_STASH_KEYS = ("fillColorSaved", "fill_color_saved")
+_LINE_GRADIENT_KEYS = ("lineGradient", "line_gradient")
+
+
+def _without_builder_keys(
+    config: Optional[dict[str, Any]], keys: tuple[str, ...]
+) -> Optional[dict[str, Any]]:
+    builder = (config or {}).get("builder")
+    if not isinstance(builder, dict) or not any(k in builder for k in keys):
+        return config
+    rest = {k: v for k, v in builder.items() if k not in keys}
+    out = {k: v for k, v in (config or {}).items() if k != "builder"}
+    if rest:
+        out["builder"] = rest
+    return out or None
+
+
+def _colour_owned_paint(paint: dict[str, Any]) -> dict[str, Any]:
+    """Paint once a colour owns the layer: no pattern and no line gradient.
+
+    MapLibre draws a fill-pattern over fill-color and a line-gradient over
+    line-color, so either would hide the colour just written.
+    """
+    return {
+        k: v
+        for k, v in paint.items()
+        if k != "line-gradient" and not (k == "fill-pattern" and v is not None)
+    }
+
+
 def _carried_config(
     existing: Optional[dict[str, Any]], config: dict[str, Any]
 ) -> dict[str, Any]:
-    """The builder keeps its builder block and heatmap stash across a restyle."""
+    """The builder keeps its builder block and heatmap stash across a restyle,
+    less the line gradient and the colour a pattern displaced."""
     merged = dict(config)
     existing = existing or {}
     for key in ("builder", "heatmapPaint"):
         if key not in config and existing.get(key) is not None:
             merged[key] = copy.deepcopy(existing[key])
-    builder = merged.get("builder")
-    if isinstance(builder, dict) and "lineGradient" in builder:
-        rest = {k: v for k, v in builder.items() if k != "lineGradient"}
-        if rest:
-            merged["builder"] = rest
-        else:
-            merged.pop("builder")
-    return merged
-
-
-def _without_line_gradient(paint: dict[str, Any], prop: str) -> dict[str, Any]:
-    if prop != "line-color":
-        return paint
-    return {k: v for k, v in paint.items() if k != "line-gradient"}
+    trimmed = _without_builder_keys(merged, _LINE_GRADIENT_KEYS + _FILL_STASH_KEYS)
+    return trimmed or {}
 
 
 def single_color(
@@ -472,18 +492,17 @@ def single_color(
 ) -> tuple[dict[str, Any], Optional[dict[str, Any]], dict[str, Any]]:
     """Paint and style_config for one colour, as the builder's Clear then a colour."""
     prop = color_property(geometry_type)
-    new_paint = {k: v for k, v in paint.items() if k != "fill-pattern"}
+    new_paint = {
+        k: v for k, v in paint.items() if k not in ("fill-pattern", "line-gradient")
+    }
     new_paint[prop] = request.color
     new_paint.update(_size_properties(geometry_type))
     builder = (style_config or {}).get("builder")
     config = None
     if isinstance(builder, dict):
-        rest = {
-            k: v
-            for k, v in builder.items()
-            if k not in ("fillColorSaved", "fill_color_saved")
-        }
-        config = {"builder": rest} if rest else None
+        config = _without_builder_keys(
+            {"builder": builder}, _FILL_STASH_KEYS + _LINE_GRADIENT_KEYS
+        )
     return new_paint, config, {"type": "single", "color": request.color}
 
 
@@ -513,13 +532,10 @@ def categories(
     ramp, colors = _pick_colors(request, DEFAULT_CATEGORY_RAMP, len(values), "values")
     pairs = list(zip(values, colors, strict=True))
     prop = color_property(geometry_type)
-    new_paint = _without_line_gradient(
-        {
-            **paint,
-            prop: categorical_expression(request.column, pairs, as_string=as_string),
-        },
-        prop,
-    )
+    new_paint = {
+        **_colour_owned_paint(paint),
+        prop: categorical_expression(request.column, pairs, as_string=as_string),
+    }
     entries = [{"value": v, "color": c} for v, c in pairs]
     config = {
         "mode": "categorical",
@@ -547,13 +563,10 @@ def classes(
         )
     ramp, colors = _pick_colors(request, DEFAULT_CLASS_RAMP, len(breaks) + 1, "classes")
     prop = color_property(geometry_type)
-    new_paint = _without_line_gradient(
-        {
-            **paint,
-            prop: graduated_expression(request.column, breaks, colors, FALLBACK_COLOR),
-        },
-        prop,
-    )
+    new_paint = {
+        **_colour_owned_paint(paint),
+        prop: graduated_expression(request.column, breaks, colors, FALLBACK_COLOR),
+    }
     class_count = (
         len(breaks) + 1
         if request.method == "manual"

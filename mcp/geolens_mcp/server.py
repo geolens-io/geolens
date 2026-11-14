@@ -14,13 +14,14 @@ import asyncio
 import functools
 import inspect
 import json
+import threading
 from typing import Annotated, Any, Callable, Optional, TypeVar
 
 from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 from pydantic import Field
 
-from .authoring import GeoLensAPI
+from .authoring import CANCELLED, GeoLensAPI
 from .client import build_httpx_client
 
 mcp = MCPServer("geolens")
@@ -37,7 +38,9 @@ def _tool(fn: _F) -> _F:
     The tool bodies make blocking HTTP calls. The SDK runs sync tools in a
     worker thread that a cancelled request still waits for, so the registered
     wrapper runs them through ``asyncio.to_thread`` instead: a cancelled
-    request stops awaiting the thread and sends no result. Results go out as
+    request stops awaiting the thread and sends no result. The thread runs on,
+    so cancelling also sets the flag the authoring writes check before
+    sending. Results go out as
     compact JSON text. Arguments outside the advertised schema are rejected
     instead of dropped. The client's
     errors are written for the agent (API status and detail, unreachable
@@ -47,10 +50,18 @@ def _tool(fn: _F) -> _F:
 
     @functools.wraps(fn)
     async def run_off_loop(*args: Any, **kwargs: Any) -> Any:
+        cancelled = threading.Event()
+        # to_thread copies this context, so the worker sees the flag.
+        token = CANCELLED.set(cancelled)
         try:
             result = await asyncio.to_thread(fn, *args, **kwargs)
+        except asyncio.CancelledError:
+            cancelled.set()
+            raise
         except (RuntimeError, ValueError) as exc:
             raise ToolError(str(exc)) from exc
+        finally:
+            CANCELLED.reset(token)
         # The SDK indents non-string results; a string passes through as is.
         return json.dumps(
             result, separators=(",", ":"), default=str, ensure_ascii=False
@@ -358,9 +369,11 @@ def add_layer(
     style: Optional[dict[str, Any]] = None,
     popup_fields: Optional[list[str]] = None,
 ) -> Any:
-    """Add a dataset to a map as a new top layer, optionally styled.
-    Returns the new `layer_id`, the style written (with category values or
-    class breaks and their colours) and the map's `url`.
+    """Add a dataset to a map as a new layer, optionally styled. Each new
+    layer is drawn beneath the map's existing layers and can't be reordered,
+    so add the layer you want on top first. Returns the new `layer_id`, the
+    style written (with category values or class breaks and their colours)
+    and the map's `url`.
     {style}
     {author}
 
