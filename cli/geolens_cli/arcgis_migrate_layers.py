@@ -616,6 +616,7 @@ def import_layers(
     entry.service_url = row["url"]
     entry.left_behind = _redacted(ctx, left_behind)
     entry.attachments = attachment_flags(wanted)
+    entry.pass_layers = [_layer_key(layer) for layer in wanted]
     entry.relationships = relationship_records(wanted)
     if not wanted:
         entry.import_pass = {"notes": _redacted(ctx, notes), "layers": {}}

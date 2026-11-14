@@ -221,6 +221,9 @@ class ItemState:
     # for good in the last import pass, which titles, web maps and cutover
     # still account for.
     refused_layers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # The layer keys the last import pass set out to import, which tells a
+    # service whose every layer was refused from one with a layer still owed.
+    pass_layers: list[str] = field(default_factory=list)
     # Dataset -> the visibility this command last gave it, so a rerun can
     # tell a portal sharing change from an edit made in GeoLens.
     visibility: dict[str, str] = field(default_factory=dict)

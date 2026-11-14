@@ -2281,3 +2281,65 @@ def test_a_refusal_is_kept_when_a_later_layer_fails_the_item(
         aliases={}, items={A2: ItemState.from_dict(entry)}, importable={A2}
     )
     assert webmaps._unimported(ctx, webmap, {}) == ["l1"]
+
+
+def _root_reference(entry: dict) -> tuple[Any, dict]:
+    """A web map context and a web map whose one layer names A2's service root."""
+    from types import SimpleNamespace
+
+    from geolens_cli.arcgis_migrate_state import ItemState
+
+    root = "https://services.example.com/arcgis/rest/services/Land/FeatureServer"
+    webmap = {
+        "operationalLayers": [
+            {"id": "root", "itemId": A2, "layerType": "ArcGISFeatureLayer", "url": root}
+        ]
+    }
+    ctx = SimpleNamespace(
+        aliases={}, items={A2: ItemState.from_dict(entry)}, importable={A2}
+    )
+    return ctx, webmap
+
+
+def test_a_root_reference_waits_while_a_layer_of_its_service_is_still_owed(
+    runner, plan_file, geolens
+):
+    from geolens_cli import arcgis_migrate_webmaps as webmaps
+
+    service = FakeImport(geolens, [_layer(0, "Buildings"), _layer(1, "Parcels")])
+    flaky = {"on": True}
+
+    def preview(seen):
+        name = seen.json()["layer_name"]
+        if name == "Buildings":
+            return (422, _problem(422, MULTIPATCH))
+        if flaky["on"]:
+            return (503, _problem(503, "unavailable"))
+        return service.preview(seen)
+
+    geolens.routes[PREVIEW] = preview
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+    ctx, webmap = _root_reference(_state(plan_file)["items"][A2])
+    assert webmaps._unimported(ctx, webmap, {}) == ["root"]
+
+    flaky["on"] = False
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    ctx, webmap = _root_reference(_state(plan_file)["items"][A2])
+    assert webmaps.match_datasets(ctx, webmap) == {"root": dataset_id("Parcels")}
+
+
+def test_a_root_reference_is_not_waited_on_when_every_layer_was_refused(
+    runner, plan_file, geolens
+):
+    from geolens_cli import arcgis_migrate_webmaps as webmaps
+
+    FakeImport(geolens, [_layer(0, "Buildings"), _layer(1, "Annex")])
+    geolens.routes[PREVIEW] = (422, _problem(422, MULTIPATCH))
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "skipped"
+
+    ctx, webmap = _root_reference(entry)
+    assert webmaps._unimported(ctx, webmap, {}) == []

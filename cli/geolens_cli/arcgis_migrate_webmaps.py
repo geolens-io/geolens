@@ -870,7 +870,7 @@ def _unimported(
 def _refused(layer: Mapping[str, Any], source: ItemState) -> bool:
     """Whether GeoLens refused *layer*'s service layer for good, so no rerun
     imports it: its index is refused, or the layer names none and every layer
-    of the item was refused."""
+    the last import pass set out to import was refused."""
     url = layer.get("url")
     try:
         path = urlsplit(url).path if isinstance(url, str) else ""
@@ -879,7 +879,9 @@ def _refused(layer: Mapping[str, Any], source: ItemState) -> bool:
     sub = _TRAILING_LAYER.search(path)
     if sub:
         return sub.group(1) in source.refused_layers
-    return bool(source.refused_layers) and not source.layer_datasets
+    return bool(source.pass_layers) and set(source.pass_layers) <= set(
+        source.refused_layers
+    )
 
 
 def _owed_layers(
