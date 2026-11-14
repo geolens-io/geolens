@@ -615,6 +615,10 @@ class Settings(
     # would trip it has already lost its client.
     db_statement_timeout_seconds: int = Field(default=300, ge=0)
 
+    # Deadline for anonymous OGC, STAC and search reads, embed and share links
+    # included; capped by the one above, and 0 leaves those reads on it.
+    db_anonymous_read_timeout_seconds: int = Field(default=30, ge=0)
+
     # How old a staged upload (a `staging/` object, or a local staging file
     # whose naming rows must also have ended this long ago) must be before a
     # reconciliation sweep deletes it for having no ingest_jobs row that still

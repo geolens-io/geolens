@@ -20,6 +20,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.core.identity import Identity
+from app.core.statement_timeout import hold_if_anonymous_reads_bound
 from app.modules.auth.models import ApiKey, User
 from app.modules.auth.permissions import get_user_roles
 from app.platform.extensions import get_identity_extension, get_permission_extension
@@ -708,6 +709,8 @@ async def get_optional_user(
     """
     user = await _resolve_optional_identity(request, token, db)
     reject_unresolvable_credentials(request, user)
+    if user is None:
+        await hold_if_anonymous_reads_bound(request, db)
     return user
 
 

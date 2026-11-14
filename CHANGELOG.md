@@ -91,6 +91,8 @@ and releases use semantic versioning.
 - With Valkey configured but unreachable, an AI request from a user under a daily token cap is refused with 429 instead of taking a per-worker in-flight slot, so the two-request limit can no longer be multiplied by the number of API workers. Deployments without Valkey keep per-process slots.
 - After sign-up switches from admin approval to email verification, an account still waiting for approval can no longer request a verification link and activate itself; it stays pending until an administrator approves it.
 - The bundled nginx edge answers 404 for `/api/tiles/raster-auth-check/`, an internal check the raster tile proxy runs in-process that returned a dataset's managed storage path to signed-in readers. Raster tiles are unaffected.
+- OGC API, STAC and catalog search reads by a caller with no API key or sign-in, embed and share links included, now stop after 30 seconds of database time (`DB_ANONYMOUS_READ_TIMEOUT_SECONDS`, never more than `DB_STATEMENT_TIMEOUT_SECONDS`) and answer `503`, which a client can retry; signed-in callers and API keys keep the 300-second limit.
+- The web server now caches, for 5 seconds, the story frame policy it asks the API for on every app page, so a burst of page loads makes one API request. A host removed from the approved story frame hosts can still be framed by pages loaded up to 5 seconds after the change.
 
 ## [1.31.0] - 2026-11-10
 

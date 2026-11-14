@@ -21,7 +21,10 @@ from app.core.record_types import (
 )
 from app.platform.assets.keys import is_public_asset_key
 from app.platform.extensions import get_catalog_port
-from app.modules.auth.dependencies import get_optional_user
+from app.core.statement_timeout import bound_anonymous_reads, bound_every_read
+from app.modules.auth.dependencies import (
+    get_optional_user,
+)
 from app.modules.catalog.authorization import (
     apply_visibility_filter,
     check_dataset_access_or_anonymous,
@@ -39,6 +42,7 @@ from app.modules.catalog.datasets.domain.models import (
     RecordKeyword,
 )
 from app.core.dependencies import get_db
+from app.core.db.sqlstate import is_query_canceled
 from app.modules.catalog.search.router_saved import router as saved_search_router
 from app.standards.ogc.filtering import (
     build_queryables_response,
@@ -417,6 +421,8 @@ async def _handle_search(
 
 
 search_router = APIRouter(prefix="/search", tags=["Search"])
+# Not router-wide: the saved-search routes included below write.
+_ANONYMOUS_READ = [Depends(bound_anonymous_reads)]
 
 
 _SUPPORTED_FILTER_LANGS = ("cql2-text", "cql2-json")
@@ -490,9 +496,13 @@ def _finalize_semantic_search_claim(request: Request) -> None:
     response_model=FacetCountResponse,
     include_in_schema=False,
     summary="Get search facet counts",
+    dependencies=_ANONYMOUS_READ,
 )
 @search_router.get(
-    "/facets/", response_model=FacetCountResponse, summary="Get search facet counts"
+    "/facets/",
+    response_model=FacetCountResponse,
+    summary="Get search facet counts",
+    dependencies=_ANONYMOUS_READ,
 )
 # Facets embed the query, so both routes draw on one semantic-search bucket. No
 # override_defaults: this limit_value is callable, so the global rate-limit
@@ -586,12 +596,14 @@ async def search_facets_endpoint(
     response_model=OGCFeatureCollectionResponse,
     include_in_schema=False,
     summary="Search datasets",
+    dependencies=_ANONYMOUS_READ,
 )
 @search_router.get(
     "/datasets/",
     response_model=OGCFeatureCollectionResponse,
     responses={400: BAD_REQUEST_RESPONSE},
     summary="Search datasets",
+    dependencies=_ANONYMOUS_READ,
 )
 # The facets route's callable-limit note above applies here too: this route
 # can be the second of the pair.
@@ -621,7 +633,7 @@ async def search_datasets_endpoint(
 
 collections_router = APIRouter(
     prefix="/collections",
-    dependencies=[Depends(desktop_entry_gate)],
+    dependencies=[Depends(desktop_entry_gate), Depends(bound_anonymous_reads)],
     tags=["OGC Features"],
     responses=ERROR_RESPONSES_PUBLIC,
 )
@@ -671,7 +683,9 @@ async def _build_collection_metadata(
     try:
         result = await db.execute(extent_stmt)
         row = result.one()
-    except Exception:  # broad: ST_Extent aggregation can fail on diverse PostGIS errors; degrade to no-extent metadata
+    except Exception as exc:  # broad: ST_Extent aggregation can fail on diverse PostGIS errors; degrade to no-extent metadata
+        if is_query_canceled(exc):
+            raise
         logger.error(
             "Failed to compute spatial extent for collection metadata", exc_info=True
         )
@@ -729,7 +743,9 @@ async def _build_collection_metadata(
     )
     try:
         summary_row = (await db.execute(summary_stmt)).one()
-    except Exception:  # broad: summary aggregation can hit diverse DB errors; degrade to no-summary metadata
+    except Exception as exc:  # broad: summary aggregation can hit diverse DB errors; degrade to no-summary metadata
+        if is_query_canceled(exc):
+            raise
         logger.error(
             "Failed to compute summaries for collection metadata", exc_info=True
         )
@@ -1044,6 +1060,7 @@ async def get_collection_metadata(
     "/datasets/queryables",
     response_class=JSONResponse,
     summary="Get the datasets collection queryables",
+    dependencies=[Depends(bound_every_read)],
 )
 async def get_queryables(
     request: Request,
@@ -1061,6 +1078,7 @@ async def get_queryables(
     "/datasets/schema",
     response_class=JSONResponse,
     summary="Get the catalog record schema",
+    dependencies=[Depends(bound_every_read)],
 )
 async def get_record_schema(
     request: Request,
@@ -1078,6 +1096,7 @@ async def get_record_schema(
     "/datasets/sortables",
     response_class=JSONResponse,
     summary="Get the datasets collection sortables",
+    dependencies=[Depends(bound_every_read)],
 )
 async def get_sortables(
     request: Request,
@@ -1324,7 +1343,9 @@ async def get_collection_item(
             item_raster_meta = await _build_raster_assets(
                 db, record_id, user, user_roles
             )
-        except Exception:  # broad: raster meta enrichment is best-effort; any DB error degrades to no raster props
+        except Exception as exc:  # broad: raster meta enrichment is best-effort; any DB error degrades to no raster props
+            if is_query_canceled(exc):
+                raise
             logger.warning(
                 "ogc_item_raster_meta_failed",
                 record_id=str(record_id),
@@ -1420,7 +1441,9 @@ async def _bulk_fetch_dataset_metadata(
             raster_meta.update(
                 await get_catalog_port().fetch_raster_meta_bulk(db, raster_ids)
             )
-        except Exception:  # broad: bulk raster meta fetch — degrade to empty so search response still ships
+        except Exception as exc:  # broad: bulk raster meta fetch — degrade to empty so search response still ships
+            if is_query_canceled(exc):
+                raise
             logger.warning(
                 "search_bulk_fetch_raster_meta_failed",
                 raster_count=len(raster_ids),
@@ -1441,7 +1464,9 @@ async def _bulk_fetch_dataset_metadata(
                 )
                 for vrt_id, count in source_counts.items():
                     raster_meta[str(vrt_id)]["source_count"] = count
-            except Exception:  # broad: VRT source-count enrichment is best-effort; any DB error skips the field
+            except Exception as exc:  # broad: VRT source-count enrichment is best-effort; any DB error skips the field
+                if is_query_canceled(exc):
+                    raise
                 logger.warning(
                     "search_bulk_fetch_vrt_source_count_failed",
                     raster_count=len(raster_ids),

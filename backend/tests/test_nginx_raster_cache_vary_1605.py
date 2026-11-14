@@ -167,8 +167,8 @@ def test_hiding_vary_without_ignoring_it_fails():
     B with a MISS and a second upstream fetch.
     """
     conf = _without_comments(NGINX_CONF.read_text())
-    hide_only = conf.replace(
-        "proxy_ignore_headers Set-Cookie Vary;", "proxy_ignore_headers Set-Cookie;"
+    hide_only = re.sub(
+        r"^(\s*proxy_ignore_headers\b[^;]*?) Vary\b", r"\1", conf, flags=re.M
     )
 
     assert hide_only != conf, "the conf no longer ignores Vary in one directive"

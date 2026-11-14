@@ -24,12 +24,21 @@ value here would kill that working transaction along with an abandoned one.
 
 from __future__ import annotations
 
+from collections.abc import AsyncIterator
+from contextvars import ContextVar
+
 import structlog
+from fastapi import Request
 from sqlalchemy import event, text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 logger = structlog.get_logger(__name__)
 
 _INSTALLED_ATTR = "_geolens_api_statement_timeout_installed"
+
+# Read by the engine `begin` listener, so every transaction the request opens,
+# on any session and after any commit, starts under the anonymous deadline.
+_anonymous_read: ContextVar[bool] = ContextVar("anonymous_read", default=False)
 
 
 def statement_timeout_ms() -> int:
@@ -39,15 +48,76 @@ def statement_timeout_ms() -> int:
     return max(0, int(settings.db_statement_timeout_seconds)) * 1000
 
 
+def anonymous_read_timeout_ms() -> int:
+    """The anonymous read deadline in milliseconds, capped at the API-wide one;
+    0 means none shorter applies."""
+    from app.core.config import settings
+
+    anonymous_ms = max(0, int(settings.db_anonymous_read_timeout_seconds)) * 1000
+    api_ms = statement_timeout_ms()
+    return min(anonymous_ms, api_ms) if anonymous_ms and api_ms else anonymous_ms
+
+
+def _anonymous_statement():
+    timeout_ms = int(anonymous_read_timeout_ms())
+    if timeout_ms <= 0:
+        return None
+    return text(f"SET LOCAL statement_timeout = {timeout_ms}")
+
+
+async def hold_to_anonymous_read_deadline(db: AsyncSession) -> None:
+    """Hold the rest of the current request to the anonymous read deadline:
+    *db*'s open transaction now, and every transaction begun after it."""
+    _anonymous_read.set(True)
+    statement = _anonymous_statement()
+    if statement is not None and db.in_transaction():
+        await db.execute(statement)
+
+
+def release_anonymous_read_deadline() -> None:
+    """End the anonymous read deadline for transactions begun from here on."""
+    _anonymous_read.set(False)
+
+
+_BOUND_STATE = "anonymous_reads_bound"
+
+
+async def bound_anonymous_reads(request: Request) -> AsyncIterator[None]:
+    """Router dependency: a caller ``get_optional_user`` resolves to no one reads
+    under the anonymous statement deadline for the rest of the request. Embed
+    and share links read anonymously."""
+    setattr(request.state, _BOUND_STATE, True)
+    try:
+        yield
+    finally:
+        release_anonymous_read_deadline()
+
+
+async def bound_every_read() -> AsyncIterator[None]:
+    """Route dependency for a read that resolves no caller: every transaction the
+    request begins runs under the anonymous statement deadline."""
+    _anonymous_read.set(True)
+    try:
+        yield
+    finally:
+        release_anonymous_read_deadline()
+
+
+async def hold_if_anonymous_reads_bound(request: Request, db: AsyncSession) -> None:
+    """Called once a request has resolved to no caller."""
+    if getattr(request.state, _BOUND_STATE, False):
+        await hold_to_anonymous_read_deadline(db)
+
+
 def install_api_statement_timeout(engine) -> None:
     """Give every transaction *engine* opens the API's statement deadline.
 
     Idempotent via a sentinel on the sync engine, so repeated calls don't
-    stack listeners. Call only from the API process; a no-op when
-    ``DB_STATEMENT_TIMEOUT_SECONDS=0``.
+    stack listeners. Call only from the API process; a no-op when both
+    ``DB_STATEMENT_TIMEOUT_SECONDS`` and ``DB_ANONYMOUS_READ_TIMEOUT_SECONDS`` are 0.
     """
     timeout_ms = statement_timeout_ms()
-    if timeout_ms <= 0:
+    if timeout_ms <= 0 and anonymous_read_timeout_ms() <= 0:
         return
 
     sync_engine = engine.sync_engine
@@ -64,11 +134,17 @@ def install_api_statement_timeout(engine) -> None:
     literal_ms = int(timeout_ms)
     if literal_ms < 0:
         raise ValueError(f"statement timeout must be non-negative, got {literal_ms}")
-    statement = text(f"SET LOCAL statement_timeout = {literal_ms}")
+    statement = (
+        text(f"SET LOCAL statement_timeout = {literal_ms}") if literal_ms else None
+    )
 
     @event.listens_for(sync_engine, "begin")
     def _apply_statement_timeout(conn) -> None:
-        conn.execute(statement)
+        chosen = _anonymous_statement() if _anonymous_read.get() else None
+        if chosen is None:
+            chosen = statement
+        if chosen is not None:
+            conn.execute(chosen)
 
     setattr(sync_engine, _INSTALLED_ATTR, True)
     logger.debug("api_statement_timeout_installed", timeout_ms=timeout_ms)
