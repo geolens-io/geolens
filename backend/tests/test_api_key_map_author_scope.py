@@ -737,4 +737,4 @@ async def test_other_callers_keep_the_order_they_send(
     assert patched.status_code == 200, patched.text
     orders = await _stored_orders(test_db_session, made["id"])
     assert orders[pinned.json()["id"]] == 0
-    assert sorted(orders.values()) == [0, 0, 0, 1]
+    assert sorted(orders.values()) == [0, 0, 1, 2]

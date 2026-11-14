@@ -732,7 +732,14 @@ async def patch_map_layers_endpoint(
         map_obj, layer_tuples, forked_name, owner_username = await apply_layer_diff(
             db,
             map_id,
-            added=[layer.model_dump() for layer in body.added],
+            added=[
+                layer.model_dump(
+                    exclude=None
+                    if "sort_order" in layer.model_fields_set
+                    else {"sort_order"}
+                )
+                for layer in body.added
+            ],
             updated=[layer.model_dump(exclude_unset=True) for layer in body.updated],
             removed=body.removed,
             order=body.order,
