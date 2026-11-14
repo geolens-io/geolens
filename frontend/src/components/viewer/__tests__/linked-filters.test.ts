@@ -314,6 +314,13 @@ describe('linkMapLayers on a bounded cluster', () => {
     expect(matches(lowerBin, { r: f(0.2) })).toBe(false);
   });
 
+  it('keeps a real histogram\'s first and last bin pickable at the float4 limit', () => {
+    const max = 3.4028234663852886e38;
+    const layer = pointLayer(false, 'r', 'real');
+    expect(selectionCql2(layer, range('r', -max, -2e38))).not.toBeNull();
+    expect(selectionCql2(layer, range('r', 2e38, max, true))).not.toBeNull();
+  });
+
   it('sends a real column\'s range as float4 edges, so the server\'s rounding keeps the bin\'s own values', () => {
     const f = Math.fround;
     // 0.35 as a float4 sits just below 0.35, so a plain 0.35 edge rounds to it and drops the point from [0.3, 0.35).
