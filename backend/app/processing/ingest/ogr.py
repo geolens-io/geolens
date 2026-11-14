@@ -24,8 +24,7 @@ from app.processing.ingest.shapefile_source import (
     declares_dbf_encoding,
     zip_dataset_root,
 )
-from app.platform.esri_services import esri_service_kind
-from app.platform.service_items import materialise_oapif_items
+from app.platform.service_items import materialise_oapif_items, recognise_esri_oapif
 from app.platform.service_endpoints import (
     assert_endpoints_stay_on_origin,
     fire_once,
@@ -49,9 +48,10 @@ from app.core.service_tokens import (
 from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.arcgis_wfs import (
+    CapabilitiesUnreadableError,
     arcgis_wfs_pages_by_count,
-    arcgis_wfs_version,
     fetch_arcgis_wfs_hits,
+    recognise_arcgis_wfs,
 )
 from app.platform.egress_proxy import (
     gdal_source_url,
@@ -1402,7 +1402,13 @@ async def run_ogr2ogr_service(
     # that returns early or is stubbed cannot lose the contact date.
     arm_origin_contact = fire_once(on_spawn)
     if service_type == "ogcapi_features" and (
-        token or esri_service_kind(gdal_source_url(gdal_source)) == "oapif"
+        token
+        or await recognise_esri_oapif(
+            gdal_source.split(":", 1)[1],
+            layer_name,
+            deadline=deadline,
+            on_first_request=arm_origin_contact,
+        )
     ):
         items_path = (
             await materialise_oapif_items(
@@ -1663,14 +1669,27 @@ async def _arcgis_wfs_expected_features(
     when the total can't be read: without it a capped read would pass for
     the whole layer."""
     url = gdal_source_url(gdal_source)
-    if url is None or esri_service_kind(url) != "wfs":
+    if url is None:
         return None
     credential_line = (
         _sanitize_authorization_token(token, service_format="wfs") if token else None
     )
     # The contact is armed by the first read to pass SSRF validation.
     reads = {"credential_line": credential_line, "on_first_request": arm_origin_contact}
-    version = await arcgis_wfs_version(url, **reads)
+    try:
+        arcgis = await recognise_arcgis_wfs(url, **reads)
+    except CapabilitiesUnreadableError:
+        raise IngestionError(
+            FixedReason(
+                "Couldn't read this WFS's capabilities to tell whether ArcGIS "
+                "serves it, so its feature count can't be checked. Retry in a "
+                "few minutes.",
+                code="arcgis_wfs_count_unavailable",
+            )
+        ) from None
+    if arcgis is None:
+        return None
+    version = arcgis.version
     expected = await fetch_arcgis_wfs_hits(url, layer_name, version=version, **reads)
     if expected is None:
         raise IngestionError(

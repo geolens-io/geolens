@@ -36664,7 +36664,7 @@
     },
     "/auth/resend-verification/": {
       "post": {
-        "description": "Re-issue and re-send a verification email.\n\nSends nothing unless self-registration is on and requires email\nverification, since only then can the link activate an account.\n\nEnumeration-safe: ALWAYS returns the same 200 body\nregardless of whether the email exists, is unknown, or is already verified.\nSend errors are logged server-side only and never branch the HTTP response.",
+        "description": "Re-issue and re-send a verification email.\n\nSends nothing unless self-registration is on and requires email\nverification, since only then can the link activate an account. A\npending account that signed up under admin approval gets no link.\n\nEnumeration-safe: ALWAYS returns the same 200 body\nregardless of whether the email exists, is unknown, or is already verified.\nSend errors are logged server-side only and never branch the HTTP response.",
         "operationId": "resend_verification_auth_resend_verification__post",
         "requestBody": {
           "content": {

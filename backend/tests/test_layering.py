@@ -1310,10 +1310,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/manifest_service.py": 1291,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
-    "backend/app/platform/service_endpoints.py": 1418,
-    # Pagination and materialization keep credentials and remote page traversal out of
-    # GDAL.
-    "backend/app/platform/service_items.py": 873,
+    "backend/app/platform/service_endpoints.py": 1419,
+    # Pagination, materialization and recognising an ArcGIS collection share the
+    # bounded page read that keeps credentials and remote page traversal out of GDAL.
+    "backend/app/platform/service_items.py": 1052,
     # ArcGIS sign-in shares destination checks, abuse budgets and deadlines across its
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1130,
@@ -1333,7 +1333,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/ogc/filtering.py": 1111,
     # Auth routes (sign-in, sessions, API keys, password) share one router and its
     # rate-limit and cookie helpers.
-    "backend/app/modules/auth/router.py": 1534,
+    "backend/app/modules/auth/router.py": 1541,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
     "backend/app/api/main.py": 1656,
@@ -1380,7 +1380,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1201,
     # Central settings and boot-validation debt, including the service-credential
     # http allowlist; split by configuration domain before raising further.
-    "backend/app/core/config.py": 1511,
+    "backend/app/core/config.py": 1516,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, model defaults that follow the selected LLM provider, and SQL
     # reads of a committed flag.
@@ -1402,7 +1402,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1218,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1733,
+    "backend/app/processing/ingest/ogr.py": 1752,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,
@@ -1427,7 +1427,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,
     # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1539,
+    "backend/app/modules/catalog/maps/router.py": 1499,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.

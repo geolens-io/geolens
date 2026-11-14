@@ -689,6 +689,76 @@ async def test_resend_sends_nothing_in_admin_approval_mode(
 
 
 @pytest.mark.anyio
+async def test_resend_after_switching_to_verification_mode_skips_approval_signups(
+    client: AsyncClient,
+    captured_send_email: list,
+    test_db_session,
+    set_persistent_config,
+) -> None:
+    """An approval-mode sign-up gets no link once verification mode is turned on."""
+    from app.core.persistent_config import (
+        EMAIL_VERIFICATION_REQUIRED,
+        REGISTRATION_ENABLED,
+    )
+
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, False)
+    username, email = await _pending_signup(client)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
+    _, verification_email = await _pending_signup(client)
+    assert len(captured_send_email) == 1
+
+    skipped = await client.post("/auth/resend-verification/", json={"email": email})
+    resent = await client.post(
+        "/auth/resend-verification/", json={"email": verification_email}
+    )
+
+    assert skipped.status_code == resent.status_code == 200
+    assert skipped.content == resent.content
+    assert len(captured_send_email) == 2
+    assert captured_send_email[1].data == {"to": verification_email}
+
+
+@pytest.mark.anyio
+async def test_a_sign_up_interrupted_after_its_account_commits_can_still_resend(
+    client: AsyncClient,
+    captured_send_email: list,
+    set_persistent_config,
+    monkeypatch,
+) -> None:
+    """A verification-mode sign-up that fails after its account is saved can request a link."""
+    from app.core.persistent_config import (
+        EMAIL_VERIFICATION_REQUIRED,
+        REGISTRATION_ENABLED,
+    )
+
+    await set_persistent_config(REGISTRATION_ENABLED, True)
+    await set_persistent_config(EMAIL_VERIFICATION_REQUIRED, True)
+
+    async def _crash(**_kwargs):
+        raise RuntimeError("worker died after the account commit")
+
+    monkeypatch.setattr("app.platform.notifications.events.emit_event_safe", _crash)
+    email = _unique_email()
+    with pytest.raises(RuntimeError):
+        await client.post(
+            "/auth/register/",
+            json={
+                "username": _unique_username(),
+                "password": _STRONG_PASSWORD,
+                "email": email,
+            },
+        )
+    assert captured_send_email == []
+
+    resend = await client.post("/auth/resend-verification/", json={"email": email})
+
+    assert resend.status_code == 200
+    assert len(captured_send_email) == 1
+    assert captured_send_email[0].data == {"to": email}
+
+
+@pytest.mark.anyio
 async def test_verify_email_in_admin_approval_mode_does_not_activate(
     client: AsyncClient,
     captured_send_email: list,
