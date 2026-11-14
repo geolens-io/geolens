@@ -237,6 +237,7 @@
     "jobFailureGeometryWktInvalidWgs84": "{{rows}} Zeile(n) haben ungültige WKT-Geometrie oder Koordinaten außerhalb der Längen- und Breitengradbereiche (EPSG:4326).",
     "jobFailureGeometryWktInvalid": "{{rows}} Zeile(n) haben ungültige WKT-Geometrie oder Koordinaten, die keine endlichen Zahlen sind.",
     "jobFailureGeometryWktMalformed": "Die WKT-Spalte enthält Text, der keine gültige Geometrie ist.",
+    "jobFailureGeometryWktMixedDimensions": "Die WKT-Spalte mischt Koordinatendimensionen ({{dimensions}}), daher wurde keine Geometrie erstellt. Geben Sie allen Zeilen dieselben Dimensionen.",
     "serviceLayerNoFeatures": "Diese Ebene enthält keine Features (Gruppen-, Raster-, Annotations-, Topologie- oder Versorgungsnetz-Ebene). Importieren Sie stattdessen eine ihrer Feature-Ebenen oder Tabellen.",
     "serviceGeometryUnsupported": "Diese Ebene enthält Multipatch-Geometrie, die nicht importiert werden kann. Veröffentlichen Sie sie als Feature-Ebene mit einem anderen Geometrietyp.",
     "serviceAuthRefused": "Der Dienst hat die Anmeldeinformation abgelehnt, während GeoLens diese Sammlung gelesen hat. Prüfen Sie, ob das Token gültig und nicht abgelaufen ist, und versuchen Sie es erneut.",

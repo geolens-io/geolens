@@ -139,6 +139,7 @@ async def construct_point_geometry(
 
 
 _ZM_SUFFIX = {1: "M", 2: "Z", 3: "ZM"}
+_DIMENSIONS = {0: "XY", 1: "XYM", 2: "XYZ", 3: "XYZM"}
 _MULTI_OF = {
     "POINT": "MULTIPOINT",
     "LINESTRING": "MULTILINESTRING",
@@ -151,7 +152,7 @@ def _wkt_column_type(found: list[tuple[str, int]], parsed_geom: str) -> tuple[st
 
     One type is kept as it is. Single and multi of one family, or several
     families, are stored in multi form, as the GDAL load promotes them. Rows
-    that disagree on Z or M are stored 2D.
+    that disagree on Z or M are refused, since no one column holds them all.
     """
     # GeometryType spells M but not Z; the flag says which a row carries.
     types = {geometry_type.removesuffix("M") for geometry_type, _ in found}
@@ -164,7 +165,9 @@ def _wkt_column_type(found: list[tuple[str, int]], parsed_geom: str) -> tuple[st
         stored = f"ST_Multi({stored})"
         base = next(iter(families)) if len(families) == 1 else "GEOMETRY"
     if len(flags) > 1:
-        return base, f"ST_Force2D({stored})"
+        raise geometry_build_errors.wkt_mixed_dimensions(
+            [_DIMENSIONS[flag] for flag in sorted(flags)]
+        )
     return base + _ZM_SUFFIX.get(next(iter(flags), 0), ""), stored
 
 

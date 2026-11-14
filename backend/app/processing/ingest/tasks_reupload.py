@@ -868,10 +868,9 @@ class _FileReupload(_LiveComparison):
                 contacted_origin=False,
                 reaps_staged_upload=True,
             )
-            await self._record_live_selection(session, dataset)
+            self._record_unchanged_selection(dataset)
             await self._apply_manifest(session, dataset)
             return published
-        await self._record_live_selection(session, dataset)
         version, schema_diff = await _write_reupload_catalog(
             session,
             dataset=dataset,
@@ -909,13 +908,12 @@ class _FileReupload(_LiveComparison):
     def _geometry_fields(self) -> dict:
         return {} if self.geometry_build is None else self.geometry_build.fields()
 
-    async def _record_live_selection(self, session, dataset) -> None:
-        """Record on the binding the selection the live data was built from.
+    def _record_unchanged_selection(self, dataset) -> None:
+        """Record on the binding the selection the unchanged live data was built from.
 
-        Before the live version is kept, so its row and a later restore have
-        it, and before an unchanged run leaves the binding as it is. A dataset
-        imported before bindings recorded one otherwise has it only on its
-        import job.
+        A dataset imported before bindings recorded one otherwise has it only
+        on its import job, which retention can drop once this run's job is
+        the newer one.
         """
         ref = dataset.origin_ref or {}
         live = self.live_selection
@@ -932,7 +930,6 @@ class _FileReupload(_LiveComparison):
             contacted_at=dataset.last_checked_at,
             refreshed_at=KEEP,
         )
-        await session.flush()
 
     async def _apply_manifest(self, session, dataset) -> None:
         # A manifest re-apply lands here carrying the manifest's current

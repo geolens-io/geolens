@@ -31,6 +31,7 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   geometry_wkt_invalid: 'errors.jobFailureGeometryWktInvalid',
   geometry_wkt_invalid_wgs84: 'errors.jobFailureGeometryWktInvalidWgs84',
   geometry_wkt_malformed: 'errors.jobFailureGeometryWktMalformed',
+  geometry_wkt_mixed_dimensions: 'errors.jobFailureGeometryWktMixedDimensions',
   geometry_xy_not_finite: 'errors.jobFailureGeometryXyNotFinite',
   geometry_xy_not_numeric: 'errors.jobFailureGeometryXyNotNumeric',
   geometry_xy_outside_wgs84: 'errors.jobFailureGeometryXyOutsideWgs84',
@@ -72,6 +73,8 @@ const FIXED_FAILURE_SENTENCES: Record<string, string> = {
   geometry_wkt_invalid_wgs84:
     "{{rows}} row(s) contain invalid WKT geometry or coordinates outside EPSG:4326 ranges",
   geometry_wkt_invalid: "{{rows}} row(s) contain invalid WKT geometry or coordinates outside finite values",
+  geometry_wkt_mixed_dimensions:
+    "The WKT column mixes coordinate dimensions ({{dimensions}}), so no geometry was built. Give every row the same dimensions.",
 };
 
 /** The values ``template`` names, read out of ``reason``, or undefined when it doesn't match. */

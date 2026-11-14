@@ -31,6 +31,7 @@ from app.processing.ingest.publication import (
 )
 from app.processing.ingest.previous_version import (
     record_live_version,
+    version_geometry_columns,
     stamp_kept_versions,
 )
 from app.platform.source_geometry_columns import selection_fields
@@ -48,7 +49,7 @@ _CHANGED = "previous_version_changed"
 _NOT_APPLICABLE = "restore_not_applicable"
 
 
-def _reinstate_source(dataset, source) -> None:
+def _reinstate_source(dataset, source, geometry_fields: dict | None) -> None:
     """Point the dataset's source fields back at the kept version's.
 
     The source CRS always follows the kept data. The binding follows it only
@@ -68,7 +69,7 @@ def _reinstate_source(dataset, source) -> None:
             source.source_format,
             filename=source.source_filename,
             file_hash=source.file_hash,
-            geometry_fields=selection_fields(source.geometry_columns),
+            geometry_fields=geometry_fields,
         )
         if kind == "upload"
         else SourceBinding.created()
@@ -190,7 +191,13 @@ class _RestorePreviousVersion:
         # Freshness describes the data that is live again, as the swap that
         # kept it recorded.
         dataset.last_refreshed_at = restored_refreshed_at
-        _reinstate_source(dataset, source)
+        geometry_fields = (
+            None
+            if source is None
+            else selection_fields(source.geometry_columns)
+            or await version_geometry_columns(session, dataset.id, restored)
+        )
+        _reinstate_source(dataset, source, geometry_fields)
 
         version = DatasetVersion(
             dataset_id=dataset.id,
@@ -203,7 +210,7 @@ class _RestorePreviousVersion:
             geometry_type=self.measurement.geometry_type,
             original_srid=None if source is None else source.original_srid,
             column_info=dataset.column_info,
-            geometry_columns=None if source is None else source.geometry_columns,
+            geometry_columns=geometry_fields,
             is_3d=self.measurement.three_d.get("is_3d"),
             n_dims=self.measurement.three_d.get("n_dims"),
             restored_from_version=restored,

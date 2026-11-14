@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import contextlib
 import shutil
 import subprocess
 import uuid
@@ -83,6 +84,35 @@ class _Harness:
         assert job.status == "complete", job.error_message
         return await self.reload(job.dataset_id)
 
+    async def failed_import(self, path: Path, **columns) -> IngestJob:
+        """Run an import that fails, and return its job."""
+        job = IngestJob(
+            source_filename=path.name,
+            file_path=str(path),
+            created_by=self.admin_id,
+            status="pending",
+            user_metadata={"title": f"Columns {uuid.uuid4().hex[:8]}", **columns},
+        )
+        self.session.add(job)
+        await self.session.commit()
+        job_id, attempt_id = job.id, job.attempt_id
+        with (
+            patch(
+                "app.processing.ingest.service.resolve_file_path",
+                AsyncMock(return_value=str(path)),
+            ),
+            contextlib.suppress(Exception),
+        ):
+            await ingest_file.func(
+                job_id=str(job_id),
+                file_path=str(path),
+                user_id=str(self.admin_id),
+                attempt_id=str(attempt_id),
+            )
+        job = await self.session.get(IngestJob, job_id, populate_existing=True)
+        assert job.status == "failed"
+        return job
+
     async def reload(self, dataset_id: uuid.UUID) -> Dataset:
         return (
             await self.session.execute(
@@ -147,7 +177,13 @@ class _Harness:
             },
         )
         run = await self.run_for(job_id)
-        assert run.status == "succeeded", (run.error_code, run.verification)
+        assert run.status == "succeeded", (
+            run.error_code,
+            run.verification.get("review_reasons"),
+            run.verification.get("geometry_contract"),
+            run.verification.get("review_fingerprint"),
+            response.json()["review_reasons"],
+        )
         return run
 
     async def run_for(self, job_id: uuid.UUID) -> DatasetRefreshRun:
@@ -583,3 +619,213 @@ def _ogr2ogr(destination: Path, source: Path, *args: str) -> None:
         text=True,
     )
     assert done.returncode == 0, done.stderr
+
+
+async def _replace_from_service(harness: _Harness, dataset: Dataset) -> None:
+    """Replace the dataset's data from a WFS layer that serves two points."""
+    from app.platform.refresh.service import create_pending_run
+    from app.processing.ingest.tasks import reupload_service
+
+    job = IngestJob(
+        dataset_id=dataset.id,
+        status="pending",
+        attempt_id=uuid.uuid4(),
+        source_filename="layer",
+        source_url="https://services.example.com/wfs",
+        source_layer="places",
+        created_by=harness.admin_id,
+        user_metadata={
+            "reupload": True,
+            "dataset_id": str(dataset.id),
+            "service_type": "WFS 2.0.0",
+            "layer_id": None,
+            "source_type": "service_url",
+        },
+    )
+    harness.session.add(job)
+    await harness.session.flush()
+    await create_pending_run(
+        harness.session,
+        dataset_id=dataset.id,
+        origin_kind="service",
+        trigger="manual",
+        triggered_by=harness.admin_id,
+        ingest_job_id=job.id,
+        feature_count_before=dataset.feature_count,
+    )
+    await harness.session.commit()
+    job_id, attempt_id = job.id, job.attempt_id
+
+    async def _served(gdal_source, layer_name, table_name, *args, schema, **kwargs):
+        if kwargs.get("on_spawn") is not None:
+            kwargs["on_spawn"]()
+        import app.core.db as db_module
+
+        async with db_module.async_session() as session:
+            await session.execute(
+                text(
+                    f'CREATE TABLE "{schema}"."{table_name}" (gid serial PRIMARY KEY, '
+                    "name varchar, lon double precision, lat double precision, "
+                    "geom geometry(Point, 4326))"
+                )
+            )
+            await session.execute(
+                text(
+                    f'INSERT INTO "{schema}"."{table_name}" (name, lon, lat, geom) '
+                    "VALUES ('a', -73.98, 40.75, "
+                    "ST_SetSRID(ST_MakePoint(-73.98, 40.75), 4326)), "
+                    "('b', -73.95, 40.78, ST_SetSRID(ST_MakePoint(-73.95, 40.78), 4326))"
+                )
+            )
+            await session.commit()
+
+    with (
+        patch("app.platform.security.validate_url_for_ssrf", new=AsyncMock()),
+        patch(
+            "app.modules.catalog.sources.preview.build_gdal_source",
+            return_value=("WFS:https://services.example.com/wfs", "places"),
+        ),
+        patch(
+            "app.processing.ingest.ogr.run_ogr2ogr_service",
+            new=AsyncMock(side_effect=_served),
+        ),
+    ):
+        await reupload_service(
+            job_id=str(job_id),
+            attempt_id=str(attempt_id),
+            dataset_id=str(dataset.id),
+            source_url="https://services.example.com/wfs",
+            source_layer="places",
+            user_id=str(harness.admin_id),
+            token=None,
+        )
+    run = await harness.run_for(job_id)
+    assert run.status == "succeeded", (run.error_code, run.verification)
+
+
+async def _legacy_import(harness: _Harness) -> Dataset:
+    """An x/y import whose binding predates recording the columns."""
+    dataset = await harness.first_import(
+        _xy_csv(harness.tmp_path / "older.csv"), x_column="lon", y_column="lat"
+    )
+    await harness.session.execute(
+        update(Dataset)
+        .where(Dataset.id == dataset.id)
+        .values(origin_ref={"kind": "upload", "filename": "older.csv"})
+    )
+    await harness.session.commit()
+    return await harness.reload(dataset.id)
+
+
+async def test_an_older_import_replaced_from_a_service_keeps_its_columns_for_restore(
+    harness: _Harness,
+):
+    """The kept first version records the columns its import job holds."""
+    dataset = await _legacy_import(harness)
+    await _replace_from_service(harness, dataset)
+    kept = await harness.session.scalar(
+        text(
+            "SELECT geometry_columns FROM catalog.dataset_versions "
+            "WHERE dataset_id = :id AND version_number = 1"
+        ),
+        {"id": dataset.id},
+    )
+    assert (kept["x_column"], kept["y_column"]) == ("lon", "lat")
+    await harness.restore(await harness.reload(dataset.id), 1)
+
+    dataset = await harness.reload(dataset.id)
+    assert dataset.origin_ref["x_column"] == "lon"
+    await harness.replace(dataset, _xy_csv(harness.tmp_path / "after.csv", _GROWN))
+    assert await harness.points(await harness.reload(dataset.id)) == _EXPECTED_GROWN
+
+
+async def test_an_original_version_kept_before_versions_recorded_columns_restores(
+    harness: _Harness,
+):
+    """Version 1 kept with no columns reads them from its import job on restore."""
+    dataset = await _legacy_import(harness)
+    await harness.replace(dataset, _native_geojson(harness.tmp_path / "native.geojson"))
+    await harness.session.execute(
+        text(
+            "UPDATE catalog.dataset_versions SET geometry_columns = NULL "
+            "WHERE dataset_id = :id AND version_number = 1"
+        ),
+        {"id": dataset.id},
+    )
+    await harness.session.commit()
+
+    await harness.restore(await harness.reload(dataset.id), 1)
+    dataset = await harness.reload(dataset.id)
+    assert dataset.origin_ref["x_column"] == "lon"
+    await harness.replace(dataset, _xy_csv(harness.tmp_path / "after.csv", _GROWN))
+    assert await harness.points(await harness.reload(dataset.id)) == _EXPECTED_GROWN
+
+
+@pytest.mark.parametrize(
+    "rows,dimensions",
+    [
+        (["POINT ZM (1 2 3 4)", "POINT Z (5 6 7)"], "XYZ, XYZM"),
+        (["POINT M (1 2 3)", "POINT ZM (5 6 7 8)"], "XYM, XYZM"),
+        (["POINT (1 2)", "MULTIPOINT Z ((5 6 7))"], "XY, XYZ"),
+    ],
+)
+async def test_wkt_rows_that_disagree_on_dimensions_are_refused(
+    harness: _Harness, rows: list[str], dimensions: str
+):
+    """No row loses an ordinate: the import names the dimensions it found."""
+    path = harness.tmp_path / "dims.csv"
+    path.write_text(
+        "name,shape_wkt\n" + "".join(f'{i},"{row}"\n' for i, row in enumerate(rows))
+    )
+    job = await harness.failed_import(path, geom_column="shape_wkt")
+    assert job.error_code == "geometry_wkt_mixed_dimensions"
+    assert job.error_message == GEOMETRY_BUILD_SENTENCES[
+        "geometry_wkt_mixed_dimensions"
+    ].format(dimensions=dimensions)
+
+
+@pytest.mark.parametrize(
+    "rows,stored",
+    [
+        (["POINT Z (1 2 3)", "POINT (5 6 7)"], "POINT Z (5 6 7)"),
+        (["POINT ZM (1 2 3 4)", "POINT (5 6 7 8)"], "POINT ZM (5 6 7 8)"),
+    ],
+)
+async def test_wkt_rows_that_agree_on_dimensions_keep_their_ordinates(
+    harness: _Harness, rows: list[str], stored: str
+):
+    path = harness.tmp_path / "dims.csv"
+    path.write_text(
+        "name,shape_wkt\n" + "".join(f'{i},"{row}"\n' for i, row in enumerate(rows))
+    )
+    dataset = await harness.first_import(path, geom_column="shape_wkt")
+    value = await harness.session.scalar(
+        text(
+            f"SELECT ST_AsText(geom) FROM data.\"{dataset.table_name}\" WHERE name = '1'"
+        )
+    )
+    assert value == stored
+
+
+async def test_implicit_3d_wkt_shows_the_same_review_in_preview_and_worker(
+    harness: _Harness,
+):
+    """``LINESTRING (x y z, ...)`` is 3D to PostGIS, and the preview says so too."""
+
+    def implicit(path: Path, rows) -> Path:
+        lines = ["name,shape_wkt"] + [
+            f'{n},"LINESTRING ({x} {y} 10, {x + 0.01} {y} 12)"' for n, x, y in rows
+        ]
+        path.write_text("\n".join(lines) + "\n")
+        return path
+
+    dataset = await harness.first_import(
+        implicit(harness.tmp_path / "high.csv", _XY_ROWS), geom_column="shape_wkt"
+    )
+    run = await harness.replace(
+        dataset,
+        implicit(harness.tmp_path / "nad83.csv", _GROWN),
+        {"srid_override": 4269},
+    )
+    assert run.verification["review_reasons"] == ["srid_changed"]
+    assert run.verification["review_acknowledged_by"] == "preview"

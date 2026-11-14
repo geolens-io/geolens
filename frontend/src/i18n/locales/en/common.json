@@ -394,6 +394,7 @@
     "jobFailureGeometryWktInvalidWgs84": "{{rows}} row(s) have invalid WKT geometry or coordinates outside longitude and latitude ranges (EPSG:4326).",
     "jobFailureGeometryWktInvalid": "{{rows}} row(s) have invalid WKT geometry or coordinates that are not finite numbers.",
     "jobFailureGeometryWktMalformed": "The WKT column holds text that isn't valid geometry.",
+    "jobFailureGeometryWktMixedDimensions": "The WKT column mixes coordinate dimensions ({{dimensions}}), so no geometry was built. Give every row the same dimensions.",
     "serviceLayerNoFeatures": "This layer holds no features (a group, raster, annotation, topology or utility network layer). Import one of its feature layers or tables instead.",
     "serviceGeometryUnsupported": "This layer holds multipatch geometry, which can't be imported. Publish it as a feature layer with another geometry type.",
     "serviceAuthRefused": "The service refused the credential while GeoLens read this collection. Check that the token is valid and hasn't expired, then try again.",

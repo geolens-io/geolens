@@ -37,6 +37,10 @@ GEOMETRY_BUILD_SENTENCES: dict[str, str] = {
         "finite values"
     ),
     "geometry_wkt_malformed": "WKT column contains malformed geometry text",
+    "geometry_wkt_mixed_dimensions": (
+        "The WKT column mixes coordinate dimensions ({dimensions}), so no "
+        "geometry was built. Give every row the same dimensions."
+    ),
 }
 
 
@@ -100,3 +104,9 @@ def wkt_malformed() -> GeometryBuildError:
     """WKT that PostGIS cannot parse."""
     text = _sentence("geometry_wkt_malformed")
     return GeometryBuildError(FixedReason(text, code="geometry_wkt_malformed"))
+
+
+def wkt_mixed_dimensions(dimensions: Sequence[str]) -> GeometryBuildError:
+    """Rows whose WKT carry different coordinate dimensions, such as XYZ and XYZM."""
+    text = _sentence("geometry_wkt_mixed_dimensions", dimensions=", ".join(dimensions))
+    return GeometryBuildError(FixedReason(text, code="geometry_wkt_mixed_dimensions"))

@@ -113,7 +113,10 @@ def test_a_header_on_several_lines_is_named_on_one():
         (["POINT (1 2)", "POINT(3 4)"], "POINT"),
         (["POINT (1 2)", "MULTIPOINT ((3 4))"], "MULTIPOINT"),
         (["POINT Z (1 2 3)", "POINTZ(3 4 5)"], "POINTZ"),
-        (["POINT Z (1 2 3)", "POINT (3 4)"], "POINT"),
+        (["POINT Z (1 2 3)", "POINT (3 4)"], "GEOMETRY"),
+        (["POINT (1 2 3)", "POINT(3 4 5)"], "POINTZ"),
+        (["MULTIPOINT ((1 2 3 4))"], "MULTIPOINTZM"),
+        (["POINT M (1 2 3)"], "POINTM"),
         (["POINT (1 2)", "LINESTRING (0 0, 1 1)"], "GEOMETRY"),
         (["SRID=4326;POLYGON ((0 0, 1 0, 1 1, 0 0))"], "POLYGON"),
         (["not wkt"], "GEOMETRY"),
@@ -131,7 +134,6 @@ def test_a_preview_declares_what_the_build_stores(values, declared):
         ([("POINT", 0)], "POINT", "g"),
         ([("POINT", 0), ("MULTIPOINT", 0)], "MULTIPOINT", "ST_Multi(g)"),
         ([("POLYGON", 0), ("LINESTRING", 0)], "GEOMETRY", "ST_Multi(g)"),
-        ([("POINT", 2), ("POINT", 0)], "POINT", "ST_Force2D(g)"),
         ([("POINTM", 1)], "POINTM", "g"),
         ([], "GEOMETRY", "g"),
     ],
@@ -140,3 +142,21 @@ def test_the_build_stores_one_family_in_multi_form(found, typmod, stored):
     from app.processing.ingest.metadata_geometry import _wkt_column_type
 
     assert _wkt_column_type(found, "g") == (typmod, stored)
+
+
+@pytest.mark.parametrize(
+    "found,dimensions",
+    [
+        ([("POINT", 2), ("POINT", 3)], "XYZ, XYZM"),
+        ([("POINTM", 1), ("MULTIPOINTM", 3)], "XYM, XYZM"),
+        ([("POINT", 0), ("MULTIPOINT", 2)], "XY, XYZ"),
+    ],
+)
+def test_rows_that_disagree_on_dimensions_build_nothing(found, dimensions):
+    from app.core.geometry_build_errors import GeometryBuildError
+    from app.processing.ingest.metadata_geometry import _wkt_column_type
+
+    with pytest.raises(GeometryBuildError) as refused:
+        _wkt_column_type(found, "g")
+    assert refused.value.reason.code == "geometry_wkt_mixed_dimensions"
+    assert f"({dimensions})" in str(refused.value)

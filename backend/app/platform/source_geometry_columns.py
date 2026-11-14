@@ -96,6 +96,9 @@ def columns_to_build(
 _WKT_TYPE_RE = re.compile(
     r"^\s*(?:SRID=\d+;)?\s*([A-Z]+?)\s*(ZM|Z|M)?\s*(?:\(|EMPTY)", re.IGNORECASE
 )
+_FIRST_COORDINATE_RE = re.compile(r"\(\s*([^(),]+?)\s*[,)]")
+# PostGIS reads ordinates past X and Y as Z, then M, when the type names neither.
+_IMPLICIT_DIMENSION = {3: "Z", 4: "ZM"}
 _MULTI_OF = {
     "POINT": "MULTIPOINT",
     "LINESTRING": "MULTILINESTRING",
@@ -124,12 +127,23 @@ def declared_build_type(
             if match is None:
                 return "GEOMETRY"
             types.add(match.group(1).upper())
-            flags.add((match.group(2) or "").upper())
+            flags.add(_wkt_dimension(match.group(2), value[match.end() - 1 :]))
     families = {_MULTI_OF.get(geometry_type, geometry_type) for geometry_type in types}
-    if len(families) != 1:
+    # Rows that disagree on dimensions are refused by the build.
+    if len(families) != 1 or len(flags) != 1:
         return "GEOMETRY"
     base = next(iter(types)) if len(types) == 1 else next(iter(families))
-    return base + (next(iter(flags)) if len(flags) == 1 else "")
+    return base + next(iter(flags))
+
+
+def _wkt_dimension(suffix: str | None, body: str) -> str:
+    """The Z/M suffix PostGIS gives a WKT value: the named one, else by ordinate count."""
+    if suffix:
+        return suffix.upper()
+    coordinate = _FIRST_COORDINATE_RE.search(body)
+    if coordinate is None:
+        return ""
+    return _IMPLICIT_DIMENSION.get(len(coordinate.group(1).split()), "")
 
 
 async def recorded_geometry_selection(

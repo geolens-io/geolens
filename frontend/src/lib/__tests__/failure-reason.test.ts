@@ -85,6 +85,11 @@ describe('describeFailureReason', () => {
       '6 fila(s) tienen geometría WKT no válida o coordenadas que no son números finitos',
     ],
     ['geometry_wkt_malformed', 'WKT column contains malformed geometry text', 'La columna WKT contiene texto'],
+    [
+      'geometry_wkt_mixed_dimensions',
+      'The WKT column mixes coordinate dimensions (XYZ, XYZM), so no geometry was built. Give every row the same dimensions.',
+      'La columna WKT mezcla dimensiones de coordenadas (XYZ, XYZM)',
+    ],
   ])("shows the geometry build failure %s in the reader's language", async (code, stored, text) => {
     await changeTestLanguage('es');
 
