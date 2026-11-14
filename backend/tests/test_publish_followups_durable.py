@@ -814,7 +814,9 @@ async def test_a_quicklook_whose_upload_failed_is_drawn_again_once_due(
         return await real_put(key, data)
 
     monkeypatch.setattr(store, "put", _put)
-    monkeypatch.setattr("app.processing.ingest.tasks_common.get_storage", lambda: store)
+    monkeypatch.setattr(
+        "app.processing.ingest.tasks_quicklook.get_storage", lambda: store
+    )
     job_id, _, record_id = await _job(
         test_db_session,
         task="reupload_file",

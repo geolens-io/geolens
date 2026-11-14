@@ -203,7 +203,7 @@ class TestAnUnarchivedOriginalKeepsItsUpload:
                 AsyncMock(),
             ),
             patch("app.processing.embeddings.helpers.defer_embedding", AsyncMock()),
-            patch("app.processing.ingest.tasks_common.get_storage", lambda: storage),
+            patch("app.processing.ingest.tasks_quicklook.get_storage", lambda: storage),
             patch("app.processing.ingest.tasks_staging.get_storage", lambda: storage),
             patch("app.platform.storage.get_storage", lambda: storage),
             contextlib.ExitStack() as expected,
