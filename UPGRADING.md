@@ -147,6 +147,16 @@ docker compose up -d
 in use, `POSTGRES_PASSWORD` belongs to the bootstrap login and the API and
 worker don't see it, so they don't log the warning; change it the same way.
 
+## Replace a weak TILE_SIGNING_SECRET
+
+A `TILE_SIGNING_SECRET` shorter than 32 characters or equal to a known-public
+value logs `tile_signing_secret_weak` at startup, and GeoLens 1.33.0 (not before
+2027-02-10) refuses to start with it. An unset value, or one equal to
+`JWT_SECRET_KEY`, is not refused. Set a new value from `openssl rand -hex 32` in
+`.env`, the same on every API replica, then run `docker compose up -d api worker`.
+Signed tile URLs issued under the old key stop verifying until the page reloads
+them.
+
 ## Rollback
 
 Rollback is re-pinning the previous version and restoring the pre-upgrade dump.
