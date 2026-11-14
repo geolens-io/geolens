@@ -28,9 +28,9 @@ Until cutover the operator can run the migration again. A rerun:
   operator's edits;
 - brings migrated datasets up to date: a refresh for service imports, a
   replace for files;
-- re-translates in place the migrated maps and stories whose portal items
-  changed;
-- keeps the datasets, maps and stories whose portal items were deleted;
+- re-translates in place the migrated maps whose portal items changed and
+  exports again the items kept as Markdown or files, such as stories;
+- keeps the datasets and maps whose portal items were deleted;
 - follows changes to an item's sharing and owner in the portal. Where the
   operator set those in the plan, the operator's choice stays and the conflict
   is reported.
