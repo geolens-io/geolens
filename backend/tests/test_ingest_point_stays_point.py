@@ -332,3 +332,29 @@ async def test_retry_swaps_only_the_nlt_value_and_runs_once(monkeypatch):
     assert [r[-1] for r in runs] == ["POINT", "POINT"]
     assert runs[0][4] == "POINT"
     assert runs[1][4] == "PROMOTE_TO_MULTI"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("types", "has_z", "declared", "expected"),
+    [
+        ({"Point"}, False, "Unknown (any)", "POINT"),
+        ({"Point"}, True, "Unknown (any)", "POINTZ"),
+        ({"MultiPoint"}, False, "Unknown (any)", None),
+        ({"Point", "MultiPoint"}, False, "Unknown (any)", None),
+        ({"Point", "LineString"}, False, "Unknown (any)", None),
+        (set(), False, "Unknown (any)", None),
+        ({"Point"}, False, "Point", None),
+    ],
+)
+async def test_wkt_csv_point_override(monkeypatch, types, has_z, declared, expected):
+    """Only an untyped column whose scanned geometries are all Point gets the override."""
+    from app.processing.ingest import ogr
+
+    async def _scan(_path, _source, _layer, seen):
+        seen.update(types)
+        return has_z
+
+    monkeypatch.setattr(ogr, "_csv_geometry_is_3d", _scan)
+    result = await ogr._csv_dimension_and_point_type("f.csv", "f.csv", None, declared)
+    assert result == (has_z, expected)
