@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import json
 import math
 import sys
 import uuid
@@ -375,6 +376,16 @@ class TestOperations:
             "whole_numbers": False,
         }
 
+    def test_histogram_edges_never_decrease_over_adjacent_doubles(self):
+        low, high = 0.3, 0.30000000000000004
+
+        result = aggregate._histogram([(low, high, 1, 2), (low, high, 10, 3)], 10)
+
+        edges = [result.bins[0].lower] + [b.upper for b in result.bins]
+        assert edges == sorted(edges)
+        assert (edges[0], edges[-1]) == (low, high)
+        assert sum(b.count for b in result.bins) == 5
+
     async def _score_histogram(self, client, session, points, scores, bins):
         """Sets each row's score (None is NULL) and returns the histogram result."""
         for gid, score in enumerate(scores, start=1):
@@ -458,25 +469,120 @@ class TestOperations:
             assert b["count"] == resp.json()["result"]["count"], (i, bins)
 
     @pytest.mark.parametrize(
-        ("scores", "bins"),
+        ("column_type", "scores", "bins", "status", "expected"),
         [
-            ([0.1, 0.10000000000000002] * 4, 4),
-            ([0.1, 0.10000000000000002] * 4, 20),
-            ([0.1, 0.10000000000000002] * 4, 50),
-            ([0.0, 5e-324] * 4, 10),
-            ([-0.30000000000000004, -0.3] * 4, 4),
-            ([-5e-324, 0.0, 5e-324, 0.0] * 2, 10),
+            (
+                "double precision",
+                ["0.1", "0.10000000000000002"] * 4,
+                4,
+                200,
+                '{"bins": [{"lower": 0.1, "upper": 0.10000000000000002, "count": 4}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 4}], "whole_numbers": false}',
+            ),
+            (
+                "double precision",
+                ["0.1", "0.10000000000000002"] * 4,
+                50,
+                200,
+                '{"bins": [{"lower": 0.1, "upper": 0.1, "count": 4}, {"lower": 0.1, "upper": 0.1, "count": 0}, {"lower": 0.1, "upper": 0.1, "count": 0}, {"lower": 0.1, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 4}], "whole_numbers": false}',
+            ),
+            (
+                "double precision",
+                ["0", "5e-324"] * 4,
+                10,
+                200,
+                '{"bins": [{"lower": 0.0, "upper": 0.0, "count": 4}, {"lower": 0.0, "upper": 0.0, "count": 0}, {"lower": 0.0, "upper": 0.0, "count": 0}, {"lower": 0.0, "upper": 0.0, "count": 0}, {"lower": 0.0, "upper": 0.0, "count": 0}, {"lower": 0.0, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 4}], "whole_numbers": false}',
+            ),
+            (
+                "double precision",
+                ["-0.30000000000000004", "-0.3"] * 4,
+                4,
+                200,
+                '{"bins": [{"lower": -0.30000000000000004, "upper": -0.30000000000000004, "count": 4}, {"lower": -0.30000000000000004, "upper": -0.30000000000000004, "count": 0}, {"lower": -0.30000000000000004, "upper": -0.3, "count": 0}, {"lower": -0.3, "upper": -0.3, "count": 4}], "whole_numbers": false}',
+            ),
+            (
+                "double precision",
+                ["-5e-324", "0", "5e-324", "0"] * 2,
+                10,
+                200,
+                '{"bins": [{"lower": -5e-324, "upper": -5e-324, "count": 2}, {"lower": -5e-324, "upper": -5e-324, "count": 0}, {"lower": -5e-324, "upper": -5e-324, "count": 0}, {"lower": -5e-324, "upper": -5e-324, "count": 0}, {"lower": -5e-324, "upper": 0.0, "count": 0}, {"lower": 0.0, "upper": 5e-324, "count": 4}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 2}], "whole_numbers": false}',
+            ),
+            (
+                "double precision",
+                [
+                    "0.1",
+                    "0.10000000000000002",
+                    "0.10000000000000003",
+                    "0.10000000000000005",
+                ]
+                * 2,
+                3,
+                200,
+                '{"bins": [{"lower": 0.1, "upper": 0.10000000000000003, "count": 2}, {"lower": 0.10000000000000003, "upper": 0.10000000000000003, "count": 2}, {"lower": 0.10000000000000003, "upper": 0.10000000000000005, "count": 4}], "whole_numbers": false}',
+            ),
+            (
+                "numeric",
+                ["0.3", "0.300000000000000001"] * 4,
+                4,
+                200,
+                '{"bins": [{"lower": 0.3, "upper": 0.3, "count": 8}], "whole_numbers": false}',
+            ),
+            (
+                "numeric",
+                ["9007199254740992", "9007199254740993"] * 4,
+                4,
+                200,
+                '{"bins": [{"lower": 9007199254740992.0, "upper": 9007199254740992.0, "count": 8}], "whole_numbers": false}',
+            ),
+            (
+                "numeric",
+                ["1e309"] * 8,
+                4,
+                500,
+                '{"code": "query_failed", "message": "Query failed"}',
+            ),
+            (
+                "numeric",
+                ["1e-400"] * 8,
+                4,
+                500,
+                '{"code": "query_failed", "message": "Query failed"}',
+            ),
         ],
     )
-    async def test_bins_below_the_doubles_resolution_still_match_their_filters(
-        self, client: AsyncClient, test_db_session, points, scores, bins
+    async def test_a_request_that_is_not_rounded_answers_as_before(
+        self,
+        client: AsyncClient,
+        test_db_session,
+        points,
+        column_type,
+        scores,
+        bins,
+        status,
+        expected,
     ):
-        result = await self._score_histogram(
-            client, test_db_session, points, scores, bins
+        """Ranges below a double's resolution and constants keep equal-width bins."""
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{points.table_name}"  # noqa: S608
+                f" ALTER COLUMN score TYPE {column_type}"
+            )
+        )
+        for gid, value in enumerate(scores, start=1):
+            await test_db_session.execute(
+                text(
+                    f"UPDATE data.{points.table_name}"  # noqa: S608
+                    f" SET score = '{value}' WHERE gid = {gid}"
+                )
+            )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "score", "bins": bins}
         )
 
-        await self._assert_counts_match_range_filters(client, points, result)
-        assert sum(b["count"] for b in result) == 8
+        body = resp.json()
+        assert resp.status_code == status
+        assert body.get("result", body.get("detail")) == json.loads(expected)
 
     async def test_a_numeric_histogram_assigns_in_decimal(
         self, client: AsyncClient, test_db_session, points
@@ -685,7 +791,8 @@ class TestOperations:
             {"key": "keep", "value": 0.30000000000000004}
         ]
         bins = histogram.json()["result"]["bins"]
-        assert bins == [{"lower": 0.3, "upper": 0.30000000000000004, "count": 2}]
+        assert [b["count"] for b in bins] == [1, 1]
+        assert (bins[0]["lower"], bins[-1]["upper"]) == (0.3, 0.30000000000000004)
         values = {v["value"] for v in counted.json()["result"]["values"]}
         assert values == {0.3, 0.30000000000000004}
         keys = {g["key"] for g in keyed.json()["result"]["groups"]}
