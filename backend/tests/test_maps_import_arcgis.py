@@ -96,6 +96,18 @@ class TestCreate:
         assert got.status_code == 200
         assert len(got.json()["layers"]) == 1
 
+    async def test_the_description_is_saved_on_the_new_map(
+        self, client: AsyncClient, editor
+    ) -> None:
+        headers, _ = editor
+
+        resp = await client.post(
+            URL, json=_body(_webmap(), description="Tax parcels"), headers=headers
+        )
+
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["map"]["description"] == "Tax parcels"
+
     async def test_no_slash_path_is_served(self, client: AsyncClient, editor) -> None:
         headers, _ = editor
         resp = await client.post(

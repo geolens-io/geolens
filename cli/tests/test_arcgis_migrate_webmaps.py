@@ -77,6 +77,18 @@ def _map(owner: str = OPERATOR) -> dict[str, Any]:
     }
 
 
+def _translated_layer() -> dict[str, Any]:
+    return {
+        "dataset_id": dataset_id("Parcels"),
+        "sort_order": 0,
+        "opacity": 1.0,
+        "paint": {"fill-color": "#336699"},
+        "layout": {},
+        "style_config": {},
+        "layer_type": "vector_geolens",
+    }
+
+
 def _response(*, lost: int = 0, unmatched: list[dict] | None = None) -> dict:
     items = [
         {"path": f"$.p{n}", "kind": "popup_expression", "detail": ""}
@@ -84,7 +96,7 @@ def _response(*, lost: int = 0, unmatched: list[dict] | None = None) -> dict:
     ]
     return {
         "map": _map(),
-        "layers": [],
+        "layers": [_translated_layer()],
         "layer_ids": {"parcels_0": LAYER_ID.format(1), "view_0": LAYER_ID.format(2)},
         "loss_report": {"items": items, "summary": {"popup_expression": lost}},
         "unmatched_layers": unmatched or [],
@@ -106,7 +118,17 @@ def _services(geolens) -> None:
 
 
 def _sent(geolens) -> list[Any]:
-    return [s for s in geolens.seen if s.url.endswith("/maps/import/arcgis-webmap/")]
+    """The import requests, without the dry run that precedes each create."""
+    sent = [s for s in geolens.seen if s.url.endswith("/maps/import/arcgis-webmap/")]
+    return [
+        s
+        for n, s in enumerate(sent)
+        if not (
+            s.json().get("dry_run")
+            and n + 1 < len(sent)
+            and not sent[n + 1].json().get("dry_run")
+        )
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -114,25 +136,6 @@ def portal(monkeypatch):
     fake = FakePortal(portal_routes())
     monkeypatch.setattr(migrate, "build_opener", lambda: fake)
     return fake
-
-
-@pytest.fixture(autouse=True)
-def a_matched_layer(monkeypatch, portal):
-    """Give a web map whose services the run left alone one matched layer, so
-    it is imported rather than skipped for having nothing to carry, and leave
-    its summary out so no description write precedes the writes under test."""
-    item = portal.routes[f"content/items/{B1}"]
-    portal.routes[f"content/items/{B1}"] = {**item, "snippet": ""}
-    real = webmaps.match_datasets
-
-    def matched(ctx, webmap):
-        found = real(ctx, webmap)
-        entry = ctx.items.get(B1)
-        if found or (entry is not None and entry.map_id):
-            return found
-        return {"parcels_0": dataset_id("Parcels")}
-
-    monkeypatch.setattr(webmaps, "match_datasets", matched)
 
 
 def _run(runner, plan_file, **kwargs):
@@ -1339,6 +1342,7 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     _services(geolens)
     parcels = dataset_id("Parcels")
     unreadable: set[str] = set()
+    created: list[int] = []
 
     def translate(seen):
         body = seen.json()
@@ -1346,6 +1350,9 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
         if set(body["dataset_matches"].values()) & unreadable:
             return (404, {"title": "Not Found", "status": 404, "detail": "nope"})
         if not body.get("dry_run"):
+            created.append(1)
+            return (201, _response())
+        if not created:
             return (201, _response())
         return (201, {**_translated(parcels), "layers": [], "layer_sources": []})
 

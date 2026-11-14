@@ -33,6 +33,7 @@ class ArcgisWebmapImportRequest:
         webmap (ArcgisWebmapImportRequestWebmap): The web map item data JSON, at most 1 MB serialized.
         name (None | str | Unset): Map name. Defaults to `title`.
         title (None | str | Unset): The web map item's title.
+        description (None | str | Unset): Description of the new map.
         visibility (MapVisibility | Unset): Who may read a map. A response names `restricted` only to a client
             that sends `X-GeoLens-Map-Visibility: restricted`; any other client
             reads a restricted map as `private`.
@@ -48,6 +49,7 @@ class ArcgisWebmapImportRequest:
     webmap: ArcgisWebmapImportRequestWebmap
     name: None | str | Unset = UNSET
     title: None | str | Unset = UNSET
+    description: None | str | Unset = UNSET
     visibility: MapVisibility | Unset = UNSET
     basemap_map: ArcgisWebmapImportRequestBasemapMap | Unset = UNSET
     dataset_matches: ArcgisWebmapImportRequestDatasetMatches | Unset = UNSET
@@ -67,6 +69,12 @@ class ArcgisWebmapImportRequest:
             title = UNSET
         else:
             title = self.title
+
+        description: None | str | Unset
+        if isinstance(self.description, Unset):
+            description = UNSET
+        else:
+            description = self.description
 
         visibility: str | Unset = UNSET
         if not isinstance(self.visibility, Unset):
@@ -93,6 +101,8 @@ class ArcgisWebmapImportRequest:
             field_dict["name"] = name
         if title is not UNSET:
             field_dict["title"] = title
+        if description is not UNSET:
+            field_dict["description"] = description
         if visibility is not UNSET:
             field_dict["visibility"] = visibility
         if basemap_map is not UNSET:
@@ -137,6 +147,15 @@ class ArcgisWebmapImportRequest:
 
         title = _parse_title(d.pop("title", UNSET))
 
+        def _parse_description(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        description = _parse_description(d.pop("description", UNSET))
+
         _visibility = d.pop("visibility", UNSET)
         visibility: MapVisibility | Unset
         if isinstance(_visibility, Unset):
@@ -166,6 +185,7 @@ class ArcgisWebmapImportRequest:
             webmap=webmap,
             name=name,
             title=title,
+            description=description,
             visibility=visibility,
             basemap_map=basemap_map,
             dataset_matches=dataset_matches,

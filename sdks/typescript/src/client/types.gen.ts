@@ -1155,6 +1155,12 @@ export type ArcgisWebmapImportRequest = {
      */
     title?: string | null;
     /**
+     * Description
+     *
+     * Description of the new map.
+     */
+    description?: string | null;
+    /**
      * Visibility of the new map: private, internal or public. A map becomes restricted by sharing it with groups afterwards.
      */
     visibility?: MapVisibility;

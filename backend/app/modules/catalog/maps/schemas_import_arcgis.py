@@ -44,6 +44,9 @@ class ArcgisWebmapImportRequest(BaseModel):
     title: Annotated[str, StringConstraints(min_length=1, max_length=255)] | None = (
         Field(default=None, description="The web map item's title.")
     )
+    description: Annotated[str, StringConstraints(max_length=2000)] | None = Field(
+        default=None, description="Description of the new map."
+    )
     visibility: MapVisibility = Field(
         default=MapVisibility.private,
         description=(
@@ -72,7 +75,7 @@ class ArcgisWebmapImportRequest(BaseModel):
         description="Return the translation without creating a map.",
     )
 
-    @field_validator("name", "title", mode="before")
+    @field_validator("name", "title", "description", mode="before")
     @classmethod
     def _normalize_nfc(cls, v: str | None) -> str | None:
         return _nfc(v)
