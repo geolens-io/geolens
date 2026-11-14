@@ -11,7 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
-from app.modules.catalog.maps.author_key import NOT_ITS_MAP, map_author_may_change
+from app.modules.catalog.maps.author_key import (
+    NOT_ITS_MAP,
+    map_author_key_id,
+    map_author_may_change,
+)
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
@@ -240,7 +244,10 @@ async def add_layer(
     )
     await _admit_layer(session, map_id)
     sort_order = body.sort_order
-    if "sort_order" not in body.model_fields_set:
+    if (
+        "sort_order" not in body.model_fields_set
+        or map_author_key_id(session) is not None
+    ):
         result = await session.execute(
             select(MapLayer.sort_order)
             .where(MapLayer.map_id == map_id)

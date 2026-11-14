@@ -77,9 +77,22 @@ async def test_sdk_layer_bodies_pass_and_a_non_default_field_is_refused(
         ("PATCH", MapLayerDiffRequest(added=[_new_layer(dataset_id)]).to_dict()),
         ("PATCH", MapLayerDiffRequest(updated=[_style_update(layer_id)]).to_dict()),
     ]
+    stacked = [layer_id]
     for method, body in accepted:
         resp = await client.request(method, layers_url, json=body, headers=author)
         assert resp.status_code in (200, 201), (method, body, resp.text)
+        if method == "POST":
+            stacked.append(resp.json()["id"])
+        elif "added" in body:
+            stacked += [
+                layer["id"]
+                for layer in resp.json()["layers"]
+                if layer["id"] not in stacked
+            ]
+    # The SDK's default sort_order of 0 still stacks each new layer on top.
+    shown = (await client.get(f"/maps/{map_id}", headers=headers)).json()["layers"]
+    assert [layer["id"] for layer in shown] == stacked
+    assert [layer["sort_order"] for layer in shown] == [0, 1, 2]
 
     refused = [
         ("POST", _new_layer(dataset_id, visible=False).to_dict(), "visible"),

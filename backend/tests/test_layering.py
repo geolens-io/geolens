@@ -1216,7 +1216,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_records.py": 660,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 521,
-        "backend/app/modules/catalog/maps/service_diff.py": 414,
+        # A map_author key's added layers are stacked on top inside the diff.
+        "backend/app/modules/catalog/maps/service_diff.py": 420,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,

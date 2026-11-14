@@ -648,3 +648,93 @@ async def test_a_transfer_after_the_precheck_is_caught_under_the_lock(
     after = (await client.get(f"/maps/{map_id}", headers=admin_auth_header)).json()
     assert after["zoom"] == before["zoom"]
     assert after["layers"] == before["layers"]
+
+
+async def _stored_orders(test_db_session, map_id) -> dict[str, int]:
+    rows = await test_db_session.execute(
+        text("SELECT id, sort_order FROM catalog.map_layers WHERE map_id = :id"),
+        {"id": uuid.UUID(map_id)},
+    )
+    return {str(layer_id): order for layer_id, order in rows.all()}
+
+
+@pytest.mark.anyio
+async def test_layers_a_map_author_key_adds_go_on_top_in_request_order(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    headers, _ = owner
+    key = _key_header(await _mint(client, headers, "map_author"))
+    created = await client.post("/maps/", json={"name": "Stack"}, headers=key)
+    map_id = created.json()["id"]
+    first, second = (str(d.id) for d in datasets)
+    seeded = await client.patch(
+        f"/maps/{map_id}/layers",
+        json={
+            "added": [{"dataset_id": first, "sort_order": order} for order in (0, 1, 2)]
+        },
+        headers=headers,
+    )
+    assert seeded.status_code == 200, seeded.text
+    expected = {layer["id"]: layer["sort_order"] for layer in seeded.json()["layers"]}
+    assert sorted(expected.values()) == [0, 1, 2]
+
+    for body in (
+        {"dataset_id": second},
+        {"dataset_id": second, "sort_order": 0},
+        {
+            "dataset_id": second,
+            "sort_order": 0,
+            "visible": True,
+            "opacity": 1.0,
+            "show_in_legend": True,
+        },
+    ):
+        added = await client.post(f"/maps/{map_id}/layers", json=body, headers=key)
+        assert added.status_code == 201, added.text
+        expected[added.json()["id"]] = len(expected)
+
+    for url, datasets_added in (
+        (f"/maps/{map_id}/layers", [second]),
+        (f"/maps/{map_id}/layers/", [first, second]),
+    ):
+        before = set(expected)
+        patched = await client.patch(
+            url,
+            json={
+                "added": [{"dataset_id": d, "sort_order": 0} for d in datasets_added]
+            },
+            headers=key,
+        )
+        assert patched.status_code == 200, patched.text
+        new = [layer for layer in patched.json()["layers"] if layer["id"] not in before]
+        assert [layer["dataset_id"] for layer in new] == datasets_added
+        for layer in new:
+            expected[layer["id"]] = len(expected)
+
+    assert await _stored_orders(test_db_session, map_id) == expected
+    shown = (await client.get(f"/maps/{map_id}", headers=headers)).json()["layers"]
+    assert [layer["id"] for layer in shown] == sorted(expected, key=expected.get)
+
+
+@pytest.mark.anyio
+async def test_other_callers_keep_the_order_they_send(
+    client: AsyncClient, owner, datasets, test_db_session
+):
+    headers, _ = owner
+    made = await create_map_via_api(client, headers)
+    layer = {"dataset_id": str(datasets[0].id)}
+    for _ in range(2):
+        resp = await client.post(
+            f"/maps/{made['id']}/layers", json=layer, headers=headers
+        )
+        assert resp.status_code == 201, resp.text
+    pinned = await client.post(
+        f"/maps/{made['id']}/layers", json={**layer, "sort_order": 0}, headers=headers
+    )
+    patched = await client.patch(
+        f"/maps/{made['id']}/layers", json={"added": [layer]}, headers=headers
+    )
+    assert patched.status_code == 200, patched.text
+    orders = await _stored_orders(test_db_session, made["id"])
+    assert orders[pinned.json()["id"]] == 0
+    assert sorted(orders.values()) == [0, 0, 0, 1]

@@ -15,6 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.maps.author_key import map_author_append_orders
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
@@ -247,13 +248,18 @@ async def apply_layer_diff(
             for row in ds_meta_result.all()
         }
 
-        for layer_data in added:
+        appended = map_author_append_orders(
+            session, (layer.sort_order for layer in existing_layers), len(added)
+        )
+        for index, layer_data in enumerate(added):
             prepared = _prepare_layer_storage(layer_data, ds_meta)
             session.add(
                 MapLayer(
                     map_id=map_id,
                     dataset_id=prepared["dataset_id"],
-                    sort_order=prepared.get("sort_order", 0),
+                    sort_order=appended[index]
+                    if appended is not None
+                    else prepared.get("sort_order", 0),
                     visible=prepared.get("visible", True),
                     opacity=prepared.get("opacity", 1.0),
                     paint=prepared["paint"],

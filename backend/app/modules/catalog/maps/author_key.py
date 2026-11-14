@@ -1,6 +1,7 @@
 """What a map_author API key may set on a map, and which maps it may change."""
 
 import uuid
+from collections.abc import Iterable
 
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -69,6 +70,20 @@ def map_author_may_change(
     """
     key_id = map_author_key_id(db)
     return key_id is None or (created_by_api_key_id == key_id and created_by == user_id)
+
+
+def map_author_append_orders(
+    db: AsyncSession, layer_orders: Iterable[int], count: int
+) -> list[int] | None:
+    """Draw orders for a map_author key's ``count`` new layers, or None for others.
+
+    The key may not order layers, so each new one goes above every existing
+    layer, in request order. Call holding the map's layer lock.
+    """
+    if map_author_key_id(db) is None:
+        return None
+    start = max(layer_orders, default=-1) + 1
+    return list(range(start, start + count))
 
 
 def _sent_at_default(body: BaseModel, name: str) -> bool:
