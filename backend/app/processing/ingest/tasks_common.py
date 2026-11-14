@@ -1064,6 +1064,8 @@ async def _run_service_import_with_wfs_fallback(
             unqualified = source_layer.split(":", 1)[1]
             try:
                 await import_fn(unqualified)
+            except WfsCountMismatchError:
+                raise
             except IngestionError as retry_exc:
                 if (
                     auth_error_message is not None

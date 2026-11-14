@@ -1624,3 +1624,59 @@ class TestSecFu04SanitizeAuthorizationToken:
 
         assert user in variants
         assert other_half in variants
+
+
+class TestCountMismatchSurvivesNamespaceRetry:
+    """A count mismatch on the unqualified retry keeps its code and sentence."""
+
+    @pytest.mark.parametrize(
+        ("imported", "expected", "code"),
+        [
+            (401, 500, "arcgis_wfs_short"),
+            (403, 500, "arcgis_wfs_short"),
+            (500, 403, "arcgis_wfs_repeated"),
+            (500, 401, "arcgis_wfs_repeated"),
+        ],
+    )
+    def test_mismatch_with_auth_digits_is_not_an_auth_error(
+        self, imported, expected, code
+    ):
+        from app.core.failure_reason import failure_code
+        from app.processing.ingest.ogr import (
+            IngestionError,
+            WfsCountMismatchError,
+            refuse_short_arcgis_wfs,
+        )
+
+        async def import_fn(layer_name: str) -> None:
+            if ":" in layer_name:
+                raise IngestionError("qualified failed")
+            refuse_short_arcgis_wfs(imported, expected)
+
+        with pytest.raises(WfsCountMismatchError) as caught:
+            asyncio.run(
+                _run_service_import_with_wfs_fallback(
+                    import_fn,
+                    "ws:roads",
+                    token=None,
+                    auth_error_message="This service needs a token",
+                )
+            )
+        assert failure_code(caught.value.args[0]) == code
+        assert "needs a token" not in str(caught.value)
+
+    def test_real_auth_failure_on_retry_is_still_reported(self):
+        from app.processing.ingest.ogr import IngestionError
+
+        async def import_fn(layer_name: str) -> None:
+            raise IngestionError("HTTP 401 Unauthorized")
+
+        with pytest.raises(IngestionError, match="needs a token"):
+            asyncio.run(
+                _run_service_import_with_wfs_fallback(
+                    import_fn,
+                    "ws:roads",
+                    token=None,
+                    auth_error_message="This service needs a token",
+                )
+            )

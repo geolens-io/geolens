@@ -1357,7 +1357,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/publish_followups.py": 1477,
     # What every ingest strategy shares: the task app, job lifecycle and phase
     # sessions, finalization, and the reupload table swap and catalog write.
-    "backend/app/processing/ingest/tasks_common.py": 1421,
+    "backend/app/processing/ingest/tasks_common.py": 1423,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
