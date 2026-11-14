@@ -4,7 +4,8 @@ A widget's request carries its layer's filter ANDed with its own, as the
 viewer composes them. A save refuses a widget whose filter names a column its
 layer lacks, whose composed filter passes the aggregate's value, depth or
 length limit, or that the aggregate's own compiler refuses with the dataset's
-live columns. The filter is compiled only, never run.
+live columns. The filter is compiled only, never run. A save that changes a
+layer's filter is refused when it puts a widget on that layer past the limits.
 """
 
 import json
@@ -17,7 +18,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.datasets.domain.service import compile_layer_filter
-from app.modules.catalog.maps.dashboard import DashboardConfigInput
+from app.modules.catalog.maps.dashboard import (
+    DashboardConfigInput,
+    refuse_widgets,
+    stored_widgets,
+)
 from app.modules.catalog.maps.filter_grammar import FilterValidationError
 from app.modules.catalog.maps.models import MapLayer
 from app.modules.catalog.widgets.filter_shapes import (
@@ -39,11 +44,15 @@ def column_types(column_info: Any) -> dict[str, str]:
 
 
 def _layer_cql2(layer_filter: Any, types: Mapping[str, str]) -> dict | None:
-    """The layer's filter as the viewer sends it, or None when it sends none."""
+    """The layer's filter as the viewer sends it, or None when it sends none.
+
+    With column types known, the viewer drops a filter on a column outside them.
+    """
     try:
-        return widget_filter_cql2(layer_filter, types).cql2
+        layer = widget_filter_cql2(layer_filter, types)
     except FilterValidationError:
         return None
+    return None if types and not layer.columns <= types.keys() else layer.cql2
 
 
 def composed_filter(
@@ -138,3 +147,46 @@ async def widget_filter_refusals(
         if reason is not None:
             refusals[str(widget.id)] = reason
     return refusals
+
+
+async def refuse_layer_filter_past_limits(
+    session: AsyncSession,
+    dashboard: Any,
+    layers: Sequence[MapLayer],
+    filters_before: Mapping[uuid.UUID, Any],
+) -> None:
+    """Refuse (422) a save whose layer filter puts a widget past the aggregate's limits.
+
+    Checks every stored widget this server parses, shown or kept, on a layer
+    that is new or whose ``filter`` differs from ``filters_before``: the layer's
+    filter alone, or ANDed with the widget's own. Other layers are left as stored.
+    """
+    changed = {
+        layer.id: layer
+        for layer in layers
+        if layer.id not in filters_before or filters_before[layer.id] != layer.filter
+    }
+    widgets = [
+        widget
+        for widget in (stored_widgets(dashboard) if changed else [])
+        if getattr(widget, "layer_id", None) in changed
+    ]
+    if not widgets:
+        return
+    dataset_ids = {changed[widget.layer_id].dataset_id for widget in widgets}
+    rows = await session.execute(
+        select(Dataset.id, Dataset.column_info).where(Dataset.id.in_(dataset_ids))
+    )
+    columns = {dataset_id: info for dataset_id, info in rows.all()}
+    refused: list[dict[str, str | None]] = []
+    for widget in widgets:
+        layer = changed[widget.layer_id]
+        types = column_types(columns.get(layer.dataset_id))
+        reason, _ = composed_filter(
+            getattr(widget, "filter", None), layer.filter, types
+        )
+        if reason == "filter_too_large":
+            refused.append(
+                {"id": str(widget.id), "layer_id": str(layer.id), "reason": reason}
+            )
+    refuse_widgets(refused)

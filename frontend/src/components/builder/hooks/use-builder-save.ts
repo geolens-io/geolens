@@ -1220,7 +1220,10 @@ export function useBuilderSave(state: SaveState) {
       return;
     }
     // A layer filter counts toward each widget's request, so an unedited dashboard is checked for size too.
-    const widgetIssue = firstWidgetProblem(dashboard, localLayers, sendDashboard ? undefined : ['filterTooLarge']);
+    const widgetIssue = firstWidgetProblem(dashboard, localLayers, sendDashboard ? undefined : ['filterTooLarge'], {
+      dashboard: savedDashboard,
+      layers: baselineLayersRef.current,
+    });
     if (widgetIssue) {
       toast.error(
         widgetIssue.kind === 'viewWithoutGeometry'
@@ -1366,7 +1369,13 @@ export function useBuilderSave(state: SaveState) {
       // recoverable by re-toggling, so the split PATCH+PUT path is safe. That
       // avoids forcing every combined save through the lossy full-replacement
       // PUT (see below). The failed-save toast prompts a retry.
-      if (unsupported) {
+      // A PATCH would check a layer filter against the widgets stored before
+      // this save, so a filter saved with the dashboard goes in one PUT.
+      const filterWithDashboard =
+        sendDashboard &&
+        ((diff.updated ?? []).some((layer) => 'filter' in layer) ||
+          (diff.added ?? []).some((layer) => layer.filter != null));
+      if (unsupported || filterWithDashboard) {
         await replaceLayers();
       } else {
         if (hasDiff(diff)) {

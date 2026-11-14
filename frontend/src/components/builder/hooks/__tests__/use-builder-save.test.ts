@@ -1657,6 +1657,82 @@ describe('useBuilderSave', () => {
       expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
     });
 
+    const listing = (count: number) =>
+      ['in', ['get', 'kind'], ['literal', Array.from({ length: count }, (_, i) => `v${i}`)]] as FilterSpecification;
+
+    /** Renders a clean builder, then applies `edit` as an unsaved change and saves with `how`. */
+    async function saveAfter(clean: Partial<SaveState>, edit: Partial<SaveState>, how: 'button' | 'shortcut') {
+      let state = makeSaveState(clean);
+      const { result, rerender } = renderHook(() => useBuilderSave(state));
+      state = makeSaveState({ ...clean, ...edit, hasUnsavedChanges: true });
+      rerender();
+      await act(async () => {
+        if (how === 'button') await result.current.handleSave();
+        else window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }));
+      });
+    }
+
+    it.each(['button', 'shortcut'] as const)(
+      'saves an unrelated edit when a plain widget\'s layer filter was already past the limits (%s)',
+      async (how) => {
+        const { toast } = await import('sonner');
+        const plain = { ...barChart({}), title: 'Land use' };
+        const dashboard = { panel: 'right' as const, widgets: [plain] };
+        const clean = {
+          localLayers: [{ ...widgetLayer(), filter: listing(1001) }],
+          dashboard,
+          savedDashboard: dashboard,
+        };
+
+        await saveAfter(clean, { localName: 'Renamed' }, how);
+
+        expect(toast.error).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(mockUpdateMapMutateAsync).toHaveBeenCalled());
+      },
+    );
+
+    it("holds a save that takes a plain widget's layer filter past the limits", async () => {
+      const { toast } = await import('sonner');
+      const plain = { ...barChart({}), title: 'Land use' };
+      const dashboard = { panel: 'right' as const, widgets: [plain] };
+      const clean = { localLayers: [widgetLayer()], dashboard, savedDashboard: dashboard };
+
+      await saveAfter(clean, { localLayers: [{ ...widgetLayer(), filter: listing(1001) }] }, 'button');
+
+      expect(toast.error).toHaveBeenCalledWith(
+        'toasts.dashboardWidgetFilterTooLarge',
+        expect.objectContaining({ id: 'dashboard-widget-invalid' }),
+      );
+      expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
+    });
+
+    it('sends a layer filter edited with the dashboard in one PUT', async () => {
+      const filtered = { ...barChart({}), title: 'Land use', v: 3, filter: listing(600) };
+      const narrowed = { ...filtered, filter: listing(300) };
+      const clean = {
+        localLayers: [widgetLayer()],
+        dashboard: { panel: 'right' as const, widgets: [filtered] },
+        savedDashboard: { panel: 'right' as const, widgets: [filtered] },
+      };
+
+      await saveAfter(
+        clean,
+        {
+          localLayers: [{ ...widgetLayer(), filter: listing(600) }],
+          dashboard: { panel: 'right', widgets: [narrowed] },
+          dashboardEdited: true,
+        },
+        'button',
+      );
+
+      const { toast } = await import('sonner');
+      expect(vi.mocked(toast.error).mock.calls).toEqual([]);
+      expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
+      const { data } = mockUpdateMapMutateAsync.mock.calls[0][0];
+      expect(data.layers[0].filter).toEqual(listing(600));
+      expect(data.dashboard_config.widgets[0].filter).toEqual(listing(300));
+    });
+
     it.each([
       ['a column its layer lacks', { column: 'name' }],
       ['a text column summed', { stat: 'sum', stat_column: 'kind' }],

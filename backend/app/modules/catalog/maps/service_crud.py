@@ -28,7 +28,10 @@ from app.modules.catalog.maps.dashboard import (
     merge_dashboard,
     shows_widgets,
 )
-from app.modules.catalog.maps.dashboard_filters import widget_filter_refusals
+from app.modules.catalog.maps.dashboard_filters import (
+    refuse_layer_filter_past_limits,
+    widget_filter_refusals,
+)
 from app.modules.catalog.maps.service_diff import (
     _coerce_uuid,
     _replace_layers,
@@ -462,7 +465,8 @@ async def update_map(
     whose dataset map reads hide from it survive a replacement, and a stored
     terrain binding to a DEM hidden from it survives a request naming no DEM.
     A ``dashboard_config`` is checked against the layers the map has after the
-    save (``merge_dashboard``).
+    save (``merge_dashboard``), and a layer filter the save changes against the
+    widgets on its layer (``refuse_layer_filter_past_limits``).
 
     A ``visibility`` goes through ``prepare_map_visibility``, which may make it
     restricted, revoke the map's links, or raise ``RestrictedWithoutGroupsError``.
@@ -533,16 +537,17 @@ async def update_map(
         map_obj.legend_title = title.strip() if title and title.strip() else None
 
     # Replace layers if provided
-    datasets_before: dict[uuid.UUID, uuid.UUID] = {}
+    before: dict[uuid.UUID, tuple[uuid.UUID, object]] | None = None
     if layers is not None:
-        if map_obj.dashboard_config is not None:
-            datasets_before = await _layer_datasets(session, map_id)
+        before = {}
+        if map_obj.dashboard_config is not None or isinstance(dashboard_config, dict):
+            before = await _stored_layers(session, map_id)
         created_ids = await _replace_layers(session, map_id, layers, user)
         await touch_map(session, map_id)
         dashboard_config = _with_created_layer_ids(dashboard_config, created_ids)
-    if dashboard_config is not _UNSET or datasets_before:
+    if dashboard_config is not _UNSET or before:
         map_obj.dashboard_config = await _saved_dashboard(
-            session, map_obj, dashboard_config, user, datasets_before
+            session, map_obj, dashboard_config, user, before
         )
 
     await session.flush()
@@ -580,13 +585,16 @@ def _with_created_layer_ids(
     return {**dashboard, "widgets": remapped}
 
 
-async def _layer_datasets(
+async def _stored_layers(
     session: AsyncSession, map_id: uuid.UUID
-) -> dict[uuid.UUID, uuid.UUID]:
+) -> dict[uuid.UUID, tuple[uuid.UUID, object]]:
+    """Each stored layer's dataset and filter, by layer id."""
     rows = await session.execute(
-        select(MapLayer.id, MapLayer.dataset_id).where(MapLayer.map_id == map_id)
+        select(MapLayer.id, MapLayer.dataset_id, MapLayer.filter).where(
+            MapLayer.map_id == map_id
+        )
     )
-    return {layer_id: dataset_id for layer_id, dataset_id in rows.all()}
+    return {layer_id: (dataset_id, flt) for layer_id, dataset_id, flt in rows.all()}
 
 
 async def _saved_dashboard(
@@ -594,32 +602,42 @@ async def _saved_dashboard(
     map_obj: Map,
     sent: object,
     user: Identity | None,
-    datasets_before: dict[uuid.UUID, uuid.UUID],
+    before: dict[uuid.UUID, tuple[uuid.UUID, object]] | None,
 ) -> dict | None:
     """The dashboard after a save that sent one (``sent`` is a dict or None),
-    or that replaced the layers (``sent`` is ``_UNSET``)."""
+    or that replaced the layers (``sent`` is ``_UNSET``).
+
+    ``before`` holds each layer's dataset and filter before a replacement, and
+    is None when the save left the layers alone.
+    """
     layers = list(
         (
             await session.scalars(select(MapLayer).where(MapLayer.map_id == map_obj.id))
         ).all()
     )
+    stored_layers = before or {}
     repointed = {
         layer.id
         for layer in layers
-        if datasets_before.get(layer.id, layer.dataset_id) != layer.dataset_id
+        if stored_layers.get(layer.id, (layer.dataset_id,))[0] != layer.dataset_id
     }
-    stored = drop_repointed(map_obj.dashboard_config, repointed)
-    if sent is _UNSET:
-        return stored
-    config = None if sent is None else DashboardConfigInput.model_validate(sent)
-    hidden = await _unreadable_layer_ids(session, layers, user)
-    return merge_dashboard(
-        config,
-        stored,
-        layer_ids={layer.id for layer in layers},
-        hidden_layer_ids=hidden,
-        filter_refusals=await widget_filter_refusals(session, config, layers, hidden),
-    )
+    saved = drop_repointed(map_obj.dashboard_config, repointed)
+    if sent is not _UNSET:
+        config = None if sent is None else DashboardConfigInput.model_validate(sent)
+        hidden = await _unreadable_layer_ids(session, layers, user)
+        saved = merge_dashboard(
+            config,
+            saved,
+            layer_ids={layer.id for layer in layers},
+            hidden_layer_ids=hidden,
+            filter_refusals=await widget_filter_refusals(
+                session, config, layers, hidden
+            ),
+        )
+    if before is not None:
+        filters = {layer_id: flt for layer_id, (_, flt) in before.items()}
+        await refuse_layer_filter_past_limits(session, saved, layers, filters)
+    return saved
 
 
 async def delete_map(

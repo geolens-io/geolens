@@ -112,7 +112,7 @@ export type WidgetProblem =
   | { kind: 'viewWithoutGeometry' }
   /** The widget's own filter is one the aggregate endpoint can't take. */
   | { kind: 'filterUnsupported' }
-  /** With the layer's filter, the widget's own filter is past what the aggregate endpoint accepts. */
+  /** The layer's filter, with the widget's own if it has one, is past what the aggregate endpoint accepts. */
   | { kind: 'filterTooLarge' };
 
 /** True when `layer` has geometry a map view can bound. */
@@ -139,7 +139,10 @@ export function widgetProblem(widget: WidgetInstance, layer: MapLayerResponse): 
     if (use.listable && !isListableColumn(use.name, column.type)) return { kind: 'notListable', column: use.name };
     if (use.sortable && !isSortableColumn(use.name, column.type)) return { kind: 'notSortable', column: use.name };
   }
-  if (!widget.filter) return null;
+  if (!widget.filter) {
+    const { filter } = widgetFilter(toSharedLayer(layer), []);
+    return filter && !fitsAggregateFilterLimits(filter) ? { kind: 'filterTooLarge' } : null;
+  }
   const shape = widgetFilterShape(widget.filter);
   if (shape === null) return { kind: 'filterUnsupported' };
   const missing = shape.columns.find((name) => !columns.some((column) => column.name === name));
@@ -164,20 +167,42 @@ function ordersBoolean(cql2: unknown, columns: readonly { name: string; type?: s
   return args.some((arg) => ordersBoolean(arg, columns));
 }
 
+/** Whether a widget without a filter of its own reads the same layer filter as when last saved. */
+function savedUnfiltered(
+  widget: WidgetInstance,
+  layer: MapLayerResponse,
+  saved: { dashboard: DashboardDraft; layers: readonly MapLayerResponse[] },
+): boolean {
+  const before = saved.dashboard.widgets.find((candidate) => candidate.id === widget.id);
+  const savedLayer = saved.layers.find((candidate) => candidate.id === layer.id);
+  return (
+    !!before &&
+    !before.filter &&
+    before.layer_id === widget.layer_id &&
+    !!savedLayer &&
+    JSON.stringify(savedLayer.filter ?? null) === JSON.stringify(layer.filter ?? null)
+  );
+}
+
 /**
  * The first problem that holds the save; a widget whose layer is gone isn't
  * sent, so it holds nothing. With `kinds`, only problems of those kinds count.
+ * With `saved`, a widget without a filter of its own isn't held for a layer
+ * filter it was already saved with, as the server doesn't hold it either.
  */
 export function firstWidgetProblem(
   draft: DashboardDraft,
   layers: readonly MapLayerResponse[],
   kinds?: readonly WidgetProblem['kind'][],
+  saved?: { dashboard: DashboardDraft; layers: readonly MapLayerResponse[] },
 ): WidgetProblem | null {
   for (const widget of draft.widgets) {
     const layer = layers.find((candidate) => candidate.id === widget.layer_id);
     if (!layer || !canOpenAttributeTable(layer)) continue;
     const problem = widgetProblem(widget, layer);
-    if (problem && (!kinds || kinds.includes(problem.kind))) return problem;
+    if (!problem || (kinds && !kinds.includes(problem.kind))) continue;
+    if (problem.kind === 'filterTooLarge' && !widget.filter && saved && savedUnfiltered(widget, layer, saved)) continue;
+    return problem;
   }
   return null;
 }
