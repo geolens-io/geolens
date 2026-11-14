@@ -24,8 +24,6 @@ from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
 from app.core.upload_errors import (
     CodedRefusal,
-    IngestCeilingError,
-    UnsafeUploadError,
     geometry_loss_refusal,
     refusal_detail,
 )
@@ -107,6 +105,7 @@ from app.platform.upload_filenames import (
     refuse_control_characters,
     safe_upload_basename,
 )
+from app.platform.vector_preview import preview_vector_file
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
     ERROR_RESPONSES_WRITE,
@@ -848,39 +847,13 @@ async def reupload_preview(
     # Thread layer_name from the request body to the ogrinfo helper.
     layer_name = request.layer_name if request else None
 
-    try:
-        info = await get_catalog_port().run_ogrinfo_preview(
-            file_path, layer_name=layer_name
-        )
-    except IngestCeilingError as exc:
-        # The ceiling message the import preview already answers.
-        # The broad handler below reports "malformed or unsupported", which is
-        # wrong for a file that is merely too large, and hides the way out.
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=refusal_detail(exc),
-        ) from exc
-    except UnsafeUploadError as exc:
-        # The same mapping `preview_file` gives it: a content refusal is a
-        # deliberate 4xx with a message that names the fix, not a 500.
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=refusal_detail(exc),
-        ) from exc
-    except Exception as exc:  # broad: GDAL subprocess can raise various errors on unsupported/malformed files
-        # The 422 the import preview answers for the same failure, rather than
-        # a 500 for a malformed file's IngestionError.
-        logger.exception("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "preview_failed",
-                "message": "Unable to preview file. The file may be malformed or unsupported.",
-            },
-        ) from exc
-    finally:
-        if downloaded_preview_path is not None:
-            downloaded_preview_path.unlink(missing_ok=True)
+    info = await preview_vector_file(
+        get_catalog_port().run_ogrinfo_preview,
+        file_path,
+        layer_name,
+        job_id=job_id,
+        downloaded=downloaded_preview_path,
+    )
 
     # Validate that the user-supplied layer_name appears in the file.
     # Also check against info["layer_name"] for single-layer files where

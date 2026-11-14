@@ -1336,7 +1336,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/router.py": 1541,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1656,
+    "backend/app/api/main.py": 1668,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1606,
@@ -1346,7 +1346,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest API router debt, including the commit door's token scheme check; split
     # upload, import and registration endpoints before raising further. Each upload
     # door branches once per 3D upload kind: a 3D Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1711,
+    "backend/app/processing/ingest/router.py": 1690,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
@@ -1390,7 +1390,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1739,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1712,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup; regeneration's claim, build and store phases are functions here.

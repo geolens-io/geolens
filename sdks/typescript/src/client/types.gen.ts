@@ -10793,6 +10793,12 @@ export type ProblemDetail = {
     detail: string | {
         [key: string]: unknown;
     } | Array<unknown>;
+    /**
+     * Code
+     *
+     * A machine-readable code for the problem, on the errors that carry one, such as `catalog_lock_conflict` on a 409 for a row another request holds. Absent otherwise.
+     */
+    code?: string;
 };
 
 /**
@@ -30083,7 +30089,7 @@ export type SetMapGroupsEndpointMapsMapIdGroupsPutErrors = {
      */
     404: ProblemDetail;
     /**
-     * Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`); branch on `detail.code`.
+     * Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`; top-level `code` `catalog_lock_conflict`); branch on the codes.
      */
     409: ProblemDetail;
     /**
