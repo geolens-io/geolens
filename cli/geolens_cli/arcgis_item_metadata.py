@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import re
 import unicodedata
-from collections.abc import Collection, Container, Mapping
+from collections.abc import Container, Mapping
 from dataclasses import dataclass, field
 from html.parser import HTMLParser
 from typing import Any
@@ -215,17 +215,20 @@ def _wanted_fields(
 CARRIED = ("title", "summary", "attribution", "license", "source_organization")
 
 
+# (field, GeoLens value, portal value)
+Difference = tuple[str, str, str]
+
+
 @dataclass
 class Edits:
     """The fields where GeoLens and the portal now differ, by the side that
-    changed them since this command last wrote them."""
+    changed them since this command last wrote them; *unknown* holds those
+    with no recorded value to tell."""
 
-    portal: list[str] = field(default_factory=list)
-    geolens: list[str] = field(default_factory=list)
-    # (field, GeoLens value, portal value) for a field changed on both sides,
-    # and for one with no recorded value to tell which side changed it.
-    both: list[tuple[str, str, str]] = field(default_factory=list)
-    unknown: list[tuple[str, str, str]] = field(default_factory=list)
+    portal: list[Difference] = field(default_factory=list)
+    geolens: list[Difference] = field(default_factory=list)
+    both: list[Difference] = field(default_factory=list)
+    unknown: list[Difference] = field(default_factory=list)
 
 
 def compare_edits(
@@ -250,14 +253,50 @@ def compare_edits(
             continue
         written = _written(base, name)
         if written is None:
-            edits.unknown.append((name, existing, value))
+            side = edits.unknown
         elif existing != written and value != written:
-            edits.both.append((name, existing, value))
+            side = edits.both
         elif existing != written:
-            edits.geolens.append(name)
+            side = edits.geolens
         else:
-            edits.portal.append(name)
+            side = edits.portal
+        side.append((name, existing, value))
     return edits
+
+
+def current_value(dataset: Any, name: str) -> str:
+    """*name*'s value on *dataset*, "" when it has none."""
+    return _current(dataset, name)
+
+
+def write_fields(
+    ctx: MigrationContext,
+    entry: ItemState,
+    dataset_id: str,
+    dataset: Any,
+    values: Mapping[str, str],
+) -> Any:
+    """Write *values* ("" empties a field) onto *dataset* as read, record them
+    as this command's in the baseline, and return the dataset GeoLens answers
+    with; ``ItemFailed`` when GeoLens refuses."""
+    from geolens.api.datasets import (
+        update_dataset_metadata_datasets_dataset_id_patch as patch,
+    )
+    from geolens.models.dataset_meta import DatasetMeta
+
+    body = {name: value or None for name, value in values.items()}
+    body["expected_updated_at"] = dataset.updated_at.isoformat()
+    try:
+        written = ctx.geolens.write(
+            patch.sync_detailed,
+            during="its metadata was written",
+            dataset_id=UUID(dataset_id),
+            body=DatasetMeta.from_dict(body),
+        )
+    except GeoLensError as exc:
+        raise ItemFailed(f"writing the item metadata failed, {exc}") from None
+    entry.metadata_baseline.setdefault(dataset_id, {}).update(values)
+    return written
 
 
 def _written(base: Mapping[str, Any] | None, name: str) -> str | None:
@@ -278,7 +317,6 @@ def apply_item_metadata(
     entry: ItemState,
     datasets: Container[str] | None = None,
     titles: Mapping[str, str] | None = None,
-    overwrite: Mapping[str, Collection[str]] | None = None,
 ) -> None:
     """Write the item's metadata onto each of its datasets, or only those in
     *datasets*, as the operator, and the title *titles* gives a dataset.
@@ -286,8 +324,7 @@ def apply_item_metadata(
     A field someone edited in GeoLens since the last run is kept and listed in
     the item's notes: a field is written only while it still holds what this
     command wrote (``entry.metadata_baseline``), or is empty. A title is never
-    emptied. The fields *overwrite* names for a dataset take the portal's
-    value over an edit made in GeoLens.
+    emptied.
     """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
@@ -308,18 +345,11 @@ def apply_item_metadata(
             base = entry.metadata_baseline.get(dataset_id)
             meta: dict[str, Any] = {}
             baseline = dict(base or {})
-            taken = (overwrite or {}).get(dataset_id, ())
             wanted = _wanted_fields(fields, base, (titles or {}).get(dataset_id))
-            # A field the portal leaves empty is emptied over the GeoLens edit.
-            wanted.update({name: "" for name in taken if name not in wanted})
             for name, value in wanted.items():
-                existing = _current(current, name)
-                if name in taken and existing != value:
-                    action, claim = "write", True
-                else:
-                    action, claim = _decide(
-                        name, existing, value, base, entry.metadata_hash
-                    )
+                action, claim = _decide(
+                    name, _current(current, name), value, base, entry.metadata_hash
+                )
                 if action == "write":
                     meta[name] = value or None
                 elif action == "keep":

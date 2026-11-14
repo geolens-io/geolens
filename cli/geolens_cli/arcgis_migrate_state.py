@@ -183,9 +183,15 @@ class ItemState:
     # summary, attribution, license, source_organization, keywords), so a rerun
     # can tell a field it wrote from one someone edited in GeoLens.
     metadata_baseline: dict[str, dict[str, Any]] = field(default_factory=dict)
-    # Dataset -> its GeoLens updated_at, feature count and data revision when
-    # this command last left it, so a rerun can tell a change made since.
+    # Dataset -> its GeoLens updated_at, feature count, data revision and
+    # version when this command last left it, so a rerun can tell a change
+    # made since.
     last_update: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Dataset -> a decided write over edits made in GeoLens that hasn't landed:
+    # its report line, the plan's both_changed then, the snapshot it was
+    # decided on, and per field the GeoLens value then and the value to write
+    # ("" empties it). Kept until the metadata write lands.
+    pending_metadata: dict[str, dict[str, Any]] = field(default_factory=dict)
     # The migrated map's owner and updated_at as this command last left it,
     # so a deferred handover leaves a map somebody changed since.
     map_snapshot: dict[str, str] | None = None
@@ -265,6 +271,17 @@ class ItemState:
         if self.pending_write is None:
             return None
         return "the web map's last save has no recorded outcome; a rerun settles it"
+
+    def pending_metadata_reason(self) -> str | None:
+        """Why a dataset isn't up to date while a decided metadata write over
+        edits made in GeoLens hasn't landed."""
+        if not self.pending_metadata:
+            return None
+        shown = ", ".join(sorted(self.pending_metadata))
+        return (
+            f"the metadata decided for dataset(s) {shown}, which were edited on "
+            "both sides, isn't written yet; a rerun writes it"
+        )
 
     def owed_reason(self) -> str | None:
         """Why a web map isn't up to date while *pending_layers* is set."""

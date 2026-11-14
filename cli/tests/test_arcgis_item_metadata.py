@@ -264,6 +264,10 @@ def test_a_keyword_is_created_unless_it_is_present_or_was_removed(
     assert _plan_keywords(wanted, written, present) == (add, kept)
 
 
+def _names(differences):
+    return [name for name, _g, _p in differences]
+
+
 class _Dataset:
     title = "Named in GeoLens"
     summary = "Old summary"
@@ -284,8 +288,8 @@ def test_each_differing_field_is_classified_by_the_side_that_changed_it():
 
     edits = compare_edits(_Dataset(), base, fields, "Parcels")
 
-    assert edits.portal == ["summary", "license"]
-    assert edits.geolens == ["title", "source_organization"]
+    assert _names(edits.portal) == ["summary", "license"]
+    assert _names(edits.geolens) == ["title", "source_organization"]
     assert edits.both == [("attribution", "Edited credit", "New credit")]
     assert edits.unknown == []
 
@@ -305,5 +309,5 @@ def test_a_field_the_portal_leaves_empty_is_compared_with_a_known_empty_value():
 
     edits = compare_edits(_Dataset(), base, {"summary": "Old summary"}, None)
 
-    assert edits.geolens == ["source_organization"]
-    assert [name for name, _g, _p in edits.unknown] == ["attribution", "license"]
+    assert edits.geolens == [("source_organization", "Filled in GeoLens", "")]
+    assert _names(edits.unknown) == ["attribution", "license"]

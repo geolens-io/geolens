@@ -16,9 +16,11 @@ see ``arcgis_portal`` for the portal side of the egress contract.
 from __future__ import annotations
 
 import heapq
+import os
+import sys
 from collections import Counter
 from collections.abc import Callable, Iterable, Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -127,6 +129,7 @@ from .arcgis_portal import (
     build_opener,
     check_client_id,
     portal_root,
+    check_credential_options,
     read_credentials,
 )
 
@@ -210,6 +213,8 @@ class MigrateOptions:
     token_stdin: bool = False
     username: str | None = None
     password_stdin: bool = False
+    # Read from --password-stdin or ARCGIS_PASSWORD when the run starts.
+    password: str | None = None
     client_id: str | None = None
     redirect_port: int | None = None
     quiet: bool = False
@@ -1912,13 +1917,17 @@ def _portal_client(
             return PortalClient(root, opener=build_opener(), redact=redact), None
         return None
     try:
+        # Stdin was read when the run started; only a prompt is left.
         token, password = read_credentials(
             opts.token,
             opts.token_stdin,
             opts.username,
             opts.password_stdin,
             opts.client_id,
+            prompt=opts.password is None,
         )
+        password = opts.password or password
+        redact.add(password)
         if token is None and password is None and not opts.client_id:
             raise UsageError(
                 f"{private} item(s) to import or bring up to date are not public: pass --token, "
@@ -1980,6 +1989,42 @@ def _sign_in(
     return PortalAuth(client, renewable=sign_in is not None)
 
 
+def _take_credentials(opts: MigrateOptions, redact: Redactor) -> MigrateOptions:
+    """*opts* with each credential the run was given read once and added to
+    *redact* before any path can skip the portal sign-in: a token from
+    --token, ARCGIS_TOKEN or --token-stdin, and a password from
+    --password-stdin or ARCGIS_PASSWORD, which is registered even without
+    --username. Nothing prompts here; an empty stdin line stays unread, so
+    the sign-in that needs it refuses as before."""
+    try:
+        check_credential_options(
+            opts.token or None,
+            opts.token_stdin,
+            opts.username,
+            opts.password_stdin,
+            opts.client_id,
+        )
+    except ValueError as exc:
+        raise UsageError(str(exc)) from None
+    token, password = opts.token or None, None
+    token_stdin, password_stdin = opts.token_stdin, opts.password_stdin
+    if token_stdin:
+        token = sys.stdin.readline().strip() or None
+        token_stdin = token is None
+    if password_stdin:
+        password = sys.stdin.readline().rstrip("\r\n") or None
+        password_stdin = password is None
+    for secret in (token, password, os.environ.get("ARCGIS_PASSWORD")):
+        redact.add(secret)
+    return replace(
+        opts,
+        token=token,
+        token_stdin=token_stdin,
+        password=password,
+        password_stdin=password_stdin,
+    )
+
+
 def _run(
     fmt: _output.Formatter,
     opts: MigrateOptions,
@@ -1994,6 +2039,7 @@ def _run(
         except ValueError as exc:
             raise UsageError(str(exc)) from None
         _check_cutover(opts)
+        opts = _take_credentials(opts, redact)
         plan = _plan.load_plan(opts.plan_path)
         state_path = opts.state_path or opts.plan_path.parent / STATE_FILENAME
         state = MigrationState.load(
@@ -2009,9 +2055,6 @@ def _run(
         rows, portal_info, inventory_groups = _inventory_rows(
             plan, opts.plan_path, touched
         )
-        # A dry run builds no portal client but shows GeoLens values, which
-        # can hold the token.
-        redact.add(opts.token)
         # A dry run makes only the sign-in the run starts with.
         portal = (
             None

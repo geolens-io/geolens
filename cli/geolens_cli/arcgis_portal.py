@@ -1192,17 +1192,14 @@ def check_client_id(client_id: str | None) -> None:
         raise ValueError("--client-id is not an ArcGIS client ID")
 
 
-def read_credentials(
+def check_credential_options(
     token: str | None,
     token_stdin: bool,
     username: str | None,
     password_stdin: bool,
     client_id: str | None = None,
-) -> tuple[str | None, str | None]:
-    """(token, password) from the options, stdin, ``ARCGIS_PASSWORD`` or a
-    prompt; both None for an anonymous run or a browser sign-in with
-    *client_id*. ``ValueError`` on a bad mix."""
-    token = token or None
+) -> None:
+    """``ValueError`` when the credential options are a bad mix."""
     if token_stdin and token:
         raise ValueError("pass the token once: --token/ARCGIS_TOKEN or --token-stdin")
     if username and (token or token_stdin):
@@ -1216,6 +1213,23 @@ def read_credentials(
                 "(GEOLENS_ARCGIS_CLIENT_ID), not several"
             )
         check_client_id(client_id)
+
+
+def read_credentials(
+    token: str | None,
+    token_stdin: bool,
+    username: str | None,
+    password_stdin: bool,
+    client_id: str | None = None,
+    prompt: bool = True,
+) -> tuple[str | None, str | None]:
+    """(token, password) from the options, stdin, ``ARCGIS_PASSWORD`` or a
+    prompt; both None for an anonymous run or a browser sign-in with
+    *client_id*, and the password None when it would take a prompt and
+    *prompt* is false. ``ValueError`` on a bad mix."""
+    token = token or None
+    check_credential_options(token, token_stdin, username, password_stdin, client_id)
+    if client_id is not None:
         return None, None
     if token_stdin:
         token = sys.stdin.readline().strip()
@@ -1233,9 +1247,10 @@ def read_credentials(
     if password_stdin:
         password = sys.stdin.readline().rstrip("\r\n")
     else:
-        password = os.environ.get("ARCGIS_PASSWORD") or getpass.getpass(
-            "ArcGIS password: "
-        )
+        password = os.environ.get("ARCGIS_PASSWORD")
+        if not password and not prompt:
+            return None, None
+        password = password or getpass.getpass("ArcGIS password: ")
     if not password:
         raise ValueError("an empty password was given")
     return None, password
