@@ -10799,6 +10799,20 @@ export type ProblemDetail = {
      * A machine-readable code for the problem, on the errors that carry one, such as `catalog_lock_conflict` on a 409 for a row another request holds. Absent otherwise.
      */
     code?: string;
+    /**
+     * Action
+     *
+     * The refused change, on a `dataset_in_shared_maps` 422: `unpublish` or `restrict_visibility`. Absent otherwise.
+     */
+    action?: string;
+    /**
+     * Shared Maps
+     *
+     * The shared maps behind a `dataset_in_shared_maps` 422, as `{"id", "name"}` pairs. Absent otherwise.
+     */
+    shared_maps?: Array<{
+        [key: string]: string;
+    }>;
 };
 
 /**
