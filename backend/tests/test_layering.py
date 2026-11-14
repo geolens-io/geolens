@@ -1425,8 +1425,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Analysis validation, bounded execution and fenced registration share one task
     # lifecycle.
     "backend/app/processing/analysis/tasks.py": 1427,
-    # Map endpoints share response assembly, visibility and ownership checks.
-    "backend/app/modules/catalog/maps/router.py": 1499,
+    # Every credential lane resolves here, with each key scope's route rule at
+    # the one chokepoint that refuses it.
+    "backend/app/modules/auth/dependencies.py": 1008,
+    # Map endpoints share response assembly, visibility and ownership checks,
+    # and the map_author key's limits on the routes it may write.
+    "backend/app/modules/catalog/maps/router.py": 1509,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.

@@ -193,6 +193,7 @@ async def create_map(
     notes: str | None = None,
     terrain_config: dict | None = None,
     basemap_config: dict | None = None,
+    created_by_api_key_id: uuid.UUID | None = None,
 ) -> Map:
     """Create a map. Does NOT commit."""
     map_obj = Map(
@@ -202,6 +203,7 @@ async def create_map(
         terrain_config=terrain_config,
         basemap_config=basemap_config,
         created_by=created_by,
+        created_by_api_key_id=created_by_api_key_id,
     )
     session.add(map_obj)
     await session.flush()
