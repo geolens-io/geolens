@@ -388,6 +388,8 @@
     "scopeReadOnly": "Solo lectura",
     "scopePublish": "Publicar",
     "scopePublishDescription": "Añade tus propios datos y mapas, edita los detalles de tus conjuntos de datos y reemplaza conjuntos de datos subidos, conservando sus versiones anteriores. No puede hacer nada público ni ampliar la visibilidad de un conjunto de datos, actualizar un mapa existente, reemplazar conjuntos de datos ráster ni vinculados a un servicio, elemento STAC o tabla, escribir entidades ni eliminar nada.",
+    "scopeMapAuthor": "Autor de mapas",
+    "scopeMapAuthorDescription": "Lee lo que tú puedes leer, crea mapas privados a partir de conjuntos de datos que puedes leer y define la cámara, el mapa base, los estilos de capa y las ventanas emergentes en los mapas que creó. No puede cambiar ningún otro mapa, eliminar nada, compartir ni cambiar la visibilidad, ni editar conjuntos de datos.",
     "scopeDatasetWrite": "Un conjunto de datos",
     "scopeDatasetAppend": "Un conjunto de datos, solo añadir",
     "expiry": "Caduca",

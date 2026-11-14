@@ -132,6 +132,12 @@ class Map(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True, index=True
     )
+    # The map_author API key that created the map, set at creation and never
+    # changed. No FK: a revoked or deleted key keeps its id here and matches no
+    # live key, and a key id is never issued twice.
+    created_by_api_key_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     # Dormant tenant_id: nullable, no FK enforcement.
     tenant_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), nullable=True
