@@ -674,7 +674,7 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
         assert _paging_off(seen[0]["argv"]) is off
         assert hits.await_count == 1
 
-    async def test_another_wfs_is_read_as_before(
+    async def test_another_wfs_gets_a_hits_read_but_no_arcgis_probe(
         self, monkeypatch, hits, pages, rows
     ) -> None:
         seen = _spawn_reading_the_source(monkeypatch)
@@ -682,8 +682,38 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
         await self._import(_OTHER_WFS)
 
         assert not _paging_off(seen[0]["argv"])
-        assert (hits.await_count, pages.await_count) == (0, 0)
-        rows.assert_not_awaited()
+
+        assert hits.await_count == 1
+        pages.assert_not_awaited()
+
+    async def test_a_non_arcgis_wfs_short_of_its_total_fails_the_import(
+        self, monkeypatch, hits, pages, rows
+    ) -> None:
+        from app.processing.ingest.ogr import IngestionError
+
+        _spawn_reading_the_source(monkeypatch)
+        hits.return_value, rows.return_value = 5000, 1000
+
+        with pytest.raises(IngestionError, match="returned 1000 of 5000 features"):
+            await self._import(_OTHER_WFS)
+
+        pages.assert_not_awaited()
+
+    async def test_a_non_arcgis_wfs_over_its_stated_total_passes(
+        self, monkeypatch, hits, pages, rows
+    ) -> None:
+        _spawn_reading_the_source(monkeypatch)
+        hits.return_value, rows.return_value = 1000, 5000
+
+        await self._import(_OTHER_WFS)
+
+    async def test_a_non_arcgis_wfs_with_no_total_is_imported_unchecked(
+        self, monkeypatch, hits, pages, rows
+    ) -> None:
+        _spawn_reading_the_source(monkeypatch)
+        hits.return_value, rows.return_value = None, 1000
+
+        await self._import(_OTHER_WFS)
 
     async def test_fewer_features_than_the_total_fails_the_import(
         self, monkeypatch, hits, pages, rows
@@ -1256,7 +1286,10 @@ class TestTheWorkerRefusalsKeepTheirCodes:
     @staticmethod
     def _refusals():
         from app.platform.service_items import EmptyPageError, ServiceErrorResponseError
-        from app.processing.ingest.ogr import refuse_short_arcgis_wfs
+        from app.processing.ingest.ogr import (
+            refuse_short_arcgis_wfs,
+            refuse_short_wfs,
+        )
 
         def _mismatch(imported: int, expected: int) -> Exception:
             try:
@@ -1265,9 +1298,17 @@ class TestTheWorkerRefusalsKeepTheirCodes:
                 return exc
             raise AssertionError("no refusal")
 
+        def _short(imported: int, expected: int) -> Exception:
+            try:
+                refuse_short_wfs(imported, expected)
+            except Exception as exc:  # broad: the refusal under test
+                return exc
+            raise AssertionError("no refusal")
+
         return [
             (_mismatch(3000, 3197), "arcgis_wfs_short"),
             (_mismatch(2429, 1429), "arcgis_wfs_repeated"),
+            (_short(1000, 5000), "wfs_short"),
             (ServiceErrorResponseError(498), "service_auth_refused"),
             (ServiceErrorResponseError(400), "service_error"),
             (EmptyPageError(), "service_empty_page"),
@@ -1760,18 +1801,26 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
 
         rows.assert_awaited_once()
 
-    async def test_geoserver_is_read_as_before(self, monkeypatch, rows) -> None:
+    async def test_a_short_geoserver_read_is_refused(self, monkeypatch, rows) -> None:
+        from app.core.failure_reason import failure_code, redact_failure_reason
+        from app.processing.ingest.ogr import WfsCountMismatchError
+
         recorded = _serve(
             monkeypatch,
             _wfs(_capabilities(_OTHER_WFS, formats=("application/json", "GML2"))),
         )
         seen = _spawn_reading_the_source(monkeypatch)
 
-        await self._import(_OTHER_WFS)
+        with pytest.raises(WfsCountMismatchError) as caught:
+            await self._import(_OTHER_WFS)
 
+        assert failure_code(redact_failure_reason(caught.value)) == "wfs_short"
         assert not _paging_off(seen[0]["argv"])
-        rows.assert_not_awaited()
-        assert [r.url.params.get("REQUEST") for r in recorded] == ["GetCapabilities"]
+        rows.assert_awaited_once()
+        assert [r.url.params.get("REQUEST") for r in recorded] == [
+            "GetCapabilities",
+            "GetFeature",
+        ]
 
     async def test_a_redirect_to_the_service_path(self, monkeypatch) -> None:
         from app.platform.arcgis_wfs import recognise_arcgis_wfs

@@ -238,6 +238,7 @@
     "jobFailureArcgisWfsCountUnavailable": "Impossible de compter les entités de ce WFS ArcGIS : rien n'a été importé. Réessayez dans quelques minutes, ou importez l'URL FeatureServer ou OGC API Features de la couche.",
     "jobFailureArcgisWfsRepeated": "Le WFS ArcGIS a renvoyé plusieurs fois les mêmes entités : rien n'a été importé. Importez plutôt l'URL FeatureServer ou OGC API Features de la couche.",
     "jobFailureArcgisWfsShort": "Le WFS ArcGIS a renvoyé moins d'entités que la couche n'en contient : rien n'a été importé. Importez plutôt l'URL FeatureServer ou OGC API Features de la couche.",
+    "jobFailureWfsShort": "Le WFS a renvoyé moins d'entités que la couche n'en contient : rien n'a été importé.",
     "reuploadOriginChanged": "La source de ce jeu de données a changé pendant la préparation du remplacement, rien n'a donc été mis en file d'attente. Vérifiez la source du jeu de données avant de remplacer ses données.",
     "reuploadPointCloudUnsupported": "Les jeux de données de nuage de points ne peuvent pas être remplacés par un rechargement. Téléversez le nouveau nuage de points comme un nouveau jeu de données.",
     "reuploadTilesetUnsupported": "Les jeux de données 3D Tiles ne peuvent pas être remplacés par un rechargement. Téléversez le nouveau jeu de tuiles comme un nouveau jeu de données.",
