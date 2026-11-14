@@ -1068,3 +1068,42 @@ def test_a_single_colour_replaces_a_line_gradient(gradient_key):
         "paint": {"line-color": "#00ff00", "line-width": 2},
         "style_config": {"builder": {"arrow_color": "#111111"}},
     }
+
+
+@pytest.mark.parametrize(
+    "style",
+    [
+        {"type": "single", "color": "#00ff00"},
+        {"type": "categories", "column": "zone"},
+        {"type": "classes", "column": "population", "breaks": [10, 50]},
+    ],
+    ids=["single", "categories", "classes"],
+)
+def test_a_colour_replaces_a_line_pattern(style):
+    patterned = {
+        **DEFAULT_POLYGON_LAYER,
+        "dataset_geometry_type": "MultiLineString",
+        "paint": {
+            "line-color": "#3b82f6",
+            "line-width": 2,
+            "line-pattern": "geolens:dash",
+        },
+        "style_config": None,
+    }
+    stack = Stack(
+        {
+            **_map_with(patterned),
+            ("GET", f"/api/datasets/{DS}/columns/zone/values/"): (
+                200,
+                {"values": ["a", "b"], "count": 2},
+            ),
+            ("PATCH", f"/api/maps/{MAP}/layers"): (200, {}),
+        }
+    )
+
+    stack.api().update_layer_style(MAP, LAYER, style=style)
+
+    paint = _patched_layer(stack)["paint"]
+    assert "line-pattern" not in paint
+    assert paint["line-width"] == 2
+    assert paint["line-color"] != "#3b82f6"

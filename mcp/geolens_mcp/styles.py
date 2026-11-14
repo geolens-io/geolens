@@ -460,13 +460,14 @@ def _without_builder_keys(
 def _colour_owned_paint(paint: dict[str, Any]) -> dict[str, Any]:
     """Paint once a colour owns the layer: no pattern and no line gradient.
 
-    MapLibre draws a fill-pattern over fill-color and a line-gradient over
-    line-color, so either would hide the colour just written.
+    MapLibre draws a fill-pattern over fill-color, and a line-pattern or
+    line-gradient over line-color, so any of them would hide the new colour.
     """
     return {
         k: v
         for k, v in paint.items()
-        if k != "line-gradient" and not (k == "fill-pattern" and v is not None)
+        if k != "line-gradient"
+        and not (k in ("fill-pattern", "line-pattern") and v is not None)
     }
 
 
@@ -493,7 +494,9 @@ def single_color(
     """Paint and style_config for one colour, as the builder's Clear then a colour."""
     prop = color_property(geometry_type)
     new_paint = {
-        k: v for k, v in paint.items() if k not in ("fill-pattern", "line-gradient")
+        k: v
+        for k, v in paint.items()
+        if k not in ("fill-pattern", "line-pattern", "line-gradient")
     }
     new_paint[prop] = request.color
     new_paint.update(_size_properties(geometry_type))
