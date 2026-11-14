@@ -7,6 +7,10 @@
   "cancel": "取消",
   "delete": "删除",
   "confirm": "确认",
+  "newVersion": {
+    "message": "GeoLens 有新版本可用",
+    "reload": "重新加载"
+  },
   "close": "关闭",
   "search": "搜索",
   "back": "返回",

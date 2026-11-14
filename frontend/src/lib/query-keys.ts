@@ -262,6 +262,7 @@ export const queryKeys = {
     info: ['edition'] as const,
   },
 
+  serverVersion: ['server-version'] as const,
   authConfig: {
     config: ['auth', 'config'] as const,
     oauthProviders: ['auth', 'oauth-providers'] as const,
