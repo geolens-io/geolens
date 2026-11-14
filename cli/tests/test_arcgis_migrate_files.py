@@ -1716,3 +1716,62 @@ def test_any_other_500_on_the_file_fails_the_import_for_a_rerun(
     entry = _state(plan_file)["items"][D3]
     assert entry["status"] == "failed"
     assert "downloading the data file failed" in entry["error"]
+
+
+def _interrupt(kind: str, files: FakeFiles, plan_file: Path, runner) -> None:
+    """Leave *kind* recorded for D3, as a run stopped part way does."""
+    if kind == "pinned_dataset":
+        dataset = dataset_id("Inspections")
+        files.helper._serve_dataset(dataset)
+        _write_state(plan_file, layer_datasets={"file": dataset}, dataset_ids=[dataset])
+        return
+    name = {"pending_upload": "preview", "committed_job": "commit"}.get(kind, "fan_out")
+    real = getattr(files, name)
+
+    def lost(*args):
+        # A commit lands before its answer is lost; the preview and the
+        # fan-out are refused outright.
+        if name == "commit":
+            real(*args)
+        return (502, _problem(502, "gateway lost the answer"))
+
+    setattr(files, name, lost)
+    assert _migrate(runner, plan_file, "--only", D3)[0].exit_code == 1
+    setattr(files, name, real)
+
+
+@pytest.mark.parametrize(
+    ("kind", "recorded", "uploads"),
+    [
+        ("pending_upload", "pending_upload", 1),
+        ("committed_job", "layer_jobs", 1),
+        ("fan_out", "fan_out", 1),
+        ("pinned_dataset", "layer_datasets", 0),
+    ],
+)
+def test_an_import_left_part_way_resumes_after_the_inventory_shows_a_url(
+    runner, tmp_path, geolens, portal, kind, recorded, uploads
+):
+    files = FakeFiles(
+        geolens, layer_names=["Roads", "Parcels"] if kind == "fan_out" else None
+    )
+    plan_file = _plan(tmp_path)
+    _interrupt(kind, files, plan_file, runner)
+    assert _state(plan_file)["items"][D3][recorded]
+    inventory = plan_file.parent / "arcgis-inventory.json"
+    report = json.loads(inventory.read_text())
+    for row in report["items"]:
+        if row["id"] == D3:
+            row.update(BY_URL)
+    inventory.write_text(json.dumps(report))
+    _by_url(portal)
+    reads = len(portal.requests_to(item_data_path(D3)))
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert len(portal.requests_to(item_data_path(D3))) == reads
+    assert len(files.uploads) == uploads
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "done" and entry["export"] is None
+    assert entry["dataset_ids"]

@@ -440,8 +440,6 @@ def import_file(
     row = ctx.inventory.get(item["id"])
     if row is None:
         raise ItemFailed("the item is not in the inventory the plan was built from")
-    if added_by_url(row["type"], row.get("url"), row.get("size_bytes")):
-        return _as_reference(ctx, item, entry)
     base = item["target"]["title"] or item["title"]
     # The upload's file name is made from the portal's title.
     refuse_credentials(
@@ -494,6 +492,9 @@ def import_file(
             ctx.save()
             job_id = None
     if job_id is None:
+        # Only once nothing an earlier run sent GeoLens is left to resume.
+        if added_by_url(row["type"], row.get("url"), size):
+            return _as_reference(ctx, item, entry)
         try:
             if isinstance(size, int) and size > limit:
                 raise _Skipped(
