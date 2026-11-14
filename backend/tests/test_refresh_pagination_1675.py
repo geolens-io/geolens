@@ -25,7 +25,7 @@ from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.jobs.models import IngestJob
 from app.platform.dataset_origin import KEEP, BoundPointer, SourceBinding, restamp
 from app.processing.ingest import tasks_vector
-from app.processing.ingest.tasks_common import _ARCGIS_GDAL_GET_URL_MAX_BYTES
+from app.processing.ingest.tasks_arcgis import _ARCGIS_GDAL_GET_URL_MAX_BYTES
 from app.processing.ingest.tasks_reupload import (
     RefreshPublicationFenceError,
     _enforce_refresh_publication_fence,
