@@ -68,7 +68,7 @@ class WidgetFilter(NamedTuple):
     depth: int
 
 
-def _refuse() -> FilterValidationError:
+def _unsupported_shape() -> FilterValidationError:
     return FilterValidationError(_REFUSED)
 
 
@@ -246,23 +246,23 @@ class _Builder:
 
     def prop(self, field: str) -> dict:
         if not _COLUMN.fullmatch(field):
-            raise _refuse()
+            raise _unsupported_shape()
         pg_type = self.type_of(field)
         if pg_type is not None and pg_type not in _QUERYABLE:
-            raise _refuse()
+            raise _unsupported_shape()
         self.columns.add(field)
         return {"property": field}
 
     def literal(self, field: str, value: Any) -> Any:
         pg_type = self.type_of(field)
         if not _compatible(value, pg_type):
-            raise _refuse()
+            raise _unsupported_shape()
         return _cql2_literal(value, pg_type)
 
     def number(self, field: str, value: Any) -> Any:
         """A number compared through ``to-number``, which must still suit the column."""
         if not _compatible(value, self.type_of(field)):
-            raise _refuse()
+            raise _unsupported_shape()
         return value
 
     def is_null(self, field: str) -> dict:
@@ -276,7 +276,7 @@ class _Builder:
 
     def members(self, field: str, values: list) -> dict:
         if not values:
-            raise _refuse()
+            raise _unsupported_shape()
         literals = [self.literal(field, value) for value in values]
         return {"op": "in", "args": [self.prop(field), literals]}
 
@@ -289,7 +289,7 @@ class _Builder:
                 return self.is_null(field)
             if op == "!=":
                 return {"op": "not", "args": [self.is_null(field)]}
-            raise _refuse()
+            raise _unsupported_shape()
         comparison = self.compare(op, field, self.literal(field, value))
         return self.or_null(field, comparison) if op == "!=" else comparison
 
@@ -325,7 +325,7 @@ class _Builder:
             if not isinstance(e[1], str) or (
                 pg_type is not None and pg_type not in _TEXT
             ):
-                raise _refuse()
+                raise _unsupported_shape()
             pattern = re.sub(r"([\\%_])", r"\\\1", e[1])
             return {"op": "like", "args": [self.prop(_get(e[2])), f"%{pattern}%"]}
         if op == "has" and len(e) == 2 and isinstance(e[1], str):
@@ -351,12 +351,12 @@ class _Builder:
         if condition is not None:
             return condition
         if _op(node) not in ("all", "any"):
-            raise _refuse()
+            raise _unsupported_shape()
         parts = []
         keeps_all = False
         for child in node[1:]:
             if not isinstance(child, list):
-                raise _refuse()
+                raise _unsupported_shape()
             # Every branch is read, after one that keeps every feature too.
             part = self.tree(child)
             if part is None:
@@ -367,7 +367,7 @@ class _Builder:
             return None
         if not parts:
             if node[0] == "any":
-                raise _refuse()
+                raise _unsupported_shape()
             return None
         if len(parts) == 1:
             return parts[0]
@@ -411,27 +411,27 @@ def _legacy(node: Any) -> list:
     """A legacy-syntax filter in the expression forms the converter gives it."""
     op = _op(node)
     if op is None:
-        raise _refuse()
+        raise _unsupported_shape()
     key, values = node[1] if len(node) > 1 else None, node[2:]
     if op in ("all", "any"):
         return [op, *(_legacy(child) for child in node[1:])]
     if op in _LEGACY_NEGATIONS:
         return ["!", _legacy([_LEGACY_NEGATIONS[op], *node[1:]])]
     if not isinstance(key, str) or key in _PSEUDO:
-        raise _refuse()
+        raise _unsupported_shape()
     if op == "in":
         return ["in", ["get", key], ["literal", values]]
     if op == "has":
         if values:
-            raise _refuse()
+            raise _unsupported_shape()
         return ["has", key]
     if len(values) != 1 or not _is_scalar(values[0]):
-        raise _refuse()
+        raise _unsupported_shape()
     value = values[0]
     if op == "==":
         return ["in", ["get", key], ["literal", [value]]]
     if op not in _ORDER or not _is_number(value):
-        raise _refuse()
+        raise _unsupported_shape()
     comparison = [op, ["to-number", ["get", key], _fallback(op, value)], value]
     guarded = ["all", _typeof(key, "null", "!="), comparison]
     return ["all", _typeof(key, "number", "=="), guarded]
