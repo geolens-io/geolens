@@ -20,6 +20,7 @@ from uuid import UUID
 
 from ._sdk_helpers import EXTENDED_REQUEST_TIMEOUT_SECONDS, long_request_timeout
 from . import publish as _publish
+from .arcgis_migrate_export import export_item
 from .arcgis_migrate_layers import (
     _ALREADY_COMMITTED,
     _JobEnded,
@@ -421,12 +422,24 @@ def import_file(
     instance's size limit is skipped with its size; a quota refusal fails it.
     """
     extension = EXTENSIONS.get(item["type"])
+    if extension is None and item["type"] == "Feature Collection":
+        # Plans written before Feature Collections defaulted to export_only.
+        exported = export_item(ctx, item, entry)
+        return ItemResult(
+            status=SKIPPED,
+            notes=[
+                "a Feature Collection holds ArcGIS JSON, not a file GeoLens can "
+                "read; it is exported instead, see export/INDEX.md",
+                *exported.notes,
+            ],
+        )
     if extension is None:
         return ItemResult(
             status=SKIPPED,
             notes=[
-                f"{item['type']} items hold ArcGIS JSON, not a file GeoLens can "
-                "read; export the layer to a file and upload it"
+                f"{item['type']} items are not a data file GeoLens can import "
+                f"({', '.join(sorted(FILE_TYPES))}); set the action to export_only "
+                "to keep the item"
             ],
         )
     row = ctx.inventory.get(item["id"])

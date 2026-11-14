@@ -43,6 +43,7 @@ from .arcgis_migrate_state import (
     MigrationState,
     whole_number,
 )
+from .arcgis_plan import UNREAD_DEPENDENCIES as _UNREAD_REASON
 from .arcgis_portal import PortalClient, PortalError, redact_json
 from .arcgis_story_markdown import render_classic, render_storymap
 
@@ -69,16 +70,40 @@ _TYPE_EXTENSIONS = {
 _EXTENSION = re.compile(r"\.[A-Za-z0-9]{1,8}")
 _STORY = "Web Mapping Application"
 _NO_EQUIVALENT = "No equivalent in GeoLens."
+# File extensions the upload endpoint takes that name a data format by
+# themselves; a saved ``data<ext>`` of one is an upload as it is.
+_UPLOAD_EXTENSIONS = frozenset(
+    {
+        ".gpkg", ".geojson", ".csv", ".tif", ".tiff", ".xlsx", ".xls",
+        ".parquet", ".fgb", ".kml", ".kmz", ".3tz", ".laz",
+    }
+)  # fmt: skip
+_UNREAD_MAP = (
+    "The web map's layers could not be read, so it was exported instead of "
+    "migrated; rerun the inventory, then set the action to import_map."
+)
 _APP_REBUILD = (
     "Rebuild as a GeoLens map with a share link or embed; widgets with no "
     "equivalent are listed in data.json."
 )
+_STORY_INTRO = (
+    "Maps carry over. GeoLens stories are API-only for now (chapters with "
+    "map scenes and Markdown blocks, draft and publish, no web editor yet); "
+)
 NOTES: dict[str, str] = {
     "StoryMap": (
-        "Maps carry over. GeoLens stories are API-only for now (chapters with "
-        "map scenes and Markdown blocks, draft and publish, no web editor yet); "
-        "the story text and images are in story.md to recreate through the API "
-        "or reuse in a site or docs."
+        _STORY_INTRO + "the story text and images are in story.md to recreate "
+        "through the API or reuse in a site or docs."
+    ),
+    "Feature Collection": (
+        "data.json holds its layers as ArcGIS JSON, which GeoLens does not "
+        "read. Convert the features to GeoJSON or CSV with a GIS tool, then "
+        "upload that file."
+    ),
+    "WFS": "GeoLens imports WFS services by URL: add this service's URL as a dataset.",
+    "OGCFeatureServer": (
+        "GeoLens imports OGC API Features services by URL: add this service's "
+        "URL as a dataset."
     ),
     _STORY: _APP_REBUILD,
     "Web Experience": _APP_REBUILD,
@@ -178,12 +203,48 @@ def item_replacement(
     if not layer or item["action"] != default_action:
         if item["type"] == "Dashboard":
             return _dashboard_note(item, plan)
+        if item["type"] == "StoryMap":
+            return _story_note(state.items.get(item["id"]))
+        if item["type"] == "Web Map" and _UNREAD_REASON in item.get("reason", ""):
+            return _UNREAD_MAP
+        if item["type"] not in NOTES:
+            upload = _upload_note(state.items.get(item["id"]))
+            if upload:
+                return upload
         return replacement_note(item["type"])
     title = next((i["title"] for i in plan["items"] if i["id"] == layer), layer)
     entry = state.items.get(layer)
     if entry and entry.dataset_ids and entry.status in (DONE, EXISTS):
         return f"Published as {title}; migrated with it."
     return f"Source file of {title}, which has not migrated."
+
+
+def _story_note(entry: ItemState | None) -> str:
+    """The StoryMap note, which names story.md only when it was written."""
+    export = (entry.export if entry else None) or {}
+    if export.get("story") or "story" not in export:
+        return NOTES["StoryMap"]
+    if not export.get("draft"):
+        return _STORY_INTRO + "no story.md could be made from its data."
+    saved = export.get("draft_resource")
+    where = (
+        f"its draft is saved as resources/{saved}"
+        if saved
+        else "no draft resource was saved"
+    )
+    return (
+        _STORY_INTRO + f"this story is an unpublished draft with no story.md; {where}."
+    )
+
+
+def _upload_note(entry: ItemState | None) -> str | None:
+    """How to bring in a saved file the upload endpoint accepts, else None."""
+    files = ((entry.export if entry else None) or {}).get("files") or {}
+    for name in sorted(files):
+        stem, dot, suffix = name.partition(".")
+        if stem == "data" and f".{suffix}" in _UPLOAD_EXTENSIONS and dot:
+            return f"GeoLens accepts this file type: upload {name} as a dataset."
+    return None
 
 
 def _private_dirs(path: Path) -> None:
@@ -500,21 +561,56 @@ def _story_links(ctx: MigrationContext) -> Callable[[str], str]:
     return lambda item_id: _map_link(ctx, item_id, web_app)
 
 
+_DRAFT_RESOURCE = "smdraftresourceid:"
+_DRAFT_LINE = (
+    "> Unpublished draft: this story was never published, so this is its saved "
+    "draft.\n\n"
+)
+
+
+def _draft_resource(full: Mapping[str, Any]) -> str | None:
+    """The draft resource an unpublished StoryMap names in its type keywords."""
+    keywords = full.get("typeKeywords")
+    if not isinstance(keywords, list) or "smstatusdraft" not in keywords:
+        return None
+    for keyword in keywords:
+        if isinstance(keyword, str) and keyword.startswith(_DRAFT_RESOURCE):
+            return keyword[len(_DRAFT_RESOURCE) :]
+    return None
+
+
+def _read_draft(export: _Export, name: str | None, saved: set[str]) -> Any:
+    if not name or name not in saved or _safe_relative(name) is None:
+        return None
+    try:
+        draft = json.loads((export.folder / "resources" / name).read_bytes())
+    except (OSError, ValueError, RecursionError):
+        return None
+    ok = isinstance(draft, dict) and isinstance(draft.get("nodes"), dict)
+    return draft if ok else None
+
+
 def _story(
     ctx: MigrationContext,
     export: _Export,
     item: Mapping[str, Any],
     data: Any,
     saved: set[str],
+    full: Mapping[str, Any],
 ) -> bool:
+    link = _story_links(ctx)
+    prefix = ""
+    draft = _draft_resource(full) if item["type"] == "StoryMap" else None
+    if draft and not (isinstance(data, dict) and "nodes" in data):
+        # An unpublished story has no /data; its content is the draft resource.
+        data = _read_draft(export, draft, saved)
+        prefix = _DRAFT_LINE
     if not isinstance(data, dict):
         return False
 
-    link = _story_links(ctx)
-
     text = None
     if item["type"] == "StoryMap" and "nodes" in data:
-        text = render_storymap(
+        text = prefix + render_storymap(
             data, title=item["title"], map_link=link, available=saved
         )
     elif item["type"] == _STORY:
@@ -724,7 +820,8 @@ def _export_into(
             export.errors.append("item.json: over the export size cap, not saved")
         data = _save_data(ctx, export, item, full)
         saved = _save_resources(ctx, export, item["id"])
-        story = _story(ctx, export, item, data, saved)
+        story = _story(ctx, export, item, data, saved, full)
+        draft = _draft_resource(full) if item["type"] == "StoryMap" else None
     swapped = not (export.failures and folder.exists())
     if swapped:
         _swap_in(build, folder)
@@ -735,6 +832,8 @@ def _export_into(
         "partial": export.partial,
         "errors": [redact_json(e, ctx.redact) for e in export.errors],
         "story": story,
+        "draft": draft is not None,
+        "draft_resource": draft if draft in saved else None,
         # The portal's last change to the item, which a rerun compares.
         "modified": _modified(full),
         # What the bundle holds, which a rerun checks before trusting it.

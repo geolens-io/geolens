@@ -406,6 +406,7 @@ def test_a_feature_collection_is_skipped_with_a_note(runner, tmp_path, geolens, 
     for item in plan["items"]:
         if item["id"] == D3:
             item["type"] = "Feature Collection"
+            item["action"] = "import_file"
     plan_file.write_text(json.dumps(plan))
 
     result, _ = _migrate(runner, plan_file, "--only", D3)
@@ -414,6 +415,7 @@ def test_a_feature_collection_is_skipped_with_a_note(runner, tmp_path, geolens, 
     entry = _state(plan_file)["items"][D3]
     assert entry["status"] == "skipped" and "ArcGIS JSON" in entry["notes"][0]
     assert not files.uploads
+    assert (tmp_path / "export" / "feature-collection" / D3 / "item.json").exists()
 
 
 def test_a_portal_error_envelope_in_a_200_body_fails_the_item(
@@ -570,7 +572,7 @@ def test_a_layer_geolens_cannot_queue_is_noted_and_the_rest_import(
     assert "Parcels: bad layer" in entry["notes"][-1]
 
 
-def test_a_private_feature_collection_needs_no_portal_credential(
+def test_a_private_feature_collection_is_exported_with_a_token(
     runner, tmp_path, geolens, portal
 ):
     FakeFiles(geolens)
@@ -579,9 +581,10 @@ def test_a_private_feature_collection_needs_no_portal_credential(
     for item in plan["items"]:
         if item["id"] == D3:
             item["type"] = "Feature Collection"
+            item["action"] = "import_file"
     plan_file.write_text(json.dumps(plan))
 
-    result, _ = _migrate(runner, plan_file, "--only", D3)
+    result, _ = _migrate(runner, plan_file, "--only", D3, "--token", "token-value-1234")
 
     assert result.exit_code == 0, result.output
     assert _state(plan_file)["items"][D3]["status"] == "skipped"

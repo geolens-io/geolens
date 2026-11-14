@@ -13,6 +13,7 @@ import pytest
 
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_migrate_export as export_module
+from geolens_cli import arcgis_plan as plan_module
 from geolens_cli.arcgis_migrate_state import MigrationState
 from geolens_cli.arcgis_portal import redact_json
 
@@ -1478,3 +1479,159 @@ def test_one_widget_that_shows_two_maps_gets_its_own_wording(tmp_path):
     assert f"Its map widget shows 2 maps (Map {C2}, Map {C3})" in note
     assert "map widgets (" not in note
     assert "convert it to a single-map dashboard or split it" in note
+
+
+def _item_with_keywords(item_id: str, *keywords: str) -> dict:
+    return {**_routes()[f"content/items/{item_id}"], "typeKeywords": list(keywords)}
+
+
+_DRAFT = "draft_1.json"
+_DRAFT_KEYWORDS = ("StoryMap", "smstatusdraft", f"smdraftresourceid:{_DRAFT}")
+
+
+def _draft_story(runner, tmp_path, install, *, resource: bool):
+    data = json.loads((STORY_FIXTURE / "storymap_data.json").read_text())
+    routes = {
+        f"content/items/{C2}": _item_with_keywords(C2, *_DRAFT_KEYWORDS),
+        f"content/items/{C2}/data": (404, {"error": {"code": 404}}),
+        f"content/items/{C2}/resources": _resources(*([_DRAFT] if resource else [])),
+    }
+    if resource:
+        routes[f"content/items/{C2}/resources/{_DRAFT}"] = data
+    install(routes)
+    plan_file = _plan(tmp_path, rows={C2: {"type": "StoryMap"}})
+    result, _ = _migrate(runner, plan_file, "--only", C2)
+    assert result.exit_code == 0, result.output
+    return plan_file
+
+
+def test_an_unpublished_story_is_rendered_from_its_draft_resource(
+    runner, tmp_path, geolens, install
+):
+    plan_file = _draft_story(runner, tmp_path, install, resource=True)
+
+    story = _export(plan_file, "storymap", C2) / "story.md"
+    lines = story.read_text().splitlines()
+    assert "Unpublished draft" in lines[0]
+    assert "# Open Space Theme" in lines
+    assert _state(plan_file)["items"][C2]["export"]["story"] is True
+
+
+def test_an_unpublished_story_without_its_draft_is_said_so_in_the_index(
+    runner, tmp_path, geolens, install
+):
+    plan_file = _draft_story(runner, tmp_path, install, resource=False)
+
+    assert not (_export(plan_file, "storymap", C2) / "story.md").exists()
+    index = (_export(plan_file) / "INDEX.md").read_text()
+    assert "unpublished draft with no story.md" in index
+    assert "no draft resource was saved" in index
+    assert "story text and images are in story.md" not in index
+
+
+def test_the_index_names_the_saved_draft_when_it_cannot_be_rendered(
+    runner, tmp_path, geolens, install
+):
+    install(
+        {
+            f"content/items/{C2}": _item_with_keywords(C2, *_DRAFT_KEYWORDS),
+            f"content/items/{C2}/data": (404, {"error": {"code": 404}}),
+            f"content/items/{C2}/resources": _resources(_DRAFT),
+            f"content/items/{C2}/resources/{_DRAFT}": {"nodes": "broken"},
+        }
+    )
+    plan_file = _plan(tmp_path, rows={C2: {"type": "StoryMap"}})
+
+    result, _ = _migrate(runner, plan_file, "--only", C2)
+
+    assert result.exit_code == 0, result.output
+    assert not (_export(plan_file, "storymap", C2) / "story.md").exists()
+    index = (_export(plan_file) / "INDEX.md").read_text()
+    assert f"its draft is saved as resources/{_DRAFT}" in index
+
+
+_COLLECTION = {"layers": [{"featureSet": {"features": []}}]}
+_FC_ROW = {"type": "Feature Collection", "class": "partial"}
+
+
+@pytest.mark.parametrize("old_plan", [False, True])
+def test_a_feature_collection_is_exported_with_its_json(
+    runner, tmp_path, geolens, install, old_plan
+):
+    install({f"content/items/{C2}/data": _COLLECTION})
+    plan_file = _plan(
+        tmp_path, rows={C2: {**_FC_ROW, "reason": "data_file_import_candidate"}}
+    )
+    plan = json.loads(plan_file.read_text())
+    item = next(i for i in plan["items"] if i["id"] == C2)
+    assert item["action"] == "export_only"
+    if old_plan:
+        item["action"] = "import_file"
+        item["depends_on"] = []
+        plan_file.write_text(json.dumps(plan))
+
+    result, _ = _migrate(runner, plan_file, "--only", C2)
+
+    assert result.exit_code == 0, result.output
+    folder = _export(plan_file, "feature-collection", C2)
+    assert json.loads((folder / "data.json").read_text()) == _COLLECTION
+    index = (_export(plan_file) / "INDEX.md").read_text()
+    assert "upload that file" in index
+
+
+def test_a_type_with_no_file_extension_is_not_blamed_on_arcgis_json(
+    runner, tmp_path, geolens, install
+):
+    install()
+    plan_file = _plan(tmp_path, rows={C2: {"type": "Image"}})
+    plan = json.loads(plan_file.read_text())
+    next(i for i in plan["items"] if i["id"] == C2)["action"] = "import_file"
+    plan_file.write_text(json.dumps(plan))
+
+    result, payload = _migrate(runner, plan_file, "--only", C2)
+
+    notes = json.dumps(payload)
+    assert "ArcGIS JSON" not in notes
+    assert "not a data file GeoLens can import" in notes
+
+
+@pytest.mark.parametrize(
+    ("item_type", "name", "expected"),
+    [
+        ("GeoPackage", "layers.gpkg", "upload data.gpkg as a dataset"),
+        ("WFS", None, "imports WFS services by URL"),
+    ],
+)
+def test_the_index_says_how_to_bring_in_what_geolens_takes(
+    runner, tmp_path, geolens, install, item_type, name, expected
+):
+    routes = {f"content/items/{C2}/data": b"PK"}
+    if name:
+        routes[f"content/items/{C2}"] = {
+            **_routes()[f"content/items/{C2}"],
+            "name": name,
+        }
+    install(routes)
+    plan_file = _plan(tmp_path, rows={C2: {"type": item_type}})
+
+    result, _ = _migrate(runner, plan_file, "--only", C2)
+
+    assert result.exit_code == 0, result.output
+    index = (_export(plan_file) / "INDEX.md").read_text()
+    assert expected in index
+    assert "No equivalent in GeoLens." not in index
+
+
+def test_a_web_map_exported_because_its_data_could_not_be_read_says_so(tmp_path):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    item = {
+        "id": D1,
+        "type": "Web Map",
+        "action": "export_only",
+        "reason": "x" + plan_module.UNREAD_DEPENDENCIES,
+    }
+
+    note = export_module.item_replacement(item, {"items": [item]}, state)
+
+    assert "could not be read" in note
+    assert "No equivalent" not in note
