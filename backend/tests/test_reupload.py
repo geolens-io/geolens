@@ -1256,6 +1256,45 @@ class TestServiceReuploadPreview:
             "or the layer format is unsupported."
         )
 
+    async def test_service_reupload_preview_timeout_returns_a_coded_504(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """A timed-out service reupload preview answers the preview-timeout code."""
+        from app.modules.catalog.sources.preview import ServicePreviewTimeoutError
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _create_dataset(test_db_session, created_by=admin_id)
+
+        with (
+            patch(
+                "app.modules.catalog.datasets.api.router_reupload.build_gdal_source"
+            ) as mock_build_source,
+            patch(
+                "app.modules.catalog.datasets.api.router_reupload.run_service_preview",
+                new_callable=AsyncMock,
+            ) as mock_run_preview,
+        ):
+            mock_build_source.return_value = ("WFS:https://example.com/wfs", "roads")
+            mock_run_preview.side_effect = ServicePreviewTimeoutError("timed out")
+
+            resp = await client.post(
+                f"/datasets/{dataset.id}/reupload/service/preview",
+                json={
+                    "url": "https://example.com/wfs",
+                    "service_type": "WFS 2.0.0",
+                    "layer_name": "roads",
+                    "layer_title": "Roads Layer",
+                    "layer_id": None,
+                },
+                headers=admin_auth_header,
+            )
+
+        assert resp.status_code == 504, resp.text
+        assert resp.json()["detail"]["code"] == "service_preview_timeout"
+
     async def test_service_reupload_preview_ssrf_blocked_returns_400_without_remote_calls(
         self,
         client: AsyncClient,

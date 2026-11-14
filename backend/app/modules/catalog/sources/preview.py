@@ -197,6 +197,21 @@ def _service_url(gdal_source: str) -> str:
     return gdal_source
 
 
+class ServicePreviewTimeoutError(IngestionError):
+    """ogrinfo did not answer within the preview's time budget."""
+
+    def http_error(self) -> HTTPException:
+        """The coded 504 every preview door answers with."""
+        return HTTPException(
+            status_code=status.HTTP_504_GATEWAY_TIMEOUT,
+            detail={
+                "code": "service_preview_timeout",
+                "message": "The layer took too long to preview. The service "
+                "answered, but did not return the layer's first features in time.",
+            },
+        )
+
+
 def build_gdal_source(
     service_type: str,
     base_url: str,
@@ -327,6 +342,9 @@ async def run_service_preview(
         "-features",
         "-limit",
         str(sample_limit),
+        # The preview shows no extent, and a WFS layer whose extent GDAL
+        # can't take from capabilities is paged in full to compute one.
+        *(["-noextent"] if gdal_source.startswith("WFS:") else []),
         "--config",
         "GDAL_HTTP_TIMEOUT",
         str(_HTTP_TIMEOUT_SECONDS),
@@ -473,10 +491,10 @@ async def run_service_preview(
                     layer_name=layer_name,
                     timeout=timeout,
                 )
-                # A timeout is a real failure, not a genuinely-empty layer — raise
-                # so the router surfaces a 502 instead of a fake-success preview
-                # with zero columns. empty_fallback is for zero-feature layers only.
-                raise IngestionError(
+                # A timeout is a real failure, not an empty layer: the router
+                # answers 504 rather than a zero-column preview. empty_fallback
+                # is for zero-feature layers only.
+                raise ServicePreviewTimeoutError(
                     f"ogrinfo timed out after {timeout:.0f}s for service preview"
                 ) from exc
             finally:
