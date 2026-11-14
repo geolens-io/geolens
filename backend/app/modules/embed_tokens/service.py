@@ -1,8 +1,11 @@
 import asyncio
 import hashlib
+import json
+import math
 import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import NamedTuple
 from urllib.parse import urlparse
 
 import structlog
@@ -67,8 +70,8 @@ EMBED_TOKEN_POSITIVE_TTL_SECONDS = 300
 EMBED_TOKEN_LIVENESS_TTL_SECONDS = 60
 
 # Answers liveness while the shared cache is unreachable, which would otherwise
-# put a database read on every tile. Revocations never reach it; the TTL above
-# is what bounds a stale answer, in this store and the shared one alike.
+# put a database read on every tile. Revocations never reach it; the deadline
+# each answer carries bounds it, in this store and the shared one alike.
 _liveness_fallback = InMemoryCacheProvider(max_entries=4096)
 
 
@@ -719,13 +722,24 @@ async def _grant_admits_dataset(
     return dataset_id in await datasets_account_can_read(db, [dataset_id], minter_id)
 
 
-async def accepted_embed_token_id(
+def origin_policy_fingerprint(allowed_origins: list[str] | None) -> str:
+    """A short digest of a token's origin policy; no list and an empty one match."""
+    canonical = json.dumps(sorted(set(allowed_origins or [])))
+    return hashlib.sha256(canonical.encode()).hexdigest()[:16]
+
+
+class AcceptedEmbedToken(NamedTuple):
+    token_id: uuid.UUID
+    origin_policy: str
+
+
+async def accepted_embed_token(
     raw_token: str,
     dataset_id: uuid.UUID,
     db: AsyncSession,
     request: Request | None = None,
-) -> uuid.UUID | None:
-    """The id of the embed token if it grants access to ``dataset_id``, else None.
+) -> AcceptedEmbedToken | None:
+    """The embed token and its origin policy if it grants ``dataset_id``, else None.
 
     Uses cache with 5-min TTL, falling back to DB lookup.
     Checks allowed_origins when domain-locking is enabled.
@@ -887,7 +901,7 @@ async def accepted_embed_token_id(
         _usage_bump_tasks.add(task)
         task.add_done_callback(_usage_bump_tasks.discard)
 
-    return token_id
+    return AcceptedEmbedToken(token_id, origin_policy_fingerprint(allowed_origins))
 
 
 async def validate_embed_token_access(
@@ -898,52 +912,79 @@ async def validate_embed_token_access(
 ) -> bool:
     """Validate an embed token grants access to a specific dataset.
 
-    See :func:`accepted_embed_token_id`, which decides it.
+    See :func:`accepted_embed_token`, which decides it.
     """
-    return await accepted_embed_token_id(raw_token, dataset_id, db, request) is not None
+    return await accepted_embed_token(raw_token, dataset_id, db, request) is not None
+
+
+def _seconds_left(until: float) -> int:
+    return max(0, math.ceil(until - datetime.now(timezone.utc).timestamp()))
 
 
 async def embed_token_still_admits(
-    db: AsyncSession, token_id: uuid.UUID, dataset_id: uuid.UUID
+    db: AsyncSession, token_id: uuid.UUID, origin_policy: str, dataset_id: uuid.UUID
 ) -> bool:
     """Whether the embed token ``token_id`` is still accepted for ``dataset_id``.
 
-    For a tile template signed through the token: the rule of
-    :func:`accepted_embed_token_id` minus the request origin, which was checked
-    when the template was minted. The answer is cached for at most
-    ``EMBED_TOKEN_LIVENESS_TTL_SECONDS``, so a revoked, expired or no longer
-    admitted token stops authorizing its templates within that bound.
+    For a tile template signed through the token under ``origin_policy``: the
+    rule of :func:`accepted_embed_token`, with the request origin replaced by
+    the policy the template was minted under, since a tile request carries no
+    reliable origin. An answer is trusted until a deadline at most
+    ``EMBED_TOKEN_LIVENESS_TTL_SECONDS`` after its database read began.
     """
     if is_multi_tenant() and not tenant_cache_context_available():
         return False
     cache = get_cache()
-    cache_key = tenant_cache_key(f"embed_token_liveness:{token_id}:{dataset_id}")
-    cached = await cache.get(cache_key, security=True)
-    if cached is None:
-        cached = await _liveness_fallback.get(cache_key)
-    if isinstance(cached, dict) and isinstance(cached.get("admits"), bool):
-        return cached["admits"]
+    cache_key = tenant_cache_key(
+        f"embed_token_liveness:{token_id}:{origin_policy}:{dataset_id}"
+    )
+    for cached in (
+        await cache.get(cache_key, security=True),
+        await _liveness_fallback.get(cache_key),
+    ):
+        if (
+            isinstance(cached, dict)
+            and isinstance(cached.get("admits"), bool)
+            and isinstance(cached.get("until"), (int, float))
+            and datetime.now(timezone.utc).timestamp() < cached["until"]
+        ):
+            return cached["admits"]
 
-    now = datetime.now(timezone.utc)
+    read_at = datetime.now(timezone.utc)
+    until = read_at.timestamp() + EMBED_TOKEN_LIVENESS_TTL_SECONDS
     token = (
         await db.execute(
-            select(EmbedToken).where(EmbedToken.id == token_id, *_accepting(now))
+            select(EmbedToken).where(EmbedToken.id == token_id, *_accepting(read_at))
         )
     ).scalar_one_or_none()
-    admits = token is not None and await _grant_admits_dataset(
-        db,
-        dataset_id,
-        map_id=token.map_id,
-        minter_id=token.created_by,
-        tenant_id=token.tenant_id,
-        scoped_dataset_ids=token.scoped_dataset_ids or [],
+    admits = (
+        token is not None
+        and origin_policy_fingerprint(token.allowed_origins) == origin_policy
+        and await _grant_admits_dataset(
+            db,
+            dataset_id,
+            map_id=token.map_id,
+            minter_id=token.created_by,
+            tenant_id=token.tenant_id,
+            scoped_dataset_ids=token.scoped_dataset_ids or [],
+        )
     )
-    ttl = EMBED_TOKEN_LIVENESS_TTL_SECONDS
     if token is not None and admits:
-        ttl = min(ttl, int((token.expires_at - now).total_seconds()))
-    if ttl > 0:
-        await cache.set(cache_key, {"admits": admits}, ttl=ttl, security=True)
-        await _liveness_fallback.set(cache_key, {"admits": admits}, ttl=ttl)
+        until = min(until, token.expires_at.timestamp())
+    answer = {"admits": admits, "until": until}
+    # A positive never replaces a live entry, which may be a denial read after
+    # this answer's own read began; a denial may replace anything. Each store
+    # gets only the lifetime left when it is written.
+    if ttl := _seconds_left(until):
+        if admits:
+            await cache.set_if_absent(cache_key, answer, ttl=ttl, security=True)
+        else:
+            await cache.set(cache_key, answer, ttl=ttl, security=True)
+    if ttl := _seconds_left(until):
+        if admits:
+            await _liveness_fallback.set_if_absent(cache_key, answer, ttl=ttl)
+        else:
+            await _liveness_fallback.set(cache_key, answer, ttl=ttl)
     return admits
 
 

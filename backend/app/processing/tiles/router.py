@@ -46,7 +46,8 @@ from app.modules.auth.dependencies import (
 from app.core.config import settings
 from app.core.dependencies import get_db
 from app.modules.embed_tokens.service import (
-    accepted_embed_token_id,
+    AcceptedEmbedToken,
+    accepted_embed_token,
     embed_token_still_admits,
     validate_embed_token_access,
 )
@@ -877,21 +878,20 @@ async def _signed_template_authorizes(
     mint site uses, since a divergence is a silent authorization bypass, not a
     test failure. ``publication_version`` is the row's current counter, so a
     signature minted before an unpublish or a move to private no longer
-    matches. A template minted through an embed token names it in the signed
-    scope and works only while that token is still accepted for the dataset.
+    matches. A template minted through an embed token names it and its origin
+    policy in the signed scope and works only while that token is still
+    accepted for the dataset under that policy.
     """
     from app.core.tile_scope import split_embed_binding, tile_signature_scope
 
     if not (sig and exp and scope):
         return False
-    unbound, embed_token_id = split_embed_binding(scope)
+    unbound, binding = split_embed_binding(scope)
     if unbound != tile_signature_scope(resource, publication_version):
         return False
     if not verify_tile_signature(scope, exp, sig):
         return False
-    return embed_token_id is None or await embed_token_still_admits(
-        db, embed_token_id, dataset_id
-    )
+    return binding is None or await embed_token_still_admits(db, *binding, dataset_id)
 
 
 async def _tile_signature_authorizes(
@@ -1572,7 +1572,7 @@ def _build_tile_token_for_dataset(
     raster_asset: RasterAsset | None = None,
     *,
     withhold_bounds: bool = False,
-    embed_token_id: uuid.UUID | None = None,
+    embed_token: AcceptedEmbedToken | None = None,
 ) -> VectorTileToken | RasterTileToken | None:
     """Build a tile token response for a single already-authorized dataset.
 
@@ -1580,16 +1580,16 @@ def _build_tile_token_for_dataset(
     caller must ensure the dataset is visible to the current user. Returns None
     for a record type that has no tiles. ``withhold_bounds`` leaves out the
     bounds of a mosaic whose tiles are refused, which would locate a member
-    some readers of the mosaic cannot read. ``embed_token_id`` names the embed
-    token that authorized the mint, binding the template to its liveness.
+    some readers of the mosaic cannot read. ``embed_token`` is the embed token
+    that authorized the mint, binding the template to its liveness.
     """
     from app.core.tile_scope import bind_scope_to_embed_token, tile_signature_scope
 
     def signed_scope(resource: str) -> str:
         scope = tile_signature_scope(resource, dataset.publication_version)
-        if embed_token_id is None:
+        if embed_token is None:
             return scope
-        return bind_scope_to_embed_token(scope, embed_token_id)
+        return bind_scope_to_embed_token(scope, *embed_token)
 
     tile_token = capabilities(dataset.record.record_type).tile_token
     if tile_token == "raster":
@@ -1840,7 +1840,7 @@ async def get_tile_tokens_batch(
     tokens: dict[str, VectorTileToken | RasterTileToken | dict] = {}
     authorized = []
     # The datasets only the embed token authorized; their templates name it.
-    minted_through: dict[uuid.UUID, uuid.UUID] = {}
+    minted_through: dict[uuid.UUID, AcceptedEmbedToken] = {}
     for dataset_id in unique_ids:
         dataset = datasets_by_id.get(dataset_id)
         key = str(dataset_id)
@@ -1852,16 +1852,16 @@ async def get_tile_tokens_batch(
             await _enforce_tile_token_access(db, dataset, dataset_id, user, port)
         except HTTPException as exc:
             # Embed-token capability fallback (fail-closed).
-            embed_token_id = (
-                await accepted_embed_token_id(embed_token, dataset_id, db, request)
+            accepted = (
+                await accepted_embed_token(embed_token, dataset_id, db, request)
                 if embed_token
                 else None
             )
-            if embed_token_id is None:
+            if accepted is None:
                 tokens[key] = {"error": exc.detail}
                 continue
             capability_authorized = True
-            minted_through[dataset_id] = embed_token_id
+            minted_through[dataset_id] = accepted
         tokens[key] = {}
         authorized.append(dataset)
 
@@ -1871,7 +1871,7 @@ async def get_tile_tokens_batch(
             dataset,
             raster_assets_by_dataset_id.get(dataset.id),
             withhold_bounds=dataset.id in refused_mosaics,
-            embed_token_id=minted_through.get(dataset.id),
+            embed_token=minted_through.get(dataset.id),
         )
         tokens[str(dataset.id)] = (
             token if token is not None else {"error": _NO_TILES_DETAIL}
