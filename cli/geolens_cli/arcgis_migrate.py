@@ -83,6 +83,7 @@ from .arcgis_migrate_refresh import (
     Refresher,
     changed_in_geolens,
     get_dataset,
+    is_metadata_reason,
     preview_both_changed,
     record,
     refresh_file,
@@ -1367,9 +1368,9 @@ def _preview_both_changed(
 ) -> dict[str, list[str]]:
     """Item id -> what a run would write over its datasets edited in GeoLens.
 
-    Why a run would leave a dataset is added to the item's reasons in memory,
-    where the dry run's report and cutover check read them; a dry run's state
-    is never saved.
+    For each dataset checked, the item's recorded metadata-check reasons are
+    replaced in memory by why a run would leave it now, where the dry run's
+    report and cutover check read them; a dry run's state is never saved.
     """
     ctx = MigrationContext(
         geolens=geolens,
@@ -1382,11 +1383,15 @@ def _preview_both_changed(
     found = {}
     for item in refresh:
         entry = state.items[item["id"]]
-        lines, stops = preview_both_changed(ctx, item, entry)
+        lines, checked = preview_both_changed(ctx, item, entry)
         if lines:
             found[item["id"]] = lines
-        cleaned = [state.clean(stop) for stop in stops]
-        entry.stale.extend(c for c in cleaned if c not in entry.stale)
+        for dataset_id, stop in checked.items():
+            entry.stale = [
+                r for r in entry.stale if not is_metadata_reason(r, dataset_id)
+            ]
+            if stop is not None and state.clean(stop) not in entry.stale:
+                entry.stale.append(state.clean(stop))
     return found
 
 
@@ -1993,9 +1998,10 @@ def _take_credentials(opts: MigrateOptions, redact: Redactor) -> MigrateOptions:
     """*opts* with each credential the run was given read once and added to
     *redact* before any path can skip the portal sign-in: a token from
     --token, ARCGIS_TOKEN or --token-stdin, and a password from
-    --password-stdin or ARCGIS_PASSWORD, which is registered even without
-    --username. Nothing prompts here; an empty stdin line stays unread, so
-    the sign-in that needs it refuses as before."""
+    --password-stdin or ARCGIS_PASSWORD. Both variables are registered even
+    when an option overrides them or nothing uses them. Nothing prompts here;
+    an empty stdin line stays unread, so the sign-in that needs it refuses as
+    before."""
     try:
         check_credential_options(
             opts.token or None,
@@ -2014,7 +2020,8 @@ def _take_credentials(opts: MigrateOptions, redact: Redactor) -> MigrateOptions:
     if password_stdin:
         password = sys.stdin.readline().rstrip("\r\n") or None
         password_stdin = password is None
-    for secret in (token, password, os.environ.get("ARCGIS_PASSWORD")):
+    environment = (os.environ.get(n) for n in ("ARCGIS_TOKEN", "ARCGIS_PASSWORD"))
+    for secret in (token, password, *environment):
         redact.add(secret)
     return replace(
         opts,

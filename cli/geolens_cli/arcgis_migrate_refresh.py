@@ -20,6 +20,7 @@ and a plan item with ``"both_changed": "portal"`` takes the portal's values.
 
 from __future__ import annotations
 
+import hashlib
 import tempfile
 from contextlib import suppress
 from collections.abc import Callable, Mapping
@@ -370,6 +371,8 @@ class BothChanged:
     line: str
     stop: bool = False
     writes: dict[str, dict[str, str]] = field(default_factory=dict)
+    # Whether a stop can be lifted by taking the portal's version.
+    portal_lifts: bool = True
 
 
 def both_changed(
@@ -400,11 +403,12 @@ def both_changed(
             return None
         overwrite = tuple(name for name, _g, _p in taken)
         verb = "would take" if dry_run else "took"
-        return BothChanged(
+        found = BothChanged(
             f"{label}; {verb} the portal's version as the plan asks, overwriting "
             f"the GeoLens edits to {_names(overwrite)}",
             writes=_writes(edits.portal + taken),
         )
+        return _refuse_credentials(ctx, found)
     if both:
         shown = "; ".join(
             f"the {_label(name)} is {_shown(ctx, ours)} in GeoLens and "
@@ -418,13 +422,45 @@ def both_changed(
     sources = [f"the {_label(n)} from the portal" for n, _g, _p in edits.portal] + [
         f"the {_label(n)} from GeoLens" for n, _g, _p in edits.geolens
     ]
-    return BothChanged(
+    found = BothChanged(
         f"{label}; {verb} {', '.join(sources)}", writes=_writes(edits.portal)
+    )
+    return _refuse_credentials(ctx, found)
+
+
+def _refuse_credentials(ctx: MigrationContext, found: BothChanged) -> BothChanged:
+    """*found*, or a stop when a value it would save holds a credential."""
+    held = _with_credentials(ctx, found.writes)
+    if not held:
+        return found
+    return BothChanged(
+        f"the portal's {', '.join(_label(n) for n in held)} holds a credential, "
+        "so it isn't saved or written",
+        stop=True,
+        portal_lifts=False,
     )
 
 
 def _writes(differences: list[tuple[str, str, str]]) -> dict[str, dict[str, str]]:
-    return {name: {"from": ours, "to": theirs} for name, ours, theirs in differences}
+    # The GeoLens value is kept only as a fingerprint: the state file is
+    # written unredacted and the value can hold a credential.
+    return {
+        name: {"from": _fingerprint(ours), "to": theirs}
+        for name, ours, theirs in differences
+    }
+
+
+def _fingerprint(value: str) -> str:
+    return hashlib.sha256(value.encode()).hexdigest()
+
+
+def _with_credentials(ctx: MigrationContext, writes: Mapping[str, Any]) -> list[str]:
+    """The fields whose value to write holds something the redactor scrubs."""
+    return [
+        name
+        for name, value in writes.items()
+        if redact_json(value["to"], ctx.redact) != value["to"]
+    ]
 
 
 def _edits(
@@ -477,15 +513,12 @@ def _shown(ctx: MigrationContext, value: str, limit: int = 80) -> str:
 
 def preview_both_changed(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
-) -> tuple[list[str], list[str]]:
+) -> tuple[list[str], dict[str, str | None]]:
     """What a run would write over the item's datasets edited in GeoLens, and
-    why it would leave any of them, read without writing anything."""
-    lines, stops = [], []
+    per dataset it checked why the run would leave it (None: it wouldn't),
+    read without writing anything."""
+    lines, checked = [], {}
     for dataset_id in dict.fromkeys(entry.layer_datasets.values()):
-        pending = entry.pending_metadata.get(dataset_id)
-        if pending is not None:
-            lines.append(f"{pending['line']}; not written yet, a run writes it")
-            continue
         seen = entry.last_update.get(dataset_id)
         if seen is None or dataset_id in entry.refreshing:
             continue
@@ -494,24 +527,23 @@ def preview_both_changed(
         except GeoLensError:
             continue
         now = snapshot(dataset)
-        changed = _moved(seen, now)
-        found = both_changed(
-            ctx, item, entry, dataset_id, dataset, changed=changed, dry_run=True
+        reason = (
+            f"{CHANGED} the last run ({_what_changed(seen, now)})"
+            if _moved(seen, now)
+            else None
         )
-        if found is None:
-            continue
-        if found.stop:
-            reason = (
-                f"{CHANGED} the last run ({_what_changed(seen, now)})"
-                if changed
-                else None
-            )
-            stops.append(
-                f"dataset {dataset_id}: {_left_alone(ctx, item, reason, found)}"
-            )
-        else:
-            lines.append(found.line)
-    return lines, stops
+        step = _metadata_step(
+            ctx, item, entry, dataset_id, dataset, reason, dry_run=True
+        )
+        checked[dataset_id] = (
+            f"dataset {dataset_id}: {step.stop}" if step.stop else None
+        )
+        if step.replay:
+            pending = entry.pending_metadata[dataset_id]
+            lines.append(f"{pending['line']}; not written yet, a run writes it")
+        elif step.merge is not None:
+            lines.append(step.merge.line)
+    return lines, checked
 
 
 def _wait_for_run(
@@ -844,20 +876,19 @@ def _bring_one(
     changed = bool(reason and reason.startswith(CHANGED))
     if reason and not changed:
         return f"{reason}; it was left as it is"
-    if dataset_id in entry.pending_metadata:
-        if _pending_holds(item, entry, dataset_id, dataset, changed):
-            dataset = _land_pending(ctx, item, entry, dataset_id, dataset)
-            record(entry, dataset_id, dataset)
-            ctx.save()
-            reason, changed = None, False
-        else:
-            del entry.pending_metadata[dataset_id]
-            ctx.save()
-    # Also without a change since the last run: an earlier merge may have kept
-    # a GeoLens edit that the portal has now changed too.
-    merge = both_changed(ctx, item, entry, dataset_id, dataset, changed=changed)
-    if (changed and merge is None) or (merge is not None and merge.stop):
-        return _left_alone(ctx, item, reason, merge)
+    step = _metadata_step(ctx, item, entry, dataset_id, dataset, reason)
+    if step.drop:
+        del entry.pending_metadata[dataset_id]
+        ctx.save()
+    if step.replay:
+        dataset = _land_pending(ctx, item, entry, dataset_id, dataset)
+        record(entry, dataset_id, dataset)
+        ctx.save()
+        reason, changed = None, False
+        step = _metadata_step(ctx, item, entry, dataset_id, dataset, None)
+    if step.stop:
+        return step.stop
+    merge = step.merge
     if merge is not None:
         # Kept before the first write, so a run that stops part way leaves
         # the next one the decision, which it can't always derive again.
@@ -873,6 +904,10 @@ def _bring_one(
         return problem
     problem = start(dataset_id, dataset, revision)
     if problem:
+        if dataset_id not in entry.refreshing:
+            # Nothing was started, so there's no write left to finish.
+            entry.pending_metadata.pop(dataset_id, None)
+            ctx.save()
         return problem
     ended, problem = _wait_for_run(ctx, entry, dataset_id)
     if not ended:
@@ -921,6 +956,61 @@ def _bring_one(
     return None
 
 
+@dataclass
+class _Step:
+    """What the metadata check decides for one dataset before any write: why
+    it stops, whether a saved decision is written first, whether a saved one
+    no longer applies, and a new decision to save."""
+
+    stop: str | None = None
+    replay: bool = False
+    drop: bool = False
+    merge: BothChanged | None = None
+
+
+def _metadata_step(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    entry: ItemState,
+    dataset_id: str,
+    dataset: Any,
+    reason: str | None,
+    dry_run: bool = False,
+) -> _Step:
+    """Every refusal that can be known before the first write, checked before
+    a decision is saved or a saved one is written, for the run and its dry run
+    alike."""
+    changed = bool(reason and reason.startswith(CHANGED))
+    refusal = _visibility_refusal(item, entry, dataset_id, dataset)
+    drop = False
+    if dataset_id in entry.pending_metadata:
+        if refusal is None and _pending_holds(
+            item, entry, dataset_id, dataset, changed
+        ):
+            return _Step(replay=True)
+        drop = True
+    # Also without a change since the last run: an earlier merge may have kept
+    # a GeoLens edit that the portal has now changed too.
+    merge = both_changed(
+        ctx, item, entry, dataset_id, dataset, changed=changed, dry_run=dry_run
+    )
+    if (changed and merge is None) or (merge is not None and merge.stop):
+        return _Step(stop=_left_alone(ctx, item, reason, merge), drop=drop)
+    if refusal:
+        return _Step(stop=refusal, drop=drop)
+    return _Step(drop=drop, merge=merge)
+
+
+def is_metadata_reason(reason: str, dataset_id: str) -> bool:
+    """Whether *reason*, recorded for an item, came from the metadata check
+    of *dataset_id*, which a dry run computes again."""
+    return reason.startswith(f"dataset {dataset_id}: ") and (
+        CHANGED in reason
+        or "it was left as it is, because" in reason
+        or ": its visibility " in reason
+    )
+
+
 def _pending_holds(
     item: Mapping[str, Any],
     entry: ItemState,
@@ -938,7 +1028,8 @@ def _pending_holds(
     if changed and _moved(pending["at"], snapshot(dataset)):
         return False
     return all(
-        current_value(dataset, name) in (value["from"], value["to"])
+        _fingerprint(current_value(dataset, name)) == value["from"]
+        or current_value(dataset, name) == value["to"]
         for name, value in pending["fields"].items()
     )
 
@@ -969,6 +1060,11 @@ def _land_pending(
     }
     if values:
         dataset = write_fields(ctx, entry, dataset_id, dataset, values)
+    # A field already at its value may be a write whose answer was lost, so
+    # every confirmed value is recorded as this command's.
+    entry.metadata_baseline.setdefault(dataset_id, {}).update(
+        {name: value["to"] for name, value in pending["fields"].items()}
+    )
     del entry.pending_metadata[dataset_id]
     _note(ctx, item, entry, pending["line"])
     ctx.save()
@@ -986,11 +1082,13 @@ def _left_alone(
     if merge is None:
         return f"{reason}; it was left as it is.{portal} {KEEP_GEOLENS}"
     head = f"{reason}; it was" if reason else "it was"
-    return (
-        f"{head} left as it is, because {merge.line}.{portal} "
-        f"{KEEP_GEOLENS}; to take the portal's version, set the item's "
-        f'"{BOTH_CHANGED}" to "{TAKE_PORTAL}" in the plan'
+    lift = (
+        f"; to take the portal's version, set the item's \"{BOTH_CHANGED}\" to "
+        f'"{TAKE_PORTAL}" in the plan'
+        if merge.portal_lifts
+        else ""
     )
+    return f"{head} left as it is, because {merge.line}.{portal} {KEEP_GEOLENS}{lift}"
 
 
 def _note(
@@ -1054,21 +1152,12 @@ def _apply_visibility(
     from geolens.models.dataset_meta import DatasetMeta
 
     wanted = item["target"]["visibility"]
-    applied = entry.visibility.get(dataset_id)
-    current = _value(dataset.visibility)
-    if current == wanted:
+    if _value(dataset.visibility) == wanted:
         entry.visibility[dataset_id] = wanted
         return None, dataset
-    if applied is None:
-        return (
-            f"its visibility is {current} in GeoLens and {wanted} in the plan, and "
-            "the state doesn't say which changed; set it by hand"
-        ), dataset
-    if current != applied:
-        return (
-            f"its visibility was changed to {current} in GeoLens, and the plan now "
-            f"says {wanted}; it was left as it is"
-        ), dataset
+    refusal = _visibility_refusal(item, entry, dataset_id, dataset)
+    if refusal:
+        return refusal, dataset
     written = ctx.geolens.write(
         patch.sync_detailed,
         during="its visibility was written",
@@ -1079,6 +1168,29 @@ def _apply_visibility(
     entry.visibility[dataset_id] = wanted
     ctx.save()
     return None, written
+
+
+def _visibility_refusal(
+    item: Mapping[str, Any], entry: ItemState, dataset_id: str, dataset: Any
+) -> str | None:
+    """Why the plan's visibility can't be given to *dataset*, read without
+    writing anything."""
+    wanted = item["target"]["visibility"]
+    applied = entry.visibility.get(dataset_id)
+    current = _value(dataset.visibility)
+    if current == wanted:
+        return None
+    if applied is None:
+        return (
+            f"its visibility is {current} in GeoLens and {wanted} in the plan, and "
+            "the state doesn't say which changed; set it by hand"
+        )
+    if current != applied:
+        return (
+            f"its visibility was changed to {current} in GeoLens, and the plan now "
+            f"says {wanted}; it was left as it is"
+        )
+    return None
 
 
 def _settle_unrecorded(

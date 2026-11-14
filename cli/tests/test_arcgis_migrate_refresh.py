@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 from datetime import UTC, datetime
@@ -1290,7 +1291,10 @@ def test_a_decided_portal_version_is_written_by_a_later_run_and_reported_once(
     assert payload["both_changed"] == {}
     assert _geolens_value(service, name) == "Filled in GeoLens"
     pending = _state(plan_file)["items"][A2]["pending_metadata"][PARCELS]
-    assert pending["fields"][name] == {"from": "Filled in GeoLens", "to": portal_value}
+    assert pending["fields"][name] == {
+        "from": hashlib.sha256(b"Filled in GeoLens").hexdigest(),
+        "to": portal_value,
+    }
     if landing == "failed-write":
         geolens.routes[route] = patch
     else:
@@ -1420,6 +1424,230 @@ def test_every_credential_form_is_kept_out_of_a_public_runs_output(
     pieces = (secret, secret[:24], secret.split("\\")[0], json.dumps(secret)[1:-1])
     for piece in pieces:
         assert not any(piece in sink for sink in sinks), piece
+
+
+def _secret_pieces(secret: str) -> tuple[str, ...]:
+    return (secret, secret[:24], secret.split("\\")[0], json.dumps(secret)[1:-1])
+
+
+@pytest.mark.parametrize("outcome", ["written", "failed-write", "interrupted"])
+def test_a_saved_decision_never_puts_a_credential_in_the_state_file(
+    runner, tmp_path, geolens, monkeypatch, outcome
+):
+    monkeypatch.setattr(refresh_mod, "JOB_TIMEOUT", 0.05)
+    monkeypatch.setattr(refresh_mod, "JOB_POLL_INTERVAL", 0.01)
+    secret = secrets.token_urlsafe(40) + "\\" + secrets.token_urlsafe(8)
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, "Parcels renamed", f"Named {secret}"
+    )
+    _set_both_changed(plan_file, A2, "portal")
+    if outcome == "failed-write":
+        geolens.routes[f"PATCH /datasets/{PARCELS}"] = (
+            500,
+            layers._problem(500, "boom"),
+        )
+    elif outcome == "interrupted":
+        refresh.outcome = "running"
+
+    result, _ = _migrate(runner, plan_file, "--only", A2, "--token", secret)
+
+    assert result.exit_code == (0 if outcome == "written" else 1)
+    raw = (plan_file.parent / "arcgis-migration-state.json").read_text()
+    pending = json.loads(raw)["items"][A2]["pending_metadata"]
+    assert bool(pending) is (outcome != "written")
+    for piece in _secret_pieces(secret):
+        assert piece not in raw, piece
+
+
+def test_a_portal_value_holding_a_credential_is_never_saved_or_written(
+    runner, tmp_path, geolens
+):
+    secret = secrets.token_urlsafe(40)
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, f"Renamed {secret}"
+    )
+    _set_both_changed(plan_file, A2, "portal")
+
+    result, payload = _migrate(runner, plan_file, "--only", A2, "--token", secret)
+
+    assert result.exit_code == 1
+    assert len(refresh.bodies) == 1
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+    [reason] = payload["not_up_to_date"][A2]
+    assert "the portal's title holds a credential, so it isn't saved or written" in (
+        reason
+    )
+    assert "both_changed" not in reason
+    raw = (plan_file.parent / "arcgis-migration-state.json").read_text()
+    assert secret not in raw and json.loads(raw)["items"][A2]["pending_metadata"] == {}
+
+
+@pytest.mark.parametrize("dry_run", [False, True], ids=["run", "dry-run"])
+def test_an_environment_token_is_kept_out_beside_an_explicit_one(
+    runner, tmp_path, geolens, dry_run
+):
+    explicit = secrets.token_urlsafe(30)
+    from_env = secrets.token_urlsafe(30)
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, "Parcels renamed", f"Named {from_env} {explicit}"
+    )
+    args = ["--json", "arcgis", "migrate", str(plan_file), "--only", A2]
+    args += ["--token", explicit, *(["--dry-run"] if dry_run else [])]
+
+    result = runner.invoke(app, args, env={"ARCGIS_TOKEN": from_env})
+
+    assert result.exit_code == 1, result.output
+    reason = json.loads(result.stdout)["not_up_to_date"][A2][0]
+    assert 'the title is "Named [REDACTED] [REDACTED]" in GeoLens' in reason
+    sinks = [result.output] + [
+        path.read_text(errors="replace")
+        for path in plan_file.parent.rglob("*")
+        if path.is_file()
+    ]
+    for piece in (*_secret_pieces(from_env), *_secret_pieces(explicit)):
+        assert not any(piece in sink for sink in sinks), piece
+
+
+def test_a_visibility_edited_in_geolens_stops_before_a_decision_is_saved(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, "Parcels renamed"
+    )
+    _set_both_changed(plan_file, A2, "portal")
+    current = service.fields[PARCELS]["visibility"]
+    service.fields[PARCELS]["visibility"] = (
+        "internal" if current != "internal" else "private"
+    )
+
+    for _ in range(2):
+        result, payload = _migrate(runner, plan_file, "--only", A2)
+
+        assert result.exit_code == 1
+        assert "its visibility was changed to" in payload["not_up_to_date"][A2][0]
+        assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+        assert _state(plan_file)["items"][A2]["pending_metadata"] == {}
+        assert payload["both_changed"] == {}
+    assert len(refresh.bodies) == 1
+
+
+def test_a_saved_decision_is_not_written_once_a_visibility_check_refuses(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, "Parcels renamed"
+    )
+    _set_both_changed(plan_file, A2, "portal")
+    route = f"PATCH /datasets/{PARCELS}"
+    patch = geolens.routes[route]
+    geolens.routes[route] = (500, layers._problem(500, "boom"))
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+    assert _state(plan_file)["items"][A2]["pending_metadata"]
+    geolens.routes[route] = patch
+    current = service.fields[PARCELS]["visibility"]
+    _set_visibility(plan_file, A2, "internal" if current != "internal" else "private")
+    _edit_state(plan_file, A2, visibility={})
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    assert "the state doesn't say which changed" in payload["not_up_to_date"][A2][0]
+    assert service.fields[PARCELS]["title"] == "Named in GeoLens"
+    assert _state(plan_file)["items"][A2]["pending_metadata"] == {}
+    assert payload["both_changed"] == {}
+
+
+def test_a_write_whose_answer_was_lost_is_recorded_so_a_later_edit_merges(
+    runner, tmp_path, geolens
+):
+    plan_file = _write_plan(tmp_path, rows={A2: {"snippet": "Old summary"}})
+    service = _migrated(runner, plan_file, geolens)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    baseline = _state(plan_file)["items"][A2]["metadata_baseline"]
+    del baseline[PARCELS]["summary"]
+    _edit_state(plan_file, A2, metadata_baseline=baseline)
+    service.summaries[PARCELS] = "Filled in GeoLens"
+    service.fields[PARCELS].update(updated_at=EDITED, updated_by=ALICE)
+    _set_both_changed(plan_file, A2, "portal")
+    route = f"PATCH /datasets/{PARCELS}"
+    patch = geolens.routes[route]
+
+    def committed_then_lost(seen):
+        patch(seen)
+        return (502, layers._problem(502, "bad gateway"))
+
+    geolens.routes[route] = committed_then_lost
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+    assert service.summaries[PARCELS] == "Old summary"
+    geolens.routes[route] = patch
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert len(payload["both_changed"][A2]) == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["metadata_baseline"][PARCELS]["summary"] == "Old summary"
+    _set_snippet(plan_file, A2, "Newer summary")
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert service.summaries[PARCELS] == "Newer summary"
+
+
+def test_a_dry_run_validates_a_saved_decision_before_showing_it(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, "Parcels renamed"
+    )
+    _set_both_changed(plan_file, A2, "portal")
+    geolens.routes[f"PATCH /datasets/{PARCELS}"] = (500, layers._problem(500, "boom"))
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        item.pop("both_changed", None)
+    plan_file.write_text(json.dumps(plan))
+
+    result, payload = _migrate(runner, plan_file, "--only", A2, "--dry-run")
+
+    assert result.exit_code == 1
+    assert payload["both_changed"] == {}
+    assert any(BOTH_TITLES in r for r in payload["not_up_to_date"][A2])
+
+
+@pytest.mark.parametrize("resolution", ["portal-version", "portal-edit-reverted"])
+def test_a_dry_run_replaces_a_recorded_conflict_with_its_resolution(
+    runner, tmp_path, geolens, resolution
+):
+    plan_file, service, refresh = _edited_on_both_sides(
+        runner, tmp_path, geolens, "Parcels renamed"
+    )
+    original = _state(plan_file)["items"][A2]["metadata_baseline"][PARCELS]["title"]
+    _edit_plan(plan_file, (A2,))
+    result, payload = _migrate(runner, plan_file)
+    assert result.exit_code == 1
+    assert BOTH_TITLES in payload["not_up_to_date"][A2][0]
+    if resolution == "portal-version":
+        _set_both_changed(plan_file, A2, "portal")
+    else:
+        _set_title(plan_file, A2, original)
+
+    result, payload = _migrate(runner, plan_file, "--dry-run")
+    cutover, checked = _migrate(runner, plan_file, "--cutover", "--dry-run")
+
+    assert result.exit_code == 0, payload["not_up_to_date"]
+    assert A2 not in payload["not_up_to_date"]
+    [line] = payload["both_changed"][A2]
+    assert ("would take" if resolution == "portal-version" else "would merge") in line
+    unfinished = [
+        i
+        for c in checked["cutover"]["checks"]
+        if c["check"] == "unfinished-items"
+        for i in c["items"]
+    ]
+    assert not [i for i in unfinished if i["item"] == A2], unfinished
 
 
 def test_a_later_portal_edit_to_a_field_kept_from_geolens_stops(
