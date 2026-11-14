@@ -965,6 +965,7 @@
     "dashboardWidgetInvalid": "Speichern nicht möglich: Ein Dashboard-Widget liest „{{column}}“, eine Spalte, die seinem Layer fehlt oder nicht numerisch ist. Korrigieren Sie es im Bereich Dashboard.",
     "dashboardViewWithoutGeometry": "Speichern nicht möglich: Ein Dashboard-Widget folgt dem Kartenausschnitt auf einem Layer ohne Geometrie. Lassen Sie es im Bereich Dashboard den ganzen Layer umfassen.",
     "dashboardWidgetFilterUnsupported": "Speichern nicht möglich: Ein Dashboard-Widget hat einen Filter, der sich auf seine Zahlen nicht anwenden lässt. Korrigieren Sie es im Bereich Dashboard.",
+    "dashboardWidgetFilterTooLarge": "Speichern nicht möglich: Der Filter eines Dashboard-Widgets enthält mehr Werte oder Text, als ein Widget senden kann. Kürzen Sie ihn im Bereich Dashboard.",
     "dashboardChangedElsewhere": "Das Dashboard dieser Karte wurde an anderer Stelle geändert. Ihre ungespeicherten Änderungen bleiben erhalten, und beim Speichern ersetzen sie diese Änderung."
   },
   "builderMap": {

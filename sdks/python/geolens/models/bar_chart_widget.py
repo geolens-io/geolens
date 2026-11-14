@@ -35,8 +35,9 @@ class BarChartWidget:
         scope (BarChartWidgetScope | Unset): Summarize the whole layer, or only what the map view shows. Default:
             'layer'.
         filter_ (list[Any] | None | Unset): Count only the features this MapLibre filter expression keeps, in the form a
-            layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs
-            the type's filter version; left out, the widget covers what its layer shows.
+            layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named
+            directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer
+            shows.
     """
 
     id: UUID

@@ -1225,7 +1225,9 @@ export function useBuilderSave(state: SaveState) {
           ? t('toasts.dashboardViewWithoutGeometry')
           : widgetIssue.kind === 'filterUnsupported'
             ? t('toasts.dashboardWidgetFilterUnsupported')
-            : t('toasts.dashboardWidgetInvalid', { column: widgetIssue.column }),
+            : widgetIssue.kind === 'filterTooLarge'
+              ? t('toasts.dashboardWidgetFilterTooLarge')
+              : t('toasts.dashboardWidgetInvalid', { column: widgetIssue.column }),
         { id: 'dashboard-widget-invalid', duration: 6000 },
       );
       return;

@@ -9,7 +9,10 @@ import {
 } from '@/components/widgets/registry';
 import { isAggregateNumeric, isDateColumn, isListableColumn, isSortableColumn } from '@/lib/column-utils';
 import { canOpenAttributeTable } from '@/lib/layer-capabilities';
-import { filterFields, layerFilterToServerCql2 } from '@/lib/maplibre-filter-utils';
+import { filterFields } from '@/lib/maplibre-filter-utils';
+import { widgetFilter } from '@/components/viewer/linked-filters';
+import { toSharedLayer } from '@/components/viewer/shared-layer';
+import { fitsAggregateFilterLimits } from './cluster-source';
 import type { DashboardConfig, MapLayerResponse } from '@/types/api';
 import type { components } from '@/types/api.generated';
 
@@ -108,7 +111,9 @@ export type WidgetProblem =
   /** The widget follows the map view on a layer with no geometry, which the endpoint refuses. */
   | { kind: 'viewWithoutGeometry' }
   /** The widget's own filter is one the aggregate endpoint can't take. */
-  | { kind: 'filterUnsupported' };
+  | { kind: 'filterUnsupported' }
+  /** With the layer's filter, the widget's own filter is past what the aggregate endpoint accepts. */
+  | { kind: 'filterTooLarge' };
 
 /** True when `layer` has geometry a map view can bound. */
 export function layerFollowsView(layer: MapLayerResponse): boolean {
@@ -135,9 +140,13 @@ export function widgetProblem(widget: WidgetInstance, layer: MapLayerResponse): 
     if (use.sortable && !isSortableColumn(use.name, column.type)) return { kind: 'notSortable', column: use.name };
   }
   if (!widget.filter) return null;
-  const missing = filterFields(widget.filter).find((name) => !columns.some((column) => column.name === name));
+  const fields = filterFields(widget.filter);
+  if (fields === null) return { kind: 'filterUnsupported' };
+  const missing = fields.find((name) => !columns.some((column) => column.name === name));
   if (missing !== undefined) return { kind: 'missingColumn', column: missing };
-  return layerFilterToServerCql2(widget.filter, columns) === 'unsupported' ? { kind: 'filterUnsupported' } : null;
+  const { filter, ownUnsupported } = widgetFilter(toSharedLayer(layer), [], widget.filter);
+  if (ownUnsupported) return { kind: 'filterUnsupported' };
+  return filter && !fitsAggregateFilterLimits(filter) ? { kind: 'filterTooLarge' } : null;
 }
 
 /** The first problem that holds the save; a widget whose layer is gone isn't sent, so it holds nothing. */

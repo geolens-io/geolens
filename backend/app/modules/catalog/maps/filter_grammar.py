@@ -206,15 +206,50 @@ def bounded_filter(value: list | None) -> list | None:
     return normalized
 
 
+def _legacy_field(node: list) -> Any:
+    """The field a legacy-syntax form names in its first operand, or None.
+
+    These are the forms MapLibre's ``isExpressionFilter`` reads as legacy.
+    """
+    op = node[0]
+    if op in ("!has", "!in"):
+        return node[1] if len(node) >= 2 else None
+    if op == "in" and len(node) >= 2 and isinstance(node[1], str):
+        return None if len(node) == 3 and isinstance(node[2], list) else node[1]
+    if op in _COMPARISON_OPERATORS and len(node) == 3 and isinstance(node[1], str):
+        return None if isinstance(node[2], list) else node[1]
+    return None
+
+
 def filter_columns(value: Any) -> set[str]:
-    """The feature properties a filter reads through ``["get", name]`` or ``["has", name]``."""
+    """Every feature property a filter can read, under either MapLibre syntax.
+
+    Counts the names in ``["get", name]`` and ``["has", name]`` and the field a
+    legacy form names (``["!in", name, ...]``, ``["==", name, v]``), since one
+    legacy part makes MapLibre read the whole filter as legacy. A ``literal``
+    payload is data. Raises ``FilterValidationError`` for a reference whose
+    name is computed or that reads ``properties``, as its columns can't be known.
+    """
     columns: set[str] = set()
     stack = [value]
     while stack:
         node = stack.pop()
-        if not isinstance(node, list):
+        if not isinstance(node, list) or not node or node[0] == "literal":
             continue
-        if len(node) >= 2 and node[0] in ("get", "has") and isinstance(node[1], str):
-            columns.add(node[1])
-        stack.extend(node)
+        op = node[0]
+        if op in ("get", "has"):
+            if len(node) != 2 or not isinstance(node[1], str):
+                raise FilterValidationError(f"'{op}' must name a column directly")
+            if node[1] not in _LEGACY_PSEUDO_FIELDS:
+                columns.add(node[1])
+            continue
+        if op == "properties":
+            raise FilterValidationError("'properties' reads every column")
+        field = _legacy_field(node)
+        if field is not None:
+            if not isinstance(field, str):
+                raise FilterValidationError(f"'{op}' must name a column directly")
+            if field not in _LEGACY_PSEUDO_FIELDS:
+                columns.add(field)
+        stack.extend(node[1:])
     return columns

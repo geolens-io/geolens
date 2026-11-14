@@ -221,7 +221,8 @@
       "notSortable": "无法按“{{column}}”排序。请在保存前选择其他列。",
       "notListable": "无法列出“{{column}}”。请在保存前选择其他列。",
       "notDate": "“{{column}}”不是日期列。请在保存前选择其他列。",
-      "filterUnsupported": "此筛选条件无法应用于小组件的数字。保存前请修改或删除某个条件。"
+      "filterUnsupported": "此筛选条件无法应用于小组件的数字。保存前请修改或删除某个条件。",
+      "filterTooLarge": "此筛选条件与图层自身的筛选条件合计包含的值或文本超出了小组件可发送的上限。保存前请删除部分条件或值。"
     },
     "maxWidgets": "一个仪表板最多包含 {{max}} 个小组件。",
     "reference": "参考值",

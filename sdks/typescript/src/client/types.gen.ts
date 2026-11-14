@@ -1692,7 +1692,7 @@ export type BarChartWidget = {
     /**
      * Filter
      *
-     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
      */
     filter?: Array<unknown> | null;
     /**
@@ -2529,7 +2529,7 @@ export type CategorySelectorWidget = {
     /**
      * Filter
      *
-     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
      */
     filter?: Array<unknown> | null;
     /**
@@ -6335,7 +6335,7 @@ export type FeatureListWidget = {
     /**
      * Filter
      *
-     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
      */
     filter?: Array<unknown> | null;
     /**
@@ -6999,7 +6999,7 @@ export type HistogramWidget = {
     /**
      * Filter
      *
-     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
      */
     filter?: Array<unknown> | null;
     /**
@@ -7183,7 +7183,7 @@ export type IndicatorWidget = {
     /**
      * Filter
      *
-     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
      */
     filter?: Array<unknown> | null;
     /**
@@ -10414,7 +10414,7 @@ export type PieChartWidget = {
     /**
      * Filter
      *
-     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
      */
     filter?: Array<unknown> | null;
     /**
@@ -14731,7 +14731,7 @@ export type TableWidget = {
     /**
      * Filter
      *
-     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     * Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
      */
     filter?: Array<unknown> | null;
     /**

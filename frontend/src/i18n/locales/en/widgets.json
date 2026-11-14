@@ -221,7 +221,8 @@
       "notSortable": "“{{column}}” can't be sorted. Pick another before saving.",
       "notListable": "“{{column}}” can't be listed. Pick another before saving.",
       "notDate": "“{{column}}” isn't a date column. Pick another before saving.",
-      "filterUnsupported": "This filter can't be applied to the widget's numbers. Change or remove a condition before saving."
+      "filterUnsupported": "This filter can't be applied to the widget's numbers. Change or remove a condition before saving.",
+      "filterTooLarge": "This filter, with the layer's own, holds more values or text than a widget can send. Remove some conditions or values before saving."
     },
     "maxWidgets": "A dashboard holds at most {{max}} widgets.",
     "reference": "Reference value",

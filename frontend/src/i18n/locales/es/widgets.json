@@ -221,7 +221,8 @@
       "notSortable": "No se puede ordenar por «{{column}}». Elija otra antes de guardar.",
       "notListable": "No se puede listar «{{column}}». Elija otra antes de guardar.",
       "notDate": "«{{column}}» no es una columna de fecha. Elija otra antes de guardar.",
-      "filterUnsupported": "Este filtro no se puede aplicar a las cifras del widget. Cambia o quita una condición antes de guardar."
+      "filterUnsupported": "Este filtro no se puede aplicar a las cifras del widget. Cambia o quita una condición antes de guardar.",
+      "filterTooLarge": "Este filtro, junto con el de la capa, contiene más valores o texto de los que un widget puede enviar. Quita algunas condiciones o valores antes de guardar."
     },
     "maxWidgets": "Un panel admite como máximo {{max}} widgets.",
     "reference": "Valor de referencia",

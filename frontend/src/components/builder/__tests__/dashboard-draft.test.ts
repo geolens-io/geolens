@@ -114,6 +114,38 @@ describe("a widget's own filter", () => {
     });
     expect(widgetProblem(filtered(keep), layer())).toBeNull();
   });
+
+  it('reads no column from the values of a literal list, positive or negated, in a group', () => {
+    const members = ['in', ['get', 'kind'], ['literal', ['get', 'has']]];
+    expect(widgetProblem(filtered(['all', members, ['any', ['!', ['in', ['get', 'kind'], ['literal', ['has', 'x']]]]]]), layer())).toBeNull();
+  });
+
+  it.each([
+    [['!in', 'owner', 'x']],
+    [['!has', 'owner']],
+    [['none', ['!has', 'owner']]],
+    [['all', ['==', ['get', 'kind'], 'a'], ['!has', 'owner']]],
+  ])('finds the column a legacy spelling names: %j', (filter) => {
+    expect(widgetProblem(filtered(filter), layer())).toEqual({ kind: 'missingColumn', column: 'owner' });
+  });
+
+  it('holds a filter whose columns are computed', () => {
+    expect(widgetProblem(filtered(['==', ['get', ['concat', 'ki', 'nd']], 'a']), layer())).toEqual({
+      kind: 'filterUnsupported',
+    });
+    expect(widgetProblem(filtered(['==', ['at', 0, ['properties']], 'a']), layer())).toEqual({
+      kind: 'filterUnsupported',
+    });
+  });
+
+  it('holds a filter that, with the layer filter, is past what the aggregate endpoint takes', () => {
+    const values = Array.from({ length: 900 }, (_, i) => `value-${i}`);
+    const members = ['in', ['get', 'kind'], ['literal', values]];
+    expect(widgetProblem(filtered(members), layer())).toEqual({ kind: 'filterTooLarge' });
+    const half = ['in', ['get', 'kind'], ['literal', values.slice(0, 450)]];
+    expect(widgetProblem(filtered(half), layer())).toBeNull();
+    expect(widgetProblem(filtered(half), layer({ filter: half as never }))).toEqual({ kind: 'filterTooLarge' });
+  });
 });
 
 describe('dashboard drafts', () => {

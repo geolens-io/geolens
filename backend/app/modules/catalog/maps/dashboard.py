@@ -218,6 +218,29 @@ def _filter_reads_layer(widget: Any, columns: Mapping[str, set[str]]) -> bool:
     return filter_columns(widget_filter) <= columns.get(_layer_id(widget) or "", set())
 
 
+def _filter_fits_aggregate(widget: Any) -> bool:
+    """False when the filter's list members alone pass the aggregate's bind cap.
+
+    The aggregate binds each member of a converted ``in`` list once, so this
+    floor never refuses a filter the aggregate would take.
+    """
+    from app.standards.ogc.filtering import MAX_FEATURE_FILTER_BINDS
+
+    members = 0
+    stack = [getattr(widget, "filter", None)]
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, list) or not node:
+            continue
+        if node[0] == "literal":
+            members += (
+                len(node[1]) if len(node) == 2 and isinstance(node[1], list) else 0
+            )
+            continue
+        stack.extend(node[1:])
+    return members <= MAX_FEATURE_FILTER_BINDS
+
+
 def _raw_id(raw: Any) -> str | None:
     """The id of a stored widget this server can't parse, as a parsed id reads."""
     try:
@@ -278,7 +301,8 @@ def merge_dashboard(
     ``layer_ids`` are the map's layers after the save and ``hidden_layer_ids``
     those among them whose dataset the editor can't read. ``layer_columns``
     holds each layer's dataset columns; a sent widget whose ``filter`` names a
-    column not listed for its layer is refused (422).
+    column not listed for its layer, or lists more values than the aggregate
+    binds, is refused (422).
 
     A stored widget on a hidden layer, or one the editor's client can't read
     (outside its ``readable`` pairs, by default those of earlier releases),
@@ -339,6 +363,8 @@ def merge_dashboard(
             reason = "id_in_use"
         elif not _filter_reads_layer(w, columns):
             reason = "filter_column"
+        elif not _filter_fits_aggregate(w):
+            reason = "filter_too_large"
         else:
             continue
         refused.append({"id": str(w.id), "layer_id": _layer_id(w), "reason": reason})

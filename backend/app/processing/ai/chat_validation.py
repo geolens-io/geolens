@@ -51,9 +51,19 @@ def _validate_filter_columns(
     if not col_names:
         return expression  # no column_info to validate against
     # Function-scope import, as in _validate_actions: layering.
-    from app.modules.catalog.maps.filter_grammar import filter_columns
+    from app.modules.catalog.maps.filter_grammar import (
+        FilterValidationError,
+        filter_columns,
+    )
 
-    refs = filter_columns(expression)
+    try:
+        refs = filter_columns(expression)
+    except FilterValidationError:
+        logger.warning(
+            "Filter computes the columns it reads, clearing filter",
+            layer_id=layer.id,
+        )
+        return None
     invalid = refs - col_names
     if invalid:
         logger.warning(

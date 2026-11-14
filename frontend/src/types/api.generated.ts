@@ -7952,7 +7952,7 @@ export interface components {
             scope: "layer" | "view";
             /**
              * Filter
-             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
              */
             filter?: unknown[] | null;
             /**
@@ -8602,7 +8602,7 @@ export interface components {
             scope: "layer" | "view";
             /**
              * Filter
-             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
              */
             filter?: unknown[] | null;
             /**
@@ -11447,7 +11447,7 @@ export interface components {
             scope: "layer" | "view";
             /**
              * Filter
-             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
              */
             filter?: unknown[] | null;
             /**
@@ -11964,7 +11964,7 @@ export interface components {
             scope: "layer" | "view";
             /**
              * Filter
-             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
              */
             filter?: unknown[] | null;
             /**
@@ -12119,7 +12119,7 @@ export interface components {
             scope: "layer" | "view";
             /**
              * Filter
-             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
              */
             filter?: unknown[] | null;
             /**
@@ -14514,7 +14514,7 @@ export interface components {
             scope: "layer" | "view";
             /**
              * Filter
-             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
              */
             filter?: unknown[] | null;
             /**
@@ -17835,7 +17835,7 @@ export interface components {
             scope: "layer" | "view";
             /**
              * Filter
-             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer shows.
              */
             filter?: unknown[] | null;
             /**

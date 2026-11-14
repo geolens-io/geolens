@@ -30,7 +30,7 @@ from pydantic import (
 )
 
 from app.core.config import validate_privacy_url_shape
-from app.modules.catalog.maps.filter_grammar import bounded_filter
+from app.modules.catalog.maps.filter_grammar import bounded_filter, filter_columns
 from app.platform.story_frames import (
     MAX_FRAME_URL_LENGTH,
     frame_url_host,
@@ -54,6 +54,14 @@ class _Widget(_Strict):
     title: str | None = Field(default=None, max_length=120)
 
 
+def _widget_filter(value: list[Any] | None) -> list[Any] | None:
+    """A layer filter whose columns can all be named, so a save can check them."""
+    normalized = bounded_filter(value)
+    if normalized is not None:
+        filter_columns(normalized)
+    return normalized
+
+
 class _LayerWidget(_Widget):
     # The version that may carry ``filter``; one without a filter stores at
     # ``_base_v``, so older clients still read it.
@@ -64,12 +72,13 @@ class _LayerWidget(_Widget):
         default="layer",
         description="Summarize the whole layer, or only what the map view shows.",
     )
-    filter: Annotated[list[Any] | None, AfterValidator(bounded_filter)] = Field(
+    filter: Annotated[list[Any] | None, AfterValidator(_widget_filter)] = Field(
         default=None,
         exclude_if=lambda v: v is None,
         description="Count only the features this MapLibre filter expression "
         "keeps, in the form a layer's `filter` takes, on top of the layer's "
-        "own filter. Each column it names must be one of the layer's. Needs "
+        "own filter. Each column it names must be one of the layer's, named "
+        "directly rather than computed. Needs "
         "the type's filter version; left out, the widget covers what its "
         "layer shows.",
     )

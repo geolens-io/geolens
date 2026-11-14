@@ -138,6 +138,93 @@ class TestSave:
             {"id": widget["id"], "layer_id": str(layer), "reason": "filter_column"}
         ]
 
+    @pytest.mark.parametrize(
+        "filter_",
+        [
+            ["in", ["get", "kind"], ["literal", ["get", "park"]]],
+            ["!", ["in", ["get", "kind"], ["literal", ["has", "park"]]]],
+            [
+                "all",
+                ["in", ["get", "kind"], ["literal", ["has", "x", "y"]]],
+                ["any", ["!", ["in", ["get", "kind"], ["literal", ["get", "z"]]]]],
+            ],
+        ],
+        ids=["in_get", "not_in_has", "nested"],
+    )
+    def test_values_in_a_literal_list_are_not_read_as_columns(self, filter_):
+        layer = uuid.uuid4()
+        widget = _widget("table", layer, v=2, filter=filter_)
+
+        merged = _merge(
+            {"widgets": [widget]}, None, readable={layer}, columns={layer: ["kind"]}
+        )
+
+        assert merged["widgets"][0]["filter"] == filter_
+
+    @pytest.mark.parametrize(
+        "filter_",
+        [
+            ["!in", "missing", "x"],
+            ["!has", "missing"],
+            ["none", ["!has", "missing"]],
+            ["none", ["==", "missing", 1]],
+            ["all", ["==", ["get", "kind"], "a"], ["!has", "missing"]],
+            ["in", "x", ["get", "missing"]],
+        ],
+        ids=["not_in", "not_has", "none", "none_compare", "mixed", "contains"],
+    )
+    def test_a_legacy_spelling_on_a_missing_column_is_refused(self, filter_):
+        layer = uuid.uuid4()
+        widget = _widget("table", layer, v=2, filter=filter_)
+
+        with pytest.raises(HTTPException) as exc:
+            _merge(
+                {"widgets": [widget]}, None, readable={layer}, columns={layer: ["kind"]}
+            )
+
+        assert exc.value.detail["widgets"][0]["reason"] == "filter_column"
+
+    @pytest.mark.parametrize(
+        "filter_",
+        [
+            ["==", ["get", ["concat", "ki", "nd"]], "a"],
+            ["has", "kind", ["properties"]],
+            ["==", ["at", 0, ["properties"]], "a"],
+            ["!has", ["get", "kind"]],
+        ],
+        ids=["computed_get", "has_on_object", "properties", "computed_not_has"],
+    )
+    def test_a_filter_whose_columns_are_computed_is_refused(self, filter_):
+        with pytest.raises(ValidationError):
+            _adapter.validate_python(
+                _widget("table", uuid.uuid4(), v=2, filter=filter_)
+            )
+
+    def test_a_filter_listing_more_values_than_the_aggregate_binds_is_refused(self):
+        layer = uuid.uuid4()
+
+        def listing(count):
+            values = [f"v{i}" for i in range(count)]
+            members = ["in", ["get", "kind"], ["literal", values]]
+            return _widget("table", layer, v=2, filter=members)
+
+        fits = _merge(
+            {"widgets": [listing(1000)]},
+            None,
+            readable={layer},
+            columns={layer: ["kind"]},
+        )
+        with pytest.raises(HTTPException) as exc:
+            _merge(
+                {"widgets": [listing(1001)]},
+                None,
+                readable={layer},
+                columns={layer: ["kind"]},
+            )
+
+        assert len(fits["widgets"]) == 1
+        assert exc.value.detail["widgets"][0]["reason"] == "filter_too_large"
+
     def test_an_older_client_keeps_a_filtered_widget_in_place(self):
         layer = uuid.uuid4()
         plain = _widget("indicator", layer)
@@ -206,3 +293,27 @@ class TestSaveThroughTheApi:
         stored = await _stored(test_db_session, map_id)
         assert stored["widgets"][0]["filter"] == KEEP
         assert stored["widgets"][0]["v"] == 3
+
+
+@pytest.mark.parametrize(
+    ("expression", "kept"),
+    [
+        (["in", ["get", "kind"], ["literal", ["get", "park"]]], True),
+        (["!has", "missing"], False),
+        (["==", ["get", ["concat", "ki", "nd"]], "a"], False),
+    ],
+    ids=["literal_values", "legacy_missing", "computed"],
+)
+def test_ai_filters_use_the_same_column_reading(expression, kept):
+    from app.processing.ai.chat_validation import _validate_filter_columns
+    from app.processing.ai.schemas import ChatMapLayer
+
+    layer = ChatMapLayer(
+        id="l1",
+        name="Trees",
+        dataset_id="d1",
+        dataset_table_name="trees",
+        column_info=[{"name": "kind", "type": "text"}],
+    )
+
+    assert (_validate_filter_columns(expression, layer) is not None) is kept

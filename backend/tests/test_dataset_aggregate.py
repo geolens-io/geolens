@@ -1490,6 +1490,49 @@ class TestWidgetFilter:
             assert resp.status_code == 200, resp.text
             assert matches(resp.json()["result"]), resp.json()["result"]
 
+    @pytest.mark.parametrize("caller", ["anonymous", "embed"])
+    @pytest.mark.parametrize(
+        "spelling",
+        ["not_in", "not_has", "equals"],
+    )
+    async def test_a_legacy_spelling_on_a_column_the_caller_cannot_read_is_refused(
+        self,
+        client: AsyncClient,
+        test_db_session,
+        embed_headers,
+        caller,
+        spelling,
+    ):
+        # The CQL2 the viewer sends for ["!in", c, 1], ["!has", c] and ["==", c, 1].
+        column = {"property": "pop" if caller == "embed" else "missing"}
+        cql2 = {
+            "not_in": {
+                "op": "or",
+                "args": [
+                    {"op": "isNull", "args": [column]},
+                    {"op": "not", "args": [{"op": "in", "args": [column, [1]]}]},
+                ],
+            },
+            "not_has": {"op": "isNull", "args": [column]},
+            "equals": {"op": "in", "args": [column, [1]]},
+        }[spelling]
+        visibility = "private" if caller == "embed" else "public"
+        async with _dropped(test_db_session, visibility=visibility) as dataset:
+            headers = {}
+            if caller == "embed":
+                await set_tile_columns(test_db_session, dataset.id, ["kind"])
+                headers = await embed_headers(dataset.id)
+
+            resp = await _aggregate(
+                client,
+                dataset.id,
+                {"op": "count", "filter": {"op": "and", "args": [KEEP, cql2]}},
+                headers,
+            )
+
+            assert resp.status_code == 422, resp.text
+            assert resp.json()["detail"]["code"] == "invalid_filter"
+
     async def test_an_embed_widget_filter_on_a_column_outside_the_allowlist_is_refused(
         self, client: AsyncClient, test_db_session, private_points, embed_headers
     ):

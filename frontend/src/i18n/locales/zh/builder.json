@@ -965,6 +965,7 @@
     "dashboardWidgetInvalid": "无法保存：某个仪表板小组件读取的“{{column}}”列在其图层中不存在或不是数值列。请在仪表板面板中修正。",
     "dashboardViewWithoutGeometry": "无法保存：某个仪表板小组件在没有几何的图层上跟随地图视图。请在仪表板面板中将其设为统计整个图层。",
     "dashboardWidgetFilterUnsupported": "无法保存：某个仪表板小组件的筛选条件无法应用于其数字。请在仪表板面板中修正。",
+    "dashboardWidgetFilterTooLarge": "无法保存：某个仪表板小组件的筛选条件包含的值或文本超出了小组件可发送的上限。请在仪表板面板中缩短它。",
     "dashboardChangedElsewhere": "此地图的仪表板已在别处更改。您未保存的仪表板编辑会保留，保存时将替换该更改。"
   },
   "builderMap": {

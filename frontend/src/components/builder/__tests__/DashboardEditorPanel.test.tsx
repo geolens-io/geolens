@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { screen, waitFor, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { render } from '@/test/test-utils';
 import { fetchAggregate } from '@/api/aggregate';
@@ -529,6 +529,35 @@ describe('DashboardEditorPanel', () => {
       { op: 'count', filter: { op: '=', args: [{ property: 'land_use' }, 'Residential'] } },
       expect.anything(),
     );
+  });
+
+  it("keeps a title, config or layer change made while the filter editor's change is still pending", async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness layers={[parcels, permits]} onChange={onChange} />);
+    await user.click(screen.getByRole('button', { name: 'Add Indicator' }));
+    await user.click(screen.getByRole('button', { name: 'Add filter' }));
+    await user.click(screen.getByRole('combobox', { name: 'Field' }));
+    await user.click(await screen.findByRole('option', { name: 'land_use' }));
+
+    await user.type(screen.getByRole('textbox', { name: 'Value' }), 'Residential');
+    // Inside the editor's 200 ms window.
+    fireEvent.change(screen.getByLabelText('Title'), { target: { value: 'Homes' } });
+    fireEvent.change(screen.getByLabelText('Reference value'), { target: { value: '12' } });
+    await waitFor(() => expect(lastDraft(onChange).widgets[0].filter).toBeDefined());
+    expect(lastDraft(onChange).widgets[0]).toMatchObject({
+      title: 'Homes',
+      config: { reference: 12 },
+      filter: ['all', ['==', ['get', 'land_use'], 'Residential']],
+    });
+
+    await user.type(screen.getByRole('textbox', { name: 'Value' }), 'X');
+    await user.click(screen.getByRole('combobox', { name: 'Layer' }));
+    await user.click(await screen.findByRole('option', { name: 'Permits table' }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    const moved = lastDraft(onChange).widgets[0];
+    expect(moved).toMatchObject({ layer_id: permits.id, title: 'Homes' });
+    expect(moved).not.toHaveProperty('filter');
   });
 
   it('counts a filter column outside the tile columns in the embed warning', () => {

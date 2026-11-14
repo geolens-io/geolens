@@ -221,7 +221,8 @@
       "notSortable": "Nach „{{column}}“ kann nicht sortiert werden. Wählen Sie vor dem Speichern eine andere Spalte.",
       "notListable": "„{{column}}“ kann nicht aufgelistet werden. Wählen Sie vor dem Speichern eine andere Spalte.",
       "notDate": "„{{column}}“ ist keine Datumsspalte. Wählen Sie vor dem Speichern eine andere Spalte.",
-      "filterUnsupported": "Dieser Filter lässt sich auf die Zahlen des Widgets nicht anwenden. Ändern oder entfernen Sie vor dem Speichern eine Bedingung."
+      "filterUnsupported": "Dieser Filter lässt sich auf die Zahlen des Widgets nicht anwenden. Ändern oder entfernen Sie vor dem Speichern eine Bedingung.",
+      "filterTooLarge": "Dieser Filter enthält zusammen mit dem des Layers mehr Werte oder Text, als ein Widget senden kann. Entfernen Sie vor dem Speichern Bedingungen oder Werte."
     },
     "maxWidgets": "Ein Dashboard enthält höchstens {{max}} Widgets.",
     "reference": "Referenzwert",
