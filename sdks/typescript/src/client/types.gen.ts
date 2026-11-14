@@ -7699,7 +7699,7 @@ export type LayerInfo = {
     /**
      * Time Only Fields
      *
-     * ArcGIS time-only fields (esriFieldTypeTimeOnly) of the layer, which an import stores as text. Empty when there are none or the service does not say.
+     * ArcGIS time-only fields (esriFieldTypeTimeOnly) of the layer, which an import usually stores as text. Empty when there are none or the service does not say.
      */
     time_only_fields?: Array<string>;
     /**

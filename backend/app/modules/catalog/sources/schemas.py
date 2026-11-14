@@ -246,7 +246,7 @@ class LayerInfo(BaseModel):
         default_factory=list,
         description=(
             "ArcGIS time-only fields (esriFieldTypeTimeOnly) of the layer, which "
-            "an import stores as text. Empty when there are none or the service "
+            "an import usually stores as text. Empty when there are none or the service "
             "does not say."
         ),
     )

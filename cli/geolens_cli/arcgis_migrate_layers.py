@@ -529,6 +529,14 @@ def _resume_import(
     return ItemResult(notes=entry.import_pass["notes"])
 
 
+def _held_notes(ctx: MigrationContext, entry: ItemState, layer: Any) -> list[str]:
+    """The layer's property notes: those recorded when it was imported plus
+    what this probe states."""
+    fresh = _redacted(ctx, property_notes([layer]))
+    kept = entry.layer_notes.get(_layer_key(layer), [])
+    return list(dict.fromkeys([*kept, *fresh]))
+
+
 def import_layers(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> ItemResult:
@@ -559,7 +567,6 @@ def import_layers(
         raise ItemFailed(f"probe failed, {exc}") from None
     base = item["target"]["title"] or item["title"]
     wanted, notes, left_behind = importable_layers(probe)
-    notes += property_notes(wanted)
     titles = _titles(
         base, [(_layer_label(layer), _layer_id(layer)) for layer in wanted]
     )
@@ -583,9 +590,11 @@ def import_layers(
         # pins of the service the item still belongs to. A layer id from the
         # old service could match one of the new service's.
         entry.layer_datasets.clear()
+        entry.layer_notes.clear()
         entry.layer_jobs.clear()
         entry.dataset_ids.clear()
     entry.service_url = row["url"]
+    notes += [n for layer in wanted for n in _held_notes(ctx, entry, layer)]
     entry.left_behind = _redacted(ctx, left_behind)
     entry.attachments = attachment_flags(wanted)
     entry.relationships = relationship_records(wanted)
@@ -602,11 +611,13 @@ def import_layers(
             # The plan may have been edited since that layer was imported.
             target = _commit_body(title, item["target"]["visibility"])
             _apply_target(ctx, entry, pinned, target)
+            entry.layer_notes[_layer_key(layer)] = _held_notes(ctx, entry, layer)
             continue
         found += _import_layer(
             ctx, row, probe, layer, title, item["target"]["visibility"], entry
         )
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
+        entry.layer_notes[_layer_key(layer)] = _held_notes(ctx, entry, layer)
         ctx.save()
     entry.import_pass = {
         "notes": _redacted(ctx, notes),

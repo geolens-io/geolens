@@ -2394,3 +2394,71 @@ def test_a_refresh_whose_probe_lacks_the_metadata_keeps_the_known_loss(
 
     assert result.exit_code == 0, result.output
     assert len(_loss_notes(plan_file)) == 1
+
+
+def test_same_named_layers_keep_one_note_each_through_a_refresh(
+    runner, plan_file, geolens
+):
+    service = FakeImport(
+        geolens, [_layer(0, "Parcels", has_m=True), _layer(1, "Parcels", has_m=True)]
+    )
+    _migrate(runner, plan_file, "--only", A2)
+    assert len(_loss_notes(plan_file)) == 2
+    _edit_state(plan_file, A2, notes=[], layer_notes={})
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    _migrate(runner, plan_file, "--only", A2)
+
+    assert sorted(_loss_notes(plan_file)) == [
+        "layer Parcels (layer 0): its M values are not carried over; the "
+        "geometries arrive without them",
+        "layer Parcels (layer 1): its M values are not carried over; the "
+        "geometries arrive without them",
+    ]
+
+
+_PROPERTIES = [
+    {"time_fields": ["opened"]},
+    {"subtype_field": "kind"},
+    {"has_m": True},
+    {"time_only_fields": ["opens_at"]},
+    {"timestamp_offset_fields": ["seen"]},
+]
+
+
+@pytest.mark.parametrize("on_import", [True, False], ids=["import", "refresh"])
+@pytest.mark.parametrize(
+    "properties", _PROPERTIES, ids=[next(iter(p)) for p in _PROPERTIES]
+)
+def test_cutover_refuses_dropped_layer_properties_until_accepted(
+    runner, plan_file, geolens, properties, on_import
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(
+        geolens,
+        [
+            _layer(
+                0, "Parcels", has_attachments=False, **(properties if on_import else {})
+            )
+        ],
+    )
+    if not on_import:
+        _migrate(runner, plan_file, "--only", A2)
+        service.layers[0].update(properties)
+        FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["layer-property-loss"]
+    [check] = payload["cutover"]["checks"]
+    assert all("not carried over" in i["reason"] for i in check["items"])
+    assert _state(plan_file)["cutover"] is None
+
+    FakeRefresh(geolens, service).allow(PARCELS)
+    result, payload = _migrate(
+        runner, plan_file, "--cutover", "--accept-layer-property-loss"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["cutover"]["accepted"] == ["layer-property-loss"]

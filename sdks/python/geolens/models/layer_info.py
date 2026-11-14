@@ -47,7 +47,7 @@ class LayerInfo:
         has_m (bool | None | Unset): Whether the ArcGIS layer's geometries carry M values, which an import drops. Null
             when the service does not say, and for other service types.
         time_only_fields (list[str] | Unset): ArcGIS time-only fields (esriFieldTypeTimeOnly) of the layer, which an
-            import stores as text. Empty when there are none or the service does not say.
+            import usually stores as text. Empty when there are none or the service does not say.
         timestamp_offset_fields (list[str] | Unset): ArcGIS timestamp-offset fields (esriFieldTypeTimestampOffset) of
             the layer, which an import stores as the instant without its UTC offset. Empty when there are none or the
             service does not say.

@@ -148,6 +148,9 @@ class ItemState:
     # Service layer (its id, or its name) -> the dataset imported from it, so
     # a rerun never imports a layer twice, even after its dataset changed owner.
     layer_datasets: dict[str, str] = field(default_factory=dict)
+    # Service layer -> the notes on what its import left out, kept with the
+    # pin so a retry whose optional layer read fails still reports them.
+    layer_notes: dict[str, list[str]] = field(default_factory=dict)
     # Datasets GeoLens already held that the import reused, whose owner's
     # edits from before the migration are taken as they are.
     reused: list[str] = field(default_factory=list)

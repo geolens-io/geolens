@@ -26,7 +26,10 @@ def _names(value: Any) -> list[str]:
 
 def _label(layer: Any) -> str:
     title = getattr(layer, "title", None)
-    return title if isinstance(title, str) and title else str(layer.name)
+    name = title if isinstance(title, str) and title else str(layer.name)
+    # Two layers of a service may share a name; their notes must stay apart.
+    layer_id = getattr(layer, "layer_id", None)
+    return name if layer_id is None else f"{name} (layer {layer_id})"
 
 
 def _get(layer: Any, key: str) -> Any:
@@ -75,7 +78,7 @@ def property_notes(layers: Any) -> list[str]:
         if time_only := _names(_get(layer, "time_only_fields")):
             notes.append(
                 f"layer {label}: time-only fields are {NOT_CARRIED} as times; "
-                f"they arrive as text ({_listed(time_only)})"
+                f"they may arrive as text ({_listed(time_only)})"
             )
         if offset := _names(_get(layer, "timestamp_offset_fields")):
             notes.append(

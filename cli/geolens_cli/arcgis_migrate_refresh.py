@@ -36,11 +36,11 @@ from .arcgis_migrate_files import (
     _megabytes,
     _Skipped,
 )
-from .arcgis_layer_properties import property_notes
 from .arcgis_migrate_layers import (
     JOB_POLL_INTERVAL,
     JOB_TIMEOUT,
     _layer_key,
+    _held_notes,
     _layer_label,
     _redacted,
     _send,
@@ -505,7 +505,11 @@ def refresh_layers(
     # Added only: the optional metadata may be missing from this probe, and a
     # loss already reported stays true.
     known = [layer for layer in wanted if _layer_key(layer) in entry.layer_datasets]
-    found = [n[:MAX_ERROR_CHARS] for n in _redacted(ctx, property_notes(known))]
+    found = []
+    for layer in known:
+        held = _held_notes(ctx, entry, layer)
+        entry.layer_notes[_layer_key(layer)] = held
+        found += [n[:MAX_ERROR_CHARS] for n in held]
     entry.notes.extend(n for n in found if n not in entry.notes)
     added = [
         f"layer {_layer_label(layer)} was added to the service in the portal and "

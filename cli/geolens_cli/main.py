@@ -2311,6 +2311,15 @@ def arcgis_migrate(
             help="With --cutover, accept that migrated layers' attachments stay behind",
         ),
     ] = False,
+    accept_layer_property_loss: Annotated[
+        bool,
+        typer.Option(
+            "--accept-layer-property-loss",
+            help="With --cutover, accept that migrated layers' time settings, "
+            "subtype names, M values, time-only types and timestamp offsets "
+            "stay behind",
+        ),
+    ] = False,
     accept_unresolved_users: Annotated[
         bool,
         typer.Option(
@@ -2347,6 +2356,7 @@ def arcgis_migrate(
         _arcgis_cutover.UNFINISHED: accept_unfinished_items,
         _arcgis_cutover.INVENTORY: accept_incomplete_inventory,
         _arcgis_cutover.ATTACHMENTS: accept_attachment_loss,
+        _arcgis_cutover.LAYER_PROPERTIES: accept_layer_property_loss,
         _arcgis_cutover.USERS: accept_unresolved_users,
         _arcgis_cutover.SHARING: accept_under_sharing,
     }
