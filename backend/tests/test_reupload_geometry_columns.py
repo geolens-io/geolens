@@ -11,14 +11,15 @@ import pytest
 from sqlalchemy import select, text, update
 
 from app.core.config import settings
+from app.core.upload_errors import geometry_columns_missing_refusal
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.storage import provider as storage_provider
 from app.platform.storage.local import LocalStorageProvider
-from app.processing.ingest.ogr import IngestionError
 from app.processing.ingest.tasks import reupload_file
+from app.processing.ingest.tasks_reupload import GeometryColumnsMissingError
 from app.processing.ingest.tasks_vector import ingest_file
 from tests.factories import get_user_id
 
@@ -132,15 +133,36 @@ class _Harness:
         await self.commit_and_run(
             dataset, job_id, {"review_fingerprint": fingerprint} if fingerprint else {}
         )
-        run = (
+        run = await self.run_for(job_id)
+        assert run.status == "succeeded", (run.error_code, run.verification)
+        return run
+
+    async def run_for(self, job_id: uuid.UUID) -> DatasetRefreshRun:
+        return (
             await self.session.execute(
                 select(DatasetRefreshRun)
                 .where(DatasetRefreshRun.ingest_job_id == job_id)
                 .execution_options(populate_existing=True)
             )
         ).scalar_one()
-        assert run.status == "succeeded", (run.error_code, run.verification)
-        return run
+
+    async def restore(self, dataset: Dataset, expected: int) -> None:
+        """Admit a restore through the API, then run the task it deferred."""
+        from app.processing.ingest.tasks import restore_previous_version
+
+        deferred = AsyncMock()
+        with patch(
+            "app.modules.catalog.datasets.api.router_previous_version."
+            "defer_async_with_tenant",
+            deferred,
+        ):
+            response = await self.client.post(
+                f"/api/datasets/{dataset.id}/previous-version/restore",
+                json={"expected_version_number": expected},
+                headers=self.headers,
+            )
+        assert response.status_code == 202, response.text
+        await restore_previous_version(**deferred.await_args.kwargs)
 
     async def points(self, dataset: Dataset) -> list[tuple[str, str]]:
         rows = await self.session.execute(
@@ -181,6 +203,8 @@ _EXPECTED = [
     ("b", "POINT(-73.95 40.78)"),
     ("c", "POINT(-74 40.71)"),
 ]
+_GROWN = [*_XY_ROWS, ("d", -73.9, 40.8)]
+_EXPECTED_GROWN = [*_EXPECTED, ("d", "POINT(-73.9 40.8)")]
 
 
 async def test_an_xy_csv_replaced_with_the_same_file_and_then_a_new_one_keeps_points(
@@ -191,6 +215,7 @@ async def test_an_xy_csv_replaced_with_the_same_file_and_then_a_new_one_keeps_po
     dataset = await harness.first_import(source, x_column="lon", y_column="lat")
     assert dataset.origin_ref["x_column"] == "lon"
     assert dataset.origin_ref["y_column"] == "lat"
+    assert dataset.origin_ref["column_srid"] == 4326
     assert await harness.points(dataset) == _EXPECTED
 
     await harness.replace(dataset, _xy_csv(harness.tmp_path / "same.csv"))
@@ -198,12 +223,11 @@ async def test_an_xy_csv_replaced_with_the_same_file_and_then_a_new_one_keeps_po
     assert dataset.feature_count == 3
     assert await harness.points(dataset) == _EXPECTED
 
-    grown = _XY_ROWS + [("d", -73.9, 40.8)]
-    await harness.replace(dataset, _xy_csv(harness.tmp_path / "grown.csv", grown))
+    await harness.replace(dataset, _xy_csv(harness.tmp_path / "grown.csv", _GROWN))
     dataset = await harness.reload(dataset.id)
     assert dataset.geometry_type.upper().endswith("POINT")
     assert dataset.feature_count == 4
-    assert await harness.points(dataset) == [*_EXPECTED, ("d", "POINT(-73.9 40.8)")]
+    assert await harness.points(dataset) == _EXPECTED_GROWN
     assert dataset.origin_ref["x_column"] == "lon"
     assert dataset.origin_ref["y_column"] == "lat"
 
@@ -211,10 +235,10 @@ async def test_an_xy_csv_replaced_with_the_same_file_and_then_a_new_one_keeps_po
 async def test_a_dataset_imported_before_the_columns_were_recorded_reads_its_job(
     harness: _Harness,
 ):
-    """With no columns on the binding, the newest completed job supplies them.
+    """With no columns on the binding, the import job supplies them.
 
-    A replacement with unchanged data leaves the binding alone, so its own job
-    must carry the columns to the next one.
+    A replacement with unchanged data then records them on the binding, so the
+    next one does not need the job.
     """
     dataset = await harness.first_import(
         _xy_csv(harness.tmp_path / "older.csv"), x_column="lon", y_column="lat"
@@ -229,13 +253,19 @@ async def test_a_dataset_imported_before_the_columns_were_recorded_reads_its_job
 
     await harness.replace(dataset, _xy_csv(harness.tmp_path / "same.csv"))
     dataset = await harness.reload(dataset.id)
-    assert "x_column" not in dataset.origin_ref
+    assert dataset.current_version == 1
+    assert dataset.origin_ref["x_column"] == "lon"
+    assert dataset.origin_ref["filename"] == "older.csv"
 
-    grown = _XY_ROWS + [("d", -73.9, 40.8)]
-    await harness.replace(dataset, _xy_csv(harness.tmp_path / "newer.csv", grown))
+    await harness.session.execute(
+        update(IngestJob)
+        .where(IngestJob.dataset_id == dataset.id)
+        .values(user_metadata={})
+    )
+    await harness.session.commit()
+    await harness.replace(dataset, _xy_csv(harness.tmp_path / "newer.csv", _GROWN))
     dataset = await harness.reload(dataset.id)
     assert dataset.feature_count == 4
-    assert dataset.origin_ref["x_column"] == "lon"
 
 
 async def test_a_replacement_missing_a_column_is_refused_by_name(harness: _Harness):
@@ -253,29 +283,120 @@ async def test_a_replacement_missing_a_column_is_refused_by_name(harness: _Harne
     assert detail["columns"] == "lat"
     assert "(lat)" in detail["message"]
 
-    with pytest.raises(IngestionError, match=r"\(lat\)"):
+    with pytest.raises(GeometryColumnsMissingError):
         await harness.commit_and_run(dataset, job_id, {})
     job = await harness.session.get(IngestJob, job_id, populate_existing=True)
     assert job.status == "failed"
-    assert "(lat)" in job.error_message
+    assert job.error_code == "geometry_columns_missing"
+    assert job.error_message == geometry_columns_missing_refusal(["lat"])
+    run = await harness.run_for(job_id)
+    assert run.error_code == "geometry_columns_missing"
     dataset = await harness.reload(dataset.id)
     assert await harness.points(dataset) == _EXPECTED
 
 
-@pytest.mark.parametrize("column", ["shape_wkt", "geometry"])
-async def test_a_wkt_column_gdal_does_not_detect_is_rebuilt(
-    harness: _Harness, column: str
-):
-    """``geometry`` is renamed at import, and the replacement reads it renamed too."""
+@pytest.mark.parametrize("column", ["shape_wkt", "geometry", "wkt"])
+async def test_a_wkt_column_is_rebuilt(harness: _Harness, column: str):
+    """``geometry`` is renamed at import and ``wkt`` is one GDAL reads on its own."""
     dataset = await harness.first_import(
         _wkt_csv(harness.tmp_path / "shapes.csv", column), geom_column=column
     )
     assert dataset.origin_ref["geom_column"] == column
 
-    grown = _XY_ROWS + [("d", -73.9, 40.8)]
     await harness.replace(
-        dataset, _wkt_csv(harness.tmp_path / "more.csv", column, grown)
+        dataset, _wkt_csv(harness.tmp_path / "more.csv", column, _GROWN)
     )
     dataset = await harness.reload(dataset.id)
     assert dataset.feature_count == 4
-    assert await harness.points(dataset) == [*_EXPECTED, ("d", "POINT(-73.9 40.8)")]
+    assert await harness.points(dataset) == _EXPECTED_GROWN
+
+
+async def test_chosen_columns_win_over_a_wkt_column_gdal_detects(harness: _Harness):
+    """A replacement that gains a ``wkt`` column still builds from the chosen pair."""
+    dataset = await harness.first_import(
+        _xy_csv(harness.tmp_path / "coords.csv", header="name,coord_x,coord_y"),
+        x_column="coord_x",
+        y_column="coord_y",
+    )
+    competing = harness.tmp_path / "competing.csv"
+    competing.write_text(
+        "name,coord_x,coord_y,wkt\n"
+        + "".join(f'{n},{x},{y},"POINT (1 2)"\n' for n, x, y in _GROWN)
+    )
+
+    await harness.replace(dataset, competing)
+    dataset = await harness.reload(dataset.id)
+    assert await harness.points(dataset) == _EXPECTED_GROWN
+
+
+async def test_projected_coordinates_are_rebuilt_in_their_recorded_crs(
+    harness: _Harness,
+):
+    """A replacement with no override reads the columns in the import's CRS."""
+    mercator = [
+        (n, round(x * 111319.49, 2), round(y * 111319.49, 2)) for n, x, y in _XY_ROWS
+    ]
+    dataset = await harness.first_import(
+        _xy_csv(harness.tmp_path / "metres.csv", mercator, header="name,x,y"),
+        x_column="x",
+        y_column="y",
+        srid_override=3857,
+    )
+    assert dataset.origin_ref["column_srid"] == 3857
+    before = await harness.points(dataset)
+
+    more = [*mercator, ("d", 1000.0, 1000.0)]
+    await harness.replace(
+        dataset, _xy_csv(harness.tmp_path / "more.csv", more, header="name,x,y")
+    )
+    dataset = await harness.reload(dataset.id)
+    assert dataset.feature_count == 4
+    assert (await harness.points(dataset))[:3] == before
+
+
+async def test_header_spellings_ogr2ogr_launders_match_the_chosen_names(
+    harness: _Harness,
+):
+    """Headers are compared as they are stored, so the same file replaces itself."""
+    header = "name,Longitude-Deg,Latitude-Deg"
+    dataset = await harness.first_import(
+        _xy_csv(harness.tmp_path / "degrees.csv", header=header),
+        x_column="longitude_deg",
+        y_column="latitude_deg",
+    )
+
+    await harness.replace(
+        dataset, _xy_csv(harness.tmp_path / "again.csv", _GROWN, header=header)
+    )
+    dataset = await harness.reload(dataset.id)
+    assert await harness.points(dataset) == _EXPECTED_GROWN
+
+
+async def test_a_restored_version_keeps_the_columns_it_was_built_from(
+    harness: _Harness,
+):
+    """Replace from a file with geometry of its own, restore, then replace from the CSV."""
+    dataset = await harness.first_import(
+        _xy_csv(harness.tmp_path / "places.csv"), x_column="lon", y_column="lat"
+    )
+    native = harness.tmp_path / "native.geojson"
+    native.write_text(
+        '{"type":"FeatureCollection","features":['
+        + ",".join(
+            f'{{"type":"Feature","properties":{{"name":"{n}","lon":{x},"lat":{y}}},'
+            f'"geometry":{{"type":"Point","coordinates":[{x},{y}]}}}}'
+            for n, x, y in _XY_ROWS[:2]
+        )
+        + "]}"
+    )
+    await harness.replace(dataset, native)
+    dataset = await harness.reload(dataset.id)
+    assert "x_column" not in dataset.origin_ref
+
+    await harness.restore(dataset, 1)
+    dataset = await harness.reload(dataset.id)
+    assert dataset.origin_ref["x_column"] == "lon"
+
+    await harness.replace(dataset, _xy_csv(harness.tmp_path / "after.csv", _GROWN))
+    dataset = await harness.reload(dataset.id)
+    assert await harness.points(dataset) == _EXPECTED_GROWN

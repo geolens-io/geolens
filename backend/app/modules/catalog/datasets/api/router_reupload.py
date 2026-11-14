@@ -54,7 +54,7 @@ from app.modules.catalog.datasets.domain.service import (
 from app.core.dependencies import get_db
 from app.platform.source_geometry_columns import (
     columns_to_build,
-    recorded_geometry_columns,
+    recorded_geometry_selection,
 )
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
@@ -837,8 +837,11 @@ async def reupload_preview(
     prior_geometry_type = dataset.geometry_type
     prior_table_name = dataset.table_name
     prior_geometry = (dataset.srid, dataset.is_3d, dataset.n_dims)
-    recorded_columns = await recorded_geometry_columns(
-        db, dataset_id=dataset_id, ref=dataset.origin_ref
+    recorded = await recorded_geometry_selection(
+        db,
+        dataset_id=dataset_id,
+        current_version=dataset.current_version,
+        ref=dataset.origin_ref,
     )
     await db.rollback()
 
@@ -886,24 +889,31 @@ async def reupload_preview(
                 ),
             )
 
-    # A file with no geometry of its own builds it from the columns the
-    # dataset's geometry was built from, as the worker does.
-    build_from, missing_columns = columns_to_build(
-        recorded_columns,
+    # The file builds its geometry from the columns the dataset's was built
+    # from, in their CRS unless overridden, as the worker does.
+    srid_override = request.srid_override if request else None
+    build, missing_columns = columns_to_build(
+        recorded,
         source_geometry_type=info.get("geometry_type"),
         source_columns=info["columns"],
+        driver=info.get("driver"),
     )
-    if "x_column" in build_from:
-        info = {**info, "geometry_type": "Point"}
+    if build is not None:
+        info = {
+            **info,
+            "geometry_type": "Point" if "x_column" in build.columns else None,
+        }
+        if srid_override is None:
+            srid_override = build.srid if build.srid is not None else 4326
 
     # The diff below reads attribute columns only, so a geometry
     # loss would otherwise look like an unremarkable schema diff.
     geometry_loss = geometry_loss_refusal(
         record_type=prior_record_type,
         dataset_geometry_type=prior_geometry_type,
-        source_has_geometry=info.get("geometry_type") is not None or bool(build_from),
+        source_has_geometry=info.get("geometry_type") is not None or build is not None,
     )
-    if geometry_loss and missing_columns:
+    if missing_columns:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail={
@@ -929,7 +939,7 @@ async def reupload_preview(
         db,
         diff=diff,
         info=info,
-        srid_override=request.srid_override if request else None,
+        srid_override=srid_override,
         live_table=prior_table_name,
         live_geometry=prior_geometry,
     )

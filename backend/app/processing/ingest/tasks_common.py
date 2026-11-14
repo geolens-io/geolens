@@ -20,6 +20,7 @@ import structlog
 
 from procrastinate import App
 
+from app.platform.source_geometry_columns import selection_fields
 from app.platform.dataset_origin import (
     CONTACTED_ORIGIN_KINDS,
     KEEP,
@@ -686,12 +687,13 @@ async def _detect_and_override_geometry(
     ``ogr_geometry_type = None if user_wants_geom else ...`` branch in
     ``ingest_file``) before invoking this helper.
     """
+    from app.platform.column_names import laundered_column_name
     from app.processing.ingest.metadata import _qtable
 
     moved = {r["original"]: r["renamed"] for r in renamed_columns or []}
 
     def _chosen(key: str) -> str | None:
-        name = (user_metadata.get(key) or "").lower()
+        name = laundered_column_name(user_metadata.get(key) or "")
         return moved.get(name, name) or None
 
     x_column = _chosen("x_column")
@@ -1397,6 +1399,7 @@ async def _write_reupload_catalog(
         file_hash=file_hash,
         original_srid=original_srid,
         column_info=dataset.column_info,
+        geometry_columns=selection_fields(binding.ref),
         is_3d=measurement.three_d.get("is_3d"),
         n_dims=measurement.three_d.get("n_dims"),
         uploaded_by=actor_id,

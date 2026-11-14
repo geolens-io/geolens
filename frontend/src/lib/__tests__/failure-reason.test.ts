@@ -60,6 +60,23 @@ describe('describeFailureReason', () => {
     ).toBe("Les points du nuage de points ne se décodent pas comme l'indique son en-tête.");
   });
 
+  it("names the columns a replacement lacks in the reader's language", async () => {
+    await changeTestLanguage('es');
+    const stored =
+      "The replacement lacks the columns this dataset's geometry is built from (lat, Lon Deg), so nothing was changed. Add them to the file, or import the file as a new dataset instead.";
+
+    expect(describeFailureReason(stored, 'Something went wrong', 'geometry_columns_missing')).toBe(
+      'Este reemplazo no tiene las columnas con las que se construye la geometría de este conjunto de datos (lat, Lon Deg), así que no se cambió nada. Añádelas al archivo o impórtalo como un conjunto de datos nuevo.',
+    );
+  });
+
+  it('keeps a stored geometry-columns reason it cannot read the columns from', () => {
+    const stored = 'internal_error';
+    expect(describeFailureReason(stored, 'Something went wrong', 'geometry_columns_missing')).toBe(
+      'Something went wrong',
+    );
+  });
+
   it('keeps the stored reason for a code with no fixed sentence', () => {
     const composed = 'Rejected before execution: source_changed.';
     expect(describeFailureReason(composed, 'Something went wrong', 'source_changed')).toBe(composed);

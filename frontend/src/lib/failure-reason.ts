@@ -27,6 +27,7 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   dataset_deleted: 'errors.jobFailureDatasetDeleted',
   dispatch_interrupted: 'errors.jobFailureDispatchInterrupted',
   duplicate_source: 'errors.jobFailureDuplicateSource',
+  geometry_columns_missing: 'errors.reuploadGeometryColumnsMissing',
   missing_crs: 'errors.jobFailureMissingCrs',
   missing_crs_database: 'errors.jobFailureMissingCrsDatabase',
   missing_crs_raster: 'errors.jobFailureMissingCrsRaster',
@@ -51,10 +52,41 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   worker_lost: 'errors.jobFailureWorkerLost',
 };
 
-/** A fixed reason's sentence in the reader's language, or undefined for any other code. */
-export function fixedFailureReason(code: string | null | undefined): string | undefined {
+// The server's sentence for `geometry_columns_missing`
+// (`geometry_columns_missing_refusal` in backend/app/core/upload_errors.py),
+// split around the column names it interpolates.
+const GEOMETRY_COLUMNS_MISSING_PREFIX =
+  "The replacement lacks the columns this dataset's geometry is built from (";
+const GEOMETRY_COLUMNS_MISSING_SUFFIX =
+  '), so nothing was changed. Add them to the file, or import the file as a new dataset instead.';
+
+/** The values a fixed sentence names, read back out of the stored reason. */
+const FIXED_FAILURE_VALUES: Record<string, (reason: string) => Record<string, string> | undefined> = {
+  geometry_columns_missing: (reason) =>
+    reason.startsWith(GEOMETRY_COLUMNS_MISSING_PREFIX) && reason.endsWith(GEOMETRY_COLUMNS_MISSING_SUFFIX)
+      ? {
+          columns: reason.slice(
+            GEOMETRY_COLUMNS_MISSING_PREFIX.length,
+            reason.length - GEOMETRY_COLUMNS_MISSING_SUFFIX.length,
+          ),
+        }
+      : undefined,
+};
+
+/**
+ * A fixed reason's sentence in the reader's language, or undefined for any
+ * other code and for a sentence whose values can't be read from ``reason``.
+ */
+export function fixedFailureReason(
+  code: string | null | undefined,
+  reason?: string,
+): string | undefined {
   const key = code ? FIXED_FAILURE_CODE_KEYS[code] : undefined;
-  return key ? (i18n.t(key, { ns: 'common' }) as string) : undefined;
+  if (!key || !code) return undefined;
+  const readValues = FIXED_FAILURE_VALUES[code];
+  if (!readValues) return i18n.t(key, { ns: 'common' }) as string;
+  const values = reason === undefined ? undefined : readValues(reason);
+  return values ? (i18n.t(key, { ns: 'common', ...values }) as string) : undefined;
 }
 
 /**
@@ -68,6 +100,7 @@ export function describeFailureReason(
   code?: string | null,
 ): string {
   return (
-    fixedFailureReason(code) ?? (reason === INTERNAL_FAILURE_REASON ? localizedFallback : reason)
+    fixedFailureReason(code, reason) ??
+    (reason === INTERNAL_FAILURE_REASON ? localizedFallback : reason)
   );
 }

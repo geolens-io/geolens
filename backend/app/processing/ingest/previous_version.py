@@ -148,13 +148,23 @@ _RECORD_LIVE_VERSION = text(
     INSERT INTO catalog.dataset_versions AS v (
         dataset_id, version_number, source_filename, source_format,
         feature_count, srid, geometry_type, file_hash, original_srid, is_3d,
-        n_dims, column_info, uploaded_by, uploaded_at
+        n_dims, column_info, geometry_columns, uploaded_by, uploaded_at
     )
     SELECT d.id, d.current_version, d.source_filename, d.source_format,
         d.feature_count, d.srid, d.geometry_type,
         CASE WHEN d.origin_ref->>'kind' = 'upload'
             THEN d.origin_ref->>'file_hash' END,
-        d.original_srid, d.is_3d, d.n_dims, d.column_info, r.created_by, r.created_at
+        d.original_srid, d.is_3d, d.n_dims, d.column_info,
+        CASE WHEN d.origin_ref->>'kind' = 'upload' THEN NULLIF(
+            jsonb_strip_nulls(jsonb_build_object(
+                'x_column', d.origin_ref->'x_column',
+                'y_column', d.origin_ref->'y_column',
+                'geom_column', d.origin_ref->'geom_column',
+                'column_srid', d.origin_ref->'column_srid'
+            )),
+            '{}'::jsonb
+        ) END,
+        r.created_by, r.created_at
     FROM catalog.datasets d
     JOIN catalog.records r ON r.id = d.record_id
     WHERE d.id = :dataset_id
@@ -166,7 +176,8 @@ _RECORD_LIVE_VERSION = text(
         ),
         is_3d = COALESCE(v.is_3d, EXCLUDED.is_3d),
         n_dims = COALESCE(v.n_dims, EXCLUDED.n_dims),
-        column_info = COALESCE(v.column_info, EXCLUDED.column_info)
+        column_info = COALESCE(v.column_info, EXCLUDED.column_info),
+        geometry_columns = COALESCE(v.geometry_columns, EXCLUDED.geometry_columns)
     """
 )
 

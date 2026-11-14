@@ -20,16 +20,21 @@ from app.platform.catalog_locks import (
     CatalogLockConflict,
 )
 from app.platform.dataset_origin import (
+    KEEP,
     BoundPointer,
+    SourceBinding,
     bound_pointer,
     classify_origin,
     clear_source_probe_state,
+    restamp,
     service_layer_identity,
     still_bound,
 )
 from app.platform.source_geometry_columns import (
+    GeometrySelection,
     columns_to_build,
-    recorded_geometry_columns,
+    geometry_selection,
+    recorded_geometry_selection,
 )
 from app.processing.raster.cog import sha256_file
 
@@ -151,17 +156,12 @@ def _quicklook_table(dataset, measurement) -> str | None:
 
 
 def _assert_geometry_survives(
-    *,
-    record_type: str | None,
-    geometry_type: str | None,
-    has_geometry: bool,
-    missing_columns: list[str] | None = None,
+    *, record_type: str | None, geometry_type: str | None, has_geometry: bool
 ) -> None:
     """Raise the preview door's refusal when a replacement would strip geometry.
 
     Both worker paths reach the same ``record_type`` re-derivation: the file
-    path knows from ogrinfo, the service path from the staging table. The
-    refusal names ``missing_columns`` when the geometry was built from them.
+    path knows from ogrinfo, the service path from the staging table.
     """
     geometry_loss = geometry_loss_refusal(
         record_type=record_type,
@@ -171,9 +171,15 @@ def _assert_geometry_survives(
     if geometry_loss:
         from app.processing.ingest.ogr import IngestionError
 
-        if missing_columns:
-            raise IngestionError(geometry_columns_missing_refusal(missing_columns))
         raise IngestionError(geometry_loss)
+
+
+class GeometryColumnsMissingError(ValueError):
+    """The replacement lacks columns the dataset's geometry is built from."""
+
+    def __init__(self, columns: list[str]) -> None:
+        super().__init__(geometry_columns_missing_refusal(columns))
+        self.columns = columns
 
 
 async def _detect_reupload_crs(
@@ -184,8 +190,8 @@ async def _detect_reupload_crs(
     original_filename: str | None = None,
     record_type: str | None,
     dataset_geometry_type: str | None,
-    recorded_columns: dict[str, str] | None = None,
-) -> tuple[dict, int, dict[str, str]]:
+    recorded: GeometrySelection | None = None,
+) -> tuple[dict, int, GeometrySelection | None]:
     """Detect CRS/geometry for a reupload file and resolve the effective SRID.
 
     ``layer_name`` targets the user-chosen layer in a multi-layer GPKG rather
@@ -196,11 +202,11 @@ async def _detect_reupload_crs(
     the preview door's geometry-loss refusal, for a client that skipped the
     preview. ``record_type`` is the dataset's current one.
 
-    ``recorded_columns`` are the x/y or WKT columns the dataset's geometry
-    was built from. A file with no geometry of its own builds it from them
-    when it has them all.
+    ``recorded`` is the selection the dataset's geometry was built from. The
+    file builds its geometry the same way, in the recorded CRS unless the
+    commit overrides it, and is refused naming any column it lacks.
 
-    Returns (ogrinfo result dict, effective_srid, the columns to build from).
+    Returns (ogrinfo result dict, effective_srid, the selection to build from).
     """
     from app.processing.ingest.ogr import MissingCrsError, run_ogrinfo
     from app.processing.ingest.tasks_common import check_missing_crs
@@ -212,6 +218,19 @@ async def _detect_reupload_crs(
     geometry_type = info.get("geometry_type")
     srid_override = user_metadata.get("srid_override")
 
+    build, missing = columns_to_build(
+        recorded,
+        source_geometry_type=geometry_type,
+        source_columns=info.get("columns") or (),
+        driver=info.get("driver"),
+    )
+    if missing:
+        raise GeometryColumnsMissingError(missing)
+    if build is not None:
+        effective_srid = srid_override if srid_override is not None else build.srid
+        effective_srid = effective_srid if effective_srid is not None else 4326
+        return info, effective_srid, GeometrySelection(build.columns, effective_srid)
+
     missing_crs = check_missing_crs(
         file_path=file_path,
         has_geometry=geometry_type is not None,
@@ -221,16 +240,10 @@ async def _detect_reupload_crs(
     if missing_crs:
         raise MissingCrsError(missing_crs)
 
-    build_from, missing = columns_to_build(
-        recorded_columns or {},
-        source_geometry_type=geometry_type,
-        source_columns=info.get("columns") or (),
-    )
     _assert_geometry_survives(
         record_type=record_type,
         geometry_type=dataset_geometry_type,
-        has_geometry=geometry_type is not None or bool(build_from),
-        missing_columns=missing,
+        has_geometry=geometry_type is not None,
     )
 
     effective_srid = (
@@ -238,7 +251,7 @@ async def _detect_reupload_crs(
         if srid_override is not None
         else (srid if srid is not None else 4326)
     )
-    return info, effective_srid, build_from
+    return info, effective_srid, None
 
 
 async def _hold_live_table(session, dataset, *, schema: str) -> None:
@@ -610,6 +623,7 @@ class _FileReupload(_LiveComparison):
         self.prior_record_type = dataset.record.record_type
         self.prior_geometry_type = dataset.geometry_type
         self.dataset_id = dataset.id
+        self.prior_version = dataset.current_version
         self.prior_origin_ref = dict(dataset.origin_ref or {})
         # The user-chosen layer of a multi-layer file.
         self.layer_name = job.source_layer
@@ -630,15 +644,18 @@ class _FileReupload(_LiveComparison):
             except ValueError:
                 self.refused = True
                 raise
-            recorded_columns = await recorded_geometry_columns(
-                session, dataset_id=self.dataset_id, ref=self.prior_origin_ref
+            recorded = await recorded_geometry_selection(
+                session,
+                dataset_id=self.dataset_id,
+                current_version=self.prior_version,
+                ref=self.prior_origin_ref,
             )
 
         # Effective SRID: override > detected > 4326.
         (
             self.info,
             self.effective_srid,
-            self.geometry_columns,
+            self.geometry_build,
         ) = await _detect_reupload_crs(
             self.file_path,
             self.layer_name,
@@ -646,7 +663,7 @@ class _FileReupload(_LiveComparison):
             original_filename=self.source_filename,
             record_type=self.prior_record_type,
             dataset_geometry_type=self.prior_geometry_type,
-            recorded_columns=recorded_columns,
+            recorded=recorded,
         )
         self.layer_name = layer_to_load(self.info, self.layer_name)
         self.srid = self.info.get("srid")
@@ -655,7 +672,11 @@ class _FileReupload(_LiveComparison):
             self.staging_table,
             build_pg_conn_str(),
             source_srid=self.srid,
-            geometry_type=self.info.get("geometry_type"),
+            # Built from the recorded columns: loaded without any geometry
+            # GDAL detects on its own.
+            geometry_type=None
+            if self.geometry_build is not None
+            else self.info.get("geometry_type"),
             layer_name=self.layer_name,
             schema=_current_tenant_schema(),
             effective_srid=self.effective_srid,
@@ -727,17 +748,15 @@ class _FileReupload(_LiveComparison):
                 )
 
         has_geometry = self.info.get("geometry_type") is not None
-        if self.geometry_columns:
+        if self.geometry_build is not None:
             await _detect_and_override_geometry(
                 session,
                 table_name=self.staging_table,
-                user_metadata=self.geometry_columns,
+                user_metadata=self.geometry_build.columns,
                 effective_srid=self.effective_srid,
                 renamed_columns=reserved_renames,
             )
             has_geometry = True
-            # An unchanged run leaves the binding as it was; the job keeps the columns.
-            job.user_metadata = {**(job.user_metadata or {}), **self.geometry_columns}
 
         staging_result = await _run_staging_pipeline(
             session,
@@ -858,6 +877,7 @@ class _FileReupload(_LiveComparison):
                 contacted_origin=False,
                 reaps_staged_upload=True,
             )
+            self._record_unchanged_selection(dataset)
             await self._apply_manifest(session, dataset)
             return published
         version, schema_diff = await _write_reupload_catalog(
@@ -874,7 +894,7 @@ class _FileReupload(_LiveComparison):
             origin_ref={
                 "filename": self.source_filename,
                 "file_hash": self.file_hash,
-                **self.geometry_columns,
+                **self._geometry_fields(),
             },
             field_labels={},
         )
@@ -892,6 +912,31 @@ class _FileReupload(_LiveComparison):
             upload_archive_key=original_archive_key(
                 dataset.id, self.file_path, self._archive_name()
             ),
+        )
+
+    def _geometry_fields(self) -> dict:
+        return {} if self.geometry_build is None else self.geometry_build.fields()
+
+    def _record_unchanged_selection(self, dataset) -> None:
+        """Record on the binding the selection unchanged data was rebuilt with.
+
+        A dataset imported before bindings recorded one gains it here, so a
+        later replacement need not find its import job.
+        """
+        ref = dataset.origin_ref or {}
+        if (
+            self.geometry_build is None
+            or geometry_selection(ref) == self.geometry_build
+        ):
+            return
+        fields = {key: value for key, value in ref.items() if key != "kind"}
+        restamp(
+            dataset,
+            SourceBinding.from_ref(
+                dataset.source_format, {**fields, **self._geometry_fields()}
+            ),
+            contacted_at=dataset.last_checked_at,
+            refreshed_at=KEEP,
         )
 
     async def _apply_manifest(self, session, dataset) -> None:
@@ -915,6 +960,14 @@ class _FileReupload(_LiveComparison):
             return Failure(
                 "missing_crs_reupload",
                 reason=FixedReason(str(exc), code="missing_crs_reupload"),
+            )
+        if isinstance(exc, GeometryColumnsMissingError):
+            # The column names come from the file, so they are redacted too.
+            return Failure(
+                "geometry_columns_missing",
+                reason=FixedReason(
+                    redact_failure_reason(str(exc)), code="geometry_columns_missing"
+                ),
             )
         return Failure(_file_refresh_error_code(exc))
 

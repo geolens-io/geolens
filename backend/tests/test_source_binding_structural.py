@@ -1236,7 +1236,7 @@ def test_same_named_methods_in_two_classes_are_separate_sites() -> None:
 def test_a_second_mention_in_an_allowlisted_method_fails() -> None:
     rel = "app/processing/ingest/tasks_reupload.py"
     source = (BACKEND_ROOT / rel).read_text(encoding="utf-8")
-    anchor = "                **self.geometry_columns,\n            },\n"
+    anchor = "                **self._geometry_fields(),\n            },\n"
     assert source.count(anchor) == 1
     extra = source.replace(anchor, anchor + "            origin_uri=None,\n")
     assert site_problems(rel, source, NAME_ALLOWLIST) == []

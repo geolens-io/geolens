@@ -69,6 +69,7 @@ async def test_restore_uses_the_kept_versions_source_names(
         source_format="geojson",
         file_hash=None,
         original_srid=4326,
+        geometry_columns=None,
     )
     dataset = SimpleNamespace(
         id=uuid.uuid4(),

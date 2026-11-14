@@ -33,6 +33,7 @@ from app.processing.ingest.previous_version import (
     record_live_version,
     stamp_kept_versions,
 )
+from app.platform.source_geometry_columns import selection_fields
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     _current_tenant_schema,
@@ -67,6 +68,7 @@ def _reinstate_source(dataset, source) -> None:
             source.source_format,
             filename=source.source_filename,
             file_hash=source.file_hash,
+            geometry_fields=selection_fields(source.geometry_columns),
         )
         if kind == "upload"
         else SourceBinding.created()
@@ -201,6 +203,7 @@ class _RestorePreviousVersion:
             geometry_type=self.measurement.geometry_type,
             original_srid=None if source is None else source.original_srid,
             column_info=dataset.column_info,
+            geometry_columns=None if source is None else source.geometry_columns,
             is_3d=self.measurement.three_d.get("is_3d"),
             n_dims=self.measurement.three_d.get("n_dims"),
             restored_from_version=restored,
