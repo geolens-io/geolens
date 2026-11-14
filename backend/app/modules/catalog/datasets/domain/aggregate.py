@@ -14,7 +14,6 @@ import functools
 import hashlib
 import json
 import math
-import sys
 from decimal import Decimal
 from collections.abc import Sequence
 from typing import Any, NamedTuple
@@ -318,13 +317,24 @@ def build_aggregate_sql(
             " WHERE x > '-Infinity'::float8 AND x < 'Infinity'::float8),"
         )
         # Edges are decimal (numeric) so a bin's edges are exactly the numbers
-        # the reader sees. s1 is the 1-2-5 step nearest above (hi - lo) / bins;
-        # one bump to the next step in the series keeps the bin count in range.
+        # the reader sees; values enter as their shortest round-trip text, so
+        # no digit is dropped. s1 is the 1-2-5 step nearest above
+        # (hi - lo) / bins; one bump to the next step keeps the bin count in
+        # range. A row goes to the bin whose returned (double) edges hold it,
+        # the comparison a pick's filter makes; the numeric estimate is only
+        # the start of that search. Edges stay inside the column type's range.
+        limit = (
+            "3.4028234663852886e38" if data_type == "real" else "1.7976931348623157e308"
+        )
+
+        def edge(i: str) -> str:
+            return f"least(greatest(_t.start + ({i}) * _t.st, -_t.lim), _t.lim)::float8"
+
         return (
             f"{head} _r AS (SELECT min(x) AS flo, max(x) AS fhi FROM _f),"
-            " _p AS (SELECT flo::numeric AS lo, fhi::numeric AS hi,"
-            f" (fhi::numeric - flo::numeric) / {bins} AS raw FROM _r"
-            " WHERE fhi::numeric > flo::numeric),"
+            " _p AS (SELECT flo::text::numeric AS lo, fhi::text::numeric AS hi,"
+            f" (fhi::text::numeric - flo::text::numeric) / {bins} AS raw FROM _r"
+            " WHERE fhi::text::numeric > flo::text::numeric),"
             " _m AS (SELECT lo, hi, raw, power(10::numeric, floor(log(raw))) AS mag"
             " FROM _p),"
             " _k AS (SELECT lo, hi, mag, CASE WHEN raw <= mag THEN 1"
@@ -335,13 +345,21 @@ def build_aggregate_sql(
             f"{bins} THEN s1 * CASE k WHEN 2 THEN 2.5 ELSE 2 END ELSE s1 END AS st"
             " FROM _s1),"
             " _e AS (SELECT lo, hi, st, floor(lo / st) * st AS start,"
-            " ceil(hi / st) - floor(lo / st) AS nb FROM _s)"
-            " SELECT _r.flo AS _lo, _r.fhi AS _hi,"
-            " CASE WHEN _e.st IS NULL THEN 1 ELSE least(floor((_f.x::numeric"
-            " - _e.start) / _e.st), _e.nb - 1)::int END AS _b,"
-            " count(*) AS _n, _e.start AS _start, _e.st AS _step, _e.nb AS _nb"
-            " FROM _f CROSS JOIN _r LEFT JOIN _e ON true"
-            " GROUP BY 1, 2, 3, 5, 6, 7 ORDER BY 3"
+            f" ceil(hi / st) - floor(lo / st) AS nb, '{limit}'::numeric AS lim"
+            " FROM _s),"
+            " _t AS (SELECT _f.x, _r.flo, _r.fhi, _e.start, _e.st, _e.nb, _e.lim,"
+            " least(greatest(floor((_f.x::text::numeric - _e.start) / _e.st), 0),"
+            " _e.nb - 1) AS b0"
+            " FROM _f CROSS JOIN _r LEFT JOIN _e ON true)"
+            ""
+            " SELECT _t.flo AS _lo, _t.fhi AS _hi,"
+            " CASE WHEN _t.st IS NULL THEN 1 ELSE greatest(0, least(_t.nb - 1,"
+            f" _t.b0 + CASE WHEN _t.x < {edge('_t.b0')} THEN -1"
+            f" WHEN _t.b0 < _t.nb - 1 AND _t.x >= {edge('_t.b0 + 1')} THEN 1"
+            " ELSE 0 END))::int END AS _b,"
+            " count(*) AS _n, _t.start AS _start, _t.st AS _step, _t.nb AS _nb,"
+            " _t.lim AS _lim"
+            " FROM _t GROUP BY 1, 2, 3, 5, 6, 7, 8 ORDER BY 3"
         )
     if request.op == "rows":
         return _rows_sql(request, source, predicates, columns, geometry=geometry)
@@ -465,6 +483,7 @@ def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
         )
     start, step = Decimal(str(rows[0][4])), Decimal(str(rows[0][5]))
     count = int(rows[0][6])
+    limit = Decimal(str(rows[0][7]))
     counts: dict[int, int] = {}
     for row in rows:
         counts[int(row[2])] = counts.get(int(row[2]), 0) + int(row[3])
@@ -473,8 +492,8 @@ def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
         return HistogramResult(
             bins=[
                 HistogramBin(
-                    lower=_edge(start),
-                    upper=_edge(start + count * step),
+                    lower=_edge(start, limit),
+                    upper=_edge(start + count * step, limit),
                     count=sum(counts.values()),
                 )
             ]
@@ -482,8 +501,8 @@ def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
     return HistogramResult(
         bins=[
             HistogramBin(
-                lower=_edge(start + i * step),
-                upper=_edge(start + (i + 1) * step),
+                lower=_edge(start + i * step, limit),
+                upper=_edge(start + (i + 1) * step, limit),
                 count=counts.get(i, 0),
             )
             for i in range(count)
@@ -513,9 +532,9 @@ def _float_fallback_histogram(
     )
 
 
-def _edge(value: Decimal) -> float:
-    """A decimal edge as the nearest finite double."""
-    return max(-sys.float_info.max, min(sys.float_info.max, float(value)))
+def _edge(value: Decimal, limit: Decimal) -> float:
+    """A decimal edge as the nearest double, held within ``limit`` either way."""
+    return float(max(-limit, min(limit, value)))
 
 
 def _exact(value: Any) -> Any:

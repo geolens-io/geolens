@@ -2,6 +2,7 @@
 
 import asyncio
 import contextlib
+import math
 import sys
 import uuid
 from pathlib import Path
@@ -403,6 +404,70 @@ class TestOperations:
         assert sum(b["count"] for b in bins) == 8
         assert [b["count"] for b in bins] == [1, 1, 1, 0, 1, 0, 1, 1, 1, 1]
 
+    @pytest.mark.parametrize("column_type", ["double precision", "real", "numeric"])
+    @pytest.mark.parametrize("sign", [1, -1])
+    @pytest.mark.parametrize("outer", [False, True])
+    async def test_each_bin_count_matches_a_filter_on_its_returned_edges(
+        self, client: AsyncClient, test_db_session, points, column_type, sign, outer
+    ):
+        """Values beside every edge land where a range filter on the edges puts them."""
+        import struct
+
+        def near(value, up):
+            if column_type != "real":
+                return math.nextafter(value, math.inf if up else -math.inf)
+            bits = struct.unpack("<i", struct.pack("<f", value))[0]
+            bits += 1 if (value >= 0) == up else -1
+            return struct.unpack("<f", struct.pack("<i", bits))[0]
+
+        if outer:
+            scores = [near(1.0, False), 1.5, near(2.0, True), 1.2, 1.3, 1.7, 1.8, 1.9]
+        else:
+            scores = [0.0, near(0.5, False), 0.5, near(0.5, True), 1.0, 0.25, 0.75, 0.1]
+        scores = [sign * v for v in scores]
+        table = f"data.{points.table_name}"
+        await test_db_session.execute(
+            text(f"ALTER TABLE {table} ALTER COLUMN score TYPE {column_type}")  # noqa: S608
+        )
+        await test_db_session.commit()
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 2)
+
+        values = [float(v) for v in scores]
+        for i, b in enumerate(bins):
+            upper_ok = (
+                (lambda v: v <= b["upper"])
+                if i == len(bins) - 1
+                else (lambda v: v < b["upper"])
+            )
+            held = [v for v in values if v >= b["lower"] and upper_ok(v)]
+            assert b["count"] == len(held), (i, bins)
+        assert min(values) >= bins[0]["lower"]
+        assert max(values) <= bins[-1]["upper"]
+        assert sum(b["count"] for b in bins) == 8
+
+    async def test_a_real_histogram_near_the_float4_limit_keeps_finite_edges(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        table = f"data.{points.table_name}"
+        await test_db_session.execute(
+            text(f"ALTER TABLE {table} ALTER COLUMN score TYPE real")  # noqa: S608
+        )
+        await test_db_session.commit()
+
+        bins = await self._score_histogram(
+            client,
+            test_db_session,
+            points,
+            [1e38, 3.4e38, -1e38, -3.4e38, 0.0, 2e38, -2e38, 3e38],
+            4,
+        )
+
+        assert all(abs(b["lower"]) <= 3.4028234663852886e38 for b in bins)
+        assert all(abs(b["upper"]) <= 3.4028234663852886e38 for b in bins)
+        assert bins[-1]["upper"] >= 3.4e38
+        assert sum(b["count"] for b in bins) == 8
+
     async def test_a_value_on_the_last_edge_is_counted_once(
         self, client: AsyncClient, test_db_session, points
     ):
@@ -551,7 +616,10 @@ class TestOperations:
             {"key": "keep", "value": 0.30000000000000004}
         ]
         bins = histogram.json()["result"]["bins"]
-        assert bins == [{"lower": 0.3, "upper": 0.30000000000000004, "count": 2}]
+        assert bins == [
+            {"lower": 0.3, "upper": 0.30000000000000004, "count": 1},
+            {"lower": 0.30000000000000004, "upper": 0.30000000000000004, "count": 1},
+        ]
         values = {v["value"] for v in counted.json()["result"]["values"]}
         assert values == {0.3, 0.30000000000000004}
         keys = {g["key"] for g in keyed.json()["result"]["groups"]}
