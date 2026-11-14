@@ -34,6 +34,7 @@ from .arcgis_migrate_files import (
     _layer_name,
     _limit,
     _megabytes,
+    _NoFile,
     _Skipped,
 )
 from .arcgis_migrate_layers import (
@@ -44,9 +45,9 @@ from .arcgis_migrate_layers import (
     _redacted,
     _send,
     _title,
-    _titles,
     attachment_flags,
     importable_layers,
+    recorded_titles,
     relationship_records,
 )
 from .arcgis_migrate_session import (
@@ -495,8 +496,14 @@ def refresh_layers(
     }
     ctx.save()
     wanted, _notes, left_behind = importable_layers(probe)
-    refused = (entry.import_pass or {}).get("refused") or {}
-    entry.left_behind = [*_redacted(ctx, left_behind), *refused.values()]
+    # A refused layer the portal no longer lists is no longer a loss.
+    listed = {_layer_key(layer) for layer in probe.layers}
+    refused = {k: r for k, r in entry.refused_layers.items() if k in listed}
+    entry.refused_layers = refused
+    entry.left_behind = [
+        *_redacted(ctx, left_behind),
+        *(r["reason"] for r in refused.values()),
+    ]
     added = [
         f"layer {_layer_label(layer)} was added to the service in the portal and "
         "isn't migrated"
@@ -617,6 +624,12 @@ def refresh_file(
             _download(ctx, item["id"], path, limit)
         except _Skipped as skipped:
             return [f"not replaced: {skipped}"]
+        except _NoFile:
+            return [
+                "not replaced: the portal says the item has no file now, as for "
+                "an item added by URL; its dataset keeps the data it has. Upload "
+                "a file to the item, or set its action to export_only"
+            ]
         except ItemFailed as exc:
             return [str(exc)]
         layers_seen: set[str] = set()
@@ -744,8 +757,10 @@ def _dataset_titles(item: Mapping[str, Any], entry: ItemState) -> dict[str, str]
     recorded = (entry.import_pass or {}).get("layers") or {}
     if not recorded or set(recorded) != set(entry.layer_datasets):
         return {}
-    titles = _titles(base, [(r["label"], r["layer_id"]) for r in recorded.values()])
-    return {entry.layer_datasets[key]: t for key, t in zip(recorded, titles)}
+    return {
+        entry.layer_datasets[key]: title
+        for key, title in recorded_titles(base, entry).items()
+    }
 
 
 def _apply_visibility(

@@ -825,7 +825,7 @@ def _unimported(
     skipped or external source is reported, never retried."""
     return sorted(
         layer_id
-        for layer_id, _, _, source_id, source in _sourced_layers(ctx, webmap)
+        for layer_id, layer, _, source_id, source in _sourced_layers(ctx, webmap)
         if layer_id not in matches
         and source_id in ctx.importable
         and (
@@ -833,7 +833,23 @@ def _unimported(
             or source.status not in FINISHED
             or source.exported_not_imported()
         )
+        and not (source is not None and _refused(layer, source))
     )
+
+
+def _refused(layer: Mapping[str, Any], source: ItemState) -> bool:
+    """Whether GeoLens refused *layer*'s service layer for good, so no rerun
+    imports it: its index is refused, or the layer names none and every layer
+    of the item was refused."""
+    url = layer.get("url")
+    try:
+        path = urlsplit(url).path if isinstance(url, str) else ""
+    except ValueError:
+        return False
+    sub = _TRAILING_LAYER.search(path)
+    if sub:
+        return sub.group(1) in source.refused_layers
+    return bool(source.refused_layers) and not source.layer_datasets
 
 
 def _owed_layers(

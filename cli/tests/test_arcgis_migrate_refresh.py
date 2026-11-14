@@ -19,7 +19,7 @@ from geolens_cli.main import app
 
 from . import test_arcgis_migrate_files as files
 from . import test_arcgis_migrate_layers as layers
-from .arcgis_fake import A1, A2, D3, item_data_path
+from .arcgis_fake import A1, A2, D3, NO_FILE_PAGE, item_data_path
 from .test_arcgis_migrate_layers import (
     FakeImport,
     _layer,
@@ -2363,3 +2363,74 @@ def test_a_rerun_keeps_a_layer_geolens_refused_for_good_out_of_the_new_layers(
     assert payload["refreshed"] == [A2] and payload["not_up_to_date"] == {}
     entry = _state(plan_file)["items"][A2]
     assert entry["stale"] == [] and entry["left_behind"] == [layers.MULTIPATCH_NOTE]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        NO_FILE_PAGE,
+        (200, {"error": {"code": 500, "message": "Item does not have a file."}}),
+    ],
+    ids=["html_500", "json_200"],
+)
+def test_a_data_file_the_portal_says_is_gone_keeps_its_dataset_and_later_items_refresh(
+    runner, tmp_path, geolens, portal, answer
+):
+    files.FakeFiles(geolens)
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    plan_file = files._plan(tmp_path)
+    plan = json.loads(plan_file.read_text())
+    plan["items"].sort(key=lambda item: item["id"] != D3)
+    plan_file.write_text(json.dumps(plan))
+    for item in (D3, A2):
+        assert _migrate(runner, plan_file, "--only", item)[0].exit_code == 0
+    datasets = _state(plan_file)["items"][D3]["dataset_ids"]
+    FakeRefresh(geolens, service).allow(PARCELS)
+    portal.routes[item_data_path(D3)] = answer
+
+    result, payload = _migrate(runner, plan_file, "--only", D3, "--only", A2)
+
+    assert payload is not None, result.output
+    assert payload["refreshed"] == [D3, A2]
+    [reason] = payload["not_up_to_date"][D3]
+    assert reason.startswith("not replaced: the portal says the item has no file now")
+    assert A2 not in payload["not_up_to_date"]
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "done" and entry["dataset_ids"] == datasets
+    assert entry["stale"] == [reason]
+
+
+def test_a_refused_layer_the_portal_no_longer_lists_is_no_longer_a_loss(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
+    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    FakeRefresh(geolens, service).allow(PARCELS)
+    service.layers = [_layer(0, "Parcels")]
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert payload["refreshed"] == [A2]
+    entry = _state(plan_file)["items"][A2]
+    assert entry["left_behind"] == [] and entry["refused_layers"] == {}
+
+
+@pytest.mark.parametrize("rerun", ["refresh", "resume"])
+def test_a_rerun_keeps_the_title_a_layer_got_beside_a_refused_one(
+    runner, plan_file, geolens, rerun
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
+    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    title = "Parcels (public view) - Parcels"
+    assert service.fields[PARCELS]["title"] == title
+    FakeRefresh(geolens, service).allow(PARCELS)
+    if rerun == "resume":
+        _edit_state(plan_file, A2, status="failed", error="interrupted", last_update={})
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[PARCELS]["title"] == title

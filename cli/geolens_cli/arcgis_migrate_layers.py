@@ -539,14 +539,22 @@ def _resume_import(
     visibility = item["target"]["visibility"]
     if not recorded:
         return ItemResult(notes=[*entry.import_pass["notes"], _NO_LAYER_NOTE])
-    titles = _titles(
-        base, [(rec["label"], rec["layer_id"]) for rec in recorded.values()]
-    )
-    for (key, _rec), title in zip(recorded.items(), titles):
+    for key, title in recorded_titles(base, entry).items():
         _apply_target(
             ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
         )
     return ItemResult(notes=entry.import_pass["notes"])
+
+
+def recorded_titles(base: str, entry: ItemState) -> dict[str, str]:
+    """Layer key -> dataset title for each layer of the recorded import pass,
+    named beside the refused layers as the import that made them named them."""
+    recorded = (entry.import_pass or {}).get("layers") or {}
+    named = {**recorded}
+    for key, refused in entry.refused_layers.items():
+        named.setdefault(key, refused)
+    titles = _titles(base, [(r["label"], r["layer_id"]) for r in named.values()])
+    return {key: title for key, title in zip(named, titles) if key in recorded}
 
 
 def import_layers(
@@ -597,6 +605,7 @@ def import_layers(
     # A fresh pass replaces anything a previous one recorded, so a pass that
     # stops part way leaves nothing to resume from.
     entry.import_pass = None
+    entry.refused_layers = {}
     if entry.service_url not in (None, row["url"]):
         # Only once the new service answered: a typo'd URL must not drop the
         # pins of the service the item still belongs to. A layer id from the
@@ -628,11 +637,16 @@ def import_layers(
                 ctx, row, probe, layer, title, item["target"]["visibility"], entry
             )
         except _LayerRefused as exc:
-            refused[_layer_key(layer)] = ctx.redact(str(exc))
+            refused[_layer_key(layer)] = {
+                "label": _layer_label(layer),
+                "layer_id": _layer_id(layer),
+                "reason": ctx.redact(str(exc)),
+            }
             continue
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
         ctx.save()
-    reasons = list(refused.values())
+    entry.refused_layers = refused
+    reasons = [r["reason"] for r in refused.values()]
     entry.left_behind.extend(reasons)
     imported = [layer for layer in wanted if _layer_key(layer) not in refused]
     if not imported:
@@ -647,7 +661,6 @@ def import_layers(
             }
             for layer in imported
         },
-        **({"refused": refused} if refused else {}),
     }
     status = EXISTS if found == len(imported) and not refused else DONE
     return ItemResult(status=status, notes=[*notes, *reasons])

@@ -217,6 +217,10 @@ class ItemState:
     # gives the recorded datasets the plan's current title and visibility
     # without probing the service again.
     import_pass: dict[str, Any] | None = None
+    # Layer key -> label, layer id and reason of each layer GeoLens refused
+    # for good in the last import pass, which titles, web maps and cutover
+    # still account for.
+    refused_layers: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Dataset -> the visibility this command last gave it, so a rerun can
     # tell a portal sharing change from an edit made in GeoLens.
     visibility: dict[str, str] = field(default_factory=dict)
