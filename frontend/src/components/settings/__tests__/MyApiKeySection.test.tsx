@@ -242,6 +242,37 @@ describe('#875: API key scope', () => {
     });
   });
 
+  it('submits the map_author scope and says what it allows', async () => {
+    const user = userEvent.setup();
+    render(<MyApiKeySection />);
+
+    await user.click(screen.getByRole('button', { name: 'admin:apiKeys.createKey' }));
+    await user.type(screen.getByLabelText('admin:apiKeys.keyName'), 'Map agent');
+    await user.click(screen.getByRole('combobox', { name: 'apiKeys.scope' }));
+    await user.click(await screen.findByRole('option', { name: 'apiKeys.scopeMapAuthor' }));
+
+    expect(screen.getByRole('combobox', { name: 'apiKeys.scope' })).toHaveAccessibleDescription(
+      'apiKeys.scopeMapAuthorDescription',
+    );
+    await user.click(screen.getByRole('button', { name: 'create' }));
+    expect(defaultCreateMutation.mutateAsync).toHaveBeenCalledWith({
+      name: 'Map agent',
+      scope: 'map_author',
+      expiresAt: null,
+    });
+  });
+
+  it('badges a map_author key in the list', () => {
+    vi.mocked(useMyApiKeys).mockReturnValue({
+      data: [makeKey({ scope: 'map_author' })],
+      isLoading: false,
+    } as unknown as ReturnType<typeof useMyApiKeys>);
+
+    render(<MyApiKeySection />);
+
+    expect(screen.getByText('admin:apiKeys.scopeMapAuthor')).toBeInTheDocument();
+  });
+
   it('badges a publish key in the list', () => {
     vi.mocked(useMyApiKeys).mockReturnValue({
       data: [makeKey({ scope: 'publish' })],

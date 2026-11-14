@@ -184,6 +184,10 @@ Revoke them too before you start an older image against the newer schema with
 `GEOLENS_API_RUN_MIGRATIONS=false`: an older image doesn't know the Publish
 scope and treats those keys as full-access keys.
 
+The downgrade of `0104_map_author_api_keys` stops the same way while any active
+API key has the Map author scope, and drops the record of which key created
+each map. An older image refuses Map author keys on every request.
+
 The downgrade of `0088_dataset_kept_versions` stops while any dataset keeps more
 than one previous version. The downgrade of the `restricted` map visibility
 migration turns restricted maps private, and the downgrade of

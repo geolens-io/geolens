@@ -6746,11 +6746,11 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route.
+             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers' style and popups on the maps it created.
              * @default full
              * @enum {string}
              */
-            scope: "full" | "read_only" | "publish";
+            scope: "full" | "read_only" | "publish" | "map_author";
         };
         /** AdminApiKeyListItem */
         AdminApiKeyListItem: {
@@ -6788,7 +6788,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
              */
             scope: string;
             /**
@@ -7269,11 +7269,11 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route.
+             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers' style and popups on the maps it created.
              * @default full
              * @enum {string}
              */
-            scope: "full" | "read_only" | "publish";
+            scope: "full" | "read_only" | "publish" | "map_author";
         };
         /** ApiKeyCreateResponse */
         ApiKeyCreateResponse: {
@@ -7301,7 +7301,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**
@@ -7338,7 +7338,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**
@@ -9779,7 +9779,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**
