@@ -29,6 +29,7 @@ from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.core.config import settings
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
+from app.core.statement_timeout import bound_anonymous_reads, bound_every_read
 from app.modules.auth.dependencies import (
     get_optional_user,
     get_optional_user_no_security_schema,
@@ -91,7 +92,9 @@ from app.standards.stac.serializer import (
 )
 from app.platform.storage import get_storage
 
-stac_router = APIRouter(prefix="/stac", tags=["STAC"])
+stac_router = APIRouter(
+    prefix="/stac", tags=["STAC"], dependencies=[Depends(bound_anonymous_reads)]
+)
 
 
 class GeoJSONResponse(JSONResponse):
@@ -693,7 +696,9 @@ async def _build_landing_page(
     )
 
 
-@stac_router.get("/api", include_in_schema=False)
+@stac_router.get(
+    "/api", include_in_schema=False, dependencies=[Depends(bound_every_read)]
+)
 async def service_desc(request: Request) -> Response:
     """The OpenAPI document, served with the media type the landing page's
     service-desc link advertises (the shared /openapi.json route always
@@ -708,6 +713,7 @@ async def service_desc(request: Request) -> Response:
     "/conformance",
     response_model=StacConformance,
     summary="Get the STAC conformance classes",
+    dependencies=[Depends(bound_every_read)],
 )
 async def conformance() -> StacConformance:
     """STAC API conformance classes."""

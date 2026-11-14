@@ -17,6 +17,7 @@ import { ApiError } from '@/api/client';
 import { useTranslation } from 'react-i18next';
 import { LoadingState } from '@/components/layout/LoadingState';
 import { SiteBanner } from '@/components/layout/SiteBanner';
+import { NewVersionBanner } from '@/components/layout/NewVersionBanner';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { MapErrorBoundary } from '@/components/error';
 import { Button } from '@/components/ui/button';
@@ -100,6 +101,7 @@ function PublicViewer() {
     return (
       <div className="flex h-dvh flex-col">
         {!isEmbed && <SiteBanner />}
+        {!isEmbed && <NewVersionBanner />}
         <main className="flex min-h-0 w-full flex-1 items-center justify-center bg-muted">
           <LoadingState message={t('viewer.loading')} />
         </main>
@@ -114,6 +116,7 @@ function PublicViewer() {
       // would overflow the viewport by the banner's height.
       <div className="flex h-dvh flex-col">
       {!isEmbed && <SiteBanner />}
+      {!isEmbed && <NewVersionBanner />}
       <main className="app-surface-gradient flex min-h-0 flex-1 overflow-y-auto px-6">
         {/* m-auto, not items-center on the parent, so a card taller than the
             viewport scrolls instead of clipping its top */}
@@ -186,6 +189,7 @@ function PublicViewer() {
     // pushing it below the fold; embeds never show the host banner.
     <div className="relative flex h-dvh flex-col">
       {!isEmbed && <SiteBanner />}
+      {!isEmbed && <NewVersionBanner />}
       <ViewerWithDashboard
         config={data.dashboard_config}
         readerTheme={data.reader_theme}
