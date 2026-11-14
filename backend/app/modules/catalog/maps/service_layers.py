@@ -115,10 +115,7 @@ async def lock_map_layers(session: AsyncSession, map_id: uuid.UUID) -> None:
     await bounded_row_lock(
         session,
         select(Map.id).where(Map.id == map_id).with_for_update(key_share=True),
-        conflict=lambda: HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Another change to this map is in progress. Retry shortly.",
-        ),
+        message="Another change to this map is in progress. Retry shortly.",
         lock_timeout=_LAYER_LOCK_TIMEOUT,
     )
     await recheck_map_ownership(session, map_id)

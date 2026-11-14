@@ -51,7 +51,6 @@ from app.processing.ingest.layer_guard import (
     validate_commit_layer_name,
 )
 from app.processing.ingest.ogr import (
-    IngestBudgetExceededError,
     IngestionError,
     detect_geometry_columns,
     run_ogrinfo_preview,
@@ -171,6 +170,7 @@ from app.platform.upload_filenames import (
     safe_upload_basename,
 )
 from app.platform.storage.titiler_url import resolve_current_storage_key
+from app.platform.vector_preview import preview_vector_file
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
     ERROR_RESPONSES_WRITE,
@@ -868,36 +868,15 @@ async def preview_file(
     if um.get("file_type") == "raster":
         return await _preview_raster(job, file_path, downloaded_preview_path)
 
-    try:
-        info = await run_ogrinfo_preview(file_path, layer_name=layer_name)
-    except IngestBudgetExceededError as exc:
-        # The ceiling message is server-authored and actionable —
-        # falling through to the generic handler would call an oversized
-        # file "malformed or unsupported" when it's merely too large.
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=refusal_detail(exc),
-        )
-    except UnsafeUploadError as exc:
-        # A server-authored refusal naming what was blocked and what to upload
-        # instead: a presigned upload's first whole-file check, since the
-        # presign door only sees a header probe.
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=refusal_detail(exc),
-        )
-    except Exception as exc:  # broad: GDAL subprocess can raise various errors on unsupported/malformed files
-        logger.exception("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "preview_failed",
-                "message": "Unable to preview file. The file may be malformed or unsupported.",
-            },
-        )
-    finally:
-        if downloaded_preview_path is not None:
-            downloaded_preview_path.unlink(missing_ok=True)
+    # A presigned upload meets its first whole-file content check here, since
+    # the presign door only sees a header probe.
+    info = await preview_vector_file(
+        run_ogrinfo_preview,
+        file_path,
+        layer_name,
+        job_id=job_id,
+        downloaded=downloaded_preview_path,
+    )
 
     # Persist all_layers into job.user_metadata so the fan-out
     # endpoint's layer-name validation has a non-empty set — otherwise

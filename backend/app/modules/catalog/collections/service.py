@@ -143,10 +143,7 @@ async def lock_collection_for_write(
         select(Collection.id)
         .where(Collection.id == collection_id)
         .with_for_update(key_share=True),
-        conflict=lambda: HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Another change to this collection is in progress. Retry shortly.",
-        ),
+        message="Another change to this collection is in progress. Retry shortly.",
     )
 
     async def enforce(user: Identity, row: Any) -> None:

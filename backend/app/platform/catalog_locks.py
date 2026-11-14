@@ -9,7 +9,7 @@ them, and both the catalog and the ingest router reach the VRT admission here.
 from __future__ import annotations
 
 import uuid
-from collections.abc import AsyncIterator, Callable, Sequence
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import Any
@@ -84,7 +84,8 @@ _MARKER_LISTENER_KEY = "catalog_timeout_marker_listener"
 
 
 class CatalogLockConflict(Exception):
-    """Another transaction holds the catalog rows this one needs.
+    """Another transaction holds the catalog rows this one needs, or the
+    story, map, collection or table row a bounded lock waited for.
 
     One handler (``app/api/main.py``) answers 409 for it, wherever the
     acquisition was reached from. A worker lets it propagate and fails its job
@@ -152,15 +153,15 @@ async def bounded_row_lock(
     session: AsyncSession,
     stmt: Executable,
     *,
-    conflict: Callable[[], Exception],
+    message: str,
     lock_timeout: str = REQUEST_LOCK_TIMEOUT,
     reset: bool = True,
 ) -> Result[Any]:
     """Run a locking statement under a transaction-local wait bound.
 
     When the wait expires or deadlocks, the whole transaction is rolled back
-    and the exception ``conflict()`` builds is raised, so each caller keeps its
-    own response. ``SET LOCAL`` ends with the transaction on every path.
+    and ``CatalogLockConflict(message)`` is raised, which a request answers
+    with the keyed 409. ``SET LOCAL`` ends with the transaction on every path.
     ``reset`` also lifts the bound once the lock is held, so later waits in the
     transaction are not cut short; pass False to keep it.
     """
@@ -171,7 +172,7 @@ async def bounded_row_lock(
         if not is_lock_conflict(exc):
             raise
         await session.rollback()
-        raise conflict() from exc
+        raise CatalogLockConflict(message) from exc
     if reset:
         await session.execute(text("RESET lock_timeout"))
     return result

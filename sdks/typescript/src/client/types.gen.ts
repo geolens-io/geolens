@@ -30083,7 +30083,7 @@ export type SetMapGroupsEndpointMapsMapIdGroupsPutErrors = {
      */
     404: ProblemDetail;
     /**
-     * Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`); branch on `detail.code`.
+     * Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (`detail.code` `catalog_lock_conflict`); branch on `detail.code`.
      */
     409: ProblemDetail;
     /**

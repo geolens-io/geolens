@@ -489,8 +489,8 @@ class IngestBudgetExceededError(IngestionError, IngestCeilingError):
     too large leaves them with nothing to act on. Raised from the parquet
     path.
 
-    Also an ``IngestCeilingError``, the core marker the re-upload preview
-    catches, since that door may not import this module at all.
+    Also an ``IngestCeilingError``, the core marker ``preview_vector_file``
+    catches, since the re-upload door may not import this module at all.
     """
 
 
