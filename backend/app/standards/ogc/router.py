@@ -978,10 +978,11 @@ async def get_collection_items(
                 status_code=status.HTTP_304_NOT_MODIFIED, headers=validators
             )
 
-    # One snapshot for the page's ids, its count and every batch streamed from
-    # it, so a concurrent write can neither shorten the page nor slip a row past
-    # its filters. The deadline, tenant and role settings reapply at begin.
-    await db.commit()
+    # One snapshot for the page's ids, count and batches, so a concurrent write
+    # can't shorten the page or break its filters. Begin reapplies the deadline,
+    # tenant and role; the rollback expires `dataset`, so copies are read below.
+    table_name, feature_count = dataset.table_name, dataset.feature_count
+    await db.rollback()
     await db.connection(execution_options={"isolation_level": "REPEATABLE READ"})
     try:
         # The page's ids come first, so the links are known before the body is
@@ -989,7 +990,7 @@ async def get_collection_items(
         # not advertise a next link to an empty page.
         page = await get_features(
             db,
-            dataset.table_name,
+            table_name,
             limit=limit,
             offset=offset,
             after_gid=after_gid,
@@ -998,7 +999,7 @@ async def get_collection_items(
             property_filters=property_filters,
             allowed_columns=allowed_columns,
             include_geometry=include_geometry,
-            cached_feature_count=dataset.feature_count,
+            cached_feature_count=feature_count,
             cql2_where=cql2_where,
             cql2_binds=cql2_binds,
             ids_only=True,
@@ -1012,7 +1013,7 @@ async def get_collection_items(
         read_batch = partial(
             read_features_json,
             db,
-            dataset.table_name,
+            table_name,
             has_geometry=has_geometry,
             include_geometry=include_geometry,
         )
@@ -1134,8 +1135,8 @@ async def get_collection_items(
     del members["features"], members["numberReturned"]
 
     # Usage event for the cloud overlay (best-effort; errors logged).
-    if dataset.table_name:
-        await _emit_ogc_usage_event(dataset.table_name)
+    if table_name:
+        await _emit_ogc_usage_event(table_name)
 
     headers = {
         "Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>",
