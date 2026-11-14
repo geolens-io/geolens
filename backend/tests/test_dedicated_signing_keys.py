@@ -28,6 +28,9 @@ BASE_ENV = {
     "jwt_secret_key": JWT,
     "geolens_admin_username": "admin",
     "geolens_admin_password": "adminpass",
+    # A fresh install exports both keys into the API container.
+    "tile_signing_secret": None,
+    "session_secret_key": None,
     "aws_role_arn": None,
     "aws_web_identity_token_file": None,
     "aws_container_credentials_full_uri": None,
