@@ -26,6 +26,7 @@ from app.modules.auth.permissions import get_user_roles
 from app.platform.extensions import get_identity_extension, get_permission_extension
 from app.platform.request_credential import (
     DATASET_KEY_SCOPE_ROUTES,
+    MAP_AUTHOR_KEY_ROUTES,
     ApiKeyCredential,
     api_key_scope_refusal,
     mark_header_api_key_evaluated,
@@ -261,6 +262,16 @@ def _publish_key_may_call(
     )
 
 
+def _map_author_key_may_call(
+    method: str,
+    route_template: str,
+    query_params: Mapping[str, str] | None = None,
+) -> bool:
+    if (method, route_template) in MAP_AUTHOR_KEY_ROUTES:
+        return True
+    return _read_only_key_may_call(method, route_template, query_params)
+
+
 _PUBLISH_REFUSAL = (
     "This API key has the publish scope, which can't delete datasets or maps, "
     "update a map, write features or reach admin and key routes"
@@ -278,6 +289,14 @@ _SCOPE_RULES = {
     "publish": (
         _publish_key_may_call,
         {"code": "api_key_scope", "message": _PUBLISH_REFUSAL},
+    ),
+    "map_author": (
+        _map_author_key_may_call,
+        {
+            "code": "api_key_scope",
+            "message": "This API key has the map_author scope, which can only "
+            "read, create maps and style the maps it created",
+        },
     ),
 }
 _UNRESTRICTED_SCOPES = frozenset({"full", *DATASET_KEY_SCOPE_ROUTES})

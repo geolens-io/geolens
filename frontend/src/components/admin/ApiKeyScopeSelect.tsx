@@ -15,6 +15,12 @@ interface ApiKeyScopeSelectProps {
   disabled?: boolean;
 }
 
+// Literal keys, so the unused-key checks see each one.
+const SCOPE_DESCRIPTION_KEYS: Partial<Record<ApiKeyScope, string>> = {
+  publish: 'apiKeys.scopePublishDescription',
+  map_author: 'apiKeys.scopeMapAuthorDescription',
+};
+
 /**
  * Scope picker for a new API key, shared by the self-service and admin mint
  * forms so both surfaces offer the same choices.
@@ -23,6 +29,7 @@ export function ApiKeyScopeSelect({ value, onChange, disabled }: ApiKeyScopeSele
   const { t } = useTranslation('admin');
   const labelId = useId();
   const descriptionId = useId();
+  const descriptionKey = SCOPE_DESCRIPTION_KEYS[value];
 
   return (
     <div className="flex flex-wrap items-center gap-2">
@@ -37,19 +44,20 @@ export function ApiKeyScopeSelect({ value, onChange, disabled }: ApiKeyScopeSele
         <SelectTrigger
           className="h-8 w-auto min-w-[130px] text-sm"
           aria-labelledby={labelId}
-          aria-describedby={value === 'publish' ? descriptionId : undefined}
+          aria-describedby={descriptionKey ? descriptionId : undefined}
         >
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="full">{t('apiKeys.scopeFull')}</SelectItem>
           <SelectItem value="publish">{t('apiKeys.scopePublish')}</SelectItem>
+          <SelectItem value="map_author">{t('apiKeys.scopeMapAuthor')}</SelectItem>
           <SelectItem value="read_only">{t('apiKeys.scopeReadOnly')}</SelectItem>
         </SelectContent>
       </Select>
-      {value === 'publish' && (
+      {descriptionKey && (
         <p id={descriptionId} className="basis-full text-xs text-muted-foreground">
-          {t('apiKeys.scopePublishDescription')}
+          {t(descriptionKey)}
         </p>
       )}
     </div>
