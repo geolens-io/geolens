@@ -628,7 +628,8 @@ def refresh_file(
             return [
                 "not replaced: the portal says the item has no file now, as for "
                 "an item added by URL; its dataset keeps the data it has. Upload "
-                "a file to the item, or set its action to export_only"
+                "a file to the item, or set its action to skip to keep the "
+                "dataset as it is and stop checking it"
             ]
         except ItemFailed as exc:
             return [str(exc)]

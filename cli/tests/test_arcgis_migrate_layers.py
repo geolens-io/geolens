@@ -2238,3 +2238,46 @@ def test_other_layers_still_import_beside_a_layer_that_cannot(
     assert entry["dataset_ids"] == [dataset_id("Parcels")]
     assert entry["left_behind"] == [MULTIPATCH_NOTE]
     assert MULTIPATCH_NOTE in entry["notes"]
+
+
+def test_a_refusal_is_kept_when_a_later_layer_fails_the_item(
+    runner, plan_file, geolens
+):
+    from types import SimpleNamespace
+
+    from geolens_cli import arcgis_migrate_webmaps as webmaps
+    from geolens_cli.arcgis_migrate_state import ItemState
+
+    FakeImport(geolens, [_layer(0, "Buildings"), _layer(1, "Parcels")])
+
+    def preview(seen):
+        name = seen.json()["layer_name"]
+        if name == "Buildings":
+            return (422, _problem(422, MULTIPATCH))
+        return (503, _problem(503, "unavailable"))
+
+    geolens.routes[PREVIEW] = preview
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "failed"
+    assert entry["left_behind"] == [MULTIPATCH_NOTE]
+    assert set(entry["refused_layers"]) == {"0"}
+    url = "https://services.example.com/arcgis/rest/services/Land/FeatureServer"
+    webmap = {
+        "operationalLayers": [
+            {
+                "id": f"l{n}",
+                "itemId": A2,
+                "layerType": "ArcGISFeatureLayer",
+                "url": f"{url}/{n}",
+            }
+            for n in (0, 1)
+        ]
+    }
+    ctx = SimpleNamespace(
+        aliases={}, items={A2: ItemState.from_dict(entry)}, importable={A2}
+    )
+    assert webmaps._unimported(ctx, webmap, {}) == ["l1"]

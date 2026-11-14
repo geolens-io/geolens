@@ -624,7 +624,7 @@ def import_layers(
         return ItemResult(notes=[*notes, _NO_LAYER_NOTE])
 
     found = 0
-    refused: dict[str, str] = {}
+    refused = entry.refused_layers
     for layer, title in zip(wanted, titles):
         pinned = entry.layer_datasets.get(_layer_key(layer))
         if pinned:
@@ -637,17 +637,19 @@ def import_layers(
                 ctx, row, probe, layer, title, item["target"]["visibility"], entry
             )
         except _LayerRefused as exc:
+            # On the entry at once, so a later layer's failure keeps it.
+            reason = ctx.redact(str(exc))
             refused[_layer_key(layer)] = {
                 "label": _layer_label(layer),
                 "layer_id": _layer_id(layer),
-                "reason": ctx.redact(str(exc)),
+                "reason": reason,
             }
+            entry.left_behind.append(reason)
+            ctx.save()
             continue
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
         ctx.save()
-    entry.refused_layers = refused
     reasons = [r["reason"] for r in refused.values()]
-    entry.left_behind.extend(reasons)
     imported = [layer for layer in wanted if _layer_key(layer) not in refused]
     if not imported:
         # Left without an import pass, so a rerun previews the layers again.

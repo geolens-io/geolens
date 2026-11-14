@@ -1851,8 +1851,22 @@ def test_a_replanned_export_of_a_finished_import_still_checks_its_file(
     assert payload["refreshed"] == [D3], result.output
     [reason] = payload["not_up_to_date"][D3]
     assert reason.startswith("not replaced: the portal says the item has no file now")
+    assert reason.endswith(
+        "set its action to skip to keep the dataset as it is and stop checking it"
+    )
     entry = _state(plan_file)["items"][D3]
     assert entry["dataset_ids"] == datasets and entry["export"] is None
+
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == D3:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    result, payload = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert payload["refreshed"] == [] and payload["not_up_to_date"] == {}
+    assert _state(plan_file)["items"][D3]["dataset_ids"] == datasets
 
 
 def test_cutover_refuses_while_a_replanned_items_import_is_unfinished(
