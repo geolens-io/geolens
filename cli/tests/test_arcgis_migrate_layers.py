@@ -533,6 +533,51 @@ def test_a_reused_dataset_shared_maps_show_fails_with_how_to_resolve_it(
     )
 
 
+def test_a_reused_dataset_shared_maps_code_survives_a_reworded_message(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    earlier = dataset_id("earlier")
+    service.duplicates["Parcels"] = earlier
+    service.fields[earlier] = {"visibility": "internal"}
+    serve = service._serve_dataset
+
+    def serve_refused(dataset: str) -> None:
+        serve(dataset)
+        geolens.routes[f"PATCH /datasets/{dataset}"] = (
+            422,
+            {
+                "title": "Validation Error",
+                "status": 422,
+                "detail": "This dataset cannot be narrowed right now.",
+                "code": "dataset_in_shared_maps",
+                "action": "restrict_visibility",
+                "shared_maps": [
+                    {
+                        "id": "00000000-0000-0000-0000-0000000000b1",
+                        "name": "Seed web map",
+                    },
+                    {
+                        "id": "00000000-0000-0000-0000-0000000000b2",
+                        "name": "Field map",
+                    },
+                ],
+            },
+        )
+
+    service._serve_dataset = serve_refused
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 1
+    error = _state(plan_file)["items"][A2]["error"]
+    assert error == (
+        f"Parcels (public view): GeoLens won't make dataset {earlier} public while "
+        "shared maps show it: Seed web map, Field map. Unshare those maps, or set "
+        "the item's target.visibility in the plan to internal"
+    )
+
+
 def test_a_target_write_geolens_refuses_as_stale_fails_the_item(
     runner, plan_file, geolens
 ):

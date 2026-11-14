@@ -168,6 +168,32 @@ describe('apiFetch', () => {
     }
   });
 
+  it('hands the whole problem body to the error map for a dataset_in_shared_maps refusal', async () => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        detail: 'This dataset cannot be narrowed right now.',
+        code: 'dataset_in_shared_maps',
+        action: 'restrict_visibility',
+        shared_maps: [
+          { id: '00000000-0000-0000-0000-0000000000b1', name: 'Flood Risk' },
+          { id: '00000000-0000-0000-0000-0000000000b2', name: 'Parcels 2026' },
+        ],
+      }, 422),
+    );
+
+    try {
+      await apiFetch('/test/');
+      expect.fail('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiError);
+      // The localized message names the blocking maps, even though the
+      // sentence itself was reworded.
+      expect((e as ApiError).message).toContain('Flood Risk');
+      expect((e as ApiError).message).toContain('Parcels 2026');
+      expect((e as ApiError).status).toBe(422);
+    }
+  });
+
   it('localizes a FastAPI 422 detail array without exposing raw JSON', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

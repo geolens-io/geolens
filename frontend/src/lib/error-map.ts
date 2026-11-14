@@ -689,6 +689,27 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
       return { key: 'errors.reuploadGeometryLoss' };
     }
 
+    // The dataset narrowing refusal names the blocking maps as id/name
+    // pairs; the names join into the existing locale strings, and the
+    // action picks the unpublish wording from the visibility one.
+    if (value.code === 'dataset_in_shared_maps' && Array.isArray(value.shared_maps)) {
+      const names = value.shared_maps
+        .filter(
+          (map): map is { name: string } =>
+            !!map && typeof map === 'object' && typeof (map as { name?: unknown }).name === 'string',
+        )
+        .map((map) => map.name);
+      if (names.length > 0) {
+        return {
+          key:
+            value.action === 'unpublish'
+              ? 'errors.datasetUnpublishBlockedByMaps'
+              : 'errors.datasetVisibilityBlockedByMaps',
+          values: { maps: names.join(', ') },
+        };
+      }
+    }
+
     if (value.code === 'unsupported_layer_type') {
       return { key: 'errors.serviceLayerNoFeatures' };
     }

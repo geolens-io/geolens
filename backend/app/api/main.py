@@ -815,6 +815,9 @@ from app.platform.catalog_locks import (  # noqa: E402
     CatalogLockConflict,
     catalog_timeout_installed,
 )
+from app.modules.catalog.datasets.domain.helpers import (  # noqa: E402
+    DatasetInSharedMapsError,
+)
 from app.modules.quota.service import (  # noqa: E402
     DatasetQuotaExceededError,
     StorageQuotaExceededError,
@@ -849,6 +852,27 @@ async def _storage_quota_handler(
             title="Storage quota exceeded",
             status=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=str(exc),
+        ).model_dump(),
+        media_type="application/problem+json",
+    )
+
+
+async def _dataset_in_shared_maps_handler(
+    request: Request, exc: DatasetInSharedMapsError
+) -> JSONResponse:
+    # A visibility narrowing refused because the owner's shared maps show the
+    # dataset: 422 with the sentence as detail and the structured fields
+    # beside it, so released clients keep showing the sentence while newer
+    # ones read the code and the blocking maps.
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        content=ProblemDetail(
+            title="Validation Error",
+            status=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail=str(exc),
+            code=exc.code,
+            action=exc.action,
+            shared_maps=exc.shared_maps,
         ).model_dump(),
         media_type="application/problem+json",
     )
@@ -935,6 +959,7 @@ async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResp
 
 app.add_exception_handler(DatasetQuotaExceededError, _dataset_quota_handler)
 app.add_exception_handler(StorageQuotaExceededError, _storage_quota_handler)
+app.add_exception_handler(DatasetInSharedMapsError, _dataset_in_shared_maps_handler)
 app.add_exception_handler(CatalogLockConflict, _catalog_lock_conflict_handler)
 app.add_exception_handler(DBAPIError, _database_error_handler)
 

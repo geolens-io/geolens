@@ -240,7 +240,7 @@ async def test_an_internal_or_public_dataset_keeps_its_audience(
     assert await _version(test_db_session, dataset_id) == before
 
 
-async def _owners_internal_map(session, dataset_id, owner_id: str) -> None:
+async def _owners_internal_map(session, dataset_id, owner_id: str) -> Map:
     team_map = Map(
         name=f"Team map {uuid.uuid4().hex[:6]}",
         visibility="internal",
@@ -250,6 +250,7 @@ async def _owners_internal_map(session, dataset_id, owner_id: str) -> None:
     await session.flush()
     session.add(MapLayer(map_id=team_map.id, dataset_id=dataset_id, sort_order=0))
     await session.commit()
+    return team_map
 
 
 @pytest.mark.parametrize("narrowing", ["unshare", "swap"])
@@ -262,14 +263,22 @@ async def test_narrowing_that_strands_the_owners_shared_map_is_refused(
     assert (
         await _share(client, dataset_id, [owned["mine"]], owned["owner"])
     ).is_success
-    await _owners_internal_map(test_db_session, dataset_id, owned["owner_id"])
+    team_map = await _owners_internal_map(
+        test_db_session, dataset_id, owned["owner_id"]
+    )
     without_member = await _new_group(client, admin_auth_header, [owned["owner_id"]])
     target = [] if narrowing == "unshare" else [without_member]
 
     refused = await _share(client, dataset_id, target, owned["owner"])
 
     assert refused.status_code == 422, refused.text
-    assert "shared maps" in refused.json()["detail"]
+    body = refused.json()
+    assert body["detail"] == (
+        f"Cannot restrict visibility: dataset is used in shared maps: {team_map.name}"
+    )
+    assert body["code"] == "dataset_in_shared_maps"
+    assert body["action"] == "restrict_visibility"
+    assert body["shared_maps"] == [{"id": str(team_map.id), "name": team_map.name}]
     assert await _granted(test_db_session, dataset_id) == {owned["mine"]}
     member_read = await client.get(f"/datasets/{dataset_id}", headers=owned["member"])
     assert member_read.status_code == 200

@@ -162,8 +162,8 @@ async def find_maps_broken_by_dataset_visibility(
     record_id: uuid.UUID,
     owner_id: uuid.UUID | None,
     regrant: Callable[[], Awaitable[object]] | None = None,
-) -> list[str]:
-    """Names of the owner's shared maps that work at ``old_visibility`` and
+) -> list[dict[str, str]]:
+    """Ids and names of the owner's shared maps that work at ``old_visibility`` and
     ``record_status`` and would not at ``new_visibility`` and
     ``new_record_status`` (default: unchanged). A restricted map counts when a
     member of one of its groups would lose the layer.
@@ -182,7 +182,7 @@ async def find_maps_broken_by_dataset_visibility(
     runs it if this didn't.
     """
     stmt = (
-        select(Map.name)
+        select(Map.id, Map.name)
         .select_from(MapLayer)
         .join(Map, MapLayer.map_id == Map.id)
         .where(MapLayer.dataset_id == dataset_id)
@@ -243,7 +243,7 @@ async def find_maps_broken_by_dataset_visibility(
             return []
         stmt = stmt.where(audience_admits(before, owner_id)).where(reached)
     result = await session.execute(stmt)
-    return [row[0] for row in result.all()]
+    return [{"id": str(map_id), "name": name} for map_id, name in result.all()]
 
 
 async def create_share_token(

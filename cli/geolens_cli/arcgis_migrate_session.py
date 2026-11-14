@@ -33,7 +33,9 @@ class GeoLensError(Exception):
     """A GeoLens request answered with an error status.
 
     ``detail`` is the problem body's ``detail``: text, or the object a coded
-    refusal carries.
+    refusal carries. A refusal whose code sits beside ``detail`` on the body
+    (such as ``dataset_in_shared_maps``) is carried as that object, with the
+    sentence as its ``message``.
     """
 
     def __init__(self, message: str, status: int, detail: Any = None) -> None:
@@ -151,6 +153,17 @@ class GeoLens:
             raw = resp.parsed.detail
             detail = raw.to_dict() if hasattr(raw, "to_dict") else raw
             text = detail_text(raw)
+            problem = resp.parsed.to_dict()
+            if problem.get("code") == "dataset_in_shared_maps":
+                # The refusal's structured fields sit beside detail on the
+                # problem body; carry them as the coded object the callers
+                # read, with the sentence as its message.
+                detail = {
+                    "code": problem["code"],
+                    "message": text,
+                    "action": problem.get("action"),
+                    "shared_maps": problem.get("shared_maps") or [],
+                }
         raise GeoLensError(f"HTTP {status}: {text}", status, detail)
 
 

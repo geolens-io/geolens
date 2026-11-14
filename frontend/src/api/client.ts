@@ -426,7 +426,7 @@ async function apiFetchResponse(
   if (!response.ok) {
     let detailRaw: unknown = undefined;
 
-    let body: { detail?: unknown } | undefined;
+    let body: { detail?: unknown; code?: unknown } | undefined;
     try {
       body = await response.json();
     } catch {
@@ -435,6 +435,11 @@ async function apiFetchResponse(
 
     if (body?.detail !== undefined) {
       detailRaw = body.detail;
+    }
+    // A refusal whose code sits beside detail on the problem body (such as
+    // dataset_in_shared_maps) is read from the body itself, not the sentence.
+    if (body?.code === 'dataset_in_shared_maps') {
+      detailRaw = body;
     }
 
     const error = new ApiError(

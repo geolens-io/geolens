@@ -18,6 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.modules.catalog.authorization import check_vrt_audiences_after_change
 from app.modules.catalog.datasets.domain._sql_safety import SAFE_TABLE_NAME_RE
 from app.modules.catalog.datasets.domain.helpers import (
+    DatasetInSharedMapsError,
     DatasetNotFoundError,
     WorkflowTransitionDenied,
 )
@@ -245,10 +246,8 @@ async def refuse_stranding_shared_maps(
     )
     if broken_maps:
         unpublishes = record.record_status == "published" and new_status != "published"
-        action = "unpublish" if unpublishes else "restrict visibility"
-        raise ValueError(
-            f"Cannot {action}: dataset is used in shared maps: {', '.join(broken_maps)}"
-        )
+        action = "unpublish" if unpublishes else "restrict_visibility"
+        raise DatasetInSharedMapsError(action=action, shared_maps=broken_maps)
 
 
 async def _apply_visibility_change(

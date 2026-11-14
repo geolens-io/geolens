@@ -52,6 +52,7 @@ from app.modules.catalog.authorization import (
     visible_vrt_extents,
 )
 from app.modules.catalog.datasets.domain.helpers import (
+    DatasetInSharedMapsError,
     DatasetNotFoundError,
     WorkflowTransitionDenied,
     dataset_to_response,
@@ -461,6 +462,11 @@ async def update_dataset_metadata(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Dataset not found",
         )
+    except DatasetInSharedMapsError:
+        # Answered by the handler in app/api/main.py with the sentence as
+        # detail and code, action and shared_maps beside it; the ValueError
+        # catch below must not flatten it back to the bare sentence.
+        raise
     except ValueError as e:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
