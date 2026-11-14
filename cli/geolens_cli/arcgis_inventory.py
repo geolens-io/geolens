@@ -312,6 +312,16 @@ def _listed_folder(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any] 
     return {"id": redact(folder_id), "title": None}
 
 
+def draft_resource(keywords: Any) -> str | None:
+    """The draft resource an unpublished StoryMap names in its type keywords."""
+    if not isinstance(keywords, list) or "smstatusdraft" not in keywords:
+        return None
+    for keyword in keywords:
+        if isinstance(keyword, str) and keyword.startswith("smdraftresourceid:"):
+            return keyword.partition(":")[2] or None
+    return None
+
+
 def _item_row(item: Mapping[str, Any], redact: Redactor) -> dict[str, Any]:
     size = item.get("size")
     item_type = str(item.get("type") or "")
@@ -961,6 +971,15 @@ def _collect_dependencies(
     def read_data(row: dict[str, Any], out: _DepResult) -> str | None:
         """The status of one item's data read; None when it stopped the run."""
         path = f"content/items/{quote(row['id'], safe='')}/data"
+        draft = (
+            draft_resource(row["type_keywords"]) if row["type"] == "StoryMap" else None
+        )
+        if draft:
+            # An unpublished story has no data of its own; its content is the draft.
+            path = (
+                f"content/items/{quote(row['id'], safe='')}/resources/"
+                f"{quote(draft, safe='')}"
+            )
         is_map = row["type"] in _MAP_CONFIG_TYPES
         non_json = row["type"] in _NON_JSON_TYPES
         lenient = row["id"] in best_effort
