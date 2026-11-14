@@ -121,12 +121,21 @@ class Redactor:
         if not secret:
             return
         known = {form for form, _ in self._forms}
-        new: list[str] = []
+        literal: list[str] = []
+        encoded: list[str] = []
         normal = (unicodedata.normalize(form, secret) for form in ("NFC", "NFD"))
         for text in dict.fromkeys((secret, *normal)):
-            new += [text, quote(text, safe=""), quote(text), quote_plus(text)]
-            new += [json.dumps(text)[1:-1], json.dumps(text, ensure_ascii=False)[1:-1]]
-        added = [(f, _escape_pattern(f)) for f in dict.fromkeys(new) if f not in known]
+            literal += [text, json.dumps(text)[1:-1]]
+            literal += [json.dumps(text, ensure_ascii=False)[1:-1]]
+            encoded += [quote(text, safe=""), quote(text), quote_plus(text)]
+        # Only escapes this class made match in either case: a "%2F" the
+        # secret itself holds is a different string from "%2f".
+        added = [(f, None) for f in dict.fromkeys(literal) if f not in known]
+        added += [
+            (f, _escape_pattern(f))
+            for f in dict.fromkeys(encoded)
+            if f not in known and f not in literal
+        ]
         if not added:
             return
         # Replaced whole, not changed in place: a token renewed mid-run is

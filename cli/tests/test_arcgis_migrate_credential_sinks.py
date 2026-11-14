@@ -918,6 +918,16 @@ def test_every_secret_still_matches_after_many_registrations():
     assert not redact.holds("pw/9999-é-none")
 
 
+def test_a_percent_sequence_the_secret_itself_holds_matches_only_as_given():
+    redact = Redactor()
+    redact.add("pw%2Ftail-" + TOKEN)
+
+    assert redact.holds(f"x pw%2Ftail-{TOKEN} y")
+    assert redact.holds(f"x pw%252Ftail-{TOKEN} y")
+    assert not redact.holds(f"x pw%2ftail-{TOKEN} y")
+    assert redact(f"x pw%2ftail-{TOKEN} y") == f"x pw%2ftail-{TOKEN} y"
+
+
 # Encodings: the bound
 
 
