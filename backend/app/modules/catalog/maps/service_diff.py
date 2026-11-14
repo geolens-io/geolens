@@ -15,7 +15,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.catalog.datasets.domain.models import Dataset, Record
-from app.modules.catalog.maps.dashboard_filters import refuse_layer_filter_past_limits
+from app.modules.catalog.maps import dashboard_filters
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
@@ -240,10 +240,10 @@ async def apply_layer_diff(
             setattr(layer, key, value)
     surviving = [layer for layer in existing_layers if layer.id not in removed_ids]
     # Checking a hidden layer's widgets would name ones this caller can't see.
-    refiltered = [x for x in surviving if x.filter != filters_before[x.id]]
+    refiltered = dashboard_filters.refiltered(surviving, filters_before)
     if refiltered and await _unreadable_layer_ids(session, refiltered, user):
         raise PermissionError("Cannot access one or more layer datasets")
-    await refuse_layer_filter_past_limits(
+    await dashboard_filters.refuse_layer_filter_past_limits(
         session, map_obj.dashboard_config, surviving, filters_before
     )
 

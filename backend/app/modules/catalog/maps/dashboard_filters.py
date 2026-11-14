@@ -154,6 +154,23 @@ async def widget_filter_refusals(
     return refusals
 
 
+def filter_changed(before: Any, after: Any) -> bool:
+    """Whether two stored filters differ as JSON, where ``true`` is not ``1``."""
+    return json.dumps(before, sort_keys=True) != json.dumps(after, sort_keys=True)
+
+
+def refiltered(
+    layers: Sequence[MapLayer], filters_before: Mapping[uuid.UUID, Any]
+) -> list[MapLayer]:
+    """The layers that are new or whose filter differs from ``filters_before``."""
+    return [
+        layer
+        for layer in layers
+        if layer.id not in filters_before
+        or filter_changed(filters_before[layer.id], layer.filter)
+    ]
+
+
 async def refuse_layer_filter_past_limits(
     session: AsyncSession,
     dashboard: Any,
@@ -166,11 +183,7 @@ async def refuse_layer_filter_past_limits(
     that is new or whose ``filter`` differs from ``filters_before``: the layer's
     filter alone, or ANDed with the widget's own. Other layers are left as stored.
     """
-    changed = {
-        layer.id: layer
-        for layer in layers
-        if layer.id not in filters_before or filters_before[layer.id] != layer.filter
-    }
+    changed = {layer.id: layer for layer in refiltered(layers, filters_before)}
     widgets = [
         widget
         for widget in (stored_widgets(dashboard) if changed else [])

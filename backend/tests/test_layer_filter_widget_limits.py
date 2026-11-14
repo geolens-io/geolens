@@ -7,6 +7,8 @@ import pytest
 from httpx import AsyncClient
 from sqlalchemy import text
 
+from app.modules.catalog.maps.dashboard_filters import filter_changed
+
 from tests.test_dataset_aggregate import _dropped
 from tests.test_map_dashboard_config import _map_with_layers, _store, _widget
 from tests.test_map_save_keeps_unreadable_layers import _map_with_hidden_middle_layer
@@ -319,3 +321,12 @@ async def test_a_whole_number_past_the_double_range_is_saved_and_not_counted(
         )
 
         assert resp.status_code == 200, resp.text
+
+
+def test_a_boolean_literal_swapped_for_a_number_counts_as_a_changed_filter():
+    booleans = ["in", ["get", "flag"], ["literal", [True, False]]]
+    numbers = ["in", ["get", "flag"], ["literal", [1, 0]]]
+    assert filter_changed(booleans, numbers)
+    assert not filter_changed(
+        booleans, ["in", ["get", "flag"], ["literal", [True, False]]]
+    )
