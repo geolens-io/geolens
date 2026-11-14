@@ -20,7 +20,7 @@ from uuid import UUID
 
 from ._sdk_helpers import PollDeadlineExceeded, long_request_timeout, poll_until
 from .arcgis_inventory import external_by_url
-from .arcgis_layer_properties import property_notes
+from .arcgis_layer_properties import property_notes, unread_note
 from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
@@ -534,6 +534,12 @@ def _held_notes(ctx: MigrationContext, entry: ItemState, layer: Any) -> list[str
     what this probe states."""
     fresh = _redacted(ctx, property_notes([layer]))
     kept = entry.layer_notes.get(_layer_key(layer), [])
+    unread = _redacted(ctx, [unread_note(layer)])[0]
+    if unread in fresh:
+        # A failed read doesn't undo what an earlier one found.
+        fresh = fresh if not kept else []
+    else:
+        kept = [n for n in kept if n != unread]
     return [n[:MAX_ERROR_CHARS] for n in dict.fromkeys([*kept, *fresh])]
 
 

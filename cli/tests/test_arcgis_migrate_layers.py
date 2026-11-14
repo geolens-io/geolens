@@ -45,6 +45,7 @@ def _layer(layer_id: int, name: str, kind: str = "Feature Layer", **extra: Any) 
         "layer_type": "table" if kind == "Table" else "layer",
         "importable": kind in ("Feature Layer", "Table"),
         "object_id_field": "OBJECTID",
+        "properties_read": True,
         **extra,
     }
 

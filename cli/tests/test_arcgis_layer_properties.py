@@ -10,7 +10,7 @@ import pytest
 from . import test_arcgis_migrate_layers as layers
 from .arcgis_fake import A2
 from .test_arcgis_migrate_layers import FakeImport, _layer, _migrate
-from .test_arcgis_migrate_refresh import _edit_plan
+from .test_arcgis_migrate_refresh import PARCELS, FakeRefresh, _edit_plan
 
 geolens = layers.geolens
 quick = layers.quick
@@ -126,6 +126,7 @@ def test_the_note_reads_properties_an_older_sdk_keeps_as_extra_keys():
         name = "Parcels"
         title = "Parcels"
         additional_properties = {
+            "properties_read": True,
             "time_fields": ["opened"],
             "subtype_field": "kind",
             "has_m": True,
@@ -215,3 +216,71 @@ def test_a_failed_second_layer_does_not_hide_the_first_layers_losses(
         f["kind"] == "layer_properties" and "M values" in f["text"]
         for f in _report(plan_file)["follow_ups"]
     )
+
+
+def _notes(plan_file) -> list[str]:
+    state = json.loads((plan_file.parent / "arcgis-migration-state.json").read_text())
+    return [n for n in state["items"][A2]["notes"] if "could not be read" in n]
+
+
+_UNREAD = (
+    "layer Parcels (layer 0): its time, subtype, M-value and time field settings "
+    "could not be read, so what is not carried over is unknown"
+)
+
+
+@pytest.mark.parametrize("flag", [False, None], ids=["unread", "older_server"])
+def test_layer_properties_that_were_not_read_are_an_unknown_note_cutover_asks_about(
+    runner, plan_file, geolens, flag
+):
+    _edit_plan(plan_file, (A2,))
+    layer = _layer(0, "Parcels", has_attachments=False)
+    if flag is None:
+        del layer["properties_read"]
+    else:
+        layer["properties_read"] = flag
+    FakeImport(geolens, [layer])
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["layer-property-loss"]
+    assert _notes(plan_file) == [_UNREAD]
+
+
+def test_a_read_layer_with_no_properties_has_no_note(runner, plan_file, geolens):
+    FakeImport(geolens, [_layer(0, "Parcels", properties_read=True)])
+    _migrate(runner, plan_file, "--only", A2)
+
+    assert _notes(plan_file) == []
+
+
+def test_a_rerun_that_reads_the_properties_replaces_the_unknown_note(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels", properties_read=False)])
+    _migrate(runner, plan_file, "--only", A2)
+    _migrate(runner, plan_file, "--only", A2)
+    assert _notes(plan_file) == [_UNREAD]
+    service.layers[0].update(properties_read=True, has_m=True)
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    _migrate(runner, plan_file, "--only", A2)
+
+    state = json.loads((plan_file.parent / "arcgis-migration-state.json").read_text())
+    notes = state["items"][A2]["notes"]
+    assert _notes(plan_file) == []
+    assert [n for n in notes if "M values" in n]
+    assert state["items"][A2]["layer_notes"]["0"] == [n for n in notes if "layer " in n]
+
+
+def test_an_older_sdk_model_keeps_the_flag_as_an_extra_key():
+    from geolens_cli.arcgis_layer_properties import property_notes
+
+    class OldLayerInfo:
+        name = "Parcels"
+        title = "Parcels"
+        layer_id = 0
+        additional_properties = {"properties_read": True}
+
+    assert property_notes([OldLayerInfo()]) == []

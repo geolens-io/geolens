@@ -51,6 +51,9 @@ class LayerInfo:
         timestamp_offset_fields (list[str] | Unset): ArcGIS timestamp-offset fields (esriFieldTypeTimestampOffset) of
             the layer, which an import stores as the instant without its UTC offset. Empty when there are none or the
             service does not say.
+        properties_read (bool | None | Unset): Whether the ArcGIS layer's own definition was read, so that the time,
+            subtype, M-value and time-field properties above are the layer's. False when that read failed or left the layer
+            out. Null for other service types.
         layer_id (int | None | str | Unset): Numeric or string layer ID used by ArcGIS services.
         object_id_field (None | str | Unset): ArcGIS object ID field name, used for stable pagination.
         kind (LayerInfoKind | Unset): Backend-classified layer kind. 'vector' = point/line/polygon feature data.
@@ -74,6 +77,7 @@ class LayerInfo:
     has_m: bool | None | Unset = UNSET
     time_only_fields: list[str] | Unset = UNSET
     timestamp_offset_fields: list[str] | Unset = UNSET
+    properties_read: bool | None | Unset = UNSET
     layer_id: int | None | str | Unset = UNSET
     object_id_field: None | str | Unset = UNSET
     kind: LayerInfoKind | Unset = "vector"
@@ -158,6 +162,12 @@ class LayerInfo:
         if not isinstance(self.timestamp_offset_fields, Unset):
             timestamp_offset_fields = self.timestamp_offset_fields
 
+        properties_read: bool | None | Unset
+        if isinstance(self.properties_read, Unset):
+            properties_read = UNSET
+        else:
+            properties_read = self.properties_read
+
         layer_id: int | None | str | Unset
         if isinstance(self.layer_id, Unset):
             layer_id = UNSET
@@ -209,6 +219,8 @@ class LayerInfo:
             field_dict["time_only_fields"] = time_only_fields
         if timestamp_offset_fields is not UNSET:
             field_dict["timestamp_offset_fields"] = timestamp_offset_fields
+        if properties_read is not UNSET:
+            field_dict["properties_read"] = properties_read
         if layer_id is not UNSET:
             field_dict["layer_id"] = layer_id
         if object_id_field is not UNSET:
@@ -335,6 +347,15 @@ class LayerInfo:
             list[str], d.pop("timestamp_offset_fields", UNSET)
         )
 
+        def _parse_properties_read(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        properties_read = _parse_properties_read(d.pop("properties_read", UNSET))
+
         def _parse_layer_id(data: object) -> int | None | str | Unset:
             if data is None:
                 return data
@@ -376,6 +397,7 @@ class LayerInfo:
             has_m=has_m,
             time_only_fields=time_only_fields,
             timestamp_offset_fields=timestamp_offset_fields,
+            properties_read=properties_read,
             layer_id=layer_id,
             object_id_field=object_id_field,
             kind=kind,

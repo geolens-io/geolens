@@ -258,6 +258,15 @@ class LayerInfo(BaseModel):
             "Empty when there are none or the service does not say."
         ),
     )
+    properties_read: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the ArcGIS layer's own definition was read, so that the time, "
+            "subtype, M-value and time-field properties above are the layer's. "
+            "False when that read failed or left the layer out. Null for other "
+            "service types."
+        ),
+    )
     layer_id: int | str | None = Field(
         default=None, description="Numeric or string layer ID used by ArcGIS services."
     )

@@ -14,6 +14,7 @@ from typing import Any
 # Every note below contains it; the report lists such notes as follow-ups.
 NOT_CARRIED = "not carried over"
 MAX_LISTED = 8
+UNREAD = "could not be read"
 
 
 def _names(value: Any) -> list[str]:
@@ -50,10 +51,22 @@ def _listed(names: list[str]) -> str:
     return f"{shown} and {more} more" if more > 0 else shown
 
 
+def unread_note(layer: Any) -> str:
+    return (
+        f"layer {_label(layer)}: its time, subtype, M-value and time field "
+        f"settings {UNREAD}, so what is {NOT_CARRIED} is unknown"
+    )
+
+
 def property_notes(layers: Any) -> list[str]:
-    """One note per property each probed layer has that an import drops."""
+    """One note per property each probed layer has that an import drops, or
+    one note saying the layer's properties weren't read (an older server sends
+    no flag)."""
     notes: list[str] = []
     for layer in layers:
+        if _get(layer, "properties_read") is not True:
+            notes.append(unread_note(layer))
+            continue
         label = _label(layer)
         time_fields = _get(layer, "time_fields")
         if isinstance(time_fields, list):
