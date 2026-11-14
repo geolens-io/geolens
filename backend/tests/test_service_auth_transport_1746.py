@@ -9130,6 +9130,8 @@ class TestAdapterProbeReadsAreBounded:
       trusted Titiler service (`build_titiler_cog_url`), carrying no
       external credential at all -- see each function's own Gate 1/Gate 2
       docstring.
+    - `platform/storage/remote_quicklook.py`'s `_draw`: the same internal
+      Titiler, asked for a preview no larger than 512 px, with no credential.
     - `catalog/sources/origin_probe.py`'s `probe_remote_uri`/
       `fetch_json_document`: neither attaches a credential header; both
       already run under their own doubled hard deadline and (for the JSON
@@ -9243,6 +9245,7 @@ class TestAdapterProbeReadsAreBounded:
             ("app.modules.catalog.sources.arcgis_signin", "_fetch_json", "stream"),
             ("app.modules.catalog.sources.cog_info", "fetch_cog_info", "get"),
             ("app.modules.catalog.sources.cog_info", "fetch_cog_nodata", "get"),
+            ("app.platform.storage.remote_quicklook", "_draw", "get"),
             ("app.modules.catalog.sources.origin_probe", "probe_remote_uri", "stream"),
             (
                 "app.modules.catalog.sources.origin_probe",
