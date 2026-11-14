@@ -7552,6 +7552,11 @@ export interface components {
              * @default false
              */
             dry_run: boolean;
+            /**
+             * Description
+             * @description Description of the new map.
+             */
+            description?: string | null;
         };
         /** ArcgisWebmapImportResponse */
         ArcgisWebmapImportResponse: {

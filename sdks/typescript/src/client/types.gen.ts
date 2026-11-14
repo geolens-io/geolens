@@ -1180,6 +1180,12 @@ export type ArcgisWebmapImportRequest = {
      * Return the translation without creating a map.
      */
     dry_run?: boolean;
+    /**
+     * Description
+     *
+     * Description of the new map.
+     */
+    description?: string | null;
 };
 
 /**
