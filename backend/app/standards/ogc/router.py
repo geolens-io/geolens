@@ -1,4 +1,5 @@
 import uuid
+from functools import partial
 from urllib.parse import urlencode
 
 import structlog
@@ -19,7 +20,11 @@ from app.core.persistent_config import OGC_ITEMS_MAX_PAGE_SIZE
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.core.tile_scope import tile_template_query, vector_tile_template
-from app.core.statement_timeout import bound_anonymous_reads, bound_every_read
+from app.core.statement_timeout import (
+    bound_anonymous_reads,
+    bound_every_read,
+    current_deadline_ms,
+)
 from app.modules.auth.dependencies import (
     get_optional_user,
     request_carries_credentials,
@@ -36,8 +41,11 @@ from app.modules.catalog.features.service import (
     get_feature_by_id,
     get_feature_queryable_columns,
     get_features,
+    STREAM_BATCH_BYTES,
+    feature_batches,
     number_matched_headers,
     parse_bbox,
+    read_features_json,
 )
 from app.platform.ratelimit import limiter
 from app.platform.extensions import (
@@ -46,6 +54,10 @@ from app.platform.extensions import (
 )
 from app.standards.ogc.desktop import desktop_entry_gate
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
+from app.standards.ogc.items_stream import (
+    FeatureCollectionStream,
+    feature_collection_body,
+)
 from app.standards.ogc.filtering import (
     MAX_FEATURE_FILTER_BINDS,
     MAX_FEATURE_FILTER_LENGTH,
@@ -711,9 +723,7 @@ async def get_collection_items(
             "list endpoints, because this route pages via the constant-time "
             "`after_gid` keyset cursor. Per OGC API Features Core "
             "/req/core/fc-limit-response-1(C) a value above the ceiling is "
-            "clamped to it, not rejected. A page whose geometries are large "
-            "may hold fewer features than `limit`; its `next` link continues "
-            "from the last feature returned."
+            "clamped to it, not rejected."
         ),
     ),
     offset: int = Query(
@@ -789,7 +799,7 @@ async def get_collection_items(
     ),
     user: Identity | None = Depends(get_optional_user),
     db: AsyncSession = Depends(get_db),
-) -> JSONResponse:
+) -> Response:
     """OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
 
     Note: ``datetime`` is accepted per OGC API Features Core but acts as a
@@ -945,7 +955,6 @@ async def get_collection_items(
             limit=limit,
             offset=offset,
             after_gid=after_gid,
-            geometry_budget=settings.ogc_items_max_geometry_bytes,
             carries_credentials=request_carries_credentials(request),
         )
         # A tag that matches came from an earlier 200 for these parameters, so
@@ -969,12 +978,19 @@ async def get_collection_items(
                 status_code=status.HTTP_304_NOT_MODIFIED, headers=validators
             )
 
+    # One snapshot for the page's ids, count and batches, so a concurrent write
+    # can't shorten the page or break its filters. Begin reapplies the deadline,
+    # tenant and role; the rollback expires `dataset`, so copies are read below.
+    table_name, feature_count = dataset.table_name, dataset.feature_count
+    await db.rollback()
+    await db.connection(execution_options={"isolation_level": "REPEATABLE READ"})
     try:
-        # Use get_features.has_more, determined by over-fetching, so a full final
-        # page does not advertise a next link to an empty page.
+        # The page's ids come first, so the links are known before the body is
+        # streamed; has_more comes from over-fetching, so a full final page does
+        # not advertise a next link to an empty page.
         page = await get_features(
             db,
-            dataset.table_name,
+            table_name,
             limit=limit,
             offset=offset,
             after_gid=after_gid,
@@ -983,11 +999,25 @@ async def get_collection_items(
             property_filters=property_filters,
             allowed_columns=allowed_columns,
             include_geometry=include_geometry,
-            cached_feature_count=dataset.feature_count,
+            cached_feature_count=feature_count,
             cql2_where=cql2_where,
             cql2_binds=cql2_binds,
-            max_geometry_bytes=settings.ogc_items_max_geometry_bytes,
+            ids_only=True,
         )
+        gids = [row["gid"] for row in page.rows]
+        if validators and star:
+            return Response(
+                status_code=status.HTTP_304_NOT_MODIFIED, headers=validators
+            )
+        batches = feature_batches(page.rows, STREAM_BATCH_BYTES)
+        read_batch = partial(
+            read_features_json,
+            db,
+            table_name,
+            has_geometry=has_geometry,
+            include_geometry=include_geometry,
+        )
+        first_batch = await read_batch(batches[0] if batches else [])
     except ValueError as exc:
         # An unparseable property-filter value is rejected before
         # the query runs, naming the property.
@@ -1014,19 +1044,6 @@ async def get_collection_items(
                 detail="Dataset table is temporarily unavailable",
             )
         raise
-
-    if validators and star:
-        return Response(status_code=status.HTTP_304_NOT_MODIFIED, headers=validators)
-
-    features = [
-        {
-            "type": "Feature",
-            "id": row["gid"],
-            "geometry": row.get("geometry"),
-            "properties": row.get("properties", {}),
-        }
-        for row in page.rows
-    ]
 
     base_path = f"/collections/{dataset_id}/items"
     active_params: dict[str, str] = {}
@@ -1084,8 +1101,8 @@ async def get_collection_items(
     # Emit a keyset `next` link when more rows exist — primary path.
     # Fall back to offset-based `next`/`prev` for legacy clients only when
     # the request itself used offset.
-    if page.rows and page.has_more:
-        next_after_gid = page.rows[-1]["gid"]
+    if gids and page.has_more:
+        next_after_gid = gids[-1]
         links.append(
             OGCLink(
                 rel="next",
@@ -1112,16 +1129,14 @@ async def get_collection_items(
             )
         )
 
-    response_data = OGCFeatureItemsResponse(
-        numberMatched=page.total,
-        numberReturned=len(features),
-        features=features,
-        links=links,
-    )
+    members = OGCFeatureItemsResponse(
+        numberMatched=page.total, numberReturned=0, features=[], links=links
+    ).model_dump(mode="json")
+    del members["features"], members["numberReturned"]
 
     # Usage event for the cloud overlay (best-effort; errors logged).
-    if dataset.table_name:
-        await _emit_ogc_usage_event(dataset.table_name)
+    if table_name:
+        await _emit_ogc_usage_event(table_name)
 
     headers = {
         "Content-Crs": "<http://www.opengis.net/def/crs/OGC/1.3/CRS84>",
@@ -1130,10 +1145,22 @@ async def get_collection_items(
     }
     if link_value := link_header_value(links):
         headers["Link"] = link_value
-    return JSONResponse(
-        content=response_data.model_dump(mode="json"),
-        media_type="application/geo+json",
-        headers=headers,
+    body = feature_collection_body(
+        members, first_batch, batches[1:], read_batch, dataset_id=str(dataset_id)
+    )
+    if len(batches) <= 1:
+        # Already read whole, so it is sent with a length and keeps its validator.
+        return Response(
+            b"".join([chunk async for chunk in body]),
+            media_type="application/geo+json",
+            headers=headers,
+        )
+    # A failure past the first chunk still ends as a complete 200 behind the
+    # CORS middleware, so no cache may keep or revalidate a streamed page.
+    headers.pop("ETag", None)
+    headers["Cache-Control"] = "no-store"
+    return FeatureCollectionStream(
+        body, headers=headers, deadline_seconds=current_deadline_ms() / 1000
     )
 
 

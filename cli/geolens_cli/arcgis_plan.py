@@ -75,6 +75,11 @@ _PORTAL_FACTS = ("type", "title", "owner", "reason")
 _MAP_WIDGET_KEYS = ("map_widgets", "map_widget_maps")
 
 
+UNREAD_DEPENDENCIES = (
+    "; its dependencies could not be read, so depends_on may be incomplete"
+)
+
+
 class PlanError(Exception):
     """The inventory or owner map can't be turned into a plan."""
 
@@ -84,6 +89,8 @@ def _unread_dependencies(row: Mapping[str, Any]) -> bool:
 
 
 def _default_action(row: Mapping[str, Any]) -> str:
+    if row["type"] == "Feature Collection":
+        return EXPORT_ONLY
     if row["type"] == "Web Map":
         if _unread_dependencies(row):
             return EXPORT_ONLY
@@ -184,9 +191,7 @@ def build_plan(
         if missing:
             reason += "; depends on items not in the inventory: " + ", ".join(missing)
         if _unread_dependencies(row):
-            reason += (
-                "; its dependencies could not be read, so depends_on may be incomplete"
-            )
+            reason += UNREAD_DEPENDENCIES
             if row["type"] == "Web Map":
                 reason += (
                     "; rerun the inventory or set the action to import_map by hand"
@@ -582,6 +587,10 @@ def load_plan(path: Path) -> dict[str, Any]:
         raise PlanError(
             f"{path} lists these item ids more than once: {', '.join(repeated)}"
         )
+    for item in data["items"]:
+        # Plans from before Feature Collections defaulted to export_only.
+        if item["type"] == "Feature Collection" and item["action"] == IMPORT_FILE:
+            item["action"] = EXPORT_ONLY
     return data
 
 

@@ -3171,3 +3171,23 @@ def test_markdown_header_flags_a_sign_in_with_no_role():
     report["auth"].pop("role", None)
 
     assert "role-less sign-in" in arcgis_report.render_markdown(report)
+
+
+def test_an_unpublished_story_takes_its_web_map_from_the_draft_resource(run):
+    item_id = "7f" * 16
+    routes = _one_item(
+        item_id,
+        "StoryMap",
+        ("smstatusdraft", "smdraftresourceid:draft_1.json"),
+        **{
+            f"content/items/{item_id}/resources/draft_1.json": _app_data(
+                "storymap.json"
+            )
+        },
+    )
+
+    result, _ = run(FakePortal(routes), "--scope", "org")
+
+    report = _report(result)
+    assert _rows(report)[item_id]["dependencies_status"] == "parsed"
+    assert _links(report, item_id) == {(WEB_MAP_ID, "app_web_map", None)}
