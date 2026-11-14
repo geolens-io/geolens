@@ -252,6 +252,7 @@
     "uploadFileSizeExceeded": "Die Datei ({{size_mb}} MB) überschreitet das zulässige Maximum ({{limit_mb}} MB).",
     "uploadFileSizeLimitExceeded": "Die Datei überschreitet die zulässige Höchstgröße ({{limit_mb}} MB).",
     "uploadServicePreviewFailed": "Die Vorschau der Remote-Ebene ist fehlgeschlagen. Der Dienst ist möglicherweise nicht verfügbar oder das Ebenenformat wird nicht unterstützt.",
+    "uploadServicePreviewTimeout": "Die Vorschau der Ebene hat zu lange gedauert. Der Dienst hat geantwortet, aber die ersten Objekte der Ebene nicht rechtzeitig geliefert.",
     "uploadPreviewFailed": "Die Datei kann nicht in der Vorschau angezeigt werden. Sie ist möglicherweise beschädigt oder nicht unterstützt.",
     "uploadRasterPreviewFailed": "Die Rasterdatei kann nicht in der Vorschau angezeigt werden. Sie ist möglicherweise beschädigt oder nicht unterstützt.",
     "uploadFilenameControlCharacters": "Der Dateiname enthält nicht zulässige Steuerzeichen.",

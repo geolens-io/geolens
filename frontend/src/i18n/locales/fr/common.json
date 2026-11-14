@@ -252,6 +252,7 @@
     "uploadFileSizeExceeded": "Le fichier ({{size_mb}} Mo) dépasse le maximum autorisé ({{limit_mb}} Mo).",
     "uploadFileSizeLimitExceeded": "Le fichier dépasse la taille maximale autorisée ({{limit_mb}} Mo).",
     "uploadServicePreviewFailed": "Échec de la prévisualisation de la couche distante. Le service est peut-être indisponible ou le format de la couche n'est pas pris en charge.",
+    "uploadServicePreviewTimeout": "La prévisualisation de la couche a pris trop de temps. Le service a répondu, mais n'a pas renvoyé à temps les premières entités de la couche.",
     "uploadPreviewFailed": "Impossible de prévisualiser le fichier. Il est peut-être corrompu ou non pris en charge.",
     "uploadRasterPreviewFailed": "Impossible de prévisualiser le fichier raster. Il est peut-être corrompu ou non pris en charge.",
     "uploadFilenameControlCharacters": "Le nom du fichier contient des caractères de contrôle non autorisés.",

@@ -207,6 +207,7 @@ const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   raster_preview_failed: 'errors.uploadRasterPreviewFailed',
   reupload_unsupported: 'errors.reuploadUnsupported',
   service_preview_failed: 'errors.uploadServicePreviewFailed',
+  service_preview_timeout: 'errors.uploadServicePreviewTimeout',
   sqlite_schema_too_large: 'errors.uploadSqliteSchemaTooLarge',
   sqlite_too_many_schema_objects: 'errors.uploadSqliteTooManySchemaObjects',
   sqlite_virtual_table: 'errors.uploadSqliteVirtualTable',

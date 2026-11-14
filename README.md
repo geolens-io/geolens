@@ -247,8 +247,8 @@ Data exports as GeoJSON, Shapefile, GeoPackage, CSV, FlatGeobuf, GeoParquet, PMT
 Cloud-Optimized GeoTIFF.
 
 The `geolens` CLI publishes files and applies catalog manifests, Python and TypeScript SDKs cover
-the API, and a read-only MCP server lets AI agents search the catalog. The
-[API reference](https://docs.getgeolens.com/guides/api/) and
+the API, and an MCP server lets AI agents search the catalog and, with a `map_author` API key,
+create and style maps. The [API reference](https://docs.getgeolens.com/guides/api/) and
 [SDK guides](https://docs.getgeolens.com/guides/sdk/) document them, and the
 [examples gallery](https://geolens-io.github.io/geolens-examples/) has runnable code for
 MapLibre, Leaflet, OpenLayers, the ArcGIS Maps SDK, QGIS and DuckDB.

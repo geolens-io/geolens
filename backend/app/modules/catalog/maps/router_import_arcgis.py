@@ -152,7 +152,9 @@ async def import_arcgis_webmap_endpoint(
             notes=notes,
         )
 
-    map_obj = await create_map(db, translation.name, None, user.id, notes=notes)
+    map_obj = await create_map(
+        db, translation.name, body.description, user.id, notes=notes
+    )
     # Records the writer admission that update_map's lock re-checks.
     await check_map_ownership(map_obj, user, db)
     await update_map(
