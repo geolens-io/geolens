@@ -43,6 +43,7 @@ from .arcgis_migrate_state import (
     MigrationState,
     whole_number,
 )
+from .arcgis_inventory import draft_resource
 from .arcgis_plan import UNREAD_DEPENDENCIES as _UNREAD_REASON
 from .arcgis_portal import PortalClient, PortalError, redact_json
 from .arcgis_story_markdown import render_classic, render_storymap
@@ -208,7 +209,7 @@ def item_replacement(
         if item["type"] == "Web Map" and _UNREAD_REASON in item.get("reason", ""):
             return _UNREAD_MAP
         if item["type"] not in NOTES:
-            upload = _upload_note(state.items.get(item["id"]))
+            upload = _upload_note(state.items.get(item["id"]), item["type"])
             if upload:
                 return upload
         return replacement_note(item["type"])
@@ -237,12 +238,22 @@ def _story_note(entry: ItemState | None) -> str:
     )
 
 
-def _upload_note(entry: ItemState | None) -> str | None:
+# Types whose saved JSON or ZIP is the dataset itself, so it uploads as it is.
+_DATASET_FILES = {
+    "GeoJson": "data.json",
+    "Shapefile": "data.zip",
+    "File Geodatabase": "data.zip",
+}
+
+
+def _upload_note(entry: ItemState | None, item_type: str) -> str | None:
     """How to bring in a saved file the upload endpoint accepts, else None."""
     files = ((entry.export if entry else None) or {}).get("files") or {}
     for name in sorted(files):
         stem, dot, suffix = name.partition(".")
-        if stem == "data" and f".{suffix}" in _UPLOAD_EXTENSIONS and dot:
+        if (dot and stem == "data" and f".{suffix}" in _UPLOAD_EXTENSIONS) or (
+            _DATASET_FILES.get(item_type) == name
+        ):
             return f"GeoLens accepts this file type: upload {name} as a dataset."
     return None
 
@@ -561,7 +572,6 @@ def _story_links(ctx: MigrationContext) -> Callable[[str], str]:
     return lambda item_id: _map_link(ctx, item_id, web_app)
 
 
-_DRAFT_RESOURCE = "smdraftresourceid:"
 _DRAFT_LINE = (
     "> Unpublished draft: this story was never published, so this is its saved "
     "draft.\n\n"
@@ -569,14 +579,7 @@ _DRAFT_LINE = (
 
 
 def _draft_resource(full: Mapping[str, Any]) -> str | None:
-    """The draft resource an unpublished StoryMap names in its type keywords."""
-    keywords = full.get("typeKeywords")
-    if not isinstance(keywords, list) or "smstatusdraft" not in keywords:
-        return None
-    for keyword in keywords:
-        if isinstance(keyword, str) and keyword.startswith(_DRAFT_RESOURCE):
-            return keyword[len(_DRAFT_RESOURCE) :]
-    return None
+    return draft_resource(full.get("typeKeywords"))
 
 
 def _read_draft(export: _Export, name: str | None, saved: set[str]) -> Any:
@@ -687,12 +690,16 @@ def refresh_export(
         ]
     present = _bundle_in_place(ctx, item, entry)
     recorded = whole_number((entry.export or {}).get("modified"))
-    if present and recorded is not None and modified <= recorded:
+    # A story bundle from before drafts were read is exported once more.
+    outdated = item["type"] == "StoryMap" and "draft" not in (entry.export or {})
+    if present and recorded is not None and modified <= recorded and not outdated:
         return []
     why = (
         "changed in the portal since it was exported"
-        if present
+        if present and not outdated
         else "its bundle is missing"
+        if not present
+        else "it was exported by an earlier version"
     )
     try:
         result = export_item(ctx, item, entry)
@@ -822,6 +829,11 @@ def _export_into(
         saved = _save_resources(ctx, export, item["id"])
         story = _story(ctx, export, item, data, saved, full)
         draft = _draft_resource(full) if item["type"] == "StoryMap" else None
+        if draft and not story:
+            export.errors.append(
+                "story draft: the draft resource could not be read, so no "
+                "story.md was written"
+            )
     swapped = not (export.failures and folder.exists())
     if swapped:
         _swap_in(build, folder)

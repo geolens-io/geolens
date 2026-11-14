@@ -14,7 +14,7 @@ import pytest
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_migrate_export as export_module
 from geolens_cli import arcgis_plan as plan_module
-from geolens_cli.arcgis_migrate_state import MigrationState
+from geolens_cli.arcgis_migrate_state import ItemState, MigrationState
 from geolens_cli.arcgis_portal import redact_json
 
 from . import test_arcgis_migrate_layers as layers
@@ -1635,3 +1635,71 @@ def test_a_web_map_exported_because_its_data_could_not_be_read_says_so(tmp_path)
 
     assert "could not be read" in note
     assert "No equivalent" not in note
+
+
+def test_a_draft_that_cannot_be_read_is_an_export_error_cutover_refuses(
+    runner, tmp_path, geolens, install
+):
+    plan_file = _draft_story(runner, tmp_path, install, resource=False)
+
+    export = _state(plan_file)["items"][C2]["export"]
+    assert any("draft resource could not be read" in e for e in export["errors"])
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C2:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    result, payload = _migrate(runner, plan_file, "--cutover")
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+def test_a_story_exported_before_drafts_were_read_is_exported_again_once(
+    runner, tmp_path, geolens, install
+):
+    plan_file = _draft_story(runner, tmp_path, install, resource=True)
+    state_path = plan_file.parent / "arcgis-migration-state.json"
+    state = _state(plan_file)
+    for key in ("draft", "draft_resource"):
+        del state["items"][C2]["export"][key]
+    story = _export(plan_file, "storymap", C2) / "story.md"
+    state_path.write_text(json.dumps(state))
+
+    result, _ = _migrate(runner, plan_file, "--only", C2, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert "draft" in _state(plan_file)["items"][C2]["export"]
+    before = story.stat().st_mtime_ns
+    _migrate(runner, plan_file, "--only", C2, "--token", TOKEN)
+    assert story.stat().st_mtime_ns == before
+
+
+@pytest.mark.parametrize(
+    ("item_type", "name"),
+    [
+        ("GeoJson", "data.json"),
+        ("Shapefile", "data.zip"),
+        ("File Geodatabase", "data.zip"),
+    ],
+)
+def test_a_dataset_type_saved_as_json_or_zip_gets_the_upload_line(
+    tmp_path, item_type, name
+):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    state.items[D1] = ItemState(export={"files": {name: {}}})
+    item = {"id": D1, "type": item_type, "action": "export_only"}
+
+    note = export_module.item_replacement(item, {"items": [item]}, state)
+
+    assert f"upload {name}" in note
+
+
+def test_other_json_and_zip_files_are_not_called_datasets(tmp_path):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    state.items[D1] = ItemState(
+        export={"files": {"data.json": {}, "data.zip": {}}}
+    )
+    item = {"id": D1, "type": "Code Sample2", "action": "export_only"}
+
+    note = export_module.item_replacement(item, {"items": [item]}, state)
+
+    assert "upload" not in note
