@@ -1006,8 +1006,9 @@ def test_no_security_schema_ops_get_401_without_security() -> None:
 def test_401_capability_sentence_matches_the_allowlist() -> None:
     """Each CAPABILITY handler's 401 must name only the capability it accepts.
 
-    ``_document_unresolvable_credential_401`` (app/api/openapi_contract.py) hardcodes a
-    ``capability_responses`` mapping of handler function to response; nothing
+    ``_document_unresolvable_credential_401`` (app/api/openapi_contract.py) applies
+    the ``capability_responses`` mapping of handler function to response that
+    ``_unresolvable_credential_capability_responses`` in app/api/main.py hardcodes; nothing
     ties that mapping to ``FAIL_OPEN_ALLOWLIST`` above, so the two could
     silently disagree. ``EXPECTED_CAPABILITY_TEXT`` below is this test's own
     mapping, keyed by the allowlist's dotted-name keys, from CAPABILITY

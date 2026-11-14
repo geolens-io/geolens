@@ -1335,8 +1335,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rate-limit and cookie helpers.
     "backend/app/modules/auth/router.py": 1541,
     # The app object, its middleware and exception handlers, route registration
-    # and the lifespan with its sweeps stay together to keep their order.
-    "backend/app/api/main.py": 1146,
+    # and the lifespan stay together to keep their order; the capability 401
+    # mapping stays here because this module is already reviewed for embed tokens.
+    "backend/app/api/main.py": 1178,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1606,

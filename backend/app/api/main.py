@@ -715,6 +715,8 @@ app = FastAPI(
 from app.observability.health.schemas import HealthResponse  # noqa: E402
 from app.standards.ogc.errors import (  # noqa: E402
     ProblemDetail,
+    UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
+    UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
     register_error_handlers,
 )
 
@@ -1067,9 +1069,39 @@ def _register_standards_head_routes(target_app: FastAPI) -> None:
         target_app.openapi_schema = None
 
 
+def _unresolvable_credential_capability_responses() -> dict:
+    """Map each capability-accepting handler to the 401 naming what it accepts."""
+    from app.modules.catalog.datasets.api.router_aggregate import aggregate_endpoint
+    from app.modules.catalog.datasets.api.router_data import get_dataset_rows_endpoint
+    from app.modules.catalog.features.router import get_features_geojson_z_endpoint
+    from app.modules.catalog.maps.router_sharing import get_shared_map_endpoint
+    from app.processing.tiles.router import (
+        cluster_tile_endpoint,
+        get_tile_tokens_batch,
+        raster_auth_check,
+        raster_tile_proxy,
+        tile_endpoint,
+    )
+
+    # Vector/raster tile serving verifies both X-Embed-Token and a signed
+    # template (sig, exp, scope); the batch token mint and the other
+    # capability handlers check X-Embed-Token only.
+    return {
+        aggregate_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
+        get_dataset_rows_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
+        get_features_geojson_z_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
+        get_shared_map_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
+        get_tile_tokens_batch: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
+        tile_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
+        cluster_tile_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
+        raster_tile_proxy: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
+        raster_auth_check: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
+    }
+
+
 _add_trailing_slash_aliases(app)
 _register_standards_head_routes(app)
-install_standards_aware_openapi(app)
+install_standards_aware_openapi(app, _unresolvable_credential_capability_responses)
 
 init_metrics(app)
 

@@ -13,8 +13,6 @@ from app.standards.ogc.errors import (
     ProblemDetail,
     RATE_LIMIT_RESPONSE,
     UNRESOLVABLE_CREDENTIAL_RESPONSE,
-    UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
-    UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
 )
 from app.standards.ogc.utils import standards_api_path
 
@@ -142,7 +140,9 @@ def _document_rate_limits(target_app: FastAPI, schema: dict) -> None:
                 )
 
 
-def _document_unresolvable_credential_401(target_app: FastAPI, schema: dict) -> None:
+def _document_unresolvable_credential_401(
+    target_app: FastAPI, schema: dict, capability_responses: dict
+) -> None:
     """Publish the #1518 401 on every operation that can raise it.
 
     ``get_optional_user`` refuses a supplied-but-unresolvable credential,
@@ -158,9 +158,10 @@ def _document_unresolvable_credential_401(target_app: FastAPI, schema: dict) -> 
     Pinned by ``test_no_security_schema_ops_get_401_without_security``.
 
     A handler ``CAPABILITY`` marks in ``FAIL_OPEN_ALLOWLIST``
-    (``tests/test_optional_auth_failure_mode_1518.py``) gets a response
-    naming only the capability it actually accepts; every other operation
-    gets the plain, capability-free description.
+    (``tests/test_optional_auth_failure_mode_1518.py``) gets the response
+    ``capability_responses`` maps it to, naming only the capability it
+    actually accepts; every other operation gets the plain, capability-free
+    description.
     """
 
     from app.modules.auth.dependencies import (
@@ -168,36 +169,11 @@ def _document_unresolvable_credential_401(target_app: FastAPI, schema: dict) -> 
         get_optional_user_fail_open,
         get_optional_user_no_security_schema,
     )
-    from app.modules.catalog.datasets.api.router_aggregate import aggregate_endpoint
-    from app.modules.catalog.datasets.api.router_data import get_dataset_rows_endpoint
-    from app.modules.catalog.features.router import get_features_geojson_z_endpoint
-    from app.modules.catalog.maps.router_sharing import get_shared_map_endpoint
-    from app.processing.tiles.router import (
-        cluster_tile_endpoint,
-        get_tile_tokens_batch,
-        raster_auth_check,
-        raster_tile_proxy,
-        tile_endpoint,
-    )
 
     credential_aware = {
         get_optional_user,
         get_optional_user_fail_open,
         get_optional_user_no_security_schema,
-    }
-    # Vector/raster tile serving verifies both X-Embed-Token and a signed
-    # template (sig, exp, scope); the batch token mint and the other
-    # capability handlers check X-Embed-Token only.
-    capability_responses = {
-        aggregate_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
-        get_dataset_rows_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
-        get_features_geojson_z_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
-        get_shared_map_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
-        get_tile_tokens_batch: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_EMBED_TOKEN,
-        tile_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
-        cluster_tile_endpoint: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
-        raster_tile_proxy: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
-        raster_auth_check: UNRESOLVABLE_CREDENTIAL_RESPONSE_WITH_CAPABILITY,
     }
 
     for ctx in _iter_api_routes(target_app):
@@ -352,7 +328,9 @@ def _drop_unreferenced_validation_models(schema: dict) -> None:
 # generated description too so machine clients are not told to expect FastAPI's
 # native 422 response on OGC/STAC/DCAT operations.
 def _standards_aware_openapi(
-    target_app: FastAPI, fastapi_openapi: Callable[[], dict]
+    target_app: FastAPI,
+    fastapi_openapi: Callable[[], dict],
+    capability_responses: Callable[[], dict],
 ) -> dict:
     schema = fastapi_openapi()
     if schema.get("x-geolens-standards-errors") == "400-problem-details":
@@ -398,7 +376,7 @@ def _standards_aware_openapi(
         schemas[event_model.__name__] = event_schema
 
     _normalize_security_contract(target_app, schema)
-    _document_unresolvable_credential_401(target_app, schema)
+    _document_unresolvable_credential_401(target_app, schema, capability_responses())
     _document_rate_limits(target_app, schema)
     _document_global_failures(target_app, schema)
     _normalize_validation_error_contract(schema)
@@ -439,8 +417,17 @@ def _standards_aware_openapi(
     return schema
 
 
-def install_standards_aware_openapi(target_app: FastAPI) -> None:
-    """Serve ``_standards_aware_openapi`` as ``target_app.openapi``."""
+def install_standards_aware_openapi(
+    target_app: FastAPI, capability_responses: Callable[[], dict]
+) -> None:
+    """Serve ``_standards_aware_openapi`` as ``target_app.openapi``.
+
+    ``capability_responses`` returns the handler-to-401 mapping for routes that
+    accept a capability in place of a credential; it is called per build.
+    """
     target_app.openapi = functools.partial(  # type: ignore[method-assign]
-        _standards_aware_openapi, target_app, target_app.openapi
+        _standards_aware_openapi,
+        target_app,
+        target_app.openapi,
+        capability_responses,
     )
