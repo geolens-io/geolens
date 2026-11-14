@@ -30,6 +30,7 @@ from app.platform.dataset_origin import (
 )
 from app.platform.source_geometry_columns import (
     GeometrySelection,
+    build_srid,
     columns_to_build,
     geometry_selection,
     recorded_geometry_selection,
@@ -217,8 +218,7 @@ async def _detect_reupload_crs(
     if missing:
         raise geometry_build_errors.columns_missing(missing)
     if build is not None:
-        effective_srid = srid_override if srid_override is not None else build.srid
-        effective_srid = effective_srid if effective_srid is not None else 4326
+        effective_srid = build_srid(build, srid_override=srid_override, detected=srid)
         return info, effective_srid, GeometrySelection(build.columns, effective_srid)
 
     missing_crs = check_missing_crs(

@@ -53,6 +53,7 @@ from app.modules.catalog.datasets.domain.service import (
 )
 from app.core.dependencies import get_db
 from app.platform.source_geometry_columns import (
+    build_srid,
     columns_to_build,
     declared_build_type,
     recorded_geometry_selection,
@@ -907,8 +908,9 @@ async def reupload_preview(
             **info,
             "geometry_type": declared_build_type(build, info.get("sample_rows") or ()),
         }
-        if srid_override is None:
-            srid_override = build.srid if build.srid is not None else 4326
+        srid_override = build_srid(
+            build, srid_override=srid_override, detected=info.get("srid")
+        )
 
     # The diff below reads attribute columns only, so a geometry
     # loss would otherwise look like an unremarkable schema diff.

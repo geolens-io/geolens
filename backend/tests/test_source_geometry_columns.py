@@ -7,6 +7,7 @@ import pytest
 from app.core.geometry_build_errors import GEOMETRY_BUILD_SENTENCES, columns_missing
 from app.platform.source_geometry_columns import (
     GeometrySelection,
+    build_srid,
     declared_build_type,
     columns_to_build,
     geometry_selection,
@@ -160,3 +161,44 @@ def test_rows_that_disagree_on_dimensions_build_nothing(found, dimensions):
         _wkt_column_type(found, "g")
     assert refused.value.reason.code == "geometry_wkt_mixed_dimensions"
     assert f"({dimensions})" in str(refused.value)
+
+
+@pytest.mark.parametrize(
+    "override,recorded,detected,expected",
+    [
+        (None, None, 2263, 2263),
+        (None, 27700, 2263, 27700),
+        (3857, 27700, 2263, 3857),
+        (None, None, None, 4326),
+    ],
+)
+def test_a_build_reads_its_columns_in_the_first_crs_it_knows(
+    override, recorded, detected, expected
+):
+    build = GeometrySelection({"x_column": "lon", "y_column": "lat"}, recorded)
+    assert build_srid(build, srid_override=override, detected=detected) == expected
+
+
+async def test_a_selection_with_no_recorded_crs_uses_the_one_the_file_declares():
+    from unittest.mock import AsyncMock, patch
+
+    from app.processing.ingest.tasks_reupload import _detect_reupload_crs
+
+    info = {
+        "srid": 2263,
+        "geometry_type": None,
+        "columns": [{"name": "lon"}, {"name": "lat"}],
+        "driver": "CSV",
+    }
+    with patch(
+        "app.processing.ingest.ogr.run_ogrinfo", new=AsyncMock(return_value=info)
+    ):
+        _, srid, build = await _detect_reupload_crs(
+            "/tmp/places.csv",
+            None,
+            {},
+            record_type="vector_dataset",
+            dataset_geometry_type="POINT",
+            recorded=GeometrySelection({"x_column": "lon", "y_column": "lat"}, None),
+        )
+    assert (srid, build.srid) == (2263, 2263)

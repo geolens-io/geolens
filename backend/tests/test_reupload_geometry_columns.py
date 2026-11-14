@@ -867,3 +867,24 @@ async def test_a_first_import_naming_no_loaded_column_is_refused_by_name(
         "The file has no column named Northing, so no geometry was built. "
         "Choose columns the file has."
     )
+
+
+async def test_restoring_a_service_version_leaves_no_upload_columns_behind(
+    harness: _Harness,
+):
+    """The restored data came from a service, so no CSV columns are asked for."""
+    dataset = await harness.first_import(
+        _xy_csv(harness.tmp_path / "places.csv"), x_column="lon", y_column="lat"
+    )
+    await _replace_from_service(harness, dataset)
+    await harness.restore(await harness.reload(dataset.id), 1)
+    assert (await harness.reload(dataset.id)).origin_ref["x_column"] == "lon"
+    await harness.restore(await harness.reload(dataset.id), 2)
+    dataset = await harness.reload(dataset.id)
+    assert "x_column" not in dataset.origin_ref
+
+    job_id = await harness.upload_job(
+        dataset, _xy_csv(harness.tmp_path / "table.csv", header="name,a,b")
+    )
+    response = await harness.preview(dataset, job_id)
+    assert response.json()["detail"]["code"] == "geometry_loss", response.text

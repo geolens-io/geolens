@@ -68,6 +68,17 @@ def selection_fields(mapping: Any) -> dict[str, Any] | None:
     return None if selection is None else selection.fields()
 
 
+def build_srid(
+    build: GeometrySelection, *, srid_override: int | None, detected: int | None
+) -> int:
+    """The CRS a build reads its columns in: the commit's override, else the
+    recorded one, else what the file declares, else EPSG:4326."""
+    for srid in (srid_override, build.srid, detected):
+        if srid is not None:
+            return srid
+    return 4326
+
+
 def columns_to_build(
     recorded: GeometrySelection | None,
     *,
