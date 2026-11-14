@@ -1707,6 +1707,10 @@ update_env_value() {
   value="$2"
   tmp=".env.tmp.$$"
 
+  # cp -p carries the existing mode onto the temp file (stat flags differ
+  # between GNU and BSD); umask 077 keeps a fresh file private.
+  ( umask 077; cp -p .env "$tmp" ) || { rm -f "$tmp"; return 1; }
+
   __VAL="$value" awk -v key="$key" '
     BEGIN { val = ENVIRON["__VAL"]; updated = 0 }
     $0 ~ "^" key "=" {
@@ -1720,8 +1724,8 @@ update_env_value() {
         print key "=" val
       }
     }
-  ' .env > "$tmp"
-  mv "$tmp" .env
+  ' .env > "$tmp" || { rm -f "$tmp"; return 1; }
+  mv "$tmp" .env || { rm -f "$tmp"; return 1; }
 }
 
 # Resolve the highest semver release tag (vX.Y.Z) from a remote, matching the
