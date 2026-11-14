@@ -221,6 +221,19 @@ ensure_postgres_password() {
   fi
 }
 
+# TILE_SIGNING_SECRET and SESSION_SECRET_KEY are written only into a .env this
+# run created: changing either on a live install breaks signed tile URLs and
+# sign-ins in progress.
+ensure_dedicated_signing_keys() {
+  [ "$ENV_CREATED" = "true" ] || return 0
+  for dsk_name in TILE_SIGNING_SECRET SESSION_SECRET_KEY; do
+    if [ -z "$(get_env_value "$dsk_name")" ]; then
+      update_env_value "$dsk_name" "$(generate_jwt_secret)"
+      say "Generated $dsk_name."
+    fi
+  done
+}
+
 # A new .env beside an old database volume (a deleted .env, a rerun) gets a
 # password that database doesn't know. Warn only: Docker may not answer, and
 # the volume may belong to another install on this host.
@@ -556,6 +569,8 @@ main() {
       warn "Could not generate SECRET_ENCRYPTION_KEY (no openssl or base64). Stored SSO secrets will be encrypted under a JWT_SECRET_KEY-derived key; see RUNBOOK.md section 11."
     fi
   fi
+
+  ensure_dedicated_signing_keys
 
   ensure_postgres_password
 

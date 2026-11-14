@@ -7,7 +7,7 @@ import structlog
 
 # Must run before FastAPI/Starlette imports (gh #101); shared with worker for
 # the /tmp tmpfs issue during COG conversion.
-from app.core.config import settings
+from app.core.config import KNOWN_PUBLIC_CREDENTIALS, settings
 from app.core.pointcloud import POINTCLOUD_MEDIA_TYPE
 from app.core.runtime.gdal_env import configure_gdal_s3_env
 from app.core.runtime.staging import redirect_tempfile_to_staging
@@ -96,6 +96,61 @@ def _warn_if_cors_unset(settings_obj, log) -> None:
                 "CORS_ALLOWED_ORIGINS=<comma-separated origins> to enable it."
             ),
         )
+
+
+def _session_secret(settings_obj) -> str:
+    """Session cookie key: the dedicated key, else JWT_SECRET_KEY unchanged."""
+    return (
+        settings_obj.session_secret_key or settings_obj.jwt_secret_key
+    ).get_secret_value()
+
+
+def _warn_on_weak_signing_keys(settings_obj, log) -> None:
+    """Production startup warnings for the session and tile signing keys.
+
+    An unset SESSION_SECRET_KEY shares the JWT secret. A configured
+    TILE_SIGNING_SECRET that is short or equal to the JWT secret still boots,
+    since the setting predates the check. Unset TILE_SIGNING_SECRET warns in
+    signing.py.
+    """
+    if not settings_obj.is_production:
+        return
+    if settings_obj.session_secret_key is None:
+        log.warning(
+            "session_secret_key_unset",
+            message=(
+                "SESSION_SECRET_KEY is unset in production; the session cookie "
+                "is signed with JWT_SECRET_KEY. Set it to a separate secret "
+                "(openssl rand -hex 32), the same on every API replica."
+            ),
+        )
+    tile = settings_obj.tile_signing_secret
+    if tile is not None:
+        raw = tile.get_secret_value()
+        if len(raw) < 32:
+            log.warning(
+                "tile_signing_secret_weak",
+                message=(
+                    "TILE_SIGNING_SECRET is shorter than 32 characters. "
+                    "Replace it with `openssl rand -hex 32`."
+                ),
+            )
+        if raw in KNOWN_PUBLIC_CREDENTIALS:
+            log.warning(
+                "tile_signing_secret_weak",
+                message=(
+                    "TILE_SIGNING_SECRET is a known-public value. Replace it "
+                    "with `openssl rand -hex 32`."
+                ),
+            )
+        if raw == settings_obj.jwt_secret_key.get_secret_value():
+            log.warning(
+                "tile_signing_secret_weak",
+                message=(
+                    "TILE_SIGNING_SECRET equals JWT_SECRET_KEY, so it does not "
+                    "separate the two. Replace it with `openssl rand -hex 32`."
+                ),
+            )
 
 
 async def sweep_stale_jobs_once(
@@ -287,6 +342,7 @@ async def lifespan(app: FastAPI):
 
     # Surface unset CORS_ALLOWED_ORIGINS in production once.
     _warn_if_cors_unset(settings, logger)
+    _warn_on_weak_signing_keys(settings, logger)
 
     # The rate-limit storage decision is made at import, before
     # setup_logging() above, so its notices are queued rather than logged
@@ -895,7 +951,7 @@ app.add_middleware(DesktopEntryGateMiddleware)
 # session cookie. Same settings.is_production used for docs gating above.
 app.add_middleware(
     SessionMiddleware,
-    secret_key=settings.jwt_secret_key.get_secret_value(),
+    secret_key=_session_secret(settings),
     https_only=settings.is_production,
 )
 app.add_middleware(RequestLoggingMiddleware)
