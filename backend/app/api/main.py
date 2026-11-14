@@ -60,6 +60,10 @@ from app.api.middleware.logging import RequestLoggingMiddleware, safe_access_log
 from app.api.middleware.rate_limit import GlobalRateLimitMiddleware
 from app.api.middleware.security import SecurityHeadersMiddleware
 from app.api.middleware.tenant_context import TenantContextMiddleware
+from app.standards.ogc.desktop import (
+    DesktopEntryGateMiddleware,
+    DesktopEntryRewriteMiddleware,
+)
 from app.processing.tiles.pool import close_tile_pool, init_tile_pool
 from app.processing.tiles.router import _titiler_client
 from app.standards.ogc.utils import standards_api_path
@@ -588,9 +592,12 @@ query parameter it authenticates `GET`, `HEAD` and `OPTIONS` only, since a
 browser that saved the login replays it on cross-site requests. On any other
 method, or when the header is malformed, the login is a credential that cannot
 be resolved (see below). It is meant for desktop GIS clients that send a saved
-login only after a Basic challenge: point them at `{your-server}/api/desktop`,
-which answers `401` with `WWW-Authenticate: Basic` until the key is sent and
-then redirects to the OGC API landing page at `/api/`.
+login only after a Basic challenge: point them at `{your-server}/api/desktop`.
+It serves the OGC API again (the landing page, conformance, the collections
+and their items, and an OpenAPI document of those routes) to signed-in callers
+only, answering `401` with `WWW-Authenticate: Basic` to any request without a
+working credential, public collections included. Its links stay under
+`/api/desktop`, so a client that saves the address keeps being challenged.
 
 **The `?api_key=` query parameter is deprecated, and it authenticates reads
 only.** A key sent in the URL is recorded by server access logs and by any
@@ -963,6 +970,7 @@ app.add_exception_handler(DBAPIError, _database_error_handler)
 # (credential-secret registry, core/service_tokens.py) never propagates back
 # out. Innermost, it scrubs an unhandled exception before any layer reads it.
 app.add_middleware(CredentialScrubASGIMiddleware)
+app.add_middleware(DesktopEntryGateMiddleware)
 
 # Gate https_only on the production indicator — dev/test
 # have no TLS terminator, so https_only=True would silently strip the
@@ -978,6 +986,7 @@ app.add_middleware(RequestLoggingMiddleware)
 # (default) this is a strict no-op (single boolean check, no state mutation).
 app.add_middleware(TenantContextMiddleware)
 app.add_middleware(GlobalRateLimitMiddleware)
+app.add_middleware(DesktopEntryRewriteMiddleware)
 app.add_middleware(
     RequestBodyLimitMiddleware,
     max_bytes=settings.upload_max_size_mb * 1024 * 1024,

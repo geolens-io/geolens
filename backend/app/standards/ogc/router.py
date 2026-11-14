@@ -3,7 +3,7 @@ from urllib.parse import urlencode
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
-from fastapi.responses import JSONResponse, RedirectResponse
+from fastapi.responses import JSONResponse
 from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -20,9 +20,7 @@ from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.core.tile_scope import tile_template_query, vector_tile_template
 from app.modules.auth.dependencies import (
-    BASIC_CHALLENGE,
     get_optional_user,
-    get_optional_user_no_security_schema,
     request_carries_credentials,
 )
 from app.modules.catalog.authorization import (
@@ -45,6 +43,7 @@ from app.platform.extensions import (
     get_billing_extensions,
     get_data_serving_extension,
 )
+from app.standards.ogc.desktop import desktop_entry_gate
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC
 from app.standards.ogc.filtering import (
     MAX_FEATURE_FILTER_BINDS,
@@ -206,12 +205,16 @@ async def _check_cold_rehydrate(
     return None
 
 
-ogc_router = APIRouter(tags=["OGC Features"])
+ogc_router = APIRouter(
+    tags=["OGC Features"], dependencies=[Depends(desktop_entry_gate)]
+)
 
 # Separate router for per-dataset OGC Features endpoints.
 # Must be registered AFTER collections_router in main.py to avoid
 # /collections/{dataset_id} catching literal paths like /collections/datasets.
-ogc_features_router = APIRouter(tags=["OGC Features"])
+ogc_features_router = APIRouter(
+    tags=["OGC Features"], dependencies=[Depends(desktop_entry_gate)]
+)
 
 
 def _validate_f_param(f: str | None) -> None:
@@ -314,35 +317,6 @@ async def landing_page(
         title="GeoLens",
         description="OGC API Records catalog for geospatial datasets",
         links=links,
-    )
-
-
-@ogc_router.api_route("/desktop", methods=["GET", "HEAD"], include_in_schema=False)
-async def desktop_entry(
-    request: Request,
-    db: AsyncSession = Depends(get_db),
-    user: Identity | None = Depends(get_optional_user_no_security_schema),
-) -> RedirectResponse:
-    """Challenge for HTTP Basic, then send a signed-in caller to the landing page.
-
-    ArcGIS Pro sends its saved login only in answer to a Basic challenge, and
-    the landing page serves anonymous callers, so this route asks every caller
-    without a working credential for one, whatever the catalog holds.
-    """
-    if user is None:
-        raise HTTPException(
-            status_code=status.HTTP_401_UNAUTHORIZED,
-            detail="Not authenticated",
-            headers={
-                "WWW-Authenticate": BASIC_CHALLENGE,
-                "Cache-Control": "no-store",
-            },
-        )
-    public_api_url = await get_public_api_url(db, request=request)
-    return RedirectResponse(
-        build_url("/", base_url=public_api_url),
-        status_code=status.HTTP_302_FOUND,
-        headers={"Cache-Control": "no-store"},
     )
 
 

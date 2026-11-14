@@ -1336,7 +1336,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/router.py": 1534,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
-    "backend/app/api/main.py": 1647,
+    "backend/app/api/main.py": 1656,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1606,
@@ -1432,8 +1432,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
     "backend/app/modules/catalog/features/router.py": 1766,
-    # Native search and OGC Records share visibility, query parsing and pagination.
-    "backend/app/modules/catalog/search/router.py": 1449,
+    # Native search and OGC Records share visibility, query parsing and pagination;
+    # the collections routes also answer under the desktop entry's gate.
+    "backend/app/modules/catalog/search/router.py": 1451,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1936,
     # Authorization, acquisition order and cache rehydration share this route boundary;
@@ -2794,6 +2795,10 @@ _STANDARDS_MODULE_IMPORT_SURFACE: dict[str, set[str]] = {
     "ogc/filtering.py": {
         "app.modules.catalog.datasets.domain.models",
         "app.modules.catalog.search.schemas",
+    },
+    # The desktop entry resolves a caller as the OGC routes do before serving them.
+    "ogc/desktop.py": {
+        "app.modules.auth.dependencies",
     },
     "ogc/router.py": {
         "app.modules.auth.dependencies",
