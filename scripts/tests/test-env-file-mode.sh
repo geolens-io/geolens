@@ -47,17 +47,38 @@ check_impl() {
   [ "$(cat target)" = "A=1" ] || fail "$label: link target changed"
   rm -f target
 
+  # A planted temp-name symlink is neither followed nor clobbered.
+  printf 'victim\n' > victim; chmod 644 victim
+  ln -s victim ".env.tmp.$$"
+  rm -f .env; printf 'A=1\n' > .env; chmod 600 .env
+  update_env_value A 2
+  [ "$(cat victim)" = "victim" ] || fail "$label: planted link followed"
+  [ -L ".env.tmp.$$" ] || fail "$label: planted link clobbered"
+  rm -f victim ".env.tmp.$$"
+
+  # A failing mode read selects 600, under set -e, and leaves no temp file.
+  rm -f .env; printf 'A=1\n' > .env; chmod 640 .env
+  awk() { case "$1" in "{"*) return 1 ;; esac; command awk "$@"; }
+  update_env_value A 2
+  unset -f awk
+  [ "$(mode_of .env)" = "600" ] || fail "$label: failed mode read gave $(mode_of .env)"
+  grep -qx 'A=2' .env || fail "$label: update lost on failed mode read"
+  [ -z "$(command find . -name '.env.tmp.*')" ] || fail "$label: temp file left after mode-read failure"
+
   # Failed write: each step that can fail is simulated in turn.
   rm -f .env; printf 'A=1\n' > .env; chmod 640 .env
   awk() { return 1; }
   if update_env_value A 2 2>/dev/null; then fail "$label: awk failure not reported"; fi
   unset -f awk
+  mktemp() { return 1; }
+  if update_env_value A 2 2>/dev/null; then fail "$label: mktemp failure not reported"; fi
+  unset -f mktemp
   mv() { return 1; }
   if update_env_value A 2 2>/dev/null; then fail "$label: mv failure not reported"; fi
   unset -f mv
   [ "$(cat .env)" = "A=1" ] || fail "$label: original content changed"
   [ "$(mode_of .env)" = "640" ] || fail "$label: original mode changed"
-  [ -z "$(ls -A | grep '^\.env\.tmp')" ] || fail "$label: temp file left behind"
+  [ -z "$(command find . -name '.env.tmp.*')" ] || fail "$label: temp file left behind"
   cd "$work"
 }
 

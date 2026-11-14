@@ -259,12 +259,13 @@ get_env_value() {
 update_env_value() {
   key="$1"
   value="$2"
-  tmp=".env.tmp.$$"
 
-  # The temp file starts private and writable; the mode of the existing .env
+  # mktemp creates the file exclusively, so a pre-planted link is never
+  # followed. It starts private and writable; the mode of the existing .env
   # (read from ls -lL, as stat flags differ between GNU and BSD) is applied last
   # so a read-only .env stays updatable.
-  ( umask 077; : > "$tmp" && chmod 600 "$tmp" ) || { rm -f "$tmp"; return 1; }
+  tmp="$(umask 077; mktemp .env.tmp.XXXXXX)" || return 1
+  chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
 
   __VAL="$value" awk -v key="$key" '
     BEGIN { val = ENVIRON["__VAL"]; updated = 0 }
@@ -284,7 +285,7 @@ update_env_value() {
     m = substr($1, 2, 9); o = 0
     for (i = 1; i <= 9; i++) if (index("rwxst", substr(m, i, 1))) o += 2 ^ (9 - i)
     printf "%03o", o
-  }')"
+  }')" || _mode=600
   case "$_mode" in
     [0-7][0-7][0-7]) ;;
     *) _mode=600 ;;
