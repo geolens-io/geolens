@@ -1383,7 +1383,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/refresh/service.py": 1201,
     # Central settings and boot-validation debt, including the service-credential
     # http allowlist; split by configuration domain before raising further.
-    "backend/app/core/config.py": 1555,
+    "backend/app/core/config.py": 1550,
     # Config resolution coordinates validation, overrides, caching, audit and side
     # effects, model defaults that follow the selected LLM provider, and SQL
     # reads of a committed flag.
@@ -1468,8 +1468,8 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # inserts reuse the single-insert validation, batch deletes the prior-envelope
     # capture, and the create dry run checks the table's kind, insert triggers
     # and rules, and the shapes that run user code on insert, with the same
-    # catalog probes. Paged reads can end a page at a geometry byte budget.
-    "backend/app/modules/catalog/features/service.py": 1722,
+    # catalog probes. A streamed page is read in byte-bounded batches.
+    "backend/app/modules/catalog/features/service.py": 1811,
     # Dataset visibility, and the VRT member counts and extents each requester
     # may see, and which groups can't read a dataset, share the permission
     # extension's one audience; map reads, and which groups can't read a map,
