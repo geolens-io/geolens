@@ -111,6 +111,7 @@ from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
     ERROR_RESPONSES_WRITE,
     PAYLOAD_TOO_LARGE_RESPONSE,
+    SERVICE_PREVIEW_TIMEOUT_RESPONSE,
 )
 
 router = APIRouter(
@@ -563,7 +564,7 @@ async def _refuse_featureless_arcgis_layer(
 @router.post(
     "/{dataset_id}/reupload/service/preview",
     response_model=ReuploadPreviewResponse,
-    responses={502: BAD_GATEWAY_RESPONSE},
+    responses={502: BAD_GATEWAY_RESPONSE, 504: SERVICE_PREVIEW_TIMEOUT_RESPONSE},
     summary="Preview a service layer for re-upload",
 )
 async def reupload_service_preview(

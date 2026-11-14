@@ -515,6 +515,71 @@ class TestPointCloudDownload:
             assert result.payload.read() == body
 
 
+class TestServicePreviewTimeout:
+    """A timed-out service preview parses as a ProblemDetail, even in strict mode."""
+
+    _BODY = {
+        "type": "about:blank",
+        "title": "Gateway Timeout",
+        "status": 504,
+        "detail": {
+            "code": "service_preview_timeout",
+            "message": "The layer took too long to preview.",
+        },
+    }
+
+    def _client(self) -> AuthenticatedClient:
+        def respond(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                504,
+                json=self._BODY,
+                headers={"Content-Type": "application/problem+json"},
+            )
+
+        return AuthenticatedClient(
+            base_url="http://sdk.test",
+            token=uuid4().hex,
+            raise_on_unexpected_status=True,
+            httpx_args={"transport": httpx.MockTransport(respond)},
+        )
+
+    def test_import_and_reupload_previews(self) -> None:
+        from geolens.api.datasets import (
+            preview_service_layer_services_preview_post as preview,
+        )
+        from geolens.api.datasets_reupload import (
+            reupload_service_preview_datasets_dataset_id_reupload_service_preview_post as reupload,
+        )
+        from geolens.models import (
+            ProblemDetail,
+            ReuploadServicePreviewRequest,
+            ServicePreviewRequest,
+        )
+
+        fields = {
+            "url": "https://example.test/wfs",
+            "service_type": "WFS 2.0.0",
+            "layer_name": "app:parcels",
+        }
+        client = self._client()
+        import_body = ServicePreviewRequest(**fields)
+        reupload_body = ReuploadServicePreviewRequest(**fields)
+        dataset_id = uuid4()
+
+        results = [
+            preview.sync(client=client, body=import_body),
+            asyncio.run(preview.asyncio(client=client, body=import_body)),
+            reupload.sync(dataset_id, client=client, body=reupload_body),
+            asyncio.run(
+                reupload.asyncio(dataset_id, client=client, body=reupload_body)
+            ),
+        ]
+
+        for result in results:
+            assert isinstance(result, ProblemDetail)
+            assert result.to_dict()["detail"]["code"] == "service_preview_timeout"
+
+
 class TestFeaturesGeojsonDownload:
     """The convenience calls return the parsed FeatureCollection, not None."""
 

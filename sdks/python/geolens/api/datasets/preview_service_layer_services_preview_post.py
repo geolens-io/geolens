@@ -79,10 +79,20 @@ def _parse_response(
 
         return response_500
 
+    if response.status_code == 502:
+        response_502 = ProblemDetail.from_dict(response.json())
+
+        return response_502
+
     if response.status_code == 503:
         response_503 = ProblemDetail.from_dict(response.json())
 
         return response_503
+
+    if response.status_code == 504:
+        response_504 = ProblemDetail.from_dict(response.json())
+
+        return response_504
 
     if client.raise_on_unexpected_status:
         raise errors.UnexpectedStatus(response.status_code, response.content)

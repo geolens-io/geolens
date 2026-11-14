@@ -113,9 +113,11 @@ from app.platform.portal_link import (
     resolve_portal_link,
 )
 from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
     ERROR_RESPONSES_WRITE,
     PROBLEM_RESPONSE,
     RATE_LIMIT_RESPONSE,
+    SERVICE_PREVIEW_TIMEOUT_RESPONSE,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -1150,6 +1152,7 @@ async def probe_service_url(
 @router.post(
     "/preview/",
     response_model=ServicePreviewResponse,
+    responses={502: BAD_GATEWAY_RESPONSE, 504: SERVICE_PREVIEW_TIMEOUT_RESPONSE},
     summary="Preview a remote service layer",
 )
 async def preview_service_layer(
