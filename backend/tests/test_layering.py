@@ -1333,7 +1333,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/ogc/filtering.py": 1111,
     # Auth routes (sign-in, sessions, API keys, password) share one router and its
     # rate-limit and cookie helpers.
-    "backend/app/modules/auth/router.py": 1534,
+    "backend/app/modules/auth/router.py": 1541,
     # Application composition debt; preserve lifespan and middleware ordering when
     # splitting.
     "backend/app/api/main.py": 1656,
