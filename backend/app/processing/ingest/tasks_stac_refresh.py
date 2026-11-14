@@ -576,6 +576,7 @@ class _StacRefresh:
         # Quicklooks this attempt stored. The commit that names them owes the
         # deletion of what they replaced; release() deletes them if none does.
         self.drawn: tuple[str, str] | None = None
+        self.fill: dict[str, Any] = {}
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.bound = bound_pointer(dataset)
@@ -622,12 +623,32 @@ class _StacRefresh:
         # A moved asset is drawn from its new description, an unmoved one
         # without quicklooks from the stored one; a failed draw changes nothing.
         moved = self.resolution.asset_href != self.asset_href
+        self.fill = {}
+        if stored is not None and not moved:
+            reported = {
+                "nodata": self.resolution.repaired_nodata,
+                "band_count": self.resolution.repaired_band_count,
+                "dtype": self.resolution.repaired_dtype,
+            }
+            self.fill = {
+                column: value
+                for column, value in reported.items()
+                if value is not None and getattr(stored, column) is None
+            }
+        # Band count and dtype set the draw's band and stretch, so filling
+        # either redraws images made without them.
         if stored is not None and (
             moved
             or stored.quicklook_256_uri is None
             or stored.quicklook_512_uri is None
+            or "band_count" in self.fill
+            or "dtype" in self.fill
         ):
-            described = self.resolution.asset_metadata if moved else stored._mapping
+            described = (
+                self.resolution.asset_metadata
+                if moved
+                else {**stored._mapping, **self.fill}
+            )
             drawn = await draw_remote_quicklooks(
                 {self.dataset_id: (self.resolution.asset_href, described or {})}
             )
@@ -709,10 +730,10 @@ class _StacRefresh:
                 dataset.record.spatial_extent = func.ST_GeomFromText(
                     bbox_to_extent_wkt(west, south, east, north), 4326
                 )
-        elif resolution.repaired:
-            # The columns fetch() asked to have repaired, for an asset
-            # not re-described above.
-            await _repair_remote_header(session, dataset.id, resolution.repaired)
+        elif self.fill:
+            # The columns fetch() found missing and the read supplied, for an
+            # asset not re-described above.
+            await _repair_remote_header(session, dataset.id, self.fill)
         # A moved asset that could not be drawn loses the old images, so the
         # next refresh draws it rather than showing the previous raster.
         superseded: tuple[str, ...] = ()
@@ -743,7 +764,7 @@ class _StacRefresh:
             feature_count=None,
             schema_diff=None,
             contacted_origin=True,
-            tiles_changed=moved or bool(resolution.repaired),
+            tiles_changed=moved or bool(self.fill),
             reembed=moved,
             superseded_keys=superseded,
         )

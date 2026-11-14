@@ -450,7 +450,8 @@ class ProcessingPort(Protocol):
     # ``credential`` is the ``ServiceCredential`` a credentialed
     # refresh claimed for this attempt, and ``catalog_origin`` the catalog
     # address it was given for; a read steered elsewhere is made anonymously.
-    # ``repair_nodata`` asks the resolver for a nodata-only backfill.
+    # ``repair_nodata`` asks the resolver to read an unmoved asset's nodata,
+    # band count and data type, for whichever the caller has not stored.
     async def resolve_stac_binding(
         self,
         *,

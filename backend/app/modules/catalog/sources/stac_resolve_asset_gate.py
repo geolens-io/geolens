@@ -331,7 +331,9 @@ async def _resolve_from_item(
         asset_metadata=metadata,
         epsg=reconcile_epsg(metadata or {}, declared_epsg),
         bbox=usable_bbox,
-        repaired=repaired,
+        repaired_nodata=repaired.get("nodata"),
+        repaired_band_count=repaired.get("band_count"),
+        repaired_dtype=repaired.get("dtype"),
     )
 
 
