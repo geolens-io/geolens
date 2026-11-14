@@ -2,6 +2,8 @@
 
 import asyncio
 import contextlib
+import json
+import math
 import sys
 import uuid
 from pathlib import Path
@@ -383,6 +385,335 @@ class TestOperations:
         assert edges == sorted(edges)
         assert (edges[0], edges[-1]) == (low, high)
         assert sum(b.count for b in result.bins) == 5
+
+    async def _score_histogram(self, client, session, points, scores, bins):
+        """Sets each row's score (None is NULL) and returns the histogram result."""
+        for gid, score in enumerate(scores, start=1):
+            value = "NULL" if score is None else repr(score)
+            await session.execute(
+                text(
+                    f"UPDATE data.{points.table_name}"  # noqa: S608
+                    f" SET score = {value} WHERE gid = {gid}"
+                )
+            )
+        await session.commit()
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "score", "bins": bins}
+        )
+        assert resp.status_code == 200, resp.text
+        return resp.json()["result"]["bins"]
+
+    async def test_a_histogram_of_decimals_has_rounded_edges(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        scores = [0.13, 0.5, 1.07, 2.2, 3.3, 3.9, 4.41, 4.77]
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 10)
+
+        edges = [bins[0]["lower"]] + [b["upper"] for b in bins]
+        assert edges == [0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0]
+        assert sum(b["count"] for b in bins) == 8
+        assert [b["count"] for b in bins] == [1, 1, 1, 0, 1, 0, 1, 1, 1, 1]
+
+    @pytest.mark.parametrize("column_type", ["double precision", "real", "numeric"])
+    @pytest.mark.parametrize("sign", [1, -1])
+    @pytest.mark.parametrize("outer", [False, True])
+    async def test_each_bin_count_matches_a_filter_on_its_returned_edges(
+        self, client: AsyncClient, test_db_session, points, column_type, sign, outer
+    ):
+        """Values beside every edge land where a range filter on the edges puts them."""
+        import struct
+
+        def near(value, up):
+            if column_type != "real":
+                return math.nextafter(value, math.inf if up else -math.inf)
+            bits = struct.unpack("<i", struct.pack("<f", value))[0]
+            bits += 1 if (value >= 0) == up else -1
+            return struct.unpack("<f", struct.pack("<i", bits))[0]
+
+        if outer:
+            scores = [near(1.0, False), 1.5, near(2.0, True), 1.2, 1.3, 1.7, 1.8, 1.9]
+        else:
+            scores = [0.0, near(0.5, False), 0.5, near(0.5, True), 1.0, 0.25, 0.75, 0.1]
+        scores = [sign * v for v in scores]
+        table = f"data.{points.table_name}"
+        await test_db_session.execute(
+            text(f"ALTER TABLE {table} ALTER COLUMN score TYPE {column_type}")  # noqa: S608
+        )
+        await test_db_session.commit()
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 2)
+
+        await self._assert_counts_match_range_filters(client, points, bins)
+        values = [float(v) for v in scores]
+        assert min(values) >= bins[0]["lower"]
+        assert max(values) <= bins[-1]["upper"]
+        assert sum(b["count"] for b in bins) == 8
+
+    async def _assert_counts_match_range_filters(self, client, points, bins):
+        """Each bin's count equals a count request filtered by the bin's range."""
+        for i, b in enumerate(bins):
+            last = i == len(bins) - 1
+            where = {
+                "op": "and",
+                "args": [
+                    {"op": ">=", "args": [{"property": "score"}, b["lower"]]},
+                    {
+                        "op": "<=" if last else "<",
+                        "args": [{"property": "score"}, b["upper"]],
+                    },
+                ],
+            }
+            resp = await _aggregate(client, points.id, {"op": "count", "filter": where})
+            assert resp.status_code == 200, resp.text
+            assert b["count"] == resp.json()["result"]["count"], (i, bins)
+
+    @pytest.mark.parametrize(
+        ("column_type", "scores", "bins", "status", "expected"),
+        [
+            (
+                "double precision",
+                ["0.1", "0.10000000000000002"] * 4,
+                4,
+                200,
+                '{"bins": [{"lower": 0.1, "upper": 0.10000000000000002, "count": 4}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 4}], "whole_numbers": false}',
+            ),
+            (
+                "double precision",
+                ["0.1", "0.10000000000000002"] * 4,
+                50,
+                200,
+                '{"bins": [{"lower": 0.1, "upper": 0.1, "count": 4}, {"lower": 0.1, "upper": 0.1, "count": 0}, {"lower": 0.1, "upper": 0.1, "count": 0}, {"lower": 0.1, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 0}, {"lower": 0.10000000000000002, "upper": 0.10000000000000002, "count": 4}], "whole_numbers": false}',
+            ),
+            (
+                "double precision",
+                ["0", "5e-324"] * 4,
+                10,
+                200,
+                '{"bins": [{"lower": 0.0, "upper": 0.0, "count": 4}, {"lower": 0.0, "upper": 0.0, "count": 0}, {"lower": 0.0, "upper": 0.0, "count": 0}, {"lower": 0.0, "upper": 0.0, "count": 0}, {"lower": 0.0, "upper": 0.0, "count": 0}, {"lower": 0.0, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 4}], "whole_numbers": false}',
+            ),
+            (
+                "double precision",
+                ["-0.30000000000000004", "-0.3"] * 4,
+                4,
+                200,
+                '{"bins": [{"lower": -0.30000000000000004, "upper": -0.30000000000000004, "count": 4}, {"lower": -0.30000000000000004, "upper": -0.30000000000000004, "count": 0}, {"lower": -0.30000000000000004, "upper": -0.3, "count": 0}, {"lower": -0.3, "upper": -0.3, "count": 4}], "whole_numbers": false}',
+            ),
+            (
+                "double precision",
+                ["-5e-324", "0", "5e-324", "0"] * 2,
+                10,
+                200,
+                '{"bins": [{"lower": -5e-324, "upper": -5e-324, "count": 2}, {"lower": -5e-324, "upper": -5e-324, "count": 0}, {"lower": -5e-324, "upper": -5e-324, "count": 0}, {"lower": -5e-324, "upper": -5e-324, "count": 0}, {"lower": -5e-324, "upper": 0.0, "count": 0}, {"lower": 0.0, "upper": 5e-324, "count": 4}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 0}, {"lower": 5e-324, "upper": 5e-324, "count": 2}], "whole_numbers": false}',
+            ),
+            (
+                "double precision",
+                [
+                    "0.1",
+                    "0.10000000000000002",
+                    "0.10000000000000003",
+                    "0.10000000000000005",
+                ]
+                * 2,
+                3,
+                200,
+                '{"bins": [{"lower": 0.1, "upper": 0.10000000000000003, "count": 2}, {"lower": 0.10000000000000003, "upper": 0.10000000000000003, "count": 2}, {"lower": 0.10000000000000003, "upper": 0.10000000000000005, "count": 4}], "whole_numbers": false}',
+            ),
+            (
+                "numeric",
+                ["0.3", "0.300000000000000001"] * 4,
+                4,
+                200,
+                '{"bins": [{"lower": 0.3, "upper": 0.3, "count": 8}], "whole_numbers": false}',
+            ),
+            (
+                "numeric",
+                ["9007199254740992", "9007199254740993"] * 4,
+                4,
+                200,
+                '{"bins": [{"lower": 9007199254740992.0, "upper": 9007199254740992.0, "count": 8}], "whole_numbers": false}',
+            ),
+            (
+                "numeric",
+                ["1e309"] * 8,
+                4,
+                500,
+                '{"code": "query_failed", "message": "Query failed"}',
+            ),
+            (
+                "numeric",
+                ["1e-400"] * 8,
+                4,
+                500,
+                '{"code": "query_failed", "message": "Query failed"}',
+            ),
+        ],
+    )
+    async def test_a_request_that_is_not_rounded_answers_as_before(
+        self,
+        client: AsyncClient,
+        test_db_session,
+        points,
+        column_type,
+        scores,
+        bins,
+        status,
+        expected,
+    ):
+        """Ranges below a double's resolution and constants keep equal-width bins."""
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{points.table_name}"  # noqa: S608
+                f" ALTER COLUMN score TYPE {column_type}"
+            )
+        )
+        for gid, value in enumerate(scores, start=1):
+            await test_db_session.execute(
+                text(
+                    f"UPDATE data.{points.table_name}"  # noqa: S608
+                    f" SET score = '{value}' WHERE gid = {gid}"
+                )
+            )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "score", "bins": bins}
+        )
+
+        body = resp.json()
+        assert resp.status_code == status
+        assert body.get("result", body.get("detail")) == json.loads(expected)
+
+    async def test_a_numeric_histogram_assigns_in_decimal(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        await test_db_session.execute(
+            text(
+                f"ALTER TABLE data.{points.table_name}"  # noqa: S608
+                " ALTER COLUMN score TYPE numeric"
+            )
+        )
+        await test_db_session.commit()
+        scores = [
+            "0.13",
+            "0.499999999999999999",
+            "4.77",
+            "0.5",
+            "1.2",
+            "2.2",
+            "3.3",
+            "4",
+        ]
+        for gid, value in enumerate(scores, start=1):
+            await test_db_session.execute(
+                text(
+                    f"UPDATE data.{points.table_name}"  # noqa: S608
+                    f" SET score = {value} WHERE gid = {gid}"
+                )
+            )
+        await test_db_session.commit()
+
+        resp = await _aggregate(
+            client, points.id, {"op": "histogram", "column": "score", "bins": 10}
+        )
+
+        bins = resp.json()["result"]["bins"]
+        assert bins[0]["count"] == 2  # 0.13 and 0.4999..99 sit below the 0.5 edge
+        await self._assert_counts_match_range_filters(client, points, bins)
+
+    async def test_a_real_histogram_near_the_float4_limit_keeps_finite_edges(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        table = f"data.{points.table_name}"
+        await test_db_session.execute(
+            text(f"ALTER TABLE {table} ALTER COLUMN score TYPE real")  # noqa: S608
+        )
+        await test_db_session.commit()
+
+        bins = await self._score_histogram(
+            client,
+            test_db_session,
+            points,
+            [1e38, 3.4e38, -1e38, -3.4e38, 0.0, 2e38, -2e38, 3e38],
+            4,
+        )
+
+        assert all(abs(b["lower"]) <= 3.4028234663852886e38 for b in bins)
+        assert all(abs(b["upper"]) <= 3.4028234663852886e38 for b in bins)
+        assert bins[-1]["upper"] >= 3.3999999e38
+        assert sum(b["count"] for b in bins) == 8
+
+    async def test_a_value_on_the_last_edge_is_counted_once(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        scores = [0.0, 0.25, 0.5, 0.75, 1.0, 1.0, 0.1, 0.9]
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 4)
+
+        assert [(b["lower"], b["upper"]) for b in bins] == [(0.0, 0.5), (0.5, 1.0)]
+        assert [b["count"] for b in bins] == [3, 5]
+
+    async def test_a_histogram_of_negative_values_rounds_outward(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        scores = [-7.3, -6.1, -4.9, -3.2, -2.8, -1.4, -0.6, -0.2]
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 4)
+
+        assert (bins[0]["lower"], bins[-1]["upper"]) == (-8.0, 0.0)
+        assert len(bins) == 4
+        assert sum(b["count"] for b in bins) == 8
+
+    async def test_a_histogram_never_exceeds_the_requested_bins(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        # A step of 1 would need 6 bins from 0 to 6; the next step needs 3.
+        scores = [0.9, 1.5, 2.5, 3.5, 4.5, 5.1, 2.0, 3.0]
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 5)
+
+        assert [(b["lower"], b["upper"]) for b in bins] == [
+            (0.0, 2.0),
+            (2.0, 4.0),
+            (4.0, 6.0),
+        ]
+        assert sum(b["count"] for b in bins) == 8
+
+    async def test_a_single_requested_bin_holds_every_value(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        scores = [-1.5, 1.5, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7]
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 1)
+
+        assert bins == [{"lower": -10.0, "upper": 10.0, "count": 8}]
+
+    async def test_equal_values_make_one_bin(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        bins = await self._score_histogram(
+            client, test_db_session, points, [2.5] * 8, 5
+        )
+
+        assert bins == [{"lower": 2.5, "upper": 2.5, "count": 8}]
+
+    async def test_null_scores_are_left_out_of_a_histogram(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        scores = [None, None, 1.5, 2.5, None, 4.5, None, 3.5]
+
+        bins = await self._score_histogram(client, test_db_session, points, scores, 4)
+
+        assert sum(b["count"] for b in bins) == 4
+
+    async def test_a_histogram_of_only_nulls_has_no_bins(
+        self, client: AsyncClient, test_db_session, points
+    ):
+        bins = await self._score_histogram(
+            client, test_db_session, points, [None] * 8, 4
+        )
+
+        assert bins == []
 
     async def test_double_values_keep_every_stored_digit(
         self, client: AsyncClient, test_db_session, points

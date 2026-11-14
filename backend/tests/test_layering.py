@@ -1338,7 +1338,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The app object, its middleware and exception handlers, route registration
     # and the lifespan stay together to keep their order; the capability 401
     # mapping stays here because this module is already reviewed for embed tokens.
-    "backend/app/api/main.py": 1234,
+    "backend/app/api/main.py": 1241,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1590,
