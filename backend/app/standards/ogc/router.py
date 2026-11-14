@@ -19,8 +19,8 @@ from app.core.persistent_config import OGC_ITEMS_MAX_PAGE_SIZE
 from app.core.public_urls import get_public_api_url, get_public_app_url
 from app.core.tenancy import is_multi_tenant
 from app.core.tile_scope import tile_template_query, vector_tile_template
+from app.core.statement_timeout import bound_anonymous_reads, bound_every_read
 from app.modules.auth.dependencies import (
-    bound_anonymous_reads,
     get_optional_user,
     request_carries_credentials,
 )
@@ -206,8 +206,10 @@ async def _check_cold_rehydrate(
     return None
 
 
+# The landing page and conformance resolve no caller, so every request is bound.
 ogc_router = APIRouter(
-    tags=["OGC Features"], dependencies=[Depends(desktop_entry_gate)]
+    tags=["OGC Features"],
+    dependencies=[Depends(desktop_entry_gate), Depends(bound_every_read)],
 )
 
 # Separate router for per-dataset OGC Features endpoints.
