@@ -1153,6 +1153,49 @@ def declares_linear_geometry(geometry_type: str) -> bool:
     return not any(word in lowered for word in ("circular", "curve", "surface"))
 
 
+def declares_single_point(geometry_type: str | None) -> bool:
+    """Whether an ogrinfo type names a plain Point, in any dimension or spelling.
+
+    Covers the JSON spelling (``PointZ``) and the text one (``3D Measured Point``).
+    """
+    if not geometry_type:
+        return False
+    lowered = geometry_type.lower().replace("3d ", "").replace("measured ", "")
+    return lowered.strip() in ("point", "pointz", "pointm", "pointzm")
+
+
+async def _run_file_ogr2ogr(
+    cmd: list[str], env: dict[str, str] | None
+) -> tuple[int, bytes]:
+    """Run the file import command; return its exit code and stderr.
+
+    A GeoPackage or FlatGeobuf header can say Point over rows that hold
+    MultiPoint, which PostGIS refuses in a Point column. That one failure is
+    retried with the multi form.
+    """
+    while True:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        _, stderr = await _communicate_with_timeout(
+            proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
+        )
+        if (
+            proc.returncode != 0
+            and "POINT" in cmd
+            and b"does not match column type" in stderr
+        ):
+            structlog.get_logger().info(
+                "point layer holds multi-part points; storing as multi"
+            )
+            cmd[cmd.index("POINT")] = "PROMOTE_TO_MULTI"
+            continue
+        return proc.returncode, stderr
+
+
 async def run_ogr2ogr(
     file_path: str,
     table_name: str,
@@ -1262,7 +1305,9 @@ async def run_ogr2ogr(
         cmd.extend(
             [
                 "-nlt",
-                "PROMOTE_TO_MULTI",
+                # A layer declared Point stays Point so downstream clients can
+                # cluster it; every other type is stored in its multi form.
+                "POINT" if declares_single_point(geometry_type) else "PROMOTE_TO_MULTI",
                 # Use a non-colliding target name so that source attributes
                 # named `geom` or `geometry` (valid GeoJSON/Shapefile/GeoPackage
                 # property names) do not clash with the pipeline geometry
@@ -1317,22 +1362,15 @@ async def run_ogr2ogr(
     # fetches — `run_ogr2ogr_service` below is the one with an HTTP surface
     # (see its egress-proxy note). In multi-tenant mode PGOPTIONS also selects
     # the active tenant's writer role for this independent libpq connection.
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        # The clamp is the base the tenant role is layered onto, so both
-        # single- and multi-tenant carry it.
-        env=_tenant_writer_subprocess_env(schema, base_env=gdal_vector_safe_env()),
-    )
-    stdout, stderr = await _communicate_with_timeout(
-        proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
-    )
+    # The clamp is the base the tenant role is layered onto, so both
+    # single- and multi-tenant carry it.
+    env = _tenant_writer_subprocess_env(schema, base_env=gdal_vector_safe_env())
+    returncode, stderr = await _run_file_ogr2ogr(cmd, env)
 
-    if proc.returncode != 0:
+    if returncode != 0:
         _raise_gdal_failure(
             "ogr2ogr",
-            proc.returncode,
+            returncode,
             stderr.decode(errors="replace").strip(),
             original_filename,
         )
