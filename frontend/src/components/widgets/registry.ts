@@ -1,3 +1,6 @@
+import type { FilterSpecification } from 'maplibre-gl';
+import { validateRawFilter } from '@/lib/maplibre-filter-utils';
+import { widgetFilterShape } from '@/lib/widget-filter-shape';
 import { WIDGET_TITLE_MAX_LENGTH } from './contract';
 import type { AnyWidgetDefinition, WidgetInstance, WidgetSurface } from './contract';
 import { barChartWidget } from './bar-chart/definition';
@@ -40,7 +43,7 @@ const byType = new Map(widgetDefinitions.map((definition) => [definition.type, d
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const INSTANCE_KEYS = new Set(['id', 'type', 'v', 'title', 'config']);
 // A dashboard widget summarizes one layer of the dashboard's map, unless its type is layerless.
-const DASHBOARD_INSTANCE_KEYS = new Set([...INSTANCE_KEYS, 'layer_id', 'scope']);
+const DASHBOARD_INSTANCE_KEYS = new Set([...INSTANCE_KEYS, 'layer_id', 'scope', 'filter']);
 
 type WidgetRejection =
   | 'malformed'
@@ -86,10 +89,22 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+/** A stored widget filter in its normalized form, null when it clears, or undefined in a shape a widget doesn't take. */
+function parseWidgetFilter(raw: unknown): FilterSpecification | null | undefined {
+  let filter: FilterSpecification | null;
+  try {
+    filter = validateRawFilter(raw);
+  } catch {
+    return undefined;
+  }
+  return widgetFilterShape(filter) ? filter : undefined;
+}
+
 /**
  * Parses one instance with the server's rules: the keys are exactly `id`,
  * `type`, `v`, `title` and `config`, plus a required `layer_id` and an
- * optional `scope` on a dashboard (not for a layerless type) and a required
+ * optional `scope` and `filter` on a dashboard (not for a layerless type; a
+ * filter needs the type's `filterVersion`) and a required
  * `asset_id` for a type that shows an uploaded image, and the config is the registered type's at a
  * version this build reads. Never throws: an instance it can't read comes
  * back as `ok: false` and is shown as a notice. On success the config is
@@ -128,6 +143,10 @@ export function parseStoredWidget(raw: unknown, surface: WidgetSurface): ParsedW
   ) {
     return { ok: false, reason: 'malformed' };
   }
+  const filter = bound ? parseWidgetFilter(raw.filter) : null;
+  if (filter === undefined || (filter && (!definition.filterVersion || v < definition.filterVersion))) {
+    return { ok: false, reason: 'malformed' };
+  }
   const config = definition.parseConfig(raw.config, v);
   if (config === null) return { ok: false, reason: 'invalid_config' };
   const instance: WidgetInstance = { id: raw.id, type: raw.type, v: definition.v, config };
@@ -136,6 +155,7 @@ export function parseStoredWidget(raw: unknown, surface: WidgetSurface): ParsedW
   if (bound) {
     instance.layer_id = raw.layer_id as string;
     instance.scope = raw.scope === 'view' ? 'view' : 'layer';
+    if (filter) instance.filter = filter;
   }
   return { ok: true, definition, instance };
 }

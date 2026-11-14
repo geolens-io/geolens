@@ -384,6 +384,7 @@ describe('widgetFilter', () => {
     const result = widgetFilter(layer('a', ['==', ['get', 'zone'], 'A']), [residential]);
     expect(result).toEqual({
       savedIgnored: false,
+      ownUnsupported: false,
       filter: {
         op: 'and',
         args: [
@@ -392,13 +393,14 @@ describe('widgetFilter', () => {
         ],
       },
     });
-    expect(widgetFilter(layer('a'), [])).toEqual({ savedIgnored: false, filter: null });
+    expect(widgetFilter(layer('a'), [])).toEqual({ savedIgnored: false, ownUnsupported: false, filter: null });
   });
 
   it('sends a legacy saved filter with the picks', () => {
     const residential = selectionCql2(layer('a'), pick(['Residential']))!;
     expect(widgetFilter(layer('a', ['in', 'zone', 'A', 'C'] as FilterSpecification), [residential])).toEqual({
       savedIgnored: false,
+      ownUnsupported: false,
       filter: {
         op: 'and',
         args: [
@@ -414,7 +416,29 @@ describe('widgetFilter', () => {
     const result = widgetFilter(layer('a', ['>', ['length', ['get', 'zone']], 3]), [residential]);
     expect(result).toEqual({
       savedIgnored: true,
+      ownUnsupported: false,
       filter: { op: 'in', args: [{ property: 'land_use' }, ['Residential']] },
     });
+  });
+
+  it("ANDs the layer's filter, the widget's own filter and the picks, in that order", () => {
+    const residential = selectionCql2(layer('a'), pick(['Residential']))!;
+    const own: FilterSpecification = ['>=', ['get', 'floors'], 3];
+    expect(widgetFilter(layer('a', ['==', ['get', 'zone'], 'A']), [residential], own)).toEqual({
+      savedIgnored: false,
+      ownUnsupported: false,
+      filter: { op: 'and', args: [cql2(['==', ['get', 'zone'], 'A']), cql2(own), residential] },
+    });
+  });
+
+  it("sends an unfiltered layer's widget filter as that layer would send it as its own filter", () => {
+    const own: FilterSpecification = ['all', ['>=', ['get', 'floors'], 3], ['==', ['get', 'zone'], 'A']];
+    expect(widgetFilter(layer('a'), [], own)).toEqual(widgetFilter(layer('a', own), []));
+  });
+
+  it('reports an own filter it cannot send instead of dropping it', () => {
+    const narrowed = { ...layer('a'), column_info: columns.filter((column) => column.name !== 'zone') };
+    const result = widgetFilter(narrowed as SharedLayerResponse, [], ['==', ['get', 'zone'], 'A']);
+    expect(result).toEqual({ savedIgnored: false, ownUnsupported: true, filter: null });
   });
 });

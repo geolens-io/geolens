@@ -74,12 +74,13 @@ def _widget(type, layer_id=None, widget_id=None, **extra) -> dict:
     }
 
 
-def _merge(sent, stored, readable=(), hidden=(), repointed=()):
+def _merge(sent, stored, readable=(), hidden=(), repointed=(), refusals=None):
     return merge_dashboard(
         None if sent is None else DashboardConfigInput.model_validate(sent),
         drop_repointed(stored, set(repointed)),
         layer_ids=set(readable) | set(hidden),
         hidden_layer_ids=set(hidden),
+        filter_refusals=refusals or {},
     )
 
 
@@ -445,7 +446,7 @@ class TestMergeDashboard:
     ):
         shown = uuid.uuid4()
         if kind == "unparseable":
-            unseen = _widget("indicator", shown, v=3)
+            unseen = _widget("indicator", shown, v=9)
         else:
             request.getfixturevalue("histogram_unregistered")
             unseen = _widget("histogram", shown)

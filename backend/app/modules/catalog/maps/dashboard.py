@@ -262,11 +262,14 @@ def merge_dashboard(
     *,
     layer_ids: Collection[uuid.UUID],
     hidden_layer_ids: Collection[uuid.UUID],
+    filter_refusals: Mapping[str, str],
 ) -> dict[str, Any] | None:
     """The dashboard to store for a save; ``sent=None`` removes what the editor sees.
 
     ``layer_ids`` are the map's layers after the save and ``hidden_layer_ids``
-    those among them whose dataset the editor can't read.
+    those among them whose dataset the editor can't read. A sent widget with
+    a reason in ``filter_refusals`` (by widget id, from
+    ``dashboard_filters.widget_filter_refusals``) is refused (422) with it.
 
     A stored widget on a hidden layer, or one the editor's client can't read
     (outside its ``readable`` pairs, by default those of earlier releases),
@@ -324,6 +327,8 @@ def merge_dashboard(
             reason = "layer_unavailable"
         elif str(w.id) in locked_ids:
             reason = "id_in_use"
+        elif str(w.id) in filter_refusals:
+            reason = filter_refusals[str(w.id)]
         else:
             continue
         refused.append({"id": str(w.id), "layer_id": _layer_id(w), "reason": reason})

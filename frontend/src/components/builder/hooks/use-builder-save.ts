@@ -1067,6 +1067,7 @@ const DASHBOARD_SAVE_ERRORS = new Set([
   'errors.dashboardTooNew',
   'errors.dashboardTooManyWidgets',
   'errors.dashboardWidgetsRefused',
+  'errors.dashboardWidgetFilterRefused',
 ]);
 
 /** The state fields handleSave snapshots into its payloads. If any changes
@@ -1218,12 +1219,17 @@ export function useBuilderSave(state: SaveState) {
       toast.error(t('toasts.popupConfigInvalidNamed', { layerName }), { id: 'popup-config-invalid', duration: 6000 });
       return;
     }
-    const widgetIssue = sendDashboard ? firstWidgetProblem(dashboard, localLayers) : null;
+    // A layer filter counts toward each widget's request, so an unedited dashboard is checked for size too.
+    const widgetIssue = firstWidgetProblem(dashboard, localLayers, sendDashboard ? undefined : ['filterTooLarge']);
     if (widgetIssue) {
       toast.error(
         widgetIssue.kind === 'viewWithoutGeometry'
           ? t('toasts.dashboardViewWithoutGeometry')
-          : t('toasts.dashboardWidgetInvalid', { column: widgetIssue.column }),
+          : widgetIssue.kind === 'filterUnsupported'
+            ? t('toasts.dashboardWidgetFilterUnsupported')
+            : widgetIssue.kind === 'filterTooLarge'
+              ? t('toasts.dashboardWidgetFilterTooLarge')
+              : t('toasts.dashboardWidgetInvalid', { column: widgetIssue.column }),
         { id: 'dashboard-widget-invalid', duration: 6000 },
       );
       return;

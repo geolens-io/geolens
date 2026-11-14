@@ -1,10 +1,11 @@
 from typing import Literal, cast
 
-BarChartWidgetV = Literal[1, 2]
+BarChartWidgetV = Literal[1, 2, 3]
 
 BAR_CHART_WIDGET_V_VALUES: set[BarChartWidgetV] = {
     1,
     2,
+    3,
 }
 
 

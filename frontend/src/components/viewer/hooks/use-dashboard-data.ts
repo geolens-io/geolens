@@ -58,11 +58,13 @@ export function useMapViewBbox(map: MaplibreMap | null, enabled: boolean): Bbox 
 }
 
 /**
- * Fetches one dashboard widget's aggregate with its layer's saved filter, the
- * reader's picks on the layer's other widgets (`linked`) and, for a
- * view-scoped widget, the map view; with the map hidden a view-scoped
+ * Fetches one dashboard widget's aggregate with its layer's saved filter, its
+ * own filter, the reader's picks on the layer's other widgets (`linked`) and,
+ * for a view-scoped widget, the map view; with the map hidden a view-scoped
  * widget reads its whole layer. A saved filter the endpoint can't take is
- * left out and reported as `filterIgnored`, so the widget can say so.
+ * left out and reported as `filterIgnored`, so the widget can say so. An own
+ * filter it can't take (`ownFilterUnsupported`) stops the request instead, so
+ * the widget never shows numbers its filter would have narrowed.
  */
 export function useWidgetAggregate({
   instance,
@@ -81,19 +83,22 @@ export function useWidgetAggregate({
   linked?: readonly Cql2Expression[];
   mapHidden?: boolean;
 }) {
-  const { filter, savedIgnored } = useMemo(() => widgetFilter(layer, linked), [layer, linked]);
+  const { filter, savedIgnored, ownUnsupported } = useMemo(
+    () => widgetFilter(layer, linked, instance.filter),
+    [layer, linked, instance.filter],
+  );
   // A table has no geometry to bound, so its widgets cover the whole layer.
   const viewScoped = instance.scope === 'view' && !!layer.geometry_type;
   const followsView = viewScoped && !mapHidden;
   const body = useMemo(() => {
     const request = definition.dataRequest?.(instance.config);
-    if (!request) return null;
+    if (!request || ownUnsupported) return null;
     return {
       ...request,
       ...(filter ? { filter } : {}),
       ...(followsView && viewBbox ? { bbox: viewBbox } : {}),
     } as AggregateRequest;
-  }, [definition, instance.config, filter, followsView, viewBbox]);
+  }, [definition, instance.config, ownUnsupported, filter, followsView, viewBbox]);
 
   const enabled = body !== null && (!followsView || viewBbox !== null);
   const paged = body?.op === 'rows';
@@ -140,6 +145,7 @@ export function useWidgetAggregate({
   return {
     query,
     filterIgnored: savedIgnored,
+    ownFilterUnsupported: ownUnsupported,
     followsView,
     // A view-scoped widget is also pending while it waits for the map to rest.
     loading: body !== null && query.isPending,

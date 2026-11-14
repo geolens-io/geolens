@@ -111,7 +111,7 @@ class TestAClientSendingWhatTheServerCantParseIsRefused:
         "item",
         [
             pytest.param(_widget("histogram", type="timeline"), id="unknown type"),
-            pytest.param(_widget("histogram", v=2), id="newer v"),
+            pytest.param(_widget("histogram", v=9), id="newer v"),
             pytest.param(_widget("histogram", v=0), id="older v without an upgrader"),
             pytest.param(_widget("image"), id="a story block on a dashboard"),
             pytest.param(
@@ -333,7 +333,7 @@ class TestStoredWidgetsTheServerCantParseSurviveASave:
         ]
         from_a_newer_release = [
             _widget("histogram", type="time_series", config={"column": "t"}),
-            _widget("histogram", v=2, config={"column": "pop", "bins": "auto"}),
+            _widget("histogram", v=9, config={"column": "pop", "bins": "auto"}),
         ]
         # Valid once, refused by a tightened cap, and not an object at all.
         damaged = [_widget("histogram", config={"column": "pop", "bins": 500}), "?"]
@@ -380,7 +380,7 @@ class TestStoredWidgetsTheServerCantParseSurviveASave:
         assert saved == [widgets[name] for name in expected]
 
     def test_a_sent_instance_replaces_a_kept_one_with_the_same_id(self) -> None:
-        unknown = _widget("histogram", v=2)
+        unknown = _widget("histogram", v=9)
         read = read_stored([unknown], "dashboard")
         replacement = _widget("histogram", id=unknown["id"])
 

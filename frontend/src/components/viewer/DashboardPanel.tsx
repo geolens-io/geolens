@@ -125,15 +125,16 @@ export function DashboardWidget({
   const layerLineId = useId();
   const Heading = headingLevel === 4 ? 'h4' : 'h3';
   const { instance, definition } = parsed;
-  const { query, filterIgnored, loading, followsView, loadMore, loadingMore, loadMoreFailed } = useWidgetAggregate({
-    instance,
-    definition,
-    layer,
-    viewBbox,
-    embedToken,
-    linked,
-    mapHidden,
-  });
+  const { query, filterIgnored, ownFilterUnsupported, loading, followsView, loadMore, loadingMore, loadMoreFailed } =
+    useWidgetAggregate({
+      instance,
+      definition,
+      layer,
+      viewBbox,
+      embedToken,
+      linked,
+      mapHidden,
+    });
   const layerColors = useMemo(() => categoryColors(layer), [layer]);
   const loadingSkeleton = (
     <Skeleton className="h-12 w-full">
@@ -183,6 +184,7 @@ export function DashboardWidget({
           {t(linked?.length ? 'dashboard.filterIgnoredWithPicks' : 'dashboard.filterIgnored')}
         </p>
       )}
+      {ownFilterUnsupported && <p className="text-xs text-destructive">{t('dashboard.ownFilterUnsupported')}</p>}
       {failed && (
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-xs text-destructive">{t(errorKey(code))}</p>
@@ -195,7 +197,7 @@ export function DashboardWidget({
       )}
       {loading ? (
         loadingSkeleton
-      ) : failed && query.data === undefined ? null : (
+      ) : ownFilterUnsupported || (failed && query.data === undefined) ? null : (
         <div className={cn('transition-opacity', stale && 'opacity-50')}>
           <LayerColorsProvider value={layerColors}>
             <WidgetView
@@ -473,7 +475,6 @@ export function DashboardPanel({
   const collapsed = !mapHidden && collapsedChoice;
   const toggleRef = useRef<HTMLButtonElement>(null);
   const headingRef = useRef<HTMLHeadingElement>(null);
-  const { choose, remove, announcement, layerName, pickLabel } = usePicks(picks, onPicksChange, layers);
   const zoomTo = useFeatureZoom(mapHidden ? null : map);
   // One announcement for the panel, so a pan that fails every widget doesn't speak once per widget.
   const [problems, setProblems] = useState<ReadonlyMap<string, WidgetProblem>>(() => new Map());
@@ -496,6 +497,12 @@ export function DashboardPanel({
       })),
     [config],
   );
+  // Widgets with their own filter send it with the picks on the layer's other widgets.
+  const filtered = useMemo(
+    () => widgets.flatMap(({ parsed }) => (parsed.ok && parsed.instance.filter ? [parsed.instance] : [])),
+    [widgets],
+  );
+  const { choose, remove, announcement, layerName, pickLabel } = usePicks(picks, onPicksChange, layers, filtered);
   // Renderer chunks download alongside the aggregate requests.
   useEffect(() => {
     for (const { parsed } of widgets) {

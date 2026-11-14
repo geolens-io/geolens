@@ -72,6 +72,99 @@ describe('the version a save stores for a bar chart', () => {
   });
 });
 
+describe("a widget's own filter", () => {
+  const keep = ['==', ['get', 'kind'], 'parcel'];
+  const filtered = (filter: unknown, extra: Record<string, unknown> = {}) => ({ ...indicator(extra), filter }) as never;
+  const saved = (widget: never) =>
+    dashboardPayload({ panel: 'right', widgets: [widget] }, [layer()], { panel: 'right' })?.widgets?.[0];
+
+  it('stores at the filter version and reads back, while a plain widget keeps its version and no filter key', () => {
+    expect(saved(filtered(keep))).toMatchObject({ v: 3, filter: keep });
+    expect(saved(filtered(keep, { reference: 5 }))).toMatchObject({ v: 3 });
+    const plain = saved(indicator({}) as never);
+    expect(plain).toMatchObject({ v: 1 });
+    expect(plain).not.toHaveProperty('filter');
+    const draft = toDashboardDraft({ version: 1, widgets: [{ ...indicator({}), v: 3, filter: keep }] } as never);
+    expect(draft.widgets[0].filter).toEqual(keep);
+  });
+
+  it('is not read from a version that cannot carry it, or in a form the layer filter grammar refuses', () => {
+    expect(toDashboardDraft({ version: 1, widgets: [{ ...indicator({}), v: 2, filter: keep }] } as never).widgets).toEqual(
+      [],
+    );
+    expect(
+      toDashboardDraft({ version: 1, widgets: [{ ...indicator({}), v: 3, filter: ['==', ['get', 'kind']] }] } as never)
+        .widgets,
+    ).toEqual([]);
+  });
+
+  it('lists the filter versions in what a save says it reads', () => {
+    expect(dashboardReadableTypes()).toEqual(
+      expect.arrayContaining(['indicator:3', 'bar_chart:3', 'pie_chart:2', 'table:2', 'histogram:2']),
+    );
+  });
+
+  it('holds the save on a column the layer lacks or a filter the endpoint cannot take', () => {
+    expect(widgetProblem(filtered(['==', ['get', 'owner'], 'x']), layer())).toEqual({
+      kind: 'missingColumn',
+      column: 'owner',
+    });
+    expect(widgetProblem(filtered(['>', ['length', ['get', 'kind']], 3]), layer())).toEqual({
+      kind: 'filterUnsupported',
+    });
+    expect(widgetProblem(filtered(keep), layer())).toBeNull();
+  });
+
+  it('reads no column from the values of a literal list, positive or negated, in a group', () => {
+    const members = ['in', ['get', 'kind'], ['literal', ['get', 'has']]];
+    expect(widgetProblem(filtered(['all', members, ['any', ['!', ['in', ['get', 'kind'], ['literal', ['has', 'x']]]]]]), layer())).toBeNull();
+  });
+
+  it.each([
+    [['!in', 'owner', 'x']],
+    [['!has', 'owner']],
+    [['all', ['has', 'kind'], ['!in', 'owner', 'x']]],
+  ])('finds the column a legacy spelling names: %j', (filter) => {
+    expect(widgetProblem(filtered(filter), layer())).toEqual({ kind: 'missingColumn', column: 'owner' });
+  });
+
+  it.each([[['none', ['!has', 'owner']]], [['all', ['==', ['get', 'kind'], 'a'], ['!has', 'owner']]], [['match', ['get', 'kind'], 'a', true, false]]])(
+    'holds a filter in a shape a widget does not take: %j',
+    (filter) => {
+      expect(widgetProblem(filtered(filter), layer())).toEqual({ kind: 'filterUnsupported' });
+    },
+  );
+
+  it('holds an order comparison on a boolean column, which the aggregate endpoint refuses', () => {
+    const flagged = layer({
+      dataset_column_info: [
+        { name: 'kind', type: 'text' },
+        { name: 'active', type: 'boolean' },
+      ],
+    });
+    expect(widgetProblem(filtered(['>', ['get', 'active'], true]), flagged)).toEqual({ kind: 'filterUnsupported' });
+    expect(widgetProblem(filtered(['==', ['get', 'active'], true]), flagged)).toBeNull();
+  });
+
+  it('holds a filter whose columns are computed', () => {
+    expect(widgetProblem(filtered(['==', ['get', ['concat', 'ki', 'nd']], 'a']), layer())).toEqual({
+      kind: 'filterUnsupported',
+    });
+    expect(widgetProblem(filtered(['==', ['at', 0, ['properties']], 'a']), layer())).toEqual({
+      kind: 'filterUnsupported',
+    });
+  });
+
+  it('holds a filter that, with the layer filter, is past what the aggregate endpoint takes', () => {
+    const values = Array.from({ length: 900 }, (_, i) => `value-${i}`);
+    const members = ['in', ['get', 'kind'], ['literal', values]];
+    expect(widgetProblem(filtered(members), layer())).toEqual({ kind: 'filterTooLarge' });
+    const half = ['in', ['get', 'kind'], ['literal', values.slice(0, 450)]];
+    expect(widgetProblem(filtered(half), layer())).toBeNull();
+    expect(widgetProblem(filtered(half), layer({ filter: half as never }))).toEqual({ kind: 'filterTooLarge' });
+  });
+});
+
 describe('dashboard drafts', () => {
   it('read a dashboard saved before the panel choice as a right panel', () => {
     expect(toDashboardDraft(null)).toEqual({ panel: 'right', widgets: [] });

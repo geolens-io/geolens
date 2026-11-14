@@ -34,6 +34,11 @@ interface LayerFilterEditorProps {
    * suppresses the hint regardless of filter state.
    */
   featureCount?: number | null;
+  /** Heading and help line in place of the layer filter's own, for a host that filters something narrower. */
+  title?: string;
+  help?: string;
+  /** Report each value keystroke at once, for a host that delays its own reaction instead. */
+  immediate?: boolean;
 }
 
 type ColumnType = 'string' | 'number' | 'boolean' | 'other';
@@ -214,6 +219,9 @@ export function LayerFilterEditor({
   onFilterChange,
   layerName,
   featureCount,
+  title,
+  help,
+  immediate = false,
 }: LayerFilterEditorProps) {
   const { t } = useTranslation('builder');
   const lastEmittedFilterRef = useRef<unknown>(null);
@@ -256,6 +264,13 @@ export function LayerFilterEditor({
       if (debounceTimerRef.current) clearTimeout(debounceTimerRef.current);
     };
   }, []);
+
+  function cancelPendingEmit() {
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+      debounceTimerRef.current = null;
+    }
+  }
 
   function emitChange(updated: FilterCondition[], combo: 'all' | 'any' = combinator) {
     // Cancel any pending debounced value emit: a stale 200ms timer firing after
@@ -325,7 +340,7 @@ export function LayerFilterEditor({
 
       return merged;
     });
-    if (debounce) {
+    if (debounce && !immediate) {
       debouncedEmit(updated, combinator);
     } else {
       emitChange(updated);
@@ -363,6 +378,8 @@ export function LayerFilterEditor({
   }
 
   function handleRawApply() {
+    // A value change still waiting would overwrite what the raw editor applies.
+    cancelPendingEmit();
     let parsed: unknown;
     try {
       parsed = JSON.parse(rawText);
@@ -441,7 +458,10 @@ export function LayerFilterEditor({
             variant="destructive"
             size="sm"
             className="mt-2"
-            onClick={() => onFilterChange(null)}
+            onClick={() => {
+              cancelPendingEmit();
+              onFilterChange(null);
+            }}
           >
             {t('layerEditor.emptyResult.clear', { defaultValue: 'Clear filter' })}
           </Button>
@@ -450,9 +470,9 @@ export function LayerFilterEditor({
       {/* Header row: title + raw toggle */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 space-y-0.5">
-          <div className="text-xs font-medium">{t('filters.layerTitle')}</div>
+          <div className="text-xs font-medium">{title ?? t('filters.layerTitle')}</div>
           <p className="text-mini leading-snug text-muted-foreground">
-            {t('filters.scopeHelp', { layer: layerName ?? t('filters.thisLayer') })}
+            {help ?? t('filters.scopeHelp', { layer: layerName ?? t('filters.thisLayer') })}
           </p>
         </div>
         <Button
