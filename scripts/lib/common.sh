@@ -1708,7 +1708,7 @@ update_env_value() {
   tmp=".env.tmp.$$"
 
   # The temp file starts private and writable; the mode of the existing .env
-  # (read from ls -l, as stat flags differ between GNU and BSD) is applied last
+  # (read from ls -lL, as stat flags differ between GNU and BSD) is applied last
   # so a read-only .env stays updatable.
   ( umask 077; : > "$tmp" ) || { rm -f "$tmp"; return 1; }
 
@@ -1726,9 +1726,9 @@ update_env_value() {
       }
     }
   ' .env > "$tmp" || { rm -f "$tmp"; return 1; }
-  _mode="$(ls -l .env | awk '{
+  _mode="$(ls -lL .env | awk '{
     m = substr($1, 2, 9); o = 0
-    for (i = 1; i <= 9; i++) if (substr(m, i, 1) != "-") o += 2 ^ (9 - i)
+    for (i = 1; i <= 9; i++) if (index("rwxst", substr(m, i, 1))) o += 2 ^ (9 - i)
     printf "%03o", o
   }')"
   case "$_mode" in

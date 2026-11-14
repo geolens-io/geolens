@@ -9,7 +9,7 @@ trap 'chmod -R u+w "$work" 2>/dev/null; rm -rf "$work"' EXIT
 
 # Portable mode read: ls -l is the same on GNU and BSD.
 mode_of() {
-  ls -l "$1" | awk '{
+  ls -lL "$1" | awk '{
     m = substr($1, 2, 9); o = 0
     for (i = 1; i <= 9; i++) if (substr(m, i, 1) != "-") o += 2 ^ (9 - i)
     printf "%o", o
@@ -33,6 +33,19 @@ check_impl() {
     grep -qx 'A=9' .env || fail "$label: value not updated"
     grep -qx 'B=2' .env || fail "$label: other key lost"
   done
+
+  # A setuid bit without execute shows as S and must not count as a set bit.
+  rm -f .env; printf 'A=1\n' > .env; chmod 4644 .env
+  update_env_value A 2
+  [ "$(mode_of .env)" = "644" ] || fail "$label: S bit mapped to $(mode_of .env)"
+
+  # A symlinked .env takes the target's mode; the link itself is replaced.
+  rm -f .env target; printf 'A=1\n' > target; chmod 600 target; ln -s target .env
+  update_env_value A 2
+  [ ! -L .env ] || fail "$label: link kept"
+  [ "$(mode_of .env)" = "600" ] || fail "$label: symlink result mode $(mode_of .env)"
+  [ "$(cat target)" = "A=1" ] || fail "$label: link target changed"
+  rm -f target
 
   # Failed write: each step that can fail is simulated in turn.
   rm -f .env; printf 'A=1\n' > .env; chmod 640 .env
