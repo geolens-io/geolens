@@ -261,12 +261,19 @@ _IN_FLIGHT_SLOT_TTL_SECONDS = 600
 
 
 async def _claim_in_flight_slot(user: Identity) -> tuple[str, str] | None:
-    """Take one of the user's in-flight slots: ``(key, token)``, or None when all are held."""
+    """Take one of the user's in-flight slots: ``(key, token)``, or None when all are held.
+
+    With Valkey configured but unreachable no slot is granted, since per-worker
+    slots would multiply the bound by the worker count. Without Valkey the
+    process-local cache holds the slots.
+    """
     cache = get_cache()
     token = uuid_mod.uuid4().hex
     for slot in range(_MAX_AI_REQUESTS_IN_FLIGHT):
         key = f"ai:in_flight:{user.id}:{slot}"
-        if await cache.set_if_absent(key, token, ttl=_IN_FLIGHT_SLOT_TTL_SECONDS):
+        if await cache.set_if_absent(
+            key, token, ttl=_IN_FLIGHT_SLOT_TTL_SECONDS, security=True
+        ):
             return key, token
     return None
 
