@@ -17,7 +17,12 @@ from html.parser import HTMLParser
 from typing import Any
 from uuid import UUID
 
-from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
+from .arcgis_migrate_session import (
+    GeoLensError,
+    ItemFailed,
+    MigrationContext,
+    refuse_credentials,
+)
 from .arcgis_migrate_state import ItemState
 
 MAX_SUMMARY = 5000
@@ -193,6 +198,41 @@ def _decide(
     return "keep", False
 
 
+def _refuse_credentials(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    row: Mapping[str, Any],
+    fields: Mapping[str, Any],
+    titles: Mapping[str, str] | None,
+) -> None:
+    """``ItemFailed`` when a field the metadata pass writes, tags included,
+    contains a token or password the run was given, as the portal holds it or
+    as it would be sent: converted, normalised, lowercased and shortened."""
+    raw = {
+        "summary": [row.get("snippet"), row.get("description")],
+        "attribution": row.get("access_information"),
+        "license": row.get("license_info"),
+        "source_organization": (ctx.portal_info or {}).get("name"),
+    }
+    title = item["target"]["title"] or item.get("title")
+    refuse_credentials(
+        ctx,
+        {
+            "title": [title, *(titles or {}).values()],
+            **{
+                name: [_strings(value), fields.get(name, "")]
+                for name, value in raw.items()
+            },
+            "tags": [*(item["target"].get("tags") or []), *fields["keywords"]],
+        },
+    )
+
+
+def _strings(value: Any) -> list[str]:
+    values = value if isinstance(value, list) else [value]
+    return [str(v) for v in values if v]
+
+
 def apply_item_metadata(
     ctx: MigrationContext,
     item: Mapping[str, Any],
@@ -206,7 +246,8 @@ def apply_item_metadata(
     A field someone edited in GeoLens since the last run is kept and listed in
     the item's notes: a field is written only while it still holds what this
     command wrote (``entry.metadata_baseline``), or is empty. A title is never
-    emptied.
+    emptied. ``ItemFailed`` before any write when a value it would send, tags
+    included, contains a token or password the run was given.
     """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
@@ -219,6 +260,7 @@ def apply_item_metadata(
     if row is None or not ids:
         return
     fields = item_metadata(row, item["target"], ctx.portal_info)
+    _refuse_credentials(ctx, item, row, fields, titles)
     keywords = fields.pop("keywords")
     record_ids: list[str] = []
     try:

@@ -41,6 +41,7 @@ from .arcgis_migrate_layers import (
     JOB_TIMEOUT,
     _layer_key,
     _layer_label,
+    _redacted,
     _send,
     _title,
     _titles,
@@ -48,7 +49,12 @@ from .arcgis_migrate_layers import (
     importable_layers,
     relationship_records,
 )
-from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
+from .arcgis_migrate_session import (
+    GeoLensError,
+    ItemFailed,
+    MigrationContext,
+    refuse_credentials,
+)
 from .arcgis_migrate_state import ItemState, aware_time, whole_number
 from .arcgis_plan import IMPORT_FILE
 from .refresh import (
@@ -488,7 +494,8 @@ def refresh_layers(
         key: related[key] for key in entry.layer_datasets if key in related
     }
     ctx.save()
-    wanted, _notes, entry.left_behind = importable_layers(probe)
+    wanted, _notes, left_behind = importable_layers(probe)
+    entry.left_behind = _redacted(ctx, left_behind)
     added = [
         f"layer {_layer_label(layer)} was added to the service in the portal and "
         "isn't migrated"
@@ -597,6 +604,11 @@ def refresh_file(
             f"not replaced: the file is {_megabytes(size)}, over the instance's "
             f"upload limit of {_megabytes(limit)}"
         ]
+    try:
+        # The upload's file name is made from the portal's title.
+        refuse_credentials(ctx, {"title": [item["title"], _filename(item, extension)]})
+    except ItemFailed as exc:
+        return [str(exc)]
     with tempfile.TemporaryDirectory(prefix="geolens-arcgis-") as tmp:
         path = Path(tmp) / _filename(item, extension)
         try:
