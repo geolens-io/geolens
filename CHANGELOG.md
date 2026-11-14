@@ -94,6 +94,7 @@ and releases use semantic versioning.
 - The bundled nginx edge answers 404 for `/api/tiles/raster-auth-check/`, an internal check the raster tile proxy runs in-process that returned a dataset's managed storage path to signed-in readers. Raster tiles are unaffected.
 - OGC API, STAC and catalog search reads by a caller with no API key or sign-in, embed and share links included, now stop after 30 seconds of database time (`DB_ANONYMOUS_READ_TIMEOUT_SECONDS`, never more than `DB_STATEMENT_TIMEOUT_SECONDS`) and answer `503`, which a client can retry; signed-in callers and API keys keep the 300-second limit.
 - The web server now caches, for 5 seconds, the story frame policy it asks the API for on every app page, so a burst of page loads makes one API request. A host removed from the approved story frame hosts can still be framed by pages loaded up to 5 seconds after the change.
+- `install.sh` creates `.env` with mode 600 before any secret is written into it, and the installer and `upgrade.sh` keep the mode of an existing `.env`, including a read-only one, when they update a value instead of resetting it to the umask default.
 
 ## [1.31.0] - 2026-11-10
 
