@@ -74,8 +74,10 @@ def _ogr(*args: str) -> None:
 @pytest.mark.requires_ogr2ogr
 @pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="ogr2ogr not available")
 class TestStagedGeometryColumn:
-    async def _stage(self, session, path, **kwargs) -> str:
+    async def _stage(self, session, path, declared=None, **kwargs) -> str:
         info = await run_ogrinfo(str(path), **kwargs)
+        if declared:
+            info["geometry_type"] = declared
         table = f"tst_pt_{uuid.uuid4().hex[:8]}"
         await run_ogr2ogr(
             str(path),
@@ -270,6 +272,35 @@ class TestStagedGeometryColumn:
             )
         )
         return row.one()
+
+    @staticmethod
+    def _csv(tmp_path, header: str, *rows: str):
+        path = tmp_path / "pts.csv"
+        path.write_text(header + "\n" + "\n".join(rows) + "\n")
+        return path
+
+    @pytest.mark.parametrize(
+        ("rows", "expected"),
+        [
+            (['"POINT (1 2)",a', '"POINT (3 4)",b'], "POINT"),
+            (['"POINT Z (1 2 3)",a', '"POINT Z (3 4 5)",b'], "POINTZ"),
+            (['"POINT (1 2)",a', '"MULTIPOINT ((1 2),(3 4))",b'], "GEOMETRY"),
+            (['"POINT (1 2)",a', '"LINESTRING (0 0,1 1)",b'], "GEOMETRY"),
+        ],
+    )
+    async def test_wkt_csv_type(self, test_db_session, tmp_path, rows, expected):
+        path = self._csv(tmp_path, "wkt,name", *rows)
+        assert await self._stage(test_db_session, path) == expected
+
+    async def test_wkt_csv_multipoint_keeps_generic_column(
+        self, test_db_session, tmp_path
+    ):
+        path = self._csv(tmp_path, "wkt,name", '"MULTIPOINT ((1 2),(3 4))",a')
+        assert await self._stage(test_db_session, path) == "GEOMETRY"
+
+    async def test_xy_csv_stays_point(self, test_db_session, tmp_path):
+        path = self._csv(tmp_path, "x,y,name", "1,2,a", "3,4,b")
+        assert await self._stage(test_db_session, path, declared="Point") == "POINT"
 
 
 @pytest.mark.anyio
