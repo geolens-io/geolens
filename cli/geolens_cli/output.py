@@ -10,6 +10,7 @@ from __future__ import annotations
 import json as _json
 import os
 import sys
+from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
@@ -23,6 +24,9 @@ class Formatter:
     json_mode: bool = False
     quiet: bool = False
     verbose: bool = False
+    # Applied to every message and every string in a JSON payload, keys
+    # included, just before it is written.
+    mask: Callable[[str], str] | None = None
 
     def __post_init__(self) -> None:
         no_color = bool(os.environ.get("NO_COLOR"))
@@ -52,7 +56,30 @@ class Formatter:
         """
         return self._stdout
 
+    def _masked(self, message: str) -> str:
+        return message if self.mask is None else self.mask(message)
+
+    def _masked_json(self, value: Any) -> Any:
+        mask = self.mask
+        if mask is None:
+            return value
+        if isinstance(value, str):
+            return mask(value)
+        if isinstance(value, list | tuple):
+            return [self._masked_json(v) for v in value]
+        if not isinstance(value, dict):
+            return value
+        out: dict[Any, Any] = {}
+        for key, item in value.items():
+            name = mask(key) if isinstance(key, str) else key
+            # Two keys can mask to the same text; keep both values.
+            while name in out:
+                name = f"{name}#"
+            out[name] = self._masked_json(item)
+        return out
+
     def success(self, message: str) -> None:
+        message = self._masked(message)
         if self.json_mode:
             typer.echo(_json.dumps({"ok": True, "message": message}))
             return
@@ -60,6 +87,7 @@ class Formatter:
             self._stdout.print(message, soft_wrap=True, markup=False)
 
     def error(self, message: str) -> None:
+        message = self._masked(message)
         if self.json_mode:
             typer.echo(_json.dumps({"ok": False, "error": message}), err=True)
             return
@@ -73,6 +101,7 @@ class Formatter:
         # on stderr.
         if self.json_mode or self.quiet:
             return
+        message = self._masked(message)
         self._stderr.print(
             f"Warning: {message}", style="yellow", soft_wrap=True, markup=False
         )
@@ -80,15 +109,18 @@ class Formatter:
     def json(self, payload: Any) -> None:
         typer.echo(
             _json.dumps(
-                payload, indent=2 if self.is_tty else None, sort_keys=True, default=str
+                self._masked_json(payload),
+                indent=2 if self.is_tty else None,
+                sort_keys=True,
+                default=lambda value: self._masked(str(value)),
             )
         )
 
     def info(self, message: str) -> None:
         if self.json_mode or self.quiet:
             return
-        self._stdout.print(message, soft_wrap=True, markup=False)
+        self._stdout.print(self._masked(message), soft_wrap=True, markup=False)
 
     def debug(self, message: str) -> None:
         if self.verbose and not self.json_mode:
-            self._stderr.print(f"[dim]debug:[/dim] {escape(message)}")
+            self._stderr.print(f"[dim]debug:[/dim] {escape(self._masked(message))}")

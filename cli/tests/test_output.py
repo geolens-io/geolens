@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from pathlib import Path
 
 from geolens_cli.output import Formatter
 
@@ -48,3 +49,15 @@ class TestFormatter:
         fmt.error("boom")
         err = capsys.readouterr().err
         assert "\x1b[" not in err  # no ANSI escape sequences
+
+    def test_mask_applies_to_every_string_of_a_json_payload(self, capsys) -> None:
+        fmt = Formatter(json_mode=True, mask=lambda text: text.replace("s3cr3t", "*"))
+        fmt.json(
+            {"a s3cr3t": ["x s3cr3t"], "a *": 1, "path": Path("/tmp/s3cr3t"), "n": 2}
+        )
+        assert json.loads(capsys.readouterr().out) == {
+            "a *": ["x *"],
+            "a *#": 1,
+            "path": "/tmp/*",
+            "n": 2,
+        }

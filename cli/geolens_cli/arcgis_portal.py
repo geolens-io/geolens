@@ -153,13 +153,18 @@ class Redactor:
             for form, pattern in self._forms
         )
 
-    def __call__(self, text: str) -> str:
+    def mask(self, text: str) -> str:
+        """*text* with each registered secret, in every form it matches,
+        replaced; text that only looks like a credential is left as it is."""
         for form, pattern in self._forms:
             if pattern is None:
                 text = text.replace(form, "[REDACTED]")
             else:
                 text = pattern.sub("[REDACTED]", text)
-        return _CREDENTIAL_PARAM.sub(r"\1[REDACTED]", text)
+        return text
+
+    def __call__(self, text: str) -> str:
+        return _CREDENTIAL_PARAM.sub(r"\1[REDACTED]", self.mask(text))
 
 
 _ESCAPE = re.compile(r"%([0-9A-Fa-f])([0-9A-Fa-f])")
