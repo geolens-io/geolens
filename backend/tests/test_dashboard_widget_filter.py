@@ -32,6 +32,7 @@ from tests.test_map_dashboard_config import (
 pytestmark = pytest.mark.anyio
 
 KEEP = ["==", ["get", "kind"], "keep"]
+UUID = "0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34"
 # Each layer-bound type: the version a filter needs, and the one a plain widget keeps.
 FILTER_VERSIONS = {
     "indicator": (3, 1),
@@ -160,7 +161,10 @@ class TestSave:
 
     def test_a_filter_past_the_aggregates_depth_limit_is_refused(self):
         # 64 levels as CQL2; a timestamp literal is written one level deeper.
-        filter_ = ["!", ["in", ["get", "seen"], ["literal", ["2024-01-01"]]]]
+        filter_ = [
+            "!",
+            ["in", ["get", "seen"], ["literal", ["2024-01-01T00:00:00+00:00"]]],
+        ]
         for i in range(28):
             filter_ = ["all" if i % 2 else "any", ["has", "kind"], filter_]
         types = {"kind": "text", "seen": "text"}
@@ -230,7 +234,8 @@ class TestSaveThroughTheApi:
         await session.execute(
             text(
                 f"ALTER TABLE data.{dataset.table_name} ADD COLUMN active boolean,"
-                " ADD COLUMN seen date, ADD COLUMN meta jsonb"
+                " ADD COLUMN seen date, ADD COLUMN meta jsonb,"
+                " ADD COLUMN stamp timestamp with time zone, ADD COLUMN ref uuid"
             )
         )
         columns = [
@@ -239,6 +244,8 @@ class TestSaveThroughTheApi:
             {"name": "active", "type": "boolean"},
             {"name": "seen", "type": "date"},
             {"name": "meta", "type": "jsonb"},
+            {"name": "stamp", "type": "timestamp with time zone"},
+            {"name": "ref", "type": "uuid"},
         ]
         await session.execute(
             text(
@@ -280,6 +287,10 @@ class TestSaveThroughTheApi:
             (["==", ["get", "pop"], "abc"], "filter_invalid"),
             (["==", ["get", "seen"], "2024-02-31"], "filter_invalid"),
             (["==", ["get", "meta"], "x"], "filter_invalid"),
+            (["==", ["get", "stamp"], "2024-01-01T12:00:00+00:00"], None),
+            (["==", ["get", "stamp"], "2024-01-01T12:00:00Z"], "filter_invalid"),
+            (["==", ["get", "ref"], UUID], None),
+            (["==", ["get", "ref"], UUID.upper()], "filter_invalid"),
         ],
         ids=[
             "fits",
@@ -288,6 +299,10 @@ class TestSaveThroughTheApi:
             "type_mismatch",
             "invalid_date",
             "jsonb_column",
+            "timestamptz_tile_text",
+            "timestamptz_z",
+            "uuid_lowercase",
+            "uuid_uppercase",
         ],
     )
     async def test_a_save_refuses_what_the_aggregate_would(
@@ -364,20 +379,28 @@ class TestSaveThroughTheApi:
             assert resp.json()["detail"]["widgets"][0]["reason"] == "filter_too_large"
 
 
-SHAPES = json.loads(
+_SHAPE_FILE = json.loads(
     (Path(__file__).parent / "fixtures" / "widget_filter_shapes.json").read_text()
 )
+SHAPES = _SHAPE_FILE["cases"]
 
 
 @pytest.mark.parametrize("case", SHAPES, ids=[case["name"] for case in SHAPES])
 def test_the_shared_shape_cases(case):
-    widget = _widget("table", uuid.uuid4(), v=2, filter=case["filter"])
+    types = _SHAPE_FILE["types"] if case.get("typed") else None
     if case["columns"] is None:
-        with pytest.raises(ValidationError):
-            _adapter.validate_python(widget)
+        with pytest.raises(FilterValidationError):
+            filter_shapes.widget_filter_cql2(bounded_filter(case["filter"]), types)
+        if types is None:
+            with pytest.raises(ValidationError):
+                _adapter.validate_python(
+                    _widget("table", uuid.uuid4(), v=2, filter=case["filter"])
+                )
         return
-    stored = _adapter.validate_python(widget)
-    read = filter_shapes.widget_filter_cql2(stored.filter)
+    stored = _adapter.validate_python(
+        _widget("table", uuid.uuid4(), v=2, filter=case["filter"])
+    )
+    read = filter_shapes.widget_filter_cql2(stored.filter, types)
     assert sorted(read.columns) == case["columns"]
     assert (read.cql2, read.values, read.depth) == (
         case["cql2"],

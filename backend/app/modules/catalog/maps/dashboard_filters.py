@@ -51,18 +51,24 @@ def composed_filter(
 ) -> tuple[str | None, dict | None]:
     """A refusal reason, or None and the CQL2 a widget's request carries.
 
-    ``filter_column`` names a column outside ``types``; ``filter_too_large``
-    passes the aggregate's value, depth or length limit. The viewer drops a
-    layer filter it can't convert, and so does this.
+    ``filter_column`` names a column outside ``types``; ``filter_invalid`` has a
+    literal or operator the viewer won't send for its column's type;
+    ``filter_too_large`` passes the aggregate's value, depth or length limit.
+    The viewer drops a layer filter it can't convert, and so does this.
     """
     from app.standards.ogc.filtering import (
         MAX_FEATURE_FILTER_BINDS,
         MAX_FEATURE_FILTER_LENGTH,
     )
 
-    own = widget_filter_cql2(widget_filter, types)
-    if not own.columns <= types.keys():
-        return "filter_column", None
+    try:
+        own = widget_filter_cql2(widget_filter)
+        if not own.columns <= types.keys():
+            return "filter_column", None
+        # With the column types: a literal the viewer won't send for its column.
+        own = widget_filter_cql2(widget_filter, types)
+    except FilterValidationError:
+        return "filter_invalid", None
     layer = _layer_cql2(layer_filter, types)
     parts = [part for part in (layer, own.cql2) if part is not None]
     if not parts:

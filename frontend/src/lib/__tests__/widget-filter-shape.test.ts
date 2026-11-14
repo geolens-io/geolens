@@ -1,20 +1,24 @@
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { maplibreFilterToCql2, validateRawFilter } from '@/lib/maplibre-filter-utils';
+import { layerFilterToServerCql2, maplibreFilterToCql2, validateRawFilter } from '@/lib/maplibre-filter-utils';
 import { widgetFilterShape } from '@/lib/widget-filter-shape';
 
 interface ShapeCase {
   name: string;
   filter: unknown;
+  typed?: boolean;
   columns: string[] | null;
   cql2?: unknown;
   values?: number;
   depth?: number;
 }
 
-const cases = JSON.parse(
+const shapes = JSON.parse(
   readFileSync(resolve(__dirname, '../../../../backend/tests/fixtures/widget_filter_shapes.json'), 'utf-8'),
-) as ShapeCase[];
+) as { types: Record<string, string>; cases: ShapeCase[] };
+const { cases } = shapes;
+// The layer's columns as the viewer has them, for the cases that check literals against their types.
+const typedColumns = Object.entries(shapes.types).map(([name, type]) => ({ name, type }));
 
 function normalized(filter: unknown): unknown {
   try {
@@ -41,13 +45,16 @@ function depth(node: unknown): number {
 describe('the widget filter shapes the server takes', () => {
   it.each(cases.map((shape) => [shape.name, shape] as const))('%s', (_name, shape) => {
     const filter = normalized(shape.filter);
-    const read = filter === undefined ? null : widgetFilterShape(filter);
+    const columns = shape.typed ? typedColumns : undefined;
+    const read = filter === undefined ? null : widgetFilterShape(filter, columns);
+    // With the column types, the viewer's converter must agree on refusals too.
+    const sent = columns ? layerFilterToServerCql2(filter as never, columns) : maplibreFilterToCql2(filter as never);
     if (shape.columns === null) {
       expect(read).toBeNull();
+      if (columns) expect(sent).toBe('unsupported');
       return;
     }
     expect(read).toEqual({ cql2: shape.cql2, columns: shape.columns });
-    const sent = maplibreFilterToCql2(filter as never);
     expect(sent).toEqual(shape.cql2);
     expect(sent ? [values(sent), depth(sent)] : [0, 0]).toEqual([shape.values, shape.depth]);
   });

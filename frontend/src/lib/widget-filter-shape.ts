@@ -1,12 +1,14 @@
-import type { Cql2Expression } from './maplibre-filter-utils';
+import { isTextColumn } from './column-utils';
+import { cql2Literal, isCql2LiteralCompatible, isCql2QueryableType, type Cql2Expression } from './maplibre-filter-utils';
 
 /**
  * The filter shapes a dashboard widget takes, mirroring
  * `backend/app/modules/catalog/widgets/filter_shapes.py`: the conditions the
  * filter editor writes, joined by `all` and `any`, and the legacy forms
- * `maplibreFilterToCql2` translates. `widgetFilterShape` returns the CQL2 the
- * viewer sends for such a filter and the columns it reads, or null for any
- * other shape. `backend/tests/fixtures/widget_filter_shapes.json` holds the
+ * `maplibreFilterToCql2` translates, with the literal rules of
+ * `layerFilterToServerCql2` when the column types are known.
+ * `widgetFilterShape` returns the CQL2 the viewer sends for such a filter and
+ * the columns it reads, or null for any other shape. `backend/tests/fixtures/widget_filter_shapes.json` holds the
  * cases both copies and the converter are checked against.
  */
 
@@ -110,10 +112,30 @@ function withoutScalarGuard(node: unknown): unknown {
 class Builder {
   readonly columns = new Set<string>();
 
+  private readonly types: ReadonlyMap<string, string>;
+
+  constructor(types: ReadonlyMap<string, string>) {
+    this.types = types;
+  }
+
   prop(field: string) {
     if (!COLUMN.test(field)) throw new Refused();
+    const pgType = this.types.get(field);
+    if (pgType !== undefined && !isCql2QueryableType(pgType)) throw new Refused();
     this.columns.add(field);
     return { property: field };
+  }
+
+  /** A literal as the viewer writes it for its column's type; refused where it sends none. */
+  literal(field: string, value: unknown): unknown {
+    const pgType = this.types.get(field);
+    if (!isCql2LiteralCompatible(value, pgType)) throw new Refused();
+    return cql2Literal(value as string | number | boolean, pgType);
+  }
+
+  number(field: string, value: number): number {
+    if (!isCql2LiteralCompatible(value, this.types.get(field))) throw new Refused();
+    return value;
   }
 
   isNull(field: string): Cql2Expression {
@@ -130,19 +152,19 @@ class Builder {
 
   members(field: string, values: unknown[]): Cql2Expression {
     if (values.length === 0 || !values.every(isScalar)) throw new Refused();
-    return { op: 'in', args: [this.prop(field), values] };
+    return { op: 'in', args: [this.prop(field), values.map((value) => this.literal(field, value))] };
   }
 
   comparison(operator: string, field: string, value: unknown): Cql2Expression {
     // A bare number is drawn null-safe, as sanitizeNullableNumericFilter does.
-    if (isNumber(value)) return this.compare(operator, field, value);
+    if (isNumber(value)) return this.compare(operator, field, this.number(field, value));
     if (value === null) {
       if (operator === '==') return this.isNull(field);
       if (operator === '!=') return { op: 'not', args: [this.isNull(field)] };
       throw new Refused();
     }
     if (!isScalar(value)) throw new Refused();
-    const comparison = this.compare(operator, field, value);
+    const comparison = this.compare(operator, field, this.literal(field, value));
     return operator === '!=' ? this.orNull(field, comparison) : comparison;
   }
 
@@ -167,7 +189,8 @@ class Builder {
     const found = members(e);
     if (found) return this.members(...found);
     if (name === 'in' && n.length === 3 && get(n[2]) !== null) {
-      if (typeof n[1] !== 'string') throw new Refused();
+      const pgType = this.types.get(get(n[2]) as string);
+      if (typeof n[1] !== 'string' || (pgType !== undefined && !isTextColumn(pgType))) throw new Refused();
       const pattern = n[1].replace(/[\\%_]/g, '\\$&');
       return { op: 'like', args: [this.prop(get(n[2]) as string), `%${pattern}%`] };
     }
@@ -175,13 +198,13 @@ class Builder {
       return { op: 'not', args: [this.isNull(n[1])] };
     }
     const guard = guarded(e);
-    if (guard) return this.compare(guard[1], guard[0], guard[2]);
+    if (guard) return this.compare(guard[1], guard[0], this.number(guard[0], guard[2]));
     if (isComparison(e)) return this.comparison(name as string, get(n[1]) as string, n[2]);
     const accessor = toNumber(e);
     if (!accessor) return null;
     const [field, fb] = accessor;
     const value = n[2] as number;
-    const comparison = this.compare(name as string, field, value);
+    const comparison = this.compare(name as string, field, this.number(field, value));
     return fb === fallback(name as string, value) || !compareNumbers(0, name as string, value)
       ? comparison
       : this.orNull(field, comparison);
@@ -261,10 +284,20 @@ function legacy(node: unknown): unknown[] {
   return ['all', typeOf(key, 'number', '=='), ['all', typeOf(key, 'null', '!='), comparison]];
 }
 
-/** The CQL2 the viewer sends for a normalized widget filter and the columns it reads, or null for another shape. */
-export function widgetFilterShape(filter: unknown): { cql2: Cql2Expression | null; columns: string[] } | null {
+/**
+ * The CQL2 the viewer sends for a normalized widget filter and the columns it
+ * reads, or null for another shape. With `columns`, a literal or operator the
+ * viewer won't send for its column's type is refused too, as the server's save does.
+ */
+export function widgetFilterShape(
+  filter: unknown,
+  columns?: readonly { name: string; type?: string | null }[] | null,
+): { cql2: Cql2Expression | null; columns: string[] } | null {
   if (filter === null || filter === undefined) return { cql2: null, columns: [] };
-  const builder = new Builder();
+  const types = new Map(
+    (columns ?? []).filter((column) => column.type).map((column) => [column.name, String(column.type).toLowerCase()]),
+  );
+  const builder = new Builder(types);
   try {
     const expression = classify(filter) === 'legacy' ? legacy(filter) : filter;
     const cql2 = builder.tree(expression);

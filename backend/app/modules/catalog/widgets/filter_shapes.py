@@ -8,6 +8,7 @@ depth. Any other shape raises ``FilterValidationError``. The cases in
 frontend's ``widgetFilterShape``.
 """
 
+import datetime
 import math
 import re
 from collections.abc import Mapping
@@ -22,11 +23,34 @@ _CQL2_OPS = {"==": "=", "!=": "<>", "<": "<", ">": ">", "<=": "<=", ">=": ">="}
 _ORDER = ("<", ">", "<=", ">=")
 _LEGACY_NEGATIONS = {"!in": "in", "!=": "==", "!has": "has"}
 _PSEUDO = ("$type", "$id")
-_TEMPORAL = {
-    "date": "date",
-    "timestamp without time zone": "timestamp",
-    "timestamp with time zone": "timestamp",
+# The column types and literal spellings ``layerFilterToServerCql2`` sends,
+# mirrored from maplibre-filter-utils.ts and column-utils.ts.
+_TEXT = ("text", "character varying", "character")
+_QUERYABLE = (
+    *_TEXT,
+    "smallint",
+    "integer",
+    "bigint",
+    "real",
+    "double precision",
+    "numeric",
+    "boolean",
+    "date",
+    "timestamp without time zone",
+    "timestamp with time zone",
+    "uuid",
+)
+_INTEGER_RANGES = {
+    "smallint": (-32768, 32767),
+    "integer": (-2147483648, 2147483647),
+    "bigint": (-(2**63), 2**63 - 1),
 }
+_FLOAT4_MAX = 3.4028234663852886e38
+_DATE = re.compile(r"[0-9]{4}-[0-9]{2}-[0-9]{2}")
+_TIME = r"((?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](?:\.[0-9]{0,5}[1-9])?)"
+_TIMESTAMP = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2}) " + _TIME)
+_UTC_TIMESTAMP = re.compile(r"([0-9]{4}-[0-9]{2}-[0-9]{2})T" + _TIME + r"\+00:00")
+_UUID = re.compile(r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}")
 _LOW, _HIGH = -1_000_000_000_000, 1_000_000_000_000
 # JSON integers past this reach the browser rounded, so the viewer can't send them.
 _MAX_SAFE_INTEGER = 2**53 - 1
@@ -70,6 +94,51 @@ def _is_number(value: Any) -> bool:
 
 def _is_scalar(value: Any) -> bool:
     return isinstance(value, str | bool) or _is_number(value)
+
+
+def _calendar_date(day: str) -> bool:
+    try:
+        return datetime.date.fromisoformat(day).isoformat() == day
+    except ValueError:
+        return False
+
+
+def _cql2_literal(value: Any, pg_type: str | None) -> Any:
+    """``value`` as the CQL2 literal the viewer writes for ``pg_type``, or None."""
+    if pg_type == "date":
+        if isinstance(value, str) and _DATE.fullmatch(value) and _calendar_date(value):
+            return {"date": value}
+        return None
+    if pg_type in ("timestamp without time zone", "timestamp with time zone"):
+        pattern = (
+            _TIMESTAMP if pg_type == "timestamp without time zone" else _UTC_TIMESTAMP
+        )
+        m = pattern.fullmatch(value) if isinstance(value, str) else None
+        if m and _calendar_date(m[1]):
+            return {"timestamp": f"{m[1]}T{m[2]}Z"}
+        return None
+    if pg_type == "uuid":
+        return value if isinstance(value, str) and _UUID.fullmatch(value) else None
+    return value
+
+
+def _compatible(value: Any, pg_type: str | None) -> bool:
+    """``isCql2LiteralCompatible``: whether the viewer sends ``value`` for ``pg_type``."""
+    if not _is_scalar(value) or _cql2_literal(value, pg_type) is None:
+        return False
+    if pg_type in _TEXT:
+        return isinstance(value, str)
+    if pg_type in _INTEGER_RANGES:
+        low, high = _INTEGER_RANGES[pg_type]
+        whole = _is_number(value) and float(value).is_integer()
+        return whole and abs(value) <= _MAX_SAFE_INTEGER and low <= value <= high
+    if pg_type == "real":
+        return _is_number(value) and abs(value) <= _FLOAT4_MAX
+    if pg_type in ("double precision", "numeric"):
+        return _is_number(value)
+    if pg_type == "boolean":
+        return isinstance(value, bool)
+    return True
 
 
 def _get(node: Any) -> str | None:
@@ -171,17 +240,30 @@ class _Builder:
         self.types = types or {}
         self.columns: set[str] = set()
 
+    def type_of(self, field: str) -> str | None:
+        """The column's type; None when unknown, which the viewer leaves to the server."""
+        return self.types.get(field) or None
+
     def prop(self, field: str) -> dict:
         if not _COLUMN.fullmatch(field):
+            raise _refuse()
+        pg_type = self.type_of(field)
+        if pg_type is not None and pg_type not in _QUERYABLE:
             raise _refuse()
         self.columns.add(field)
         return {"property": field}
 
     def literal(self, field: str, value: Any) -> Any:
-        if not _is_scalar(value):
+        pg_type = self.type_of(field)
+        if not _compatible(value, pg_type):
             raise _refuse()
-        kind = _TEMPORAL.get(self.types.get(field, ""))
-        return {kind: value} if kind and isinstance(value, str) else value
+        return _cql2_literal(value, pg_type)
+
+    def number(self, field: str, value: Any) -> Any:
+        """A number compared through ``to-number``, which must still suit the column."""
+        if not _compatible(value, self.type_of(field)):
+            raise _refuse()
+        return value
 
     def is_null(self, field: str) -> dict:
         return {"op": "isNull", "args": [self.prop(field)]}
@@ -201,7 +283,7 @@ class _Builder:
     def comparison(self, op: str, field: str, value: Any) -> dict:
         # A bare number is drawn null-safe, as sanitizeNullableNumericFilter does.
         if _is_number(value):
-            return self.compare(op, field, value)
+            return self.compare(op, field, self.number(field, value))
         if value is None:
             if op == "==":
                 return self.is_null(field)
@@ -239,7 +321,10 @@ class _Builder:
         if members is not None:
             return self.members(*members)
         if op == "in" and len(e) == 3 and _get(e[2]) is not None:
-            if not isinstance(e[1], str):
+            pg_type = self.type_of(_get(e[2]))
+            if not isinstance(e[1], str) or (
+                pg_type is not None and pg_type not in _TEXT
+            ):
                 raise _refuse()
             pattern = re.sub(r"([\\%_])", r"\\\1", e[1])
             return {"op": "like", "args": [self.prop(_get(e[2])), f"%{pattern}%"]}
@@ -247,14 +332,15 @@ class _Builder:
             return {"op": "not", "args": [self.is_null(e[1])]}
         guarded = _guarded(e)
         if guarded is not None:
-            return self.compare(guarded[1], guarded[0], guarded[2])
+            field, guarded_op, value = guarded
+            return self.compare(guarded_op, field, self.number(field, value))
         if _cmp(e):
             return self.comparison(op, _get(e[1]), e[2])
         accessor = _to_number(e)
         if accessor is None:
             return None
         field, fallback = accessor
-        comparison = self.compare(op, field, e[2])
+        comparison = self.compare(op, field, self.number(field, e[2]))
         if fallback == _fallback(op, e[2]) or not _compare(0, op, e[2]):
             return comparison
         return self.or_null(field, comparison)

@@ -1,578 +1,329 @@
-[
-  {
-    "name": "equals_text",
-    "filter": [
-      "==",
-      [
-        "get",
-        "kind"
-      ],
-      "park"
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "=",
-      "args": [
-        {
-          "property": "kind"
-        },
+{
+  "types": {
+    "kind": "text",
+    "code": "character varying",
+    "pop": "integer",
+    "small": "smallint",
+    "big": "bigint",
+    "r": "real",
+    "d": "double precision",
+    "n": "numeric",
+    "on": "boolean",
+    "day": "date",
+    "at": "timestamp without time zone",
+    "seen": "timestamp with time zone",
+    "id": "uuid",
+    "meta": "jsonb"
+  },
+  "cases": [
+    {
+      "name": "equals_text",
+      "filter": [
+        "==",
+        [
+          "get",
+          "kind"
+        ],
         "park"
-      ]
-    },
-    "values": 1,
-    "depth": 4
-  },
-  {
-    "name": "not_equals_text",
-    "filter": [
-      "!=",
-      [
-        "get",
+      ],
+      "columns": [
         "kind"
       ],
-      "park"
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "or",
-      "args": [
-        {
-          "op": "isNull",
-          "args": [
-            {
-              "property": "kind"
-            }
-          ]
-        },
-        {
-          "op": "<>",
-          "args": [
-            {
-              "property": "kind"
-            },
-            "park"
-          ]
-        }
-      ]
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "kind"
+          },
+          "park"
+        ]
+      },
+      "values": 1,
+      "depth": 4
     },
-    "values": 1,
-    "depth": 6
-  },
-  {
-    "name": "greater_number",
-    "filter": [
-      ">",
-      [
-        "get",
-        "pop"
-      ],
-      3
-    ],
-    "columns": [
-      "pop"
-    ],
-    "cql2": {
-      "op": ">",
-      "args": [
-        {
-          "property": "pop"
-        },
-        3
-      ]
-    },
-    "values": 1,
-    "depth": 4
-  },
-  {
-    "name": "not_equals_number",
-    "filter": [
-      "!=",
-      [
-        "get",
-        "pop"
-      ],
-      3
-    ],
-    "columns": [
-      "pop"
-    ],
-    "cql2": {
-      "op": "<>",
-      "args": [
-        {
-          "property": "pop"
-        },
-        3
-      ]
-    },
-    "values": 1,
-    "depth": 4
-  },
-  {
-    "name": "equals_boolean",
-    "filter": [
-      "==",
-      [
-        "get",
-        "kind"
-      ],
-      true
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "=",
-      "args": [
-        {
-          "property": "kind"
-        },
-        true
-      ]
-    },
-    "values": 1,
-    "depth": 4
-  },
-  {
-    "name": "equals_null",
-    "filter": [
-      "==",
-      [
-        "get",
-        "kind"
-      ],
-      null
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "isNull",
-      "args": [
-        {
-          "property": "kind"
-        }
-      ]
-    },
-    "values": 0,
-    "depth": 4
-  },
-  {
-    "name": "not_equals_null",
-    "filter": [
-      "!=",
-      [
-        "get",
-        "kind"
-      ],
-      null
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "not",
-      "args": [
-        {
-          "op": "isNull",
-          "args": [
-            {
-              "property": "kind"
-            }
-          ]
-        }
-      ]
-    },
-    "values": 0,
-    "depth": 6
-  },
-  {
-    "name": "editor_null_safe_number",
-    "filter": [
-      "all",
-      [
+    {
+      "name": "not_equals_text",
+      "filter": [
         "!=",
         [
-          "typeof",
-          [
-            "get",
-            "pop"
-          ]
+          "get",
+          "kind"
         ],
-        "null"
+        "park"
       ],
-      [
-        ">=",
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "or",
+        "args": [
+          {
+            "op": "isNull",
+            "args": [
+              {
+                "property": "kind"
+              }
+            ]
+          },
+          {
+            "op": "<>",
+            "args": [
+              {
+                "property": "kind"
+              },
+              "park"
+            ]
+          }
+        ]
+      },
+      "values": 1,
+      "depth": 6
+    },
+    {
+      "name": "greater_number",
+      "filter": [
+        ">",
+        [
+          "get",
+          "pop"
+        ],
+        3
+      ],
+      "columns": [
+        "pop"
+      ],
+      "cql2": {
+        "op": ">",
+        "args": [
+          {
+            "property": "pop"
+          },
+          3
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "not_equals_number",
+      "filter": [
+        "!=",
+        [
+          "get",
+          "pop"
+        ],
+        3
+      ],
+      "columns": [
+        "pop"
+      ],
+      "cql2": {
+        "op": "<>",
+        "args": [
+          {
+            "property": "pop"
+          },
+          3
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "equals_boolean",
+      "filter": [
+        "==",
+        [
+          "get",
+          "kind"
+        ],
+        true
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "kind"
+          },
+          true
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "equals_null",
+      "filter": [
+        "==",
+        [
+          "get",
+          "kind"
+        ],
+        null
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "isNull",
+        "args": [
+          {
+            "property": "kind"
+          }
+        ]
+      },
+      "values": 0,
+      "depth": 4
+    },
+    {
+      "name": "not_equals_null",
+      "filter": [
+        "!=",
+        [
+          "get",
+          "kind"
+        ],
+        null
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "not",
+        "args": [
+          {
+            "op": "isNull",
+            "args": [
+              {
+                "property": "kind"
+              }
+            ]
+          }
+        ]
+      },
+      "values": 0,
+      "depth": 6
+    },
+    {
+      "name": "editor_null_safe_number",
+      "filter": [
+        "all",
+        [
+          "!=",
+          [
+            "typeof",
+            [
+              "get",
+              "pop"
+            ]
+          ],
+          "null"
+        ],
+        [
+          ">=",
+          [
+            "to-number",
+            [
+              "get",
+              "pop"
+            ],
+            -1000000000000
+          ],
+          3
+        ]
+      ],
+      "columns": [
+        "pop"
+      ],
+      "cql2": {
+        "op": ">=",
+        "args": [
+          {
+            "property": "pop"
+          },
+          3
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "to_number_own_fallback",
+      "filter": [
+        "<",
         [
           "to-number",
           [
             "get",
             "pop"
           ],
-          -1000000000000
+          0
         ],
-        3
-      ]
-    ],
-    "columns": [
-      "pop"
-    ],
-    "cql2": {
-      "op": ">=",
-      "args": [
-        {
-          "property": "pop"
-        },
-        3
-      ]
-    },
-    "values": 1,
-    "depth": 4
-  },
-  {
-    "name": "to_number_own_fallback",
-    "filter": [
-      "<",
-      [
-        "to-number",
-        [
-          "get",
-          "pop"
-        ],
-        0
-      ],
-      5
-    ],
-    "columns": [
-      "pop"
-    ],
-    "cql2": {
-      "op": "or",
-      "args": [
-        {
-          "op": "isNull",
-          "args": [
-            {
-              "property": "pop"
-            }
-          ]
-        },
-        {
-          "op": "<",
-          "args": [
-            {
-              "property": "pop"
-            },
-            5
-          ]
-        }
-      ]
-    },
-    "values": 1,
-    "depth": 6
-  },
-  {
-    "name": "to_number_editor_fallback",
-    "filter": [
-      "<",
-      [
-        "to-number",
-        [
-          "get",
-          "pop"
-        ],
-        1000000000000
-      ],
-      5
-    ],
-    "columns": [
-      "pop"
-    ],
-    "cql2": {
-      "op": "<",
-      "args": [
-        {
-          "property": "pop"
-        },
         5
-      ]
-    },
-    "values": 1,
-    "depth": 4
-  },
-  {
-    "name": "value_list",
-    "filter": [
-      "in",
-      [
-        "get",
-        "kind"
       ],
-      [
-        "literal",
-        [
-          "a",
-          "b"
-        ]
-      ]
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "in",
-      "args": [
-        {
-          "property": "kind"
-        },
-        [
-          "a",
-          "b"
-        ]
-      ]
-    },
-    "values": 2,
-    "depth": 4
-  },
-  {
-    "name": "value_list_of_get_and_has",
-    "filter": [
-      "in",
-      [
-        "get",
-        "kind"
+      "columns": [
+        "pop"
       ],
-      [
-        "literal",
-        [
-          "get",
-          "park"
+      "cql2": {
+        "op": "or",
+        "args": [
+          {
+            "op": "isNull",
+            "args": [
+              {
+                "property": "pop"
+              }
+            ]
+          },
+          {
+            "op": "<",
+            "args": [
+              {
+                "property": "pop"
+              },
+              5
+            ]
+          }
         ]
-      ]
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "in",
-      "args": [
-        {
-          "property": "kind"
-        },
-        [
-          "get",
-          "park"
-        ]
-      ]
+      },
+      "values": 1,
+      "depth": 6
     },
-    "values": 2,
-    "depth": 4
-  },
-  {
-    "name": "negated_value_list_of_has",
-    "filter": [
-      "!",
-      [
-        "in",
+    {
+      "name": "to_number_editor_fallback",
+      "filter": [
+        "<",
         [
-          "get",
-          "kind"
-        ],
-        [
-          "literal",
+          "to-number",
           [
-            "has",
-            "x"
-          ]
-        ]
-      ]
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "or",
-      "args": [
-        {
-          "op": "isNull",
-          "args": [
-            {
-              "property": "kind"
-            }
-          ]
-        },
-        {
-          "op": "not",
-          "args": [
-            {
-              "op": "in",
-              "args": [
-                {
-                  "property": "kind"
-                },
-                [
-                  "has",
-                  "x"
-                ]
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    "values": 2,
-    "depth": 8
-  },
-  {
-    "name": "value_lists_in_groups",
-    "filter": [
-      "all",
-      [
-        "in",
-        [
-          "get",
-          "kind"
+            "get",
+            "pop"
+          ],
+          1000000000000
         ],
-        [
-          "literal",
-          [
-            "has",
-            "x",
-            "y"
-          ]
-        ]
+        5
       ],
-      [
-        "any",
-        [
-          "!",
-          [
-            "in",
-            [
-              "get",
-              "kind"
-            ],
-            [
-              "literal",
-              [
-                "get",
-                "z"
-              ]
-            ]
-          ]
-        ]
-      ]
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "and",
-      "args": [
-        {
-          "op": "in",
-          "args": [
-            {
-              "property": "kind"
-            },
-            [
-              "has",
-              "x",
-              "y"
-            ]
-          ]
-        },
-        {
-          "op": "or",
-          "args": [
-            {
-              "op": "isNull",
-              "args": [
-                {
-                  "property": "kind"
-                }
-              ]
-            },
-            {
-              "op": "not",
-              "args": [
-                {
-                  "op": "in",
-                  "args": [
-                    {
-                      "property": "kind"
-                    },
-                    [
-                      "get",
-                      "z"
-                    ]
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    "values": 5,
-    "depth": 10
-  },
-  {
-    "name": "scalar_guarded_value_list",
-    "filter": [
-      "all",
-      [
-        "any",
-        [
-          "==",
-          [
-            "typeof",
-            [
-              "get",
-              "kind"
-            ]
-          ],
-          "null"
-        ],
-        [
-          "==",
-          [
-            "typeof",
-            [
-              "get",
-              "kind"
-            ]
-          ],
-          "boolean"
-        ],
-        [
-          "==",
-          [
-            "typeof",
-            [
-              "get",
-              "kind"
-            ]
-          ],
-          "number"
-        ],
-        [
-          "==",
-          [
-            "typeof",
-            [
-              "get",
-              "kind"
-            ]
-          ],
-          "string"
-        ]
+      "columns": [
+        "pop"
       ],
-      [
+      "cql2": {
+        "op": "<",
+        "args": [
+          {
+            "property": "pop"
+          },
+          5
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "value_list",
+      "filter": [
         "in",
         [
           "get",
@@ -585,265 +336,478 @@
             "b"
           ]
         ]
-      ]
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "in",
-      "args": [
-        {
-          "property": "kind"
-        },
-        [
-          "a",
-          "b"
-        ]
-      ]
-    },
-    "values": 2,
-    "depth": 4
-  },
-  {
-    "name": "contains",
-    "filter": [
-      "in",
-      "par",
-      [
-        "get",
+      ],
+      "columns": [
         "kind"
-      ]
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "like",
-      "args": [
-        {
-          "property": "kind"
-        },
-        "%par%"
-      ]
-    },
-    "values": 1,
-    "depth": 4
-  },
-  {
-    "name": "contains_escapes_wildcards",
-    "filter": [
-      "in",
-      "50%_a\\b",
-      [
-        "get",
-        "kind"
-      ]
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "like",
-      "args": [
-        {
-          "property": "kind"
-        },
-        "%50\\%\\_a\\\\b%"
-      ]
-    },
-    "values": 1,
-    "depth": 4
-  },
-  {
-    "name": "has",
-    "filter": [
-      "has",
-      "kind"
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "not",
-      "args": [
-        {
-          "op": "isNull",
-          "args": [
-            {
-              "property": "kind"
-            }
+      ],
+      "cql2": {
+        "op": "in",
+        "args": [
+          {
+            "property": "kind"
+          },
+          [
+            "a",
+            "b"
           ]
-        }
-      ]
+        ]
+      },
+      "values": 2,
+      "depth": 4
     },
-    "values": 0,
-    "depth": 6
-  },
-  {
-    "name": "is_empty_short",
-    "filter": [
-      "!",
-      [
+    {
+      "name": "value_list_of_get_and_has",
+      "filter": [
+        "in",
+        [
+          "get",
+          "kind"
+        ],
+        [
+          "literal",
+          [
+            "get",
+            "park"
+          ]
+        ]
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "in",
+        "args": [
+          {
+            "property": "kind"
+          },
+          [
+            "get",
+            "park"
+          ]
+        ]
+      },
+      "values": 2,
+      "depth": 4
+    },
+    {
+      "name": "negated_value_list_of_has",
+      "filter": [
+        "!",
+        [
+          "in",
+          [
+            "get",
+            "kind"
+          ],
+          [
+            "literal",
+            [
+              "has",
+              "x"
+            ]
+          ]
+        ]
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "or",
+        "args": [
+          {
+            "op": "isNull",
+            "args": [
+              {
+                "property": "kind"
+              }
+            ]
+          },
+          {
+            "op": "not",
+            "args": [
+              {
+                "op": "in",
+                "args": [
+                  {
+                    "property": "kind"
+                  },
+                  [
+                    "has",
+                    "x"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "values": 2,
+      "depth": 8
+    },
+    {
+      "name": "value_lists_in_groups",
+      "filter": [
+        "all",
+        [
+          "in",
+          [
+            "get",
+            "kind"
+          ],
+          [
+            "literal",
+            [
+              "has",
+              "x",
+              "y"
+            ]
+          ]
+        ],
+        [
+          "any",
+          [
+            "!",
+            [
+              "in",
+              [
+                "get",
+                "kind"
+              ],
+              [
+                "literal",
+                [
+                  "get",
+                  "z"
+                ]
+              ]
+            ]
+          ]
+        ]
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "and",
+        "args": [
+          {
+            "op": "in",
+            "args": [
+              {
+                "property": "kind"
+              },
+              [
+                "has",
+                "x",
+                "y"
+              ]
+            ]
+          },
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "isNull",
+                "args": [
+                  {
+                    "property": "kind"
+                  }
+                ]
+              },
+              {
+                "op": "not",
+                "args": [
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "property": "kind"
+                      },
+                      [
+                        "get",
+                        "z"
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "values": 5,
+      "depth": 10
+    },
+    {
+      "name": "scalar_guarded_value_list",
+      "filter": [
+        "all",
+        [
+          "any",
+          [
+            "==",
+            [
+              "typeof",
+              [
+                "get",
+                "kind"
+              ]
+            ],
+            "null"
+          ],
+          [
+            "==",
+            [
+              "typeof",
+              [
+                "get",
+                "kind"
+              ]
+            ],
+            "boolean"
+          ],
+          [
+            "==",
+            [
+              "typeof",
+              [
+                "get",
+                "kind"
+              ]
+            ],
+            "number"
+          ],
+          [
+            "==",
+            [
+              "typeof",
+              [
+                "get",
+                "kind"
+              ]
+            ],
+            "string"
+          ]
+        ],
+        [
+          "in",
+          [
+            "get",
+            "kind"
+          ],
+          [
+            "literal",
+            [
+              "a",
+              "b"
+            ]
+          ]
+        ]
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "in",
+        "args": [
+          {
+            "property": "kind"
+          },
+          [
+            "a",
+            "b"
+          ]
+        ]
+      },
+      "values": 2,
+      "depth": 4
+    },
+    {
+      "name": "contains",
+      "filter": [
+        "in",
+        "par",
+        [
+          "get",
+          "kind"
+        ]
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "like",
+        "args": [
+          {
+            "property": "kind"
+          },
+          "%par%"
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "contains_escapes_wildcards",
+      "filter": [
+        "in",
+        "50%_a\\b",
+        [
+          "get",
+          "kind"
+        ]
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "like",
+        "args": [
+          {
+            "property": "kind"
+          },
+          "%50\\%\\_a\\\\b%"
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "has",
+      "filter": [
         "has",
         "kind"
-      ]
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "isNull",
-      "args": [
-        {
-          "property": "kind"
-        }
-      ]
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "not",
+        "args": [
+          {
+            "op": "isNull",
+            "args": [
+              {
+                "property": "kind"
+              }
+            ]
+          }
+        ]
+      },
+      "values": 0,
+      "depth": 6
     },
-    "values": 0,
-    "depth": 4
-  },
-  {
-    "name": "is_empty",
-    "filter": [
-      "any",
-      [
+    {
+      "name": "is_empty_short",
+      "filter": [
         "!",
         [
           "has",
           "kind"
         ]
       ],
-      [
-        "==",
-        [
-          "get",
-          "kind"
-        ],
-        null
-      ]
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "isNull",
-      "args": [
-        {
-          "property": "kind"
-        }
-      ]
-    },
-    "values": 0,
-    "depth": 4
-  },
-  {
-    "name": "all_group",
-    "filter": [
-      "all",
-      [
-        "==",
-        [
-          "get",
-          "kind"
-        ],
-        "park"
+      "columns": [
+        "kind"
       ],
-      [
-        ">",
-        [
-          "get",
-          "pop"
-        ],
-        3
-      ]
-    ],
-    "columns": [
-      "kind",
-      "pop"
-    ],
-    "cql2": {
-      "op": "and",
-      "args": [
-        {
-          "op": "=",
-          "args": [
-            {
-              "property": "kind"
-            },
-            "park"
-          ]
-        },
-        {
-          "op": ">",
-          "args": [
-            {
-              "property": "pop"
-            },
-            3
-          ]
-        }
-      ]
+      "cql2": {
+        "op": "isNull",
+        "args": [
+          {
+            "property": "kind"
+          }
+        ]
+      },
+      "values": 0,
+      "depth": 4
     },
-    "values": 2,
-    "depth": 6
-  },
-  {
-    "name": "any_group",
-    "filter": [
-      "any",
-      [
-        "==",
+    {
+      "name": "is_empty",
+      "filter": [
+        "any",
         [
-          "get",
-          "kind"
+          "!",
+          [
+            "has",
+            "kind"
+          ]
         ],
-        "park"
+        [
+          "==",
+          [
+            "get",
+            "kind"
+          ],
+          null
+        ]
       ],
-      [
-        ">",
-        [
-          "get",
-          "pop"
-        ],
-        3
-      ]
-    ],
-    "columns": [
-      "kind",
-      "pop"
-    ],
-    "cql2": {
-      "op": "or",
-      "args": [
-        {
-          "op": "=",
-          "args": [
-            {
-              "property": "kind"
-            },
-            "park"
-          ]
-        },
-        {
-          "op": ">",
-          "args": [
-            {
-              "property": "pop"
-            },
-            3
-          ]
-        }
-      ]
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "isNull",
+        "args": [
+          {
+            "property": "kind"
+          }
+        ]
+      },
+      "values": 0,
+      "depth": 4
     },
-    "values": 2,
-    "depth": 6
-  },
-  {
-    "name": "nested_groups",
-    "filter": [
-      "all",
-      [
+    {
+      "name": "all_group",
+      "filter": [
+        "all",
+        [
+          "==",
+          [
+            "get",
+            "kind"
+          ],
+          "park"
+        ],
+        [
+          ">",
+          [
+            "get",
+            "pop"
+          ],
+          3
+        ]
+      ],
+      "columns": [
+        "kind",
+        "pop"
+      ],
+      "cql2": {
+        "op": "and",
+        "args": [
+          {
+            "op": "=",
+            "args": [
+              {
+                "property": "kind"
+              },
+              "park"
+            ]
+          },
+          {
+            "op": ">",
+            "args": [
+              {
+                "property": "pop"
+              },
+              3
+            ]
+          }
+        ]
+      },
+      "values": 2,
+      "depth": 6
+    },
+    {
+      "name": "any_group",
+      "filter": [
         "any",
         [
           "==",
@@ -854,762 +818,1625 @@
           "park"
         ],
         [
-          "!=",
+          ">",
+          [
+            "get",
+            "pop"
+          ],
+          3
+        ]
+      ],
+      "columns": [
+        "kind",
+        "pop"
+      ],
+      "cql2": {
+        "op": "or",
+        "args": [
+          {
+            "op": "=",
+            "args": [
+              {
+                "property": "kind"
+              },
+              "park"
+            ]
+          },
+          {
+            "op": ">",
+            "args": [
+              {
+                "property": "pop"
+              },
+              3
+            ]
+          }
+        ]
+      },
+      "values": 2,
+      "depth": 6
+    },
+    {
+      "name": "nested_groups",
+      "filter": [
+        "all",
+        [
+          "any",
+          [
+            "==",
+            [
+              "get",
+              "kind"
+            ],
+            "park"
+          ],
+          [
+            "!=",
+            [
+              "get",
+              "kind"
+            ],
+            "x"
+          ]
+        ],
+        [
+          "has",
+          "pop"
+        ]
+      ],
+      "columns": [
+        "kind",
+        "pop"
+      ],
+      "cql2": {
+        "op": "and",
+        "args": [
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "=",
+                "args": [
+                  {
+                    "property": "kind"
+                  },
+                  "park"
+                ]
+              },
+              {
+                "op": "or",
+                "args": [
+                  {
+                    "op": "isNull",
+                    "args": [
+                      {
+                        "property": "kind"
+                      }
+                    ]
+                  },
+                  {
+                    "op": "<>",
+                    "args": [
+                      {
+                        "property": "kind"
+                      },
+                      "x"
+                    ]
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "op": "not",
+            "args": [
+              {
+                "op": "isNull",
+                "args": [
+                  {
+                    "property": "pop"
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "values": 2,
+      "depth": 10
+    },
+    {
+      "name": "empty_all",
+      "filter": [
+        "all"
+      ],
+      "columns": [],
+      "cql2": null,
+      "values": 0,
+      "depth": 0
+    },
+    {
+      "name": "any_holding_an_empty_all",
+      "filter": [
+        "any",
+        [
+          "all"
+        ],
+        [
+          "has",
+          "kind"
+        ]
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": null,
+      "values": 0,
+      "depth": 0
+    },
+    {
+      "name": "largest_safe_integer",
+      "filter": [
+        "==",
+        [
+          "get",
+          "pop"
+        ],
+        9007199254740991
+      ],
+      "columns": [
+        "pop"
+      ],
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "pop"
+          },
+          9007199254740991
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "legacy_comparison_normalized",
+      "filter": [
+        "==",
+        "kind",
+        "park"
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "kind"
+          },
+          "park"
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "legacy_not_in",
+      "filter": [
+        "!in",
+        "kind",
+        "a",
+        "b"
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "or",
+        "args": [
+          {
+            "op": "isNull",
+            "args": [
+              {
+                "property": "kind"
+              }
+            ]
+          },
+          {
+            "op": "not",
+            "args": [
+              {
+                "op": "in",
+                "args": [
+                  {
+                    "property": "kind"
+                  },
+                  [
+                    "a",
+                    "b"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "values": 2,
+      "depth": 8
+    },
+    {
+      "name": "legacy_not_has",
+      "filter": [
+        "!has",
+        "kind"
+      ],
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "isNull",
+        "args": [
+          {
+            "property": "kind"
+          }
+        ]
+      },
+      "values": 0,
+      "depth": 4
+    },
+    {
+      "name": "legacy_group",
+      "filter": [
+        "all",
+        [
+          "!has",
+          "kind"
+        ],
+        [
+          "!in",
+          "pop",
+          1,
+          2
+        ]
+      ],
+      "columns": [
+        "kind",
+        "pop"
+      ],
+      "cql2": {
+        "op": "and",
+        "args": [
+          {
+            "op": "isNull",
+            "args": [
+              {
+                "property": "kind"
+              }
+            ]
+          },
+          {
+            "op": "or",
+            "args": [
+              {
+                "op": "isNull",
+                "args": [
+                  {
+                    "property": "pop"
+                  }
+                ]
+              },
+              {
+                "op": "not",
+                "args": [
+                  {
+                    "op": "in",
+                    "args": [
+                      {
+                        "property": "pop"
+                      },
+                      [
+                        1,
+                        2
+                      ]
+                    ]
+                  }
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "values": 2,
+      "depth": 10
+    },
+    {
+      "name": "legacy_group_with_has",
+      "filter": [
+        "all",
+        [
+          "has",
+          "kind"
+        ],
+        [
+          "!has",
+          "pop"
+        ]
+      ],
+      "columns": [
+        "kind",
+        "pop"
+      ],
+      "cql2": {
+        "op": "and",
+        "args": [
+          {
+            "op": "not",
+            "args": [
+              {
+                "op": "isNull",
+                "args": [
+                  {
+                    "property": "kind"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "op": "isNull",
+            "args": [
+              {
+                "property": "pop"
+              }
+            ]
+          }
+        ]
+      },
+      "values": 0,
+      "depth": 8
+    },
+    {
+      "name": "match",
+      "filter": [
+        "match",
+        [
+          "get",
+          "kind"
+        ],
+        "a",
+        true,
+        false
+      ],
+      "columns": null
+    },
+    {
+      "name": "case",
+      "filter": [
+        "case",
+        [
+          "==",
+          [
+            "get",
+            "kind"
+          ],
+          "a"
+        ],
+        true,
+        false
+      ],
+      "columns": null
+    },
+    {
+      "name": "coalesce_accessor",
+      "filter": [
+        "==",
+        [
+          "coalesce",
           [
             "get",
             "kind"
           ],
           "x"
-        ]
-      ],
-      [
-        "has",
-        "pop"
-      ]
-    ],
-    "columns": [
-      "kind",
-      "pop"
-    ],
-    "cql2": {
-      "op": "and",
-      "args": [
-        {
-          "op": "or",
-          "args": [
-            {
-              "op": "=",
-              "args": [
-                {
-                  "property": "kind"
-                },
-                "park"
-              ]
-            },
-            {
-              "op": "or",
-              "args": [
-                {
-                  "op": "isNull",
-                  "args": [
-                    {
-                      "property": "kind"
-                    }
-                  ]
-                },
-                {
-                  "op": "<>",
-                  "args": [
-                    {
-                      "property": "kind"
-                    },
-                    "x"
-                  ]
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "op": "not",
-          "args": [
-            {
-              "op": "isNull",
-              "args": [
-                {
-                  "property": "pop"
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    "values": 2,
-    "depth": 10
-  },
-  {
-    "name": "empty_all",
-    "filter": [
-      "all"
-    ],
-    "columns": [],
-    "cql2": null,
-    "values": 0,
-    "depth": 0
-  },
-  {
-    "name": "any_holding_an_empty_all",
-    "filter": [
-      "any",
-      [
-        "all"
-      ],
-      [
-        "has",
-        "kind"
-      ]
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": null,
-    "values": 0,
-    "depth": 0
-  },
-  {
-    "name": "largest_safe_integer",
-    "filter": [
-      "==",
-      [
-        "get",
-        "pop"
-      ],
-      9007199254740991
-    ],
-    "columns": [
-      "pop"
-    ],
-    "cql2": {
-      "op": "=",
-      "args": [
-        {
-          "property": "pop"
-        },
-        9007199254740991
-      ]
-    },
-    "values": 1,
-    "depth": 4
-  },
-  {
-    "name": "legacy_comparison_normalized",
-    "filter": [
-      "==",
-      "kind",
-      "park"
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "=",
-      "args": [
-        {
-          "property": "kind"
-        },
-        "park"
-      ]
-    },
-    "values": 1,
-    "depth": 4
-  },
-  {
-    "name": "legacy_not_in",
-    "filter": [
-      "!in",
-      "kind",
-      "a",
-      "b"
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "or",
-      "args": [
-        {
-          "op": "isNull",
-          "args": [
-            {
-              "property": "kind"
-            }
-          ]
-        },
-        {
-          "op": "not",
-          "args": [
-            {
-              "op": "in",
-              "args": [
-                {
-                  "property": "kind"
-                },
-                [
-                  "a",
-                  "b"
-                ]
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    "values": 2,
-    "depth": 8
-  },
-  {
-    "name": "legacy_not_has",
-    "filter": [
-      "!has",
-      "kind"
-    ],
-    "columns": [
-      "kind"
-    ],
-    "cql2": {
-      "op": "isNull",
-      "args": [
-        {
-          "property": "kind"
-        }
-      ]
-    },
-    "values": 0,
-    "depth": 4
-  },
-  {
-    "name": "legacy_group",
-    "filter": [
-      "all",
-      [
-        "!has",
-        "kind"
-      ],
-      [
-        "!in",
-        "pop",
-        1,
-        2
-      ]
-    ],
-    "columns": [
-      "kind",
-      "pop"
-    ],
-    "cql2": {
-      "op": "and",
-      "args": [
-        {
-          "op": "isNull",
-          "args": [
-            {
-              "property": "kind"
-            }
-          ]
-        },
-        {
-          "op": "or",
-          "args": [
-            {
-              "op": "isNull",
-              "args": [
-                {
-                  "property": "pop"
-                }
-              ]
-            },
-            {
-              "op": "not",
-              "args": [
-                {
-                  "op": "in",
-                  "args": [
-                    {
-                      "property": "pop"
-                    },
-                    [
-                      1,
-                      2
-                    ]
-                  ]
-                }
-              ]
-            }
-          ]
-        }
-      ]
-    },
-    "values": 2,
-    "depth": 10
-  },
-  {
-    "name": "legacy_group_with_has",
-    "filter": [
-      "all",
-      [
-        "has",
-        "kind"
-      ],
-      [
-        "!has",
-        "pop"
-      ]
-    ],
-    "columns": [
-      "kind",
-      "pop"
-    ],
-    "cql2": {
-      "op": "and",
-      "args": [
-        {
-          "op": "not",
-          "args": [
-            {
-              "op": "isNull",
-              "args": [
-                {
-                  "property": "kind"
-                }
-              ]
-            }
-          ]
-        },
-        {
-          "op": "isNull",
-          "args": [
-            {
-              "property": "pop"
-            }
-          ]
-        }
-      ]
-    },
-    "values": 0,
-    "depth": 8
-  },
-  {
-    "name": "match",
-    "filter": [
-      "match",
-      [
-        "get",
-        "kind"
-      ],
-      "a",
-      true,
-      false
-    ],
-    "columns": null
-  },
-  {
-    "name": "case",
-    "filter": [
-      "case",
-      [
-        "==",
-        [
-          "get",
-          "kind"
         ],
         "a"
       ],
-      true,
-      false
-    ],
-    "columns": null
-  },
-  {
-    "name": "coalesce_accessor",
-    "filter": [
-      "==",
-      [
-        "coalesce",
-        [
-          "get",
-          "kind"
-        ],
-        "x"
-      ],
-      "a"
-    ],
-    "columns": null
-  },
-  {
-    "name": "computed_get",
-    "filter": [
-      "==",
-      [
-        "get",
-        [
-          "concat",
-          "ki",
-          "nd"
-        ]
-      ],
-      "a"
-    ],
-    "columns": null
-  },
-  {
-    "name": "get_from_object",
-    "filter": [
-      "==",
-      [
-        "get",
-        "kind",
-        [
-          "properties"
-        ]
-      ],
-      "a"
-    ],
-    "columns": null
-  },
-  {
-    "name": "properties",
-    "filter": [
-      "==",
-      [
-        "at",
-        0,
-        [
-          "properties"
-        ]
-      ],
-      "a"
-    ],
-    "columns": null
-  },
-  {
-    "name": "none",
-    "filter": [
-      "none",
-      [
-        "!has",
-        "kind"
-      ]
-    ],
-    "columns": null
-  },
-  {
-    "name": "pseudo_type_legacy",
-    "filter": [
-      "==",
-      "$type",
-      "Point"
-    ],
-    "columns": null
-  },
-  {
-    "name": "pseudo_type_not_has",
-    "filter": [
-      "!has",
-      "$type"
-    ],
-    "columns": null
-  },
-  {
-    "name": "pseudo_id_get",
-    "filter": [
-      "==",
-      [
-        "get",
-        "$id"
-      ],
-      1
-    ],
-    "columns": null
-  },
-  {
-    "name": "mixed_syntax",
-    "filter": [
-      "all",
-      [
+      "columns": null
+    },
+    {
+      "name": "computed_get",
+      "filter": [
         "==",
         [
           "get",
-          "kind"
-        ],
-        "park"
-      ],
-      [
-        "!has",
-        "pop"
-      ]
-    ],
-    "columns": null
-  },
-  {
-    "name": "negated_comparison",
-    "filter": [
-      "!",
-      [
-        "==",
-        [
-          "get",
-          "kind"
-        ],
-        "park"
-      ]
-    ],
-    "columns": null
-  },
-  {
-    "name": "order_with_null",
-    "filter": [
-      "<",
-      [
-        "get",
-        "pop"
-      ],
-      null
-    ],
-    "columns": null
-  },
-  {
-    "name": "empty_value_list",
-    "filter": [
-      "in",
-      [
-        "get",
-        "kind"
-      ],
-      [
-        "literal",
-        []
-      ]
-    ],
-    "columns": null
-  },
-  {
-    "name": "nested_value_list",
-    "filter": [
-      "in",
-      [
-        "get",
-        "kind"
-      ],
-      [
-        "literal",
-        [
           [
-            "a"
+            "concat",
+            "ki",
+            "nd"
           ]
+        ],
+        "a"
+      ],
+      "columns": null
+    },
+    {
+      "name": "get_from_object",
+      "filter": [
+        "==",
+        [
+          "get",
+          "kind",
+          [
+            "properties"
+          ]
+        ],
+        "a"
+      ],
+      "columns": null
+    },
+    {
+      "name": "properties",
+      "filter": [
+        "==",
+        [
+          "at",
+          0,
+          [
+            "properties"
+          ]
+        ],
+        "a"
+      ],
+      "columns": null
+    },
+    {
+      "name": "none",
+      "filter": [
+        "none",
+        [
+          "!has",
+          "kind"
         ]
-      ]
-    ],
-    "columns": null
-  },
-  {
-    "name": "contains_number",
-    "filter": [
-      "in",
-      5,
-      [
-        "get",
-        "kind"
-      ]
-    ],
-    "columns": null
-  },
-  {
-    "name": "contains_extra_operand",
-    "filter": [
-      "in",
-      "a",
-      [
-        "get",
-        "kind"
       ],
-      1
-    ],
-    "columns": null
-  },
-  {
-    "name": "column_name_starts_with_digit",
-    "filter": [
-      "==",
-      [
-        "get",
-        "1st"
+      "columns": null
+    },
+    {
+      "name": "pseudo_type_legacy",
+      "filter": [
+        "==",
+        "$type",
+        "Point"
       ],
-      1
-    ],
-    "columns": null
-  },
-  {
-    "name": "empty_any",
-    "filter": [
-      "any"
-    ],
-    "columns": null
-  },
-  {
-    "name": "boolean_child",
-    "filter": [
-      "all",
-      true,
-      [
-        "has",
-        "kind"
-      ]
-    ],
-    "columns": null
-  },
-  {
-    "name": "list_operator",
-    "filter": [
-      [
-        "get",
-        "kind"
+      "columns": null
+    },
+    {
+      "name": "pseudo_type_not_has",
+      "filter": [
+        "!has",
+        "$type"
       ],
-      1
-    ],
-    "columns": null
-  },
-  {
-    "name": "legacy_in",
-    "filter": [
-      "in",
-      "kind",
-      "a"
-    ],
-    "columns": null
-  },
-  {
-    "name": "has_extra_operand",
-    "filter": [
-      "has",
-      "kind",
-      "x"
-    ],
-    "columns": null
-  },
-  {
-    "name": "to_number_text_fallback",
-    "filter": [
-      ">",
-      [
-        "to-number",
+      "columns": null
+    },
+    {
+      "name": "pseudo_id_get",
+      "filter": [
+        "==",
+        [
+          "get",
+          "$id"
+        ],
+        1
+      ],
+      "columns": null
+    },
+    {
+      "name": "mixed_syntax",
+      "filter": [
+        "all",
+        [
+          "==",
+          [
+            "get",
+            "kind"
+          ],
+          "park"
+        ],
+        [
+          "!has",
+          "pop"
+        ]
+      ],
+      "columns": null
+    },
+    {
+      "name": "negated_comparison",
+      "filter": [
+        "!",
+        [
+          "==",
+          [
+            "get",
+            "kind"
+          ],
+          "park"
+        ]
+      ],
+      "columns": null
+    },
+    {
+      "name": "order_with_null",
+      "filter": [
+        "<",
         [
           "get",
           "pop"
         ],
-        "x"
+        null
       ],
-      1
-    ],
-    "columns": null
-  },
-  {
-    "name": "legacy_not_in_without_values",
-    "filter": [
-      "!in",
-      "kind"
-    ],
-    "columns": null
-  },
-  {
-    "name": "literal_with_extra_operand",
-    "filter": [
-      "in",
-      [
-        "get",
-        "kind"
-      ],
-      [
-        "literal",
+      "columns": null
+    },
+    {
+      "name": "empty_value_list",
+      "filter": [
+        "in",
         [
-          "a"
+          "get",
+          "kind"
+        ],
+        [
+          "literal",
+          []
+        ]
+      ],
+      "columns": null
+    },
+    {
+      "name": "nested_value_list",
+      "filter": [
+        "in",
+        [
+          "get",
+          "kind"
+        ],
+        [
+          "literal",
+          [
+            [
+              "a"
+            ]
+          ]
+        ]
+      ],
+      "columns": null
+    },
+    {
+      "name": "contains_number",
+      "filter": [
+        "in",
+        5,
+        [
+          "get",
+          "kind"
+        ]
+      ],
+      "columns": null
+    },
+    {
+      "name": "contains_extra_operand",
+      "filter": [
+        "in",
+        "a",
+        [
+          "get",
+          "kind"
         ],
         1
-      ]
-    ],
-    "columns": null
-  },
-  {
-    "name": "unknown_operator",
-    "filter": [
-      "within",
-      {
-        "type": "Polygon",
-        "coordinates": []
-      }
-    ],
-    "columns": null
-  },
-  {
-    "name": "any_with_an_empty_all_then_match",
-    "filter": [
-      "any",
-      [
-        "all"
       ],
-      [
-        "match",
+      "columns": null
+    },
+    {
+      "name": "column_name_starts_with_digit",
+      "filter": [
+        "==",
         [
           "get",
-          "kind"
+          "1st"
         ],
-        "a",
-        true,
-        false
-      ]
-    ],
-    "columns": null
-  },
-  {
-    "name": "all_with_an_empty_all_then_match",
-    "filter": [
-      "all",
-      [
-        "all"
+        1
       ],
-      [
-        "match",
+      "columns": null
+    },
+    {
+      "name": "empty_any",
+      "filter": [
+        "any"
+      ],
+      "columns": null
+    },
+    {
+      "name": "boolean_child",
+      "filter": [
+        "all",
+        true,
         [
-          "get",
+          "has",
           "kind"
-        ],
-        "a",
-        true,
-        false
-      ]
-    ],
-    "columns": null
-  },
-  {
-    "name": "unsafe_integer",
-    "filter": [
-      "==",
-      [
-        "get",
-        "pop"
-      ],
-      9007199254740992
-    ],
-    "columns": null
-  },
-  {
-    "name": "unsafe_integral_float",
-    "filter": [
-      "==",
-      [
-        "get",
-        "pop"
-      ],
-      1e+300
-    ],
-    "columns": null
-  },
-  {
-    "name": "unsafe_integer_in_list",
-    "filter": [
-      "in",
-      [
-        "get",
-        "pop"
-      ],
-      [
-        "literal",
-        [
-          1,
-          -9007199254740992
         ]
-      ]
-    ],
-    "columns": null
-  }
-]
+      ],
+      "columns": null
+    },
+    {
+      "name": "list_operator",
+      "filter": [
+        [
+          "get",
+          "kind"
+        ],
+        1
+      ],
+      "columns": null
+    },
+    {
+      "name": "legacy_in",
+      "filter": [
+        "in",
+        "kind",
+        "a"
+      ],
+      "columns": null
+    },
+    {
+      "name": "has_extra_operand",
+      "filter": [
+        "has",
+        "kind",
+        "x"
+      ],
+      "columns": null
+    },
+    {
+      "name": "to_number_text_fallback",
+      "filter": [
+        ">",
+        [
+          "to-number",
+          [
+            "get",
+            "pop"
+          ],
+          "x"
+        ],
+        1
+      ],
+      "columns": null
+    },
+    {
+      "name": "legacy_not_in_without_values",
+      "filter": [
+        "!in",
+        "kind"
+      ],
+      "columns": null
+    },
+    {
+      "name": "literal_with_extra_operand",
+      "filter": [
+        "in",
+        [
+          "get",
+          "kind"
+        ],
+        [
+          "literal",
+          [
+            "a"
+          ],
+          1
+        ]
+      ],
+      "columns": null
+    },
+    {
+      "name": "unknown_operator",
+      "filter": [
+        "within",
+        {
+          "type": "Polygon",
+          "coordinates": []
+        }
+      ],
+      "columns": null
+    },
+    {
+      "name": "any_with_an_empty_all_then_match",
+      "filter": [
+        "any",
+        [
+          "all"
+        ],
+        [
+          "match",
+          [
+            "get",
+            "kind"
+          ],
+          "a",
+          true,
+          false
+        ]
+      ],
+      "columns": null
+    },
+    {
+      "name": "all_with_an_empty_all_then_match",
+      "filter": [
+        "all",
+        [
+          "all"
+        ],
+        [
+          "match",
+          [
+            "get",
+            "kind"
+          ],
+          "a",
+          true,
+          false
+        ]
+      ],
+      "columns": null
+    },
+    {
+      "name": "unsafe_integer",
+      "filter": [
+        "==",
+        [
+          "get",
+          "pop"
+        ],
+        9007199254740992
+      ],
+      "columns": null
+    },
+    {
+      "name": "unsafe_integral_float",
+      "filter": [
+        "==",
+        [
+          "get",
+          "pop"
+        ],
+        1e+300
+      ],
+      "columns": null
+    },
+    {
+      "name": "unsafe_integer_in_list",
+      "filter": [
+        "in",
+        [
+          "get",
+          "pop"
+        ],
+        [
+          "literal",
+          [
+            1,
+            -9007199254740992
+          ]
+        ]
+      ],
+      "columns": null
+    },
+    {
+      "name": "typed_timestamptz_utc_text",
+      "filter": [
+        "==",
+        [
+          "get",
+          "seen"
+        ],
+        "2024-01-01T12:00:00+00:00"
+      ],
+      "typed": true,
+      "columns": [
+        "seen"
+      ],
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "seen"
+          },
+          {
+            "timestamp": "2024-01-01T12:00:00Z"
+          }
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_timestamptz_fraction",
+      "filter": [
+        "==",
+        [
+          "get",
+          "seen"
+        ],
+        "2024-01-01T12:00:00.25+00:00"
+      ],
+      "typed": true,
+      "columns": [
+        "seen"
+      ],
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "seen"
+          },
+          {
+            "timestamp": "2024-01-01T12:00:00.25Z"
+          }
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_timestamp_text",
+      "filter": [
+        "==",
+        [
+          "get",
+          "at"
+        ],
+        "2024-01-01 12:00:00"
+      ],
+      "typed": true,
+      "columns": [
+        "at"
+      ],
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "at"
+          },
+          {
+            "timestamp": "2024-01-01T12:00:00Z"
+          }
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_date",
+      "filter": [
+        "==",
+        [
+          "get",
+          "day"
+        ],
+        "2024-02-29"
+      ],
+      "typed": true,
+      "columns": [
+        "day"
+      ],
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "day"
+          },
+          {
+            "date": "2024-02-29"
+          }
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_date_list",
+      "filter": [
+        "in",
+        [
+          "get",
+          "day"
+        ],
+        [
+          "literal",
+          [
+            "2024-01-01",
+            "2024-12-31"
+          ]
+        ]
+      ],
+      "typed": true,
+      "columns": [
+        "day"
+      ],
+      "cql2": {
+        "op": "in",
+        "args": [
+          {
+            "property": "day"
+          },
+          [
+            {
+              "date": "2024-01-01"
+            },
+            {
+              "date": "2024-12-31"
+            }
+          ]
+        ]
+      },
+      "values": 2,
+      "depth": 5
+    },
+    {
+      "name": "typed_uuid_lowercase",
+      "filter": [
+        "==",
+        [
+          "get",
+          "id"
+        ],
+        "0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34"
+      ],
+      "typed": true,
+      "columns": [
+        "id"
+      ],
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "id"
+          },
+          "0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34"
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_uuid_null",
+      "filter": [
+        "==",
+        [
+          "get",
+          "id"
+        ],
+        null
+      ],
+      "typed": true,
+      "columns": [
+        "id"
+      ],
+      "cql2": {
+        "op": "isNull",
+        "args": [
+          {
+            "property": "id"
+          }
+        ]
+      },
+      "values": 0,
+      "depth": 4
+    },
+    {
+      "name": "typed_boolean",
+      "filter": [
+        "==",
+        [
+          "get",
+          "on"
+        ],
+        true
+      ],
+      "typed": true,
+      "columns": [
+        "on"
+      ],
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "on"
+          },
+          true
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_integer",
+      "filter": [
+        "==",
+        [
+          "get",
+          "pop"
+        ],
+        3
+      ],
+      "typed": true,
+      "columns": [
+        "pop"
+      ],
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "pop"
+          },
+          3
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_smallint_list_at_bounds",
+      "filter": [
+        "in",
+        [
+          "get",
+          "small"
+        ],
+        [
+          "literal",
+          [
+            -32768,
+            32767
+          ]
+        ]
+      ],
+      "typed": true,
+      "columns": [
+        "small"
+      ],
+      "cql2": {
+        "op": "in",
+        "args": [
+          {
+            "property": "small"
+          },
+          [
+            -32768,
+            32767
+          ]
+        ]
+      },
+      "values": 2,
+      "depth": 4
+    },
+    {
+      "name": "typed_bigint_largest_safe",
+      "filter": [
+        "==",
+        [
+          "get",
+          "big"
+        ],
+        9007199254740991
+      ],
+      "typed": true,
+      "columns": [
+        "big"
+      ],
+      "cql2": {
+        "op": "=",
+        "args": [
+          {
+            "property": "big"
+          },
+          9007199254740991
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_real",
+      "filter": [
+        ">",
+        [
+          "get",
+          "r"
+        ],
+        1.5
+      ],
+      "typed": true,
+      "columns": [
+        "r"
+      ],
+      "cql2": {
+        "op": ">",
+        "args": [
+          {
+            "property": "r"
+          },
+          1.5
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_numeric",
+      "filter": [
+        "<",
+        [
+          "get",
+          "n"
+        ],
+        2.25
+      ],
+      "typed": true,
+      "columns": [
+        "n"
+      ],
+      "cql2": {
+        "op": "<",
+        "args": [
+          {
+            "property": "n"
+          },
+          2.25
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_double_null_safe",
+      "filter": [
+        "all",
+        [
+          "!=",
+          [
+            "typeof",
+            [
+              "get",
+              "d"
+            ]
+          ],
+          "null"
+        ],
+        [
+          ">=",
+          [
+            "to-number",
+            [
+              "get",
+              "d"
+            ],
+            -1000000000000
+          ],
+          3
+        ]
+      ],
+      "typed": true,
+      "columns": [
+        "d"
+      ],
+      "cql2": {
+        "op": ">=",
+        "args": [
+          {
+            "property": "d"
+          },
+          3
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_text",
+      "filter": [
+        "!=",
+        [
+          "get",
+          "kind"
+        ],
+        "x"
+      ],
+      "typed": true,
+      "columns": [
+        "kind"
+      ],
+      "cql2": {
+        "op": "or",
+        "args": [
+          {
+            "op": "isNull",
+            "args": [
+              {
+                "property": "kind"
+              }
+            ]
+          },
+          {
+            "op": "<>",
+            "args": [
+              {
+                "property": "kind"
+              },
+              "x"
+            ]
+          }
+        ]
+      },
+      "values": 1,
+      "depth": 6
+    },
+    {
+      "name": "typed_varchar_contains",
+      "filter": [
+        "in",
+        "ab",
+        [
+          "get",
+          "code"
+        ]
+      ],
+      "typed": true,
+      "columns": [
+        "code"
+      ],
+      "cql2": {
+        "op": "like",
+        "args": [
+          {
+            "property": "code"
+          },
+          "%ab%"
+        ]
+      },
+      "values": 1,
+      "depth": 4
+    },
+    {
+      "name": "typed_legacy_not_in_uuid",
+      "filter": [
+        "!in",
+        "id",
+        "0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34"
+      ],
+      "typed": true,
+      "columns": [
+        "id"
+      ],
+      "cql2": {
+        "op": "or",
+        "args": [
+          {
+            "op": "isNull",
+            "args": [
+              {
+                "property": "id"
+              }
+            ]
+          },
+          {
+            "op": "not",
+            "args": [
+              {
+                "op": "in",
+                "args": [
+                  {
+                    "property": "id"
+                  },
+                  [
+                    "0b7d2f4e-3c1a-4e8b-9f6d-5a2c7e1b9d34"
+                  ]
+                ]
+              }
+            ]
+          }
+        ]
+      },
+      "values": 1,
+      "depth": 8
+    },
+    {
+      "name": "typed_timestamptz_z",
+      "filter": [
+        "==",
+        [
+          "get",
+          "seen"
+        ],
+        "2024-01-01T12:00:00Z"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_timestamptz_offset",
+      "filter": [
+        "==",
+        [
+          "get",
+          "seen"
+        ],
+        "2024-01-01T12:00:00+01:00"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_timestamptz_trailing_zero",
+      "filter": [
+        "==",
+        [
+          "get",
+          "seen"
+        ],
+        "2024-01-01T12:00:00.50+00:00"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_timestamptz_list_z",
+      "filter": [
+        "in",
+        [
+          "get",
+          "seen"
+        ],
+        [
+          "literal",
+          [
+            "2024-01-01T12:00:00Z"
+          ]
+        ]
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_timestamp_with_t",
+      "filter": [
+        "==",
+        [
+          "get",
+          "at"
+        ],
+        "2024-01-01T12:00:00"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_timestamp_hour_24",
+      "filter": [
+        "==",
+        [
+          "get",
+          "at"
+        ],
+        "2024-01-01 24:00:00"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_date_invalid",
+      "filter": [
+        "==",
+        [
+          "get",
+          "day"
+        ],
+        "2024-02-30"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_date_with_time",
+      "filter": [
+        "==",
+        [
+          "get",
+          "day"
+        ],
+        "2024-01-01 00:00:00"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_date_number",
+      "filter": [
+        "==",
+        [
+          "get",
+          "day"
+        ],
+        20240101
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_uuid_uppercase",
+      "filter": [
+        "==",
+        [
+          "get",
+          "id"
+        ],
+        "0B7D2F4E-3C1A-4E8B-9F6D-5A2C7E1B9D34"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_legacy_not_in_uuid_uppercase",
+      "filter": [
+        "!in",
+        "id",
+        "0B7D2F4E-3C1A-4E8B-9F6D-5A2C7E1B9D34"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_boolean_text",
+      "filter": [
+        "==",
+        [
+          "get",
+          "on"
+        ],
+        "true"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_integer_text",
+      "filter": [
+        "==",
+        [
+          "get",
+          "pop"
+        ],
+        "3"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_integer_fraction",
+      "filter": [
+        "==",
+        [
+          "get",
+          "pop"
+        ],
+        3.5
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_smallint_out_of_range",
+      "filter": [
+        "==",
+        [
+          "get",
+          "small"
+        ],
+        32768
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_integer_list_out_of_range",
+      "filter": [
+        "in",
+        [
+          "get",
+          "pop"
+        ],
+        [
+          "literal",
+          [
+            1,
+            2147483648
+          ]
+        ]
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_real_past_float4",
+      "filter": [
+        "==",
+        [
+          "get",
+          "r"
+        ],
+        1e+39
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_number_on_text",
+      "filter": [
+        ">",
+        [
+          "get",
+          "kind"
+        ],
+        3
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_text_on_double",
+      "filter": [
+        "==",
+        [
+          "get",
+          "d"
+        ],
+        "1.5"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_contains_on_integer",
+      "filter": [
+        "in",
+        "1",
+        [
+          "get",
+          "pop"
+        ]
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_jsonb_compare",
+      "filter": [
+        "==",
+        [
+          "get",
+          "meta"
+        ],
+        "x"
+      ],
+      "typed": true,
+      "columns": null
+    },
+    {
+      "name": "typed_jsonb_has",
+      "filter": [
+        "has",
+        "meta"
+      ],
+      "typed": true,
+      "columns": null
+    }
+  ]
+}
