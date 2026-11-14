@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from . import arcgis_report as _report
+from .arcgis_layer_properties import NOT_CARRIED
 from .arcgis_migrate_collections import DENIED
 from .arcgis_migrate_cutover import (
     attachment_losses,
@@ -73,6 +74,8 @@ def _follow_ups(
         for note in notes:
             if any(marker in note for marker in _SKIPPED_LAYER):
                 add(item["id"], "skipped_layer", note)
+            elif note.startswith("layer ") and NOT_CARRIED in note:
+                add(item["id"], "layer_properties", note)
             elif note.startswith("skipped"):
                 add(item["id"], "skipped", note)
             elif note == PUBLIC_BLOCKED:

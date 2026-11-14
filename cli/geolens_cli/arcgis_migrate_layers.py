@@ -20,6 +20,7 @@ from uuid import UUID
 
 from ._sdk_helpers import PollDeadlineExceeded, long_request_timeout, poll_until
 from .arcgis_inventory import external_by_url
+from .arcgis_layer_properties import property_notes
 from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
@@ -558,6 +559,7 @@ def import_layers(
         raise ItemFailed(f"probe failed, {exc}") from None
     base = item["target"]["title"] or item["title"]
     wanted, notes, left_behind = importable_layers(probe)
+    notes += property_notes(wanted)
     titles = _titles(
         base, [(_layer_label(layer), _layer_id(layer)) for layer in wanted]
     )

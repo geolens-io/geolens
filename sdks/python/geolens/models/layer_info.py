@@ -38,6 +38,19 @@ class LayerInfo:
             does not say, and for other service types.
         relationships (list[LayerRelationship] | Unset): Relationship classes the ArcGIS layer takes part in. Empty when
             the service declares none or does not say, and for other service types.
+        time_fields (list[str] | None | Unset): Start and end fields of the ArcGIS layer's time settings (timeInfo),
+            which an import does not carry; empty when the settings name none. Null when the layer has no time settings or
+            the service does not say, and for other service types.
+        subtype_field (None | str | Unset): Field the ArcGIS layer's subtypes are keyed on, set only when the layer
+            declares subtypes. An import keeps the field as a plain column without the subtype names. Null otherwise and for
+            other service types.
+        has_m (bool | None | Unset): Whether the ArcGIS layer's geometries carry M values, which an import drops. Null
+            when the service does not say, and for other service types.
+        time_only_fields (list[str] | Unset): ArcGIS time-only fields (esriFieldTypeTimeOnly) of the layer, which an
+            import stores as text. Empty when there are none or the service does not say.
+        timestamp_offset_fields (list[str] | Unset): ArcGIS timestamp-offset fields (esriFieldTypeTimestampOffset) of
+            the layer, which an import stores as the instant without its UTC offset. Empty when there are none or the
+            service does not say.
         layer_id (int | None | str | Unset): Numeric or string layer ID used by ArcGIS services.
         object_id_field (None | str | Unset): ArcGIS object ID field name, used for stable pagination.
         kind (LayerInfoKind | Unset): Backend-classified layer kind. 'vector' = point/line/polygon feature data.
@@ -56,6 +69,11 @@ class LayerInfo:
     importable: bool | Unset = True
     has_attachments: bool | None | Unset = UNSET
     relationships: list[LayerRelationship] | Unset = UNSET
+    time_fields: list[str] | None | Unset = UNSET
+    subtype_field: None | str | Unset = UNSET
+    has_m: bool | None | Unset = UNSET
+    time_only_fields: list[str] | Unset = UNSET
+    timestamp_offset_fields: list[str] | Unset = UNSET
     layer_id: int | None | str | Unset = UNSET
     object_id_field: None | str | Unset = UNSET
     kind: LayerInfoKind | Unset = "vector"
@@ -111,6 +129,35 @@ class LayerInfo:
                 relationships_item = relationships_item_data.to_dict()
                 relationships.append(relationships_item)
 
+        time_fields: list[str] | None | Unset
+        if isinstance(self.time_fields, Unset):
+            time_fields = UNSET
+        elif isinstance(self.time_fields, list):
+            time_fields = self.time_fields
+
+        else:
+            time_fields = self.time_fields
+
+        subtype_field: None | str | Unset
+        if isinstance(self.subtype_field, Unset):
+            subtype_field = UNSET
+        else:
+            subtype_field = self.subtype_field
+
+        has_m: bool | None | Unset
+        if isinstance(self.has_m, Unset):
+            has_m = UNSET
+        else:
+            has_m = self.has_m
+
+        time_only_fields: list[str] | Unset = UNSET
+        if not isinstance(self.time_only_fields, Unset):
+            time_only_fields = self.time_only_fields
+
+        timestamp_offset_fields: list[str] | Unset = UNSET
+        if not isinstance(self.timestamp_offset_fields, Unset):
+            timestamp_offset_fields = self.timestamp_offset_fields
+
         layer_id: int | None | str | Unset
         if isinstance(self.layer_id, Unset):
             layer_id = UNSET
@@ -152,6 +199,16 @@ class LayerInfo:
             field_dict["has_attachments"] = has_attachments
         if relationships is not UNSET:
             field_dict["relationships"] = relationships
+        if time_fields is not UNSET:
+            field_dict["time_fields"] = time_fields
+        if subtype_field is not UNSET:
+            field_dict["subtype_field"] = subtype_field
+        if has_m is not UNSET:
+            field_dict["has_m"] = has_m
+        if time_only_fields is not UNSET:
+            field_dict["time_only_fields"] = time_only_fields
+        if timestamp_offset_fields is not UNSET:
+            field_dict["timestamp_offset_fields"] = timestamp_offset_fields
         if layer_id is not UNSET:
             field_dict["layer_id"] = layer_id
         if object_id_field is not UNSET:
@@ -237,6 +294,47 @@ class LayerInfo:
 
                 relationships.append(relationships_item)
 
+        def _parse_time_fields(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                time_fields_type_0 = cast(list[str], data)
+
+                return time_fields_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        time_fields = _parse_time_fields(d.pop("time_fields", UNSET))
+
+        def _parse_subtype_field(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        subtype_field = _parse_subtype_field(d.pop("subtype_field", UNSET))
+
+        def _parse_has_m(data: object) -> bool | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(bool | None | Unset, data)
+
+        has_m = _parse_has_m(d.pop("has_m", UNSET))
+
+        time_only_fields = cast(list[str], d.pop("time_only_fields", UNSET))
+
+        timestamp_offset_fields = cast(
+            list[str], d.pop("timestamp_offset_fields", UNSET)
+        )
+
         def _parse_layer_id(data: object) -> int | None | str | Unset:
             if data is None:
                 return data
@@ -273,6 +371,11 @@ class LayerInfo:
             importable=importable,
             has_attachments=has_attachments,
             relationships=relationships,
+            time_fields=time_fields,
+            subtype_field=subtype_field,
+            has_m=has_m,
+            time_only_fields=time_only_fields,
+            timestamp_offset_fields=timestamp_offset_fields,
             layer_id=layer_id,
             object_id_field=object_id_field,
             kind=kind,

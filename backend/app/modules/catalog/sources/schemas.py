@@ -218,6 +218,46 @@ class LayerInfo(BaseModel):
             "service declares none or does not say, and for other service types."
         ),
     )
+    time_fields: list[str] | None = Field(
+        default=None,
+        description=(
+            "Start and end fields of the ArcGIS layer's time settings (timeInfo), "
+            "which an import does not carry; empty when the settings name none. "
+            "Null when the layer has no time settings or the service does not "
+            "say, and for other service types."
+        ),
+    )
+    subtype_field: str | None = Field(
+        default=None,
+        description=(
+            "Field the ArcGIS layer's subtypes are keyed on, set only when the "
+            "layer declares subtypes. An import keeps the field as a plain column "
+            "without the subtype names. Null otherwise and for other service types."
+        ),
+    )
+    has_m: bool | None = Field(
+        default=None,
+        description=(
+            "Whether the ArcGIS layer's geometries carry M values, which an import "
+            "drops. Null when the service does not say, and for other service types."
+        ),
+    )
+    time_only_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "ArcGIS time-only fields (esriFieldTypeTimeOnly) of the layer, which "
+            "an import stores as text. Empty when there are none or the service "
+            "does not say."
+        ),
+    )
+    timestamp_offset_fields: list[str] = Field(
+        default_factory=list,
+        description=(
+            "ArcGIS timestamp-offset fields (esriFieldTypeTimestampOffset) of the "
+            "layer, which an import stores as the instant without its UTC offset. "
+            "Empty when there are none or the service does not say."
+        ),
+    )
     layer_id: int | str | None = Field(
         default=None, description="Numeric or string layer ID used by ArcGIS services."
     )

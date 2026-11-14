@@ -191,6 +191,69 @@ class TestProbeReportsAttachments:
         assert details == {}
 
 
+class TestProbeReportsUncarriedProperties:
+    async def _properties(self, body: dict) -> dict:
+        layers = await _probed_layers(lambda request: _stream(body))
+        names = (
+            "time_fields",
+            "subtype_field",
+            "has_m",
+            "time_only_fields",
+            "timestamp_offset_fields",
+        )
+        return {
+            layer.layer_id: {name: getattr(layer, name) for name in names}
+            for layer in layers
+        }
+
+    async def test_reads_each_property_from_all_layers_and_tables(self) -> None:
+        body = {
+            "layers": [
+                {
+                    "id": 0,
+                    "timeInfo": {"startTimeField": "opened", "endTimeField": None},
+                    "subtypeField": "kind",
+                    "subtypes": [{"code": 1, "name": "Main"}],
+                    "hasM": True,
+                    "fields": [
+                        {"name": "OBJECTID", "type": "esriFieldTypeOID"},
+                        {"name": "opens_at", "type": "esriFieldTypeTimeOnly"},
+                        {"name": "seen", "type": "esriFieldTypeTimestampOffset"},
+                        {"name": None, "type": "esriFieldTypeTimeOnly"},
+                        "junk",
+                    ],
+                },
+                {
+                    "id": 1,
+                    "subtypeField": "kind",
+                    "subtypes": [],
+                    "hasM": False,
+                    "fields": "none",
+                },
+            ],
+            "tables": [{"id": 4, "timeInfo": {}, "hasM": "yes"}],
+        }
+
+        found = await self._properties(body)
+
+        assert found[0] == {
+            "time_fields": ["opened"],
+            "subtype_field": "kind",
+            "has_m": True,
+            "time_only_fields": ["opens_at"],
+            "timestamp_offset_fields": ["seen"],
+        }
+        assert found[1] == {
+            "time_fields": None,
+            "subtype_field": None,
+            "has_m": False,
+            "time_only_fields": [],
+            "timestamp_offset_fields": [],
+        }
+        assert found[4]["time_fields"] == [] and found[4]["has_m"] is None
+        assert found[2] == {**found[1], "has_m": None}
+
+
 class TestProbeReportsRelationships:
     async def _relationships(self, body: dict) -> dict:
         layers = await _probed_layers(lambda request: _stream(body))

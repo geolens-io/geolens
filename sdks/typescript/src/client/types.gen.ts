@@ -7679,6 +7679,36 @@ export type LayerInfo = {
      */
     relationships?: Array<LayerRelationship>;
     /**
+     * Time Fields
+     *
+     * Start and end fields of the ArcGIS layer's time settings (timeInfo), which an import does not carry; empty when the settings name none. Null when the layer has no time settings or the service does not say, and for other service types.
+     */
+    time_fields?: Array<string> | null;
+    /**
+     * Subtype Field
+     *
+     * Field the ArcGIS layer's subtypes are keyed on, set only when the layer declares subtypes. An import keeps the field as a plain column without the subtype names. Null otherwise and for other service types.
+     */
+    subtype_field?: string | null;
+    /**
+     * Has M
+     *
+     * Whether the ArcGIS layer's geometries carry M values, which an import drops. Null when the service does not say, and for other service types.
+     */
+    has_m?: boolean | null;
+    /**
+     * Time Only Fields
+     *
+     * ArcGIS time-only fields (esriFieldTypeTimeOnly) of the layer, which an import stores as text. Empty when there are none or the service does not say.
+     */
+    time_only_fields?: Array<string>;
+    /**
+     * Timestamp Offset Fields
+     *
+     * ArcGIS timestamp-offset fields (esriFieldTypeTimestampOffset) of the layer, which an import stores as the instant without its UTC offset. Empty when there are none or the service does not say.
+     */
+    timestamp_offset_fields?: Array<string>;
+    /**
      * Layer Id
      *
      * Numeric or string layer ID used by ArcGIS services.
