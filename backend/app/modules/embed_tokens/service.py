@@ -985,7 +985,8 @@ async def embed_token_still_admits(
             await _liveness_fallback.set_if_absent(cache_key, answer, ttl=ttl)
         else:
             await _liveness_fallback.set(cache_key, answer, ttl=ttl)
-    return admits
+    # The reads or the writes above can outlast the deadline themselves.
+    return admits and _seconds_left(until) > 0
 
 
 async def embed_token_map_shows_attribute_table(

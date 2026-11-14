@@ -395,6 +395,29 @@ async def test_deadline_counts_from_before_a_slow_grant_check(
         )
 
 
+async def test_a_check_that_outlasts_its_own_deadline_refuses(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    dataset = await create_dataset(test_db_session, created_by=admin_id)
+    _, token_id, _ = await _embed_map(
+        client, admin_auth_header, test_db_session, dataset, admin_id
+    )
+    real_grant = embed_service._grant_admits_dataset
+    with _service_clock() as clock:
+
+        async def very_slow_grant(*args, **kwargs):
+            admits = await real_grant(*args, **kwargs)
+            clock.offset += EMBED_TOKEN_LIVENESS_TTL_SECONDS + 1
+            return admits
+
+        monkeypatch.setattr(embed_service, "_grant_admits_dataset", very_slow_grant)
+        assert not await embed_token_still_admits(
+            test_db_session, token_id, _UNRESTRICTED, dataset.id
+        )
+        assert await _liveness_fallback.get(_liveness_key(token_id, dataset.id)) is None
+
+
 class _UnreadableSlowShared(InMemoryCacheProvider):
     """A shared store that answers no read and takes 30 seconds to write."""
 

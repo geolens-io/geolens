@@ -1454,7 +1454,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/export/artifact_cache.py": 620,
     # Embed tokens share origin/scope checks, revocation, cached-denial behavior,
     # the token map's reader settings and audience, and signed-template liveness.
-    "backend/app/modules/embed_tokens/service.py": 1147,
+    "backend/app/modules/embed_tokens/service.py": 1148,
     # Feature reads/writes share schema typing, safe SQL and geometry/metadata
     # invariants; temporal writes reuse the validated filter parsers, batch
     # inserts reuse the single-insert validation, batch deletes the prior-envelope
