@@ -1705,7 +1705,13 @@ _env_file_first_refused_line() {
 update_env_value() {
   key="$1"
   value="$2"
-  tmp=".env.tmp.$$"
+
+  # mktemp creates the file exclusively, so a pre-planted link is never
+  # followed. It starts private and writable; the mode of the existing .env
+  # (read from ls -lL, as stat flags differ between GNU and BSD) is applied last
+  # so a read-only .env stays updatable.
+  tmp="$(umask 077; mktemp .env.tmp.XXXXXX)" || return 1
+  chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
 
   __VAL="$value" awk -v key="$key" '
     BEGIN { val = ENVIRON["__VAL"]; updated = 0 }
@@ -1720,8 +1726,18 @@ update_env_value() {
         print key "=" val
       }
     }
-  ' .env > "$tmp"
-  mv "$tmp" .env
+  ' .env > "$tmp" || { rm -f "$tmp"; return 1; }
+  _mode="$(ls -lL .env | awk '{
+    m = substr($1, 2, 9); o = 0
+    for (i = 1; i <= 9; i++) if (index("rwxst", substr(m, i, 1))) o += 2 ^ (9 - i)
+    printf "%03o", o
+  }')" || _mode=600
+  case "$_mode" in
+    [0-7][0-7][0-7]) ;;
+    *) _mode=600 ;;
+  esac
+  chmod "$_mode" "$tmp" || { rm -f "$tmp"; return 1; }
+  mv "$tmp" .env || { rm -f "$tmp"; return 1; }
 }
 
 # Resolve the highest semver release tag (vX.Y.Z) from a remote, matching the
