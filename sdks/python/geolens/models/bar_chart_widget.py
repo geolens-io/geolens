@@ -34,6 +34,9 @@ class BarChartWidget:
         title (None | str | Unset):
         scope (BarChartWidgetScope | Unset): Summarize the whole layer, or only what the map view shows. Default:
             'layer'.
+        filter_ (list[Any] | None | Unset): Count only the features this MapLibre filter expression keeps, in the form a
+            layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs
+            the type's filter version; left out, the widget covers what its layer shows.
     """
 
     id: UUID
@@ -43,6 +46,7 @@ class BarChartWidget:
     config: BarChartConfig
     title: None | str | Unset = UNSET
     scope: BarChartWidgetScope | Unset = "layer"
+    filter_: list[Any] | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         id = str(self.id)
@@ -65,6 +69,15 @@ class BarChartWidget:
         if not isinstance(self.scope, Unset):
             scope = self.scope
 
+        filter_: list[Any] | None | Unset
+        if isinstance(self.filter_, Unset):
+            filter_ = UNSET
+        elif isinstance(self.filter_, list):
+            filter_ = self.filter_
+
+        else:
+            filter_ = self.filter_
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -80,6 +93,8 @@ class BarChartWidget:
             field_dict["title"] = title
         if scope is not UNSET:
             field_dict["scope"] = scope
+        if filter_ is not UNSET:
+            field_dict["filter"] = filter_
 
         return field_dict
 
@@ -116,6 +131,23 @@ class BarChartWidget:
         else:
             scope = check_bar_chart_widget_scope(_scope)
 
+        def _parse_filter_(data: object) -> list[Any] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                filter_type_0 = cast(list[Any], data)
+
+                return filter_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[Any] | None | Unset, data)
+
+        filter_ = _parse_filter_(d.pop("filter", UNSET))
+
         bar_chart_widget = cls(
             id=id,
             layer_id=layer_id,
@@ -124,6 +156,7 @@ class BarChartWidget:
             config=config,
             title=title,
             scope=scope,
+            filter_=filter_,
         )
 
         return bar_chart_widget

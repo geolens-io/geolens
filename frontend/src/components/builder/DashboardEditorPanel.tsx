@@ -24,8 +24,10 @@ import { useTheme } from '@/components/theme-provider';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import type { Bbox } from '@/lib/bbox';
 import { randomId } from '@/lib/random-id';
+import { filterFields } from '@/lib/maplibre-filter-utils';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
+import { LayerFilterEditor } from './LayerFilterEditor';
 import {
   dashboardLayers,
   dashboardPayload,
@@ -60,8 +62,8 @@ function ProblemText({ problem }: { problem: WidgetProblem }) {
   const { t } = useTranslation('widgets');
   return (
     <p className="text-xs text-destructive">
-      {problem.kind === 'viewWithoutGeometry'
-        ? t('editor.problem.viewWithoutGeometry')
+      {problem.kind === 'viewWithoutGeometry' || problem.kind === 'filterUnsupported'
+        ? t(`editor.problem.${problem.kind}`)
         : problem.kind === 'missingColumn'
           ? t('editor.problem.missingColumn', { column: problem.column })
           : t(`editor.problem.${problem.kind}`, {
@@ -178,7 +180,9 @@ const WidgetCard = memo(function WidgetCard({
   const tileColumns = layer?.dataset_visibility === 'public' ? null : layer?.dataset_tile_columns;
   const hiddenFromEmbeds =
     !!tileColumns &&
-    (definition.readsColumns?.(widget.config) ?? []).some((use) => !tileColumns.includes(use.name));
+    [...(definition.readsColumns?.(widget.config) ?? []).map((use) => use.name), ...filterFields(widget.filter)].some(
+      (name) => !tileColumns.includes(name),
+    );
   const Editor = definition.Editor;
 
   return (
@@ -254,6 +258,19 @@ const WidgetCard = memo(function WidgetCard({
             idPrefix={idPrefix}
           />
         </Suspense>
+      )}
+
+      {layer && definition.filterVersion && (
+        <LayerFilterEditor
+          columnInfo={(layer.dataset_column_info ?? []).map((column) => ({ name: column.name, type: column.type ?? '' }))}
+          filter={widget.filter ?? null}
+          onFilterChange={(filter) => {
+            const { filter: _cleared, ...rest } = widget;
+            onChange(filter ? { ...rest, filter } : rest);
+          }}
+          title={t('editor.filterTitle')}
+          help={t('editor.filterHelp')}
+        />
       )}
 
       {layer && hiddenFromEmbeds && <p className="text-xs text-muted-foreground">{t('editor.embedColumnHint')}</p>}

@@ -151,6 +151,7 @@
     "viewScopeUnavailable": "Zeigt die ganze Ebene: Dieses Dashboard blendet seine Karte aus.",
     "filterIgnored": "Zeigt alle Objekte: Der Filter der Ebene lässt sich auf diese Zahlen nicht anwenden.",
     "filterIgnoredWithPicks": "Wendet Ihre Filter an, aber nicht den eigenen Filter der Ebene, der sich auf diese Zahlen nicht anwenden lässt.",
+    "ownFilterUnsupported": "Der eigene Filter dieses Widgets lässt sich hier nicht anwenden, daher zeigt es keine Zahlen.",
     "tooWide": "Zu viele Objekte im Ausschnitt. Zoomen Sie hinein, um diese Zahlen zu sehen.",
     "loadFailed": "Diese Zahlen konnten nicht geladen werden.",
     "columnUnavailable": "Die Spalte dieses Widgets ist hier nicht verfügbar.",
@@ -192,6 +193,8 @@
     "preview": "Vorschau",
     "previewPanel": "Panel-Vorschau",
     "embedColumnHint": "Eingebettete Kopien dieser Karte können diese Spalte nicht anzeigen.",
+    "filterTitle": "Nur Objekte zählen, bei denen…",
+    "filterHelp": "Gilt nur für dieses Widget, zusätzlich zum eigenen Filter des Layers.",
     "previewPanelDescription": "Das Panel, wie Leserinnen und Leser es sehen, mit einem Platzhalter für die Karte.",
     "previewMap": "Karte",
     "stat": "Kennzahl",
@@ -217,7 +220,8 @@
       "viewWithoutGeometry": "Dieser Layer hat keine Geometrie, daher kann das Widget dem Kartenausschnitt nicht folgen. Lassen Sie es den ganzen Layer umfassen.",
       "notSortable": "Nach „{{column}}“ kann nicht sortiert werden. Wählen Sie vor dem Speichern eine andere Spalte.",
       "notListable": "„{{column}}“ kann nicht aufgelistet werden. Wählen Sie vor dem Speichern eine andere Spalte.",
-      "notDate": "„{{column}}“ ist keine Datumsspalte. Wählen Sie vor dem Speichern eine andere Spalte."
+      "notDate": "„{{column}}“ ist keine Datumsspalte. Wählen Sie vor dem Speichern eine andere Spalte.",
+      "filterUnsupported": "Dieser Filter lässt sich auf die Zahlen des Widgets nicht anwenden. Ändern oder entfernen Sie vor dem Speichern eine Bedingung."
     },
     "maxWidgets": "Ein Dashboard enthält höchstens {{max}} Widgets.",
     "reference": "Referenzwert",

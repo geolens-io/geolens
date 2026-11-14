@@ -7951,6 +7951,11 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -7959,7 +7964,7 @@ export interface components {
              * V
              * @enum {integer}
              */
-            v: 1 | 2;
+            v: 1 | 2 | 3;
             config: components["schemas"]["BarChartConfig"];
         };
         /** BasemapConfig */
@@ -8596,15 +8601,20 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "category_selector";
             /**
              * V
-             * @constant
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["CategorySelectorConfig"];
         };
         /** ChangePasswordRequest */
@@ -11436,15 +11446,20 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "feature_list";
             /**
              * V
-             * @constant
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["FeatureListConfig"];
         };
         /**
@@ -11948,15 +11963,20 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "histogram";
             /**
              * V
-             * @constant
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["HistogramConfig"];
         };
         /** ImageConfig */
@@ -12098,16 +12118,21 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "indicator";
             /**
              * V
-             * @description `2` when the config sets any reference option, else `1`. A `1` that sets one is refused.
+             * @description `3` with a `filter`, else `2` when the config sets any reference option, else `1`. An older `v` that sets one is refused.
              * @enum {integer}
              */
-            v: 1 | 2;
+            v: 1 | 2 | 3;
             config: components["schemas"]["IndicatorConfig"];
         };
         /** InfrastructureConfig */
@@ -14488,15 +14513,20 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "pie_chart";
             /**
              * V
-             * @constant
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["PieChartConfig"];
         };
         /**
@@ -17804,15 +17834,20 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, in the form a layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "table";
             /**
              * V
-             * @constant
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["TableConfig"];
         };
         /** TerrainConfig */

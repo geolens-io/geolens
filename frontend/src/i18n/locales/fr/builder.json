@@ -964,6 +964,7 @@
     "bulkUngrouped": "{{count}} groupes dissociés",
     "dashboardWidgetInvalid": "Impossible d'enregistrer : un widget du tableau de bord lit « {{column}} », une colonne absente de sa couche ou non numérique. Corrigez-le dans le panneau Tableau de bord.",
     "dashboardViewWithoutGeometry": "Impossible d'enregistrer : un widget du tableau de bord suit la vue de la carte sur une couche sans géométrie. Faites-le porter sur toute la couche dans le panneau Tableau de bord.",
+    "dashboardWidgetFilterUnsupported": "Impossible d'enregistrer : un widget du tableau de bord a un filtre qui ne peut pas s'appliquer à ses chiffres. Corrigez-le dans le panneau Tableau de bord.",
     "dashboardChangedElsewhere": "Le tableau de bord de cette carte a été modifié ailleurs. Vos modifications non enregistrées sont conservées, et l'enregistrement remplacera ce changement."
   },
   "builderMap": {

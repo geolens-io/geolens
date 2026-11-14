@@ -13,7 +13,7 @@ written back unchanged on the next save; a client that sends one gets a 422.
 import copy
 import uuid
 from collections.abc import Callable, Iterable, Sequence
-from typing import Annotated, Any, Literal, NamedTuple, get_args
+from typing import Annotated, Any, ClassVar, Literal, NamedTuple, get_args
 
 import structlog
 from pydantic import (
@@ -30,6 +30,7 @@ from pydantic import (
 )
 
 from app.core.config import validate_privacy_url_shape
+from app.modules.catalog.maps.filter_grammar import bounded_filter
 from app.platform.story_frames import (
     MAX_FRAME_URL_LENGTH,
     frame_url_host,
@@ -54,11 +55,32 @@ class _Widget(_Strict):
 
 
 class _LayerWidget(_Widget):
+    # The version that may carry ``filter``; one without a filter stores at
+    # ``_base_v``, so older clients still read it.
+    _FILTER_V: ClassVar[int] = 2
+
     layer_id: uuid.UUID = Field(description="A layer of the host's map.")
     scope: Literal["layer", "view"] = Field(
         default="layer",
         description="Summarize the whole layer, or only what the map view shows.",
     )
+    filter: Annotated[list[Any] | None, AfterValidator(bounded_filter)] = Field(
+        default=None,
+        exclude_if=lambda v: v is None,
+        description="Count only the features this MapLibre filter expression "
+        "keeps, in the form a layer's `filter` takes, on top of the layer's "
+        "own filter. Each column it names must be one of the layer's. Needs "
+        "the type's filter version; left out, the widget covers what its "
+        "layer shows.",
+    )
+
+    def _base_v(self) -> int:
+        return 1
+
+    @model_validator(mode="after")
+    def _stamp_version(self) -> "_LayerWidget":
+        self.v = self._FILTER_V if self.filter is not None else self._base_v()
+        return self
 
 
 def _column_only_for(stat: Statistic, column: str | None, field: str) -> None:
@@ -401,63 +423,61 @@ class SeparatorWidget(_Widget):
 
 
 class IndicatorWidget(_LayerWidget):
+    _FILTER_V: ClassVar[int] = 3
     type: Literal["indicator"]
-    # v2 is an indicator with reference options; a client that reads only v1
-    # leaves it as stored. One without them is always v1.
-    v: Literal[1, 2] = Field(
-        description="`2` when the config sets any reference option, else `1`. "
-        "A `1` that sets one is refused."
+    # v2 is an indicator with reference options and v3 one with a filter; a
+    # client that reads only older versions leaves it as stored.
+    v: Literal[1, 2, 3] = Field(
+        description="`3` with a `filter`, else `2` when the config sets any "
+        "reference option, else `1`. An older `v` that sets one is refused."
     )
     config: IndicatorConfig
 
-    @model_validator(mode="after")
-    def _v2_only_for_reference_options(self) -> "IndicatorWidget":
+    def _base_v(self) -> int:
         sent = self.config.model_fields_set & _INDICATOR_REFERENCE_KEYS
-        self.v = 2 if sent else 1
-        return self
+        return 2 if sent else 1
 
 
 class BarChartWidget(_LayerWidget):
+    _FILTER_V: ClassVar[int] = 3
     type: Literal["bar_chart"]
-    # v1 is a plain category chart; any other option is stored as v2, which
+    # v1 is a plain category chart, v2 any other option and v3 a filter, which
     # older clients and servers set aside instead of misreading.
-    v: Literal[1, 2]
+    v: Literal[1, 2, 3]
     config: BarChartConfig
 
-    @model_validator(mode="after")
-    def _v2_only_for_new_options(self) -> "BarChartWidget":
+    def _base_v(self) -> int:
         plain = self.config.mode == "category" and self.config.use_layer_colors
-        self.v = 1 if plain else 2
-        return self
+        return 1 if plain else 2
 
 
 class PieChartWidget(_LayerWidget):
     type: Literal["pie_chart"]
-    v: Literal[1]
+    v: Literal[1, 2]
     config: PieChartConfig
 
 
 class FeatureListWidget(_LayerWidget):
     type: Literal["feature_list"]
-    v: Literal[1]
+    v: Literal[1, 2]
     config: FeatureListConfig
 
 
 class TableWidget(_LayerWidget):
     type: Literal["table"]
-    v: Literal[1]
+    v: Literal[1, 2]
     config: TableConfig
 
 
 class HistogramWidget(_LayerWidget):
     type: Literal["histogram"]
-    v: Literal[1]
+    v: Literal[1, 2]
     config: HistogramConfig
 
 
 class CategorySelectorWidget(_LayerWidget):
     type: Literal["category_selector"]
-    v: Literal[1]
+    v: Literal[1, 2]
     config: CategorySelectorConfig
 
 
@@ -468,11 +488,24 @@ def _indicator_v1_to_v2(widget: dict[str, Any]) -> dict[str, Any]:
     return widget
 
 
+def _refuse_filter(widget: dict[str, Any]) -> dict[str, Any]:
+    if widget.get("filter"):
+        raise ValueError("a filter needs the type's filter version")
+    return widget
+
+
 # (type, v) -> a function that returns the v + 1 form of a v instance. It gets
 # a private copy, and the loop stamps the new ``v``.
 UPGRADERS: dict[tuple[str, int], Callable[[dict[str, Any]], dict[str, Any]]] = {
     ("bar_chart", 1): lambda widget: widget,
     ("indicator", 1): lambda widget: _indicator_v1_to_v2(widget),
+    ("indicator", 2): _refuse_filter,
+    ("bar_chart", 2): _refuse_filter,
+    ("pie_chart", 1): _refuse_filter,
+    ("feature_list", 1): _refuse_filter,
+    ("table", 1): _refuse_filter,
+    ("histogram", 1): _refuse_filter,
+    ("category_selector", 1): _refuse_filter,
 }
 
 

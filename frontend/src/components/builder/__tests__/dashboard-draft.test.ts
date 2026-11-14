@@ -72,6 +72,50 @@ describe('the version a save stores for a bar chart', () => {
   });
 });
 
+describe("a widget's own filter", () => {
+  const keep = ['==', ['get', 'kind'], 'parcel'];
+  const filtered = (filter: unknown, extra: Record<string, unknown> = {}) => ({ ...indicator(extra), filter }) as never;
+  const saved = (widget: never) =>
+    dashboardPayload({ panel: 'right', widgets: [widget] }, [layer()], { panel: 'right' })?.widgets?.[0];
+
+  it('stores at the filter version and reads back, while a plain widget keeps its version and no filter key', () => {
+    expect(saved(filtered(keep))).toMatchObject({ v: 3, filter: keep });
+    expect(saved(filtered(keep, { reference: 5 }))).toMatchObject({ v: 3 });
+    const plain = saved(indicator({}) as never);
+    expect(plain).toMatchObject({ v: 1 });
+    expect(plain).not.toHaveProperty('filter');
+    const draft = toDashboardDraft({ version: 1, widgets: [{ ...indicator({}), v: 3, filter: keep }] } as never);
+    expect(draft.widgets[0].filter).toEqual(keep);
+  });
+
+  it('is not read from a version that cannot carry it, or in a form the layer filter grammar refuses', () => {
+    expect(toDashboardDraft({ version: 1, widgets: [{ ...indicator({}), v: 2, filter: keep }] } as never).widgets).toEqual(
+      [],
+    );
+    expect(
+      toDashboardDraft({ version: 1, widgets: [{ ...indicator({}), v: 3, filter: ['==', ['get', 'kind']] }] } as never)
+        .widgets,
+    ).toEqual([]);
+  });
+
+  it('lists the filter versions in what a save says it reads', () => {
+    expect(dashboardReadableTypes()).toEqual(
+      expect.arrayContaining(['indicator:3', 'bar_chart:3', 'pie_chart:2', 'table:2', 'histogram:2']),
+    );
+  });
+
+  it('holds the save on a column the layer lacks or a filter the endpoint cannot take', () => {
+    expect(widgetProblem(filtered(['==', ['get', 'owner'], 'x']), layer())).toEqual({
+      kind: 'missingColumn',
+      column: 'owner',
+    });
+    expect(widgetProblem(filtered(['>', ['length', ['get', 'kind']], 3]), layer())).toEqual({
+      kind: 'filterUnsupported',
+    });
+    expect(widgetProblem(filtered(keep), layer())).toBeNull();
+  });
+});
+
 describe('dashboard drafts', () => {
   it('read a dashboard saved before the panel choice as a right panel', () => {
     expect(toDashboardDraft(null)).toEqual({ panel: 'right', widgets: [] });

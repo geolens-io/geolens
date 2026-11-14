@@ -9,6 +9,7 @@ import {
 } from '@/components/widgets/registry';
 import { isAggregateNumeric, isDateColumn, isListableColumn, isSortableColumn } from '@/lib/column-utils';
 import { canOpenAttributeTable } from '@/lib/layer-capabilities';
+import { filterFields, layerFilterToServerCql2 } from '@/lib/maplibre-filter-utils';
 import type { DashboardConfig, MapLayerResponse } from '@/types/api';
 import type { components } from '@/types/api.generated';
 
@@ -44,12 +45,17 @@ export function toDashboardDraft(config: DashboardConfig | null | undefined): Da
 }
 
 /**
- * A widget as a save stores it: its title trimmed and left out when blank, and
- * its version the oldest one that can hold its config.
+ * A widget as a save stores it: its title trimmed and left out when blank, its
+ * filter left out when it has none, and its version the oldest one that can
+ * hold its config and filter.
  */
-function toSaved({ title, ...widget }: WidgetInstance): WidgetInstance {
-  const v = getWidgetDefinition(widget.type, 'dashboard')?.storedVersion?.(widget.config) ?? widget.v;
-  return title?.trim() ? { ...widget, v, title: title.trim() } : { ...widget, v };
+function toSaved({ title, filter, ...widget }: WidgetInstance): WidgetInstance {
+  const definition = getWidgetDefinition(widget.type, 'dashboard');
+  const base = definition?.storedVersion?.(widget.config) ?? widget.v;
+  const filterVersion = filter ? definition?.filterVersion : undefined;
+  const v = filterVersion ? Math.max(base, filterVersion) : base;
+  const saved: WidgetInstance = { ...widget, v, ...(filterVersion ? { filter } : {}) };
+  return title?.trim() ? { ...saved, title: title.trim() } : saved;
 }
 
 /**
@@ -100,7 +106,9 @@ export function widgetLayerGone(widget: WidgetInstance, layers: readonly MapLaye
 export type WidgetProblem =
   | { kind: 'missingColumn' | 'notNumeric' | 'notSortable' | 'notListable' | 'notDate'; column: string }
   /** The widget follows the map view on a layer with no geometry, which the endpoint refuses. */
-  | { kind: 'viewWithoutGeometry' };
+  | { kind: 'viewWithoutGeometry' }
+  /** The widget's own filter is one the aggregate endpoint can't take. */
+  | { kind: 'filterUnsupported' };
 
 /** True when `layer` has geometry a map view can bound. */
 export function layerFollowsView(layer: MapLayerResponse): boolean {
@@ -109,8 +117,9 @@ export function layerFollowsView(layer: MapLayerResponse): boolean {
 
 /**
  * What stops the widget from saving on `layer`: a view scope the layer can't
- * follow, or a column it lacks or holds as anything but a number where one is
- * needed. Without column metadata the server judges the columns.
+ * follow, a column it lacks or holds as anything but a number where one is
+ * needed, or a filter the aggregate endpoint can't take. Without column
+ * metadata the server judges the columns.
  */
 export function widgetProblem(widget: WidgetInstance, layer: MapLayerResponse): WidgetProblem | null {
   if (widget.scope === 'view' && !layerFollowsView(layer)) return { kind: 'viewWithoutGeometry' };
@@ -125,7 +134,10 @@ export function widgetProblem(widget: WidgetInstance, layer: MapLayerResponse): 
     if (use.listable && !isListableColumn(use.name, column.type)) return { kind: 'notListable', column: use.name };
     if (use.sortable && !isSortableColumn(use.name, column.type)) return { kind: 'notSortable', column: use.name };
   }
-  return null;
+  if (!widget.filter) return null;
+  const missing = filterFields(widget.filter).find((name) => !columns.some((column) => column.name === name));
+  if (missing !== undefined) return { kind: 'missingColumn', column: missing };
+  return layerFilterToServerCql2(widget.filter, columns) === 'unsupported' ? { kind: 'filterUnsupported' } : null;
 }
 
 /** The first problem that holds the save; a widget whose layer is gone isn't sent, so it holds nothing. */

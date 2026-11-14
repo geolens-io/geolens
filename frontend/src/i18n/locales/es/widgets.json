@@ -151,6 +151,7 @@
     "viewScopeUnavailable": "Se muestra toda la capa: este panel oculta su mapa.",
     "filterIgnored": "Muestra todos los elementos: el filtro de la capa no se puede aplicar a estas cifras.",
     "filterIgnoredWithPicks": "Aplica tus filtros, pero no el filtro propio de la capa, que no se puede aplicar a estas cifras.",
+    "ownFilterUnsupported": "El filtro propio de este widget no se puede aplicar aquí, así que no muestra cifras.",
     "tooWide": "Hay demasiados elementos en la vista. Acerca el zoom para ver estas cifras.",
     "loadFailed": "No se pudieron cargar estas cifras.",
     "columnUnavailable": "La columna de este widget no está disponible aquí.",
@@ -192,6 +193,8 @@
     "preview": "Vista previa",
     "previewPanel": "Vista previa del panel",
     "embedColumnHint": "Las copias incrustadas de este mapa no pueden mostrar esta columna.",
+    "filterTitle": "Contar solo los elementos donde…",
+    "filterHelp": "Se aplica solo a este widget, además del filtro propio de la capa.",
     "previewPanelDescription": "El panel tal como lo ven los lectores, con un marcador en lugar del mapa.",
     "previewMap": "Mapa",
     "stat": "Estadística",
@@ -217,7 +220,8 @@
       "viewWithoutGeometry": "Esta capa no tiene geometría, así que el widget no puede seguir la vista del mapa. Haz que abarque toda la capa.",
       "notSortable": "No se puede ordenar por «{{column}}». Elija otra antes de guardar.",
       "notListable": "No se puede listar «{{column}}». Elija otra antes de guardar.",
-      "notDate": "«{{column}}» no es una columna de fecha. Elija otra antes de guardar."
+      "notDate": "«{{column}}» no es una columna de fecha. Elija otra antes de guardar.",
+      "filterUnsupported": "Este filtro no se puede aplicar a las cifras del widget. Cambia o quita una condición antes de guardar."
     },
     "maxWidgets": "Un panel admite como máximo {{max}} widgets.",
     "reference": "Valor de referencia",

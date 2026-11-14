@@ -169,6 +169,7 @@ from .catalog_stats_response_users_by_status import CatalogStatsResponseUsersByS
 from .category_selector_config import CategorySelectorConfig
 from .category_selector_widget import CategorySelectorWidget
 from .category_selector_widget_scope import CategorySelectorWidgetScope
+from .category_selector_widget_v import CategorySelectorWidgetV
 from .change_password_request import ChangePasswordRequest
 from .chat_action import ChatAction
 from .chat_action_label_config_type_0 import ChatActionLabelConfigType0
@@ -439,6 +440,7 @@ from .feature_list_config import FeatureListConfig
 from .feature_list_config_sort import FeatureListConfigSort
 from .feature_list_widget import FeatureListWidget
 from .feature_list_widget_scope import FeatureListWidgetScope
+from .feature_list_widget_v import FeatureListWidgetV
 from .feature_replace import FeatureReplace
 from .feature_replace_properties import FeatureReplaceProperties
 from .feature_update import FeatureUpdate
@@ -571,6 +573,7 @@ from .histogram_response import HistogramResponse
 from .histogram_result import HistogramResult
 from .histogram_widget import HistogramWidget
 from .histogram_widget_scope import HistogramWidgetScope
+from .histogram_widget_v import HistogramWidgetV
 from .image_config import ImageConfig
 from .image_widget import ImageWidget
 from .import_configuration_config_ops_import_post_mode import (
@@ -817,6 +820,7 @@ from .pie_chart_config import PieChartConfig
 from .pie_chart_config_stat import PieChartConfigStat
 from .pie_chart_widget import PieChartWidget
 from .pie_chart_widget_scope import PieChartWidgetScope
+from .pie_chart_widget_v import PieChartWidgetV
 from .point_cloud_metadata import PointCloudMetadata
 from .point_cloud_preview_response import PointCloudPreviewResponse
 from .point_cloud_preview_response_point_format import (
@@ -1074,6 +1078,7 @@ from .table_stat import TableStat
 from .table_stat_stat import TableStatStat
 from .table_widget import TableWidget
 from .table_widget_scope import TableWidgetScope
+from .table_widget_v import TableWidgetV
 from .terrain_config import TerrainConfig
 from .thumbnail_upload_request import ThumbnailUploadRequest
 from .tile_config_response import TileConfigResponse
@@ -1275,6 +1280,7 @@ __all__ = (
     "CategorySelectorConfig",
     "CategorySelectorWidget",
     "CategorySelectorWidgetScope",
+    "CategorySelectorWidgetV",
     "ChangePasswordRequest",
     "ChatAction",
     "ChatActionLabelConfigType0",
@@ -1471,6 +1477,7 @@ __all__ = (
     "FeatureListConfigSort",
     "FeatureListWidget",
     "FeatureListWidgetScope",
+    "FeatureListWidgetV",
     "FeatureReplace",
     "FeatureReplaceProperties",
     "FeatureUpdate",
@@ -1543,6 +1550,7 @@ __all__ = (
     "HistogramResult",
     "HistogramWidget",
     "HistogramWidgetScope",
+    "HistogramWidgetV",
     "ImageConfig",
     "ImageWidget",
     "ImportConfigurationConfigOpsImportPostMode",
@@ -1715,6 +1723,7 @@ __all__ = (
     "PieChartConfigStat",
     "PieChartWidget",
     "PieChartWidgetScope",
+    "PieChartWidgetV",
     "PointCloudMetadata",
     "PointCloudPreviewResponse",
     "PointCloudPreviewResponsePointFormat",
@@ -1916,6 +1925,7 @@ __all__ = (
     "TableStatStat",
     "TableWidget",
     "TableWidgetScope",
+    "TableWidgetV",
     "TerrainConfig",
     "ThumbnailUploadRequest",
     "TileConfigResponse",

@@ -34,6 +34,9 @@ interface LayerFilterEditorProps {
    * suppresses the hint regardless of filter state.
    */
   featureCount?: number | null;
+  /** Heading and help line in place of the layer filter's own, for a host that filters something narrower. */
+  title?: string;
+  help?: string;
 }
 
 type ColumnType = 'string' | 'number' | 'boolean' | 'other';
@@ -214,6 +217,8 @@ export function LayerFilterEditor({
   onFilterChange,
   layerName,
   featureCount,
+  title,
+  help,
 }: LayerFilterEditorProps) {
   const { t } = useTranslation('builder');
   const lastEmittedFilterRef = useRef<unknown>(null);
@@ -450,9 +455,9 @@ export function LayerFilterEditor({
       {/* Header row: title + raw toggle */}
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0 space-y-0.5">
-          <div className="text-xs font-medium">{t('filters.layerTitle')}</div>
+          <div className="text-xs font-medium">{title ?? t('filters.layerTitle')}</div>
           <p className="text-mini leading-snug text-muted-foreground">
-            {t('filters.scopeHelp', { layer: layerName ?? t('filters.thisLayer') })}
+            {help ?? t('filters.scopeHelp', { layer: layerName ?? t('filters.thisLayer') })}
           </p>
         </div>
         <Button

@@ -414,6 +414,19 @@ export function validateRawFilter(value: unknown): FilterSpecification | null {
   return normalizeFilterNode(value) as FilterSpecification;
 }
 
+/** The feature properties a filter reads through `['get', name]` or `['has', name]`, as the server's `filter_columns` finds them. */
+export function filterFields(filter: unknown): string[] {
+  const fields = new Set<string>();
+  const stack: unknown[] = [filter];
+  while (stack.length > 0) {
+    const node = stack.pop();
+    if (!Array.isArray(node)) continue;
+    if (node.length >= 2 && (node[0] === 'get' || node[0] === 'has') && typeof node[1] === 'string') fields.add(node[1]);
+    stack.push(...node);
+  }
+  return [...fields];
+}
+
 function sanitizeFilterNode(node: unknown): unknown {
   if (!Array.isArray(node) || node.length === 0) return node;
   if (node[0] === 'literal' || guardedComparison(node) || guardedNegation(node)) return node;

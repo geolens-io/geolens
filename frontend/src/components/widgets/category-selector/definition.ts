@@ -22,7 +22,9 @@ function parseCategorySelectorConfig(config: unknown): CategorySelectorConfig | 
 
 export const categorySelectorWidget = defineWidget<CategorySelectorConfig>({
   type: 'category_selector',
-  v: 1,
+  v: 2,
+  storedVersion: () => 1,
+  filterVersion: 2,
   surfaces: ['dashboard'],
   labelKey: 'types.category_selector.label',
   i18nKeys: [

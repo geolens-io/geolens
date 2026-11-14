@@ -14,6 +14,7 @@ invalid filter instead of a 422 (the AI path).
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 # Editable comparison operators the structured builder editor can round-trip.
@@ -27,6 +28,9 @@ _LEGACY_PSEUDO_FIELDS = {"$type", "$id"}
 # `_normalize_node`/`json.dumps` never reach Python's recursion limit, whose
 # RecursionError (not ValueError) Pydantic can't turn into a 422.
 _MAX_FILTER_DEPTH = 32
+# The cap the open layer style columns carry; a stored filter is a list, so it
+# is checked here rather than with those dicts.
+MAX_FILTER_BYTES = 64 * 1024
 
 
 class FilterValidationError(ValueError):
@@ -184,3 +188,33 @@ def validate_filter(value: list | None) -> list | None:
         return None
     _assert_depth_within_bound(value)
     return _normalize_node(value)
+
+
+def bounded_filter(value: list | None) -> list | None:
+    """``validate_filter``, then refuse a filter past ``MAX_FILTER_BYTES`` serialized.
+
+    The depth check inside ``validate_filter`` runs first, so ``json.dumps``
+    never meets a filter deep enough to raise RecursionError.
+    """
+    normalized = validate_filter(value)
+    if normalized is not None:
+        size = len(json.dumps(normalized, separators=(",", ":")).encode("utf-8"))
+        if size > MAX_FILTER_BYTES:
+            raise FilterValidationError(
+                f"Filter expression too large (>{MAX_FILTER_BYTES} bytes serialized)"
+            )
+    return normalized
+
+
+def filter_columns(value: Any) -> set[str]:
+    """The feature properties a filter reads through ``["get", name]`` or ``["has", name]``."""
+    columns: set[str] = set()
+    stack = [value]
+    while stack:
+        node = stack.pop()
+        if not isinstance(node, list):
+            continue
+        if len(node) >= 2 and node[0] in ("get", "has") and isinstance(node[1], str):
+            columns.add(node[1])
+        stack.extend(node)
+    return columns

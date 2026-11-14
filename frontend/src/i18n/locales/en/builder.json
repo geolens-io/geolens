@@ -964,6 +964,7 @@
     "bulkUngrouped": "Ungrouped {{count}} groups",
     "dashboardWidgetInvalid": "Can't save: a dashboard widget reads “{{column}}”, a column that its layer doesn't have or that isn't numeric. Fix it in the Dashboard panel.",
     "dashboardViewWithoutGeometry": "Can't save: a dashboard widget follows the map view on a layer with no geometry. Set it to cover the whole layer in the Dashboard panel.",
+    "dashboardWidgetFilterUnsupported": "Can't save: a dashboard widget has a filter that can't be applied to its numbers. Fix it in the Dashboard panel.",
     "dashboardChangedElsewhere": "This map's dashboard was changed somewhere else. Your unsaved dashboard edits are kept, and saving replaces that change."
   },
   "builderMap": {

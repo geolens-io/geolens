@@ -500,6 +500,52 @@ describe('DashboardEditorPanel', () => {
     }
   });
 
+  it("narrows a widget with its own filter from the layer filter editor and previews the narrowed count", async () => {
+    fetchMock.mockImplementation(async (_dataset, body) => ({
+      op: 'count',
+      approximate: false,
+      cached: false,
+      result: { count: body.filter ? 7 : 42 },
+    }) as never);
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness onChange={onChange} />);
+    await user.click(screen.getByRole('button', { name: 'Add Indicator' }));
+    const preview = screen.getByRole('region', { name: 'Preview' });
+    expect(await within(preview).findByText('42')).toBeInTheDocument();
+
+    expect(screen.getByText('Only count features where…')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: 'Add filter' }));
+    await user.click(screen.getByRole('combobox', { name: 'Field' }));
+    await user.click(await screen.findByRole('option', { name: 'land_use' }));
+    await user.type(screen.getByRole('textbox', { name: 'Value' }), 'Residential');
+
+    await waitFor(() =>
+      expect(lastDraft(onChange).widgets[0].filter).toEqual(['all', ['==', ['get', 'land_use'], 'Residential']]),
+    );
+    expect(await within(preview).findByText('7')).toBeInTheDocument();
+    expect(fetchMock).toHaveBeenLastCalledWith(
+      'dataset-1',
+      { op: 'count', filter: { op: '=', args: [{ property: 'land_use' }, 'Residential'] } },
+      expect.anything(),
+    );
+  });
+
+  it('counts a filter column outside the tile columns in the embed warning', () => {
+    const widget = {
+      id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',
+      type: 'indicator',
+      v: 3,
+      layer_id: parcels.id,
+      scope: 'layer' as const,
+      filter: ['==', ['get', 'land_use'], 'Residential'],
+      config: { stat: 'count', column: null },
+    };
+    const limited = layer({ ...parcels, dataset_tile_columns: ['parcel_id'], dataset_visibility: 'private' });
+    render(<Harness layers={[limited]} initial={{ panel: 'right', widgets: [widget as never] }} onChange={vi.fn()} />);
+    expect(screen.getByText("Embedded copies of this map can't show this column.")).toBeInTheDocument();
+  });
+
   it('asks for a layer with rows before offering widgets', async () => {
     render(<Harness layers={[raster]} onChange={vi.fn()} />);
     expect(

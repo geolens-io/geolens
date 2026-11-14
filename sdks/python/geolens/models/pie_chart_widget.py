@@ -9,6 +9,8 @@ from ..types import UNSET, Unset
 
 from ..models.pie_chart_widget_scope import check_pie_chart_widget_scope
 from ..models.pie_chart_widget_scope import PieChartWidgetScope
+from ..models.pie_chart_widget_v import check_pie_chart_widget_v
+from ..models.pie_chart_widget_v import PieChartWidgetV
 from typing import cast
 from typing import Literal
 from uuid import UUID
@@ -27,20 +29,24 @@ class PieChartWidget:
         id (UUID): Made by the client and stable across saves.
         layer_id (UUID): A layer of the host's map.
         type_ (Literal['pie_chart']):
-        v (Literal[1]):
+        v (PieChartWidgetV):
         config (PieChartConfig):
         title (None | str | Unset):
         scope (PieChartWidgetScope | Unset): Summarize the whole layer, or only what the map view shows. Default:
             'layer'.
+        filter_ (list[Any] | None | Unset): Count only the features this MapLibre filter expression keeps, in the form a
+            layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's. Needs
+            the type's filter version; left out, the widget covers what its layer shows.
     """
 
     id: UUID
     layer_id: UUID
     type_: Literal["pie_chart"]
-    v: Literal[1]
+    v: PieChartWidgetV
     config: PieChartConfig
     title: None | str | Unset = UNSET
     scope: PieChartWidgetScope | Unset = "layer"
+    filter_: list[Any] | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         id = str(self.id)
@@ -49,7 +55,7 @@ class PieChartWidget:
 
         type_ = self.type_
 
-        v = self.v
+        v: int = self.v
 
         config = self.config.to_dict()
 
@@ -62,6 +68,15 @@ class PieChartWidget:
         scope: str | Unset = UNSET
         if not isinstance(self.scope, Unset):
             scope = self.scope
+
+        filter_: list[Any] | None | Unset
+        if isinstance(self.filter_, Unset):
+            filter_ = UNSET
+        elif isinstance(self.filter_, list):
+            filter_ = self.filter_
+
+        else:
+            filter_ = self.filter_
 
         field_dict: dict[str, Any] = {}
 
@@ -78,6 +93,8 @@ class PieChartWidget:
             field_dict["title"] = title
         if scope is not UNSET:
             field_dict["scope"] = scope
+        if filter_ is not UNSET:
+            field_dict["filter"] = filter_
 
         return field_dict
 
@@ -94,9 +111,7 @@ class PieChartWidget:
         if type_ != "pie_chart":
             raise ValueError(f"type must match const 'pie_chart', got '{type_}'")
 
-        v = cast(Literal[1], d.pop("v"))
-        if v != 1:
-            raise ValueError(f"v must match const 1, got '{v}'")
+        v = check_pie_chart_widget_v(d.pop("v"))
 
         config = PieChartConfig.from_dict(d.pop("config"))
 
@@ -116,6 +131,23 @@ class PieChartWidget:
         else:
             scope = check_pie_chart_widget_scope(_scope)
 
+        def _parse_filter_(data: object) -> list[Any] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                filter_type_0 = cast(list[Any], data)
+
+                return filter_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[Any] | None | Unset, data)
+
+        filter_ = _parse_filter_(d.pop("filter", UNSET))
+
         pie_chart_widget = cls(
             id=id,
             layer_id=layer_id,
@@ -124,6 +156,7 @@ class PieChartWidget:
             config=config,
             title=title,
             scope=scope,
+            filter_=filter_,
         )
 
         return pie_chart_widget

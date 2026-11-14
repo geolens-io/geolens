@@ -21,6 +21,7 @@ from pydantic import (
     field_validator,
 )
 
+from app.modules.catalog.maps.filter_grammar import filter_columns
 from app.modules.catalog.widgets.schemas import (
     BarChartWidget,
     CategorySelectorWidget,
@@ -209,6 +210,14 @@ def _client_reads(widget: Any, readable: Collection[str]) -> bool:
     return f"{widget.type}:{widget.v}" in readable
 
 
+def _filter_reads_layer(widget: Any, columns: Mapping[str, set[str]]) -> bool:
+    """Whether every column the widget's filter names is one of its layer's."""
+    widget_filter = getattr(widget, "filter", None)
+    if widget_filter is None:
+        return True
+    return filter_columns(widget_filter) <= columns.get(_layer_id(widget) or "", set())
+
+
 def _raw_id(raw: Any) -> str | None:
     """The id of a stored widget this server can't parse, as a parsed id reads."""
     try:
@@ -262,11 +271,14 @@ def merge_dashboard(
     *,
     layer_ids: Collection[uuid.UUID],
     hidden_layer_ids: Collection[uuid.UUID],
+    layer_columns: Mapping[uuid.UUID, Collection[str]],
 ) -> dict[str, Any] | None:
     """The dashboard to store for a save; ``sent=None`` removes what the editor sees.
 
     ``layer_ids`` are the map's layers after the save and ``hidden_layer_ids``
-    those among them whose dataset the editor can't read.
+    those among them whose dataset the editor can't read. ``layer_columns``
+    holds each layer's dataset columns; a sent widget whose ``filter`` names a
+    column not listed for its layer is refused (422).
 
     A stored widget on a hidden layer, or one the editor's client can't read
     (outside its ``readable`` pairs, by default those of earlier releases),
@@ -318,12 +330,15 @@ def merge_dashboard(
 
     # A missing layer and an unreadable one share a reason so a refusal never
     # tells the editor a hidden layer exists.
+    columns = {str(layer_id): set(names) for layer_id, names in layer_columns.items()}
     refused = []
     for w in sent_widgets:
         if not _on_layers(w, readable):
             reason = "layer_unavailable"
         elif str(w.id) in locked_ids:
             reason = "id_in_use"
+        elif not _filter_reads_layer(w, columns):
+            reason = "filter_column"
         else:
             continue
         refused.append({"id": str(w.id), "layer_id": _layer_id(w), "reason": reason})

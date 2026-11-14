@@ -1,10 +1,11 @@
 from typing import Literal, cast
 
-IndicatorWidgetV = Literal[1, 2]
+IndicatorWidgetV = Literal[1, 2, 3]
 
 INDICATOR_WIDGET_V_VALUES: set[IndicatorWidgetV] = {
     1,
     2,
+    3,
 }
 
 
