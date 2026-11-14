@@ -3,18 +3,29 @@ import { render, screen, fireEvent, waitFor, act } from '@testing-library/react'
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { NewVersionBanner } from '../NewVersionBanner';
 import { apiFetch } from '@/api/client';
+import { queryKeys } from '@/lib/query-keys';
 
 vi.mock('@/api/client', () => ({ apiFetch: vi.fn() }));
 
 const fetchMock = vi.mocked(apiFetch);
 
+let client: QueryClient;
+
 function renderBanner() {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  client = queryClient;
   return render(
     <QueryClientProvider client={queryClient}>
       <NewVersionBanner />
     </QueryClientProvider>,
   );
+}
+
+async function settled() {
+  await waitFor(() =>
+    expect(client.getQueryState(queryKeys.serverVersion)?.status).toBe('success'),
+  );
+  await act(async () => {});
 }
 
 function setVisibility(state: 'visible' | 'hidden') {
@@ -43,7 +54,7 @@ describe('NewVersionBanner', () => {
   ])('stays hidden when the server version is %s', async (_n, body) => {
     fetchMock.mockResolvedValue(body);
     renderBanner();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await settled();
     expect(screen.queryByRole('status')).toBeNull();
   });
 
@@ -51,15 +62,41 @@ describe('NewVersionBanner', () => {
     vi.stubGlobal('__APP_VERSION__', '');
     fetchMock.mockResolvedValue({ version: '1.1.0' });
     renderBanner();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await settled();
     expect(screen.queryByRole('status')).toBeNull();
   });
 
   it('stays hidden when the request fails', async () => {
     fetchMock.mockRejectedValue(new Error('down'));
     renderBanner();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await settled();
     expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('does not re-call /health inside the stale window after a failure', async () => {
+    fetchMock.mockRejectedValue(new Error('down'));
+    renderBanner();
+    await settled();
+    act(() => setVisibility('visible'));
+    await act(async () => {
+      await new Promise((r) => setTimeout(r, 50));
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('hides the banner when a later check fails', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      fetchMock.mockResolvedValue({ version: '1.1.0' });
+      renderBanner();
+      await screen.findByRole('status');
+      fetchMock.mockRejectedValue(new Error('down'));
+      vi.setSystemTime(Date.now() + 61_000);
+      act(() => setVisibility('visible'));
+      await waitFor(() => expect(screen.queryByRole('status')).toBeNull());
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('reloads on demand and hides on dismiss', async () => {
@@ -82,7 +119,7 @@ describe('NewVersionBanner', () => {
     vi.stubGlobal('__APP_VERSION__', bundle);
     fetchMock.mockResolvedValue({ version: server });
     renderBanner();
-    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    await settled();
     if (shown) expect(await screen.findByRole('status')).toBeInTheDocument();
     else expect(screen.queryByRole('status')).toBeNull();
   });

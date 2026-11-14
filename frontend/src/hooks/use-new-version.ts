@@ -26,12 +26,20 @@ function normalizeVersion(v: string): string {
 export function useNewServerVersion(): string | null {
   const { data } = useQuery({
     queryKey: queryKeys.serverVersion,
-    queryFn: () => apiFetch<{ version?: string | null }>('/health'),
+    // A failure resolves to unknown so it is cached for the stale window and
+    // replaces an earlier answer instead of leaving a stale banner up.
+    queryFn: async () => {
+      try {
+        const body = await apiFetch<{ version?: string | null }>('/health');
+        return body?.version ?? null;
+      } catch {
+        return null;
+      }
+    },
     staleTime: STALE_MS,
     retry: false,
     refetchOnWindowFocus: true,
     refetchInterval: CHECK_INTERVAL_MS,
-    select: (d) => d?.version ?? null,
   });
   const bundle = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
   if (!bundle || !data || normalizeVersion(data) === normalizeVersion(bundle)) return null;
