@@ -55,6 +55,7 @@ and releases use semantic versioning.
 
 ### Deprecated
 - A `POSTGRES_PASSWORD` of `geolens`, the database password earlier `.env.example` files shipped, is accepted with a startup warning until at least 2027-02-10; GeoLens 1.33.0 refuses to start with it. UPGRADING.md shows how to change it on a running install.
+- A `TILE_SIGNING_SECRET` shorter than 32 characters or equal to a known-public value is accepted with a startup warning until at least 2027-02-10; GeoLens 1.33.0 refuses to start with it. A new value invalidates signed tile URLs already issued until the page reloads them. An unset `TILE_SIGNING_SECRET`, or one equal to `JWT_SECRET_KEY`, is not refused.
 
 ### Fixed
 - The OGC API Features items endpoint accepts `startindex` as another name for `offset`. ArcGIS Online and the ArcGIS Maps SDK for JavaScript page a busy map tile with `startindex`, which the endpoint ignored, so every page repeated the first one, features past the first page of a tile never drew, and on a tile holding at least `limit` features the client kept requesting pages until the map was closed. A request that carries both gets `400` unless they are equal or `offset` is `0`. A collection column named `startindex` is now filtered with `filter=` (for example `filter=startindex = 3`) rather than as a bare query parameter.
