@@ -11,6 +11,7 @@ import inspect
 import json
 import re
 import secrets
+import time
 import unicodedata
 import uuid
 from pathlib import Path
@@ -32,7 +33,7 @@ from . import test_arcgis_migrate_layers as layers
 from . import test_arcgis_migrate_refresh as refresh
 from . import test_arcgis_migrate_report as report_tests
 from . import test_arcgis_migrate_webmaps as webmaps
-from .arcgis_fake import A2, B1, D3, FakePortal, load, portal_routes
+from .arcgis_fake import A1, A2, B1, D3, FakePortal, load, portal_routes
 from .test_arcgis_migrate_layers import (  # noqa: F401  (fixtures)
     FakeImport,
     _layer,
@@ -431,9 +432,7 @@ def test_a_collection_named_with_the_token_is_not_created(runner, tmp_path, geol
     result, payload = _with_token(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 1
-    assert payload["items"][0]["error"] == _refused(
-        "/catalog/collections/", "body.name"
-    )
+    assert payload["items"][0]["error"] == _reason("collection")
     assert made.names == {}
     _assert_kept_out(geolens, plan_file)
 
@@ -887,4 +886,111 @@ def test_a_relationship_named_with_the_token_is_saved_masked_and_reported(
     assert saved["0"][0]["name"] == "Parcels_[REDACTED]"
     for path in payload["report"]:
         assert TOKEN not in Path(path).read_text()
+    _assert_kept_out(geolens, plan_file)
+
+
+# Registration cost
+
+
+def test_registering_many_secrets_stays_cheap():
+    redact = Redactor()
+    started = time.monotonic()
+
+    for n in range(2000):
+        redact.add(f"generated-{n:05d}-{secrets.token_urlsafe(12)}")
+
+    assert time.monotonic() - started < 10
+
+
+def test_every_secret_still_matches_after_many_registrations():
+    redact = Redactor()
+    secrets_given = [f"pw/{n:04d}-é-{secrets.token_hex(6)}" for n in range(500)]
+    for secret in secrets_given:
+        redact.add(secret)
+
+    for secret in (secrets_given[0], secrets_given[250], secrets_given[-1]):
+        lowered = re.sub(
+            r"%[0-9A-F]{2}", lambda m: m[0].lower(), quote(secret, safe="")
+        )
+        for text in (secret, lowered, json.dumps(secret)[1:-1]):
+            assert redact.holds(f"x {text} y")
+            assert redact(f"x {text} y") == "x [REDACTED] y"
+    assert not redact.holds("pw/9999-é-none")
+
+
+# Encodings: the bound
+
+
+SPECIAL = 'a"b\\cé/d-' + secrets.token_hex(6)
+
+
+@pytest.mark.parametrize(
+    "form",
+    [
+        json.dumps(SPECIAL)[1:-1],
+        json.dumps(SPECIAL, ensure_ascii=False)[1:-1],
+        quote(SPECIAL),
+        quote(SPECIAL, safe=""),
+        quote_plus(SPECIAL),
+    ],
+    ids=["json-ascii", "json-unicode", "quote-default", "quote-all", "quote-plus"],
+)
+def test_a_secret_is_found_json_escaped_and_url_encoded(fake_geolens, form):
+    from geolens.api.admin import create_group_admin_groups_post as create
+    from geolens.models.group_write import GroupWrite
+
+    session = _session(fake_geolens)
+    session._redact.add(SPECIAL)
+
+    assert holds_secret(f'{{"description": "see {form}"}}', session._redact)
+    with pytest.raises(CredentialRefused):
+        session.call(create.sync_detailed, body=GroupWrite(name=f"see {form}"))
+    assert fake_geolens.seen == []
+
+
+# Collections and baselines
+
+
+def test_a_long_collection_name_holding_the_token_makes_no_collection(
+    runner, tmp_path, geolens
+):
+    collections._services(geolens)
+    made = collections.FakeCollections(geolens)
+    # Sent shortened to 255 characters, the name itself is clean.
+    long = "F" * 260 + f" {TOKEN}"
+    plan_file = collections._plan(
+        tmp_path,
+        lambda plan: [
+            item["target"].update(collections=[long]) for item in plan["items"]
+        ],
+    )
+
+    for _run in range(2):
+        result, payload = _with_token(runner, plan_file, "--only", A1, "--only", A2)
+
+        assert result.exit_code == 1
+        assert [i["error"] for i in payload["items"]] == [_reason("collection")] * 2
+        assert made.names == {}
+        assert _state(plan_file)["collections"] == {}
+    _assert_kept_out(geolens, plan_file)
+
+
+def test_a_baseline_holding_the_token_is_dropped_not_masked(runner, plan_file, geolens):
+    service = refresh._migrated(runner, plan_file, geolens)
+    refresh.FakeRefresh(geolens, service).allow(PARCELS)
+    path = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(path.read_text())
+    state["items"][A2]["metadata_baseline"][PARCELS]["summary"] = f"Old {TOKEN}"
+    path.write_text(json.dumps(state))
+    # GeoLens holds text equal to what a masked baseline would have read.
+    service.summaries[PARCELS] = "Old [REDACTED]"
+    _edit_row(plan_file, A2, snippet="New summary")
+
+    result, _ = _with_token(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.summaries[PARCELS] == "Old [REDACTED]"
+    entry = _state(plan_file)["items"][A2]
+    assert f"kept the summary edited in GeoLens on dataset {PARCELS}" in entry["notes"]
+    assert "summary" not in entry["metadata_baseline"][PARCELS]
     _assert_kept_out(geolens, plan_file)

@@ -163,14 +163,14 @@ def _write(path, entry: dict, **top) -> None:
 def test_the_runs_secret_an_earlier_version_wrote_is_masked_on_load(tmp_path):
     path = tmp_path / "state.json"
     entry = dataclasses.asdict(ItemState(status=DONE))
-    entry["metadata_baseline"] = {"d": {"summary": f"see {SECRET}"}}
+    entry["map_snapshot"] = {"name": f"see {SECRET}"}
     entry["layer_styles"] = {"0": json.dumps({"label": f"x {SECRET}"})}
     entry["notes"] = list(SHAPED)
     _write(path, entry)
 
     state = MigrationState.load(path, PORTAL, INSTANCE, _redactor())
 
-    assert state.items[ITEM].metadata_baseline["d"]["summary"] == "see [REDACTED]"
+    assert state.items[ITEM].map_snapshot == {"name": "see [REDACTED]"}
     state.save()
     saved = json.loads(path.read_text())
     assert SECRET not in path.read_text()
@@ -219,3 +219,22 @@ def test_names_masking_would_merge_leave_one_out_and_keep_the_rest(tmp_path):
         "this run's ArcGIS credential; one was left out of the state file",
     ]
     assert all(SECRET not in note for note in state.left_out)
+
+
+def test_baseline_values_and_keywords_holding_the_secret_are_dropped(tmp_path):
+    state = _state(tmp_path, _redactor())
+    state.items[ITEM].metadata_baseline = {
+        "d": {
+            "title": "Parcels",
+            "summary": f"see {SECRET}",
+            "keywords": ["roads", f"tag {SECRET}"],
+        }
+    }
+
+    state.save()
+
+    expected = {"d": {"title": "Parcels", "keywords": ["roads"]}}
+    assert state.items[ITEM].metadata_baseline == expected
+    assert json.loads(state.path.read_text())["items"][ITEM]["metadata_baseline"] == (
+        expected
+    )

@@ -17,6 +17,7 @@ redacted when it is built.
 
 from __future__ import annotations
 
+import bisect
 import email.utils
 import getpass
 import http.client
@@ -102,49 +103,70 @@ _URL_USERINFO = re.compile(r"(//)[^/@\s]+@")
 
 
 class Redactor:
-    """Replaces known secrets, and any ``token=``/``password=`` value, in text."""
+    """Replaces known secrets, and any ``token=``/``password=`` value, in text.
+
+    A secret is matched as given and in these encodings only: composed and
+    decomposed Unicode, URL percent-encoding (with and without ``/`` encoded,
+    ``+`` for a space, escapes in either letter case) and JSON string escaping.
+    """
 
     def __init__(self) -> None:
-        self._forms: list[str] = []
-        self._pattern: re.Pattern[str] | None = None
+        # (form, pattern for a form with percent-escapes, else None), longest
+        # form first so a longer one is masked before a form inside it.
+        self._forms: list[tuple[str, re.Pattern[str] | None]] = []
         # Moves on every registration, so a result cached as clean expires.
         self.version = 0
 
     def add(self, secret: str | None) -> None:
         if not secret:
             return
-        forms = list(self._forms)
-        # A secret typed in decomposed Unicode can be stored composed, and the
-        # other way round, so both forms are masked.
+        known = {form for form, _ in self._forms}
+        new: list[str] = []
         normal = (unicodedata.normalize(form, secret) for form in ("NFC", "NFD"))
         for text in dict.fromkeys((secret, *normal)):
-            forms += [text, quote(text, safe=""), quote_plus(text)]
-        forms = sorted(dict.fromkeys(forms), key=len, reverse=True)
+            new += [text, quote(text, safe=""), quote(text), quote_plus(text)]
+            new += [json.dumps(text)[1:-1], json.dumps(text, ensure_ascii=False)[1:-1]]
+        added = [(f, _escape_pattern(f)) for f in dict.fromkeys(new) if f not in known]
+        if not added:
+            return
         # Replaced whole, not changed in place: a token renewed mid-run is
-        # added while other threads redact. Longest form first, as one pass.
-        self._pattern = re.compile("|".join(_any_escape_case(f) for f in forms))
+        # added while other threads redact.
+        forms = list(self._forms)
+        for entry in added:
+            bisect.insort(forms, entry, key=lambda e: -len(e[0]))
         self._forms = forms
         self.version += 1
 
     def holds(self, text: str) -> bool:
         """Whether *text* contains a registered secret in any form it masks."""
-        pattern = self._pattern
-        return pattern is not None and pattern.search(text) is not None
+        return any(
+            form in text if pattern is None else pattern.search(text) is not None
+            for form, pattern in self._forms
+        )
 
     def __call__(self, text: str) -> str:
-        pattern = self._pattern
-        if pattern is not None:
-            text = pattern.sub("[REDACTED]", text)
+        for form, pattern in self._forms:
+            if pattern is None:
+                text = text.replace(form, "[REDACTED]")
+            else:
+                text = pattern.sub("[REDACTED]", text)
         return _CREDENTIAL_PARAM.sub(r"\1[REDACTED]", text)
 
 
-def _any_escape_case(form: str) -> str:
-    """A pattern for *form* whose percent-escapes match in either case
-    (``%2f`` and ``%2F``); every other character matches only as it is."""
-    return re.sub(
-        r"%([0-9A-Fa-f])([0-9A-Fa-f])",
-        lambda m: "%" + "".join(f"[{c.upper()}{c.lower()}]" for c in m.groups()),
-        re.escape(form),
+_ESCAPE = re.compile(r"%([0-9A-Fa-f])([0-9A-Fa-f])")
+
+
+def _escape_pattern(form: str) -> re.Pattern[str] | None:
+    """A pattern for *form* whose percent-escapes match in either letter case
+    (``%2f`` and ``%2F``), every other character only as it is; None for a
+    form without an escape that has a letter."""
+    if not any(m[1].isalpha() or m[2].isalpha() for m in _ESCAPE.finditer(form)):
+        return None
+    return re.compile(
+        _ESCAPE.sub(
+            lambda m: "%" + "".join(f"[{c.upper()}{c.lower()}]" for c in m.groups()),
+            re.escape(form),
+        )
     )
 
 

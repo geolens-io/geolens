@@ -305,10 +305,29 @@ class _Masker:
         self.clean.add(value)
         return value
 
+    def forget_baselines(self, baselines: Any) -> None:
+        """Drop each baseline value and keyword that holds a secret: a
+        baseline authorizes a write when GeoLens still holds it, so a masked
+        one could match text it never wrote. Dropped, the field counts as
+        having no recorded value."""
+        for baseline in baselines.values() if isinstance(baselines, dict) else ():
+            if not isinstance(baseline, dict):
+                continue
+            for name, written in list(baseline.items()):
+                if isinstance(written, str) and self.text(written) != written:
+                    del baseline[name]
+                elif name == "keywords" and isinstance(written, list):
+                    written[:] = [
+                        w
+                        for w in written
+                        if not isinstance(w, str) or self.text(w) == w
+                    ]
+
     def __call__(self, value: Any, path: tuple[str, ...]) -> Any:
         if isinstance(value, str):
             return self.text(value)
         if isinstance(value, ItemState):
+            self.forget_baselines(value.metadata_baseline)
             for f in fields(ItemState):
                 inner = (*path, f.name)
                 setattr(value, f.name, self(getattr(value, f.name), inner))
