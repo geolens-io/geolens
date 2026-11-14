@@ -425,8 +425,9 @@ def import_file(
         return ItemResult(
             status=SKIPPED,
             notes=[
-                f"{item['type']} items hold ArcGIS JSON, not a file GeoLens can "
-                "read; export the layer to a file and upload it"
+                f"{item['type']} items are not a data file GeoLens can import "
+                f"({', '.join(sorted(FILE_TYPES))}); set the action to export_only "
+                "to keep the item"
             ],
         )
     row = ctx.inventory.get(item["id"])
