@@ -1334,9 +1334,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Auth routes (sign-in, sessions, API keys, password) share one router and its
     # rate-limit and cookie helpers.
     "backend/app/modules/auth/router.py": 1541,
-    # Application composition debt; preserve lifespan and middleware ordering when
-    # splitting.
-    "backend/app/api/main.py": 1656,
+    # The app object, its middleware and exception handlers, route registration
+    # and the lifespan stay together to keep their order; the capability 401
+    # mapping stays here because this module is already reviewed for embed tokens.
+    "backend/app/api/main.py": 1178,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1606,
@@ -1346,7 +1347,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest API router debt, including the commit door's token scheme check; split
     # upload, import and registration endpoints before raising further. Each upload
     # door branches once per 3D upload kind: a 3D Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1711,
+    "backend/app/processing/ingest/router.py": 1690,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
@@ -1354,11 +1355,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # schedule, per-channel notices and the hold an earlier release's purge
     # honours, plus settling the archive flags of jobs that owe no follow-up.
     "backend/app/processing/ingest/publish_followups.py": 1477,
-    # Shared ingest finalization carries verification, manifest record fields, bounded
-    # ArcGIS requests, lifecycle context, the quicklook draw that ingest and
-    # replacement share, and the swap that keeps the replaced table as a previous
-    # version and drops the oldest past the instance's limit.
-    "backend/app/processing/ingest/tasks_common.py": 1894,
+    # What every ingest strategy shares: the task app, job lifecycle and phase
+    # sessions, finalization, and the reupload table swap and catalog write.
+    "backend/app/processing/ingest/tasks_common.py": 1421,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
@@ -1390,11 +1389,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1739,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1712,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
-    # cleanup.
-    "backend/app/processing/ingest/tasks_vrt.py": 1759,
+    # cleanup; regeneration's claim, build and store phases are functions here.
+    "backend/app/processing/ingest/tasks_vrt.py": 1960,
     # Raster replacement owns conversion, read-back and published-object cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases

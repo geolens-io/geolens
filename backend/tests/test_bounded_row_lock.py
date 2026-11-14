@@ -1,17 +1,19 @@
-"""Each lock site keeps its own 409 body and its own lock_timeout scope on a lost wait or a deadlock."""
+"""Each lock site raises CatalogLockConflict, answers its released 409 detail plus top-level code, and keeps its lock_timeout scope."""
 
 from __future__ import annotations
 
+import base64
 import uuid
+from io import BytesIO
 
 import pytest
-from fastapi import HTTPException
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy import select, text
 
 import app.core.db as db_module
 from app.modules.catalog.collections.service import lock_collection_for_write
 from app.modules.catalog.features.retention import hold_table_for_setting
+from app.modules.catalog.collections.models import Collection
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.service_crud import lock_map_for_asset_write
 from app.modules.catalog.maps.service_layers import lock_map_layers
@@ -26,10 +28,7 @@ pytestmark = pytest.mark.anyio
 _STORY = "Another change to this story is in progress. Retry shortly."
 _MAP = "Another change to this map is in progress. Retry shortly."
 _COLLECTION = "Another change to this collection is in progress. Retry shortly."
-_ASSET = {
-    "code": "map_asset_write_locked",
-    "message": "Another write to this map's assets is in progress. Retry shortly.",
-}
+_ASSET = "Another write to this map's assets is in progress. Retry shortly."
 _TABLE = "Another operation is changing this dataset's table."
 
 
@@ -72,7 +71,7 @@ async def _fixtures(client, headers):
     return map_id, coll, uuid.UUID(story.json()["id"])
 
 
-# (name, expected 409 detail or exception text, resets the bound after the lock)
+# (name, conflict message, resets the bound after the lock)
 _SITES = [
     ("story", _STORY, True),
     ("map", _MAP, True),
@@ -108,29 +107,19 @@ async def data_table(client):
         await cleanup.commit()
 
 
-def _assert_body(name, expected, raised) -> None:
-    if name == "table":
-        assert isinstance(raised, CatalogLockConflict)
-        assert str(raised) == expected
-    else:
-        assert isinstance(raised, HTTPException)
-        assert raised.status_code == 409
-        assert raised.detail == expected
-
-
 @pytest.mark.parametrize("sqlstate", ["55P03", "40P01"])
 @pytest.mark.parametrize(("name", "expected", "_reset"), _SITES)
 async def test_conflict_keeps_site_body_and_default_timeout(
     client, admin_auth_header, data_table, monkeypatch, name, expected, _reset, sqlstate
 ):
-    """A lost wait or deadlock answers the site's own 409 and the rolled-back session is on its default timeout."""
+    """A lost wait or deadlock raises CatalogLockConflict with the site's message and the rolled-back session is on its default timeout."""
     map_id, coll, story = await _fixtures(client, admin_auth_header)
     async with db_module.async_session() as waiter:
         default = await _show(waiter)
         _fail_locking_statements(waiter, monkeypatch, sqlstate)
-        with pytest.raises((HTTPException, CatalogLockConflict)) as raised:
+        with pytest.raises(CatalogLockConflict) as raised:
             await _call(name, waiter, map_id, coll, story, data_table)
-        _assert_body(name, expected, raised.value)
+        assert str(raised.value) == expected
         monkeypatch.undo()
         assert await _show(waiter) == default
 
@@ -149,16 +138,80 @@ async def test_success_resets_the_bound_only_where_it_did_before(
         assert await _show(session) == default
 
 
-async def test_real_lost_wait_answers_the_site_body(client, admin_auth_header):
-    """A genuinely contended map row answers the map layer 409 body."""
-    map_id = await _new_map(client, admin_auth_header)
-    async with db_module.async_session() as holder, db_module.async_session() as waiter:
-        await holder.execute(select(Map.id).where(Map.id == map_id).with_for_update())
-        with pytest.raises(HTTPException) as raised:
-            await lock_map_layers(waiter, map_id)
-        assert raised.value.status_code == 409
-        assert raised.value.detail == _MAP
-        await holder.rollback()
+async def _held_request(client, headers, name, map_id, coll, story):
+    """Send the route whose lock ``name`` names while another session holds its row."""
+    model, row, request = {
+        "story": (
+            Story,
+            story,
+            lambda: client.delete(f"/stories/{story}", headers=headers),
+        ),
+        "map": (
+            Map,
+            map_id,
+            lambda: client.put(
+                f"/maps/{map_id}/groups/", json={"group_ids": []}, headers=headers
+            ),
+        ),
+        "asset": (
+            Map,
+            map_id,
+            lambda: client.put(
+                f"/maps/{map_id}/thumbnail/",
+                json={"data_uri": _thumbnail()},
+                headers=headers,
+            ),
+        ),
+        "collection": (
+            Collection,
+            coll,
+            lambda: client.patch(
+                f"/catalog/collections/{coll}",
+                json={"description": "held"},
+                headers=headers,
+            ),
+        ),
+    }[name]
+    async with db_module.async_session() as holder:
+        await holder.execute(select(model.id).where(model.id == row).with_for_update())
+        try:
+            return await request()
+        finally:
+            await holder.rollback()
+
+
+def _thumbnail() -> str:
+    from PIL import Image
+
+    buf = BytesIO()
+    Image.new("RGB", (4, 4), color=(128, 64, 32)).save(buf, format="JPEG")
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+
+# The 409 detail each route answered before the top-level code was added.
+_RELEASED_DETAIL = {
+    "story": _STORY,
+    "map": _MAP,
+    "asset": {"code": "map_asset_write_locked", "message": _ASSET},
+    "collection": _COLLECTION,
+}
+
+
+@pytest.mark.parametrize("name", sorted(_RELEASED_DETAIL))
+async def test_held_row_keeps_the_released_detail_and_adds_the_code(
+    client, admin_auth_header, name
+):
+    """A route waiting on a held story, map, map image or collection row answers its released 409 detail and top-level code catalog_lock_conflict."""
+    map_id, coll, story = await _fixtures(client, admin_auth_header)
+    resp = await _held_request(client, admin_auth_header, name, map_id, coll, story)
+    assert resp.status_code == 409, resp.text
+    assert resp.json() == {
+        "type": "about:blank",
+        "title": "Conflict",
+        "status": 409,
+        "detail": _RELEASED_DETAIL[name],
+        "code": "catalog_lock_conflict",
+    }
 
 
 async def test_bounded_row_lock_reset_flag(client, admin_auth_header):
@@ -167,12 +220,12 @@ async def test_bounded_row_lock_reset_flag(client, admin_auth_header):
     stmt = select(Map.id).where(Map.id == map_id).with_for_update()
     async with db_module.async_session() as session:
         default = await _show(session)
-        await bounded_row_lock(session, stmt, conflict=lambda: RuntimeError())
+        await bounded_row_lock(session, stmt, message="busy")
         assert await _show(session) == default
         await bounded_row_lock(
             session,
             stmt,
-            conflict=lambda: RuntimeError(),
+            message="busy",
             lock_timeout="1500ms",
             reset=False,
         )

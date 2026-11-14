@@ -127,9 +127,17 @@ def _ensure_public_app_url(monkeypatch):
 
     monkeypatch.setattr(settings, "public_app_url", "http://test", raising=False)
     monkeypatch.setattr(settings, "public_api_url", "http://test/api", raising=False)
+
     # Reset the module-global URL cache so the next call re-reads from settings
     # (the cache may have been populated by an earlier test in this process
     # with whatever happened to be in settings at that moment).
+    # Stored rows shadow settings, so ignore whatever an earlier test left.
+    async def _no_persisted_overrides(_db):
+        return {}
+
+    monkeypatch.setattr(
+        public_urls, "_load_public_url_overrides", _no_persisted_overrides
+    )
     saved = public_urls._PUBLIC_URL_CACHE
     public_urls._PUBLIC_URL_CACHE = None
     yield

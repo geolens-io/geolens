@@ -97,6 +97,9 @@ _MAP_VISIBILITIES_FOR_STORY = {
 _REACH_ORDER = {"private": 0, "restricted": 1, "internal": 2, "public": 3}
 
 
+_STORY_BUSY = "Another change to this story is in progress. Retry shortly."
+
+
 def empty_document() -> dict[str, Any]:
     return {"version": STORY_DOCUMENT_VERSION, "chapters": []}
 
@@ -219,10 +222,8 @@ async def _bounded_lock(db: AsyncSession, stmt: Select[Any]) -> list[Any]:
             await bounded_row_lock(
                 db,
                 stmt,
-                conflict=lambda: HTTPException(
-                    status_code=status.HTTP_409_CONFLICT,
-                    detail="Another change to this story is in progress. Retry shortly.",
-                ),
+                message=_STORY_BUSY,
+                detail=_STORY_BUSY,
             )
         )
         .scalars()

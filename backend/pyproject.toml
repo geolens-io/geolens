@@ -117,7 +117,6 @@ max-complexity = 15
 "app/processing/ai/chat_actions.py" = ["C901"]
 "app/processing/ai/metadata_service.py" = ["C901"]
 "app/processing/ai/streaming.py" = ["C901"]
-"app/processing/export/router.py" = ["C901"]
 "app/processing/ingest/tasks_raster.py" = ["C901"]
 "app/processing/ingest/tasks_vector.py" = ["C901"]
 "app/processing/ingest/tasks_vrt.py" = ["C901"]

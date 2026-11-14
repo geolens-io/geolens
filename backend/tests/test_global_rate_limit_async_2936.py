@@ -474,7 +474,8 @@ def test_every_alias_of_a_callable_limited_route_reaches_the_global_check(
     import re
     import uuid
 
-    from app.api.main import _iter_api_routes, app
+    from app.api.main import app
+    from app.api.openapi_contract import _iter_api_routes
 
     monkeypatch.setattr(ratelimit.limiter, "enabled", True)
     callable_limited = set(ratelimit.limiter._dynamic_route_limits)

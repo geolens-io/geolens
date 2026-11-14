@@ -79,7 +79,7 @@ def mock_export_service(monkeypatch):
             f.write(b"mock export data")
         return file_path, filename, media
 
-    monkeypatch.setattr("app.processing.export.router.export_dataset", _fake_export)
+    monkeypatch.setattr("app.processing.export.selection.export_dataset", _fake_export)
     _fake_export.calls = calls  # type: ignore[attr-defined]
 
     yield _fake_export
@@ -457,7 +457,7 @@ async def test_head_cannot_promise_conversion_failure_status(
     async def _boom(*args, **kwargs):
         raise ExportError("ogr2ogr exploded")
 
-    monkeypatch.setattr("app.processing.export.router.export_dataset", _boom)
+    monkeypatch.setattr("app.processing.export.selection.export_dataset", _boom)
     ds = await _public_dataset(test_db_session, "HeadExportConversionFailure")
 
     head = await client.head(f"/datasets/{ds.id}/export?format=geojson")

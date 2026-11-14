@@ -246,9 +246,7 @@ async def hold_table_for_setting(session: AsyncSession, table_name: str) -> None
             session,
             # codeql[py/sql-injection] table via quote_table; the mode is a literal
             text(f"LOCK TABLE ONLY {quoted} IN ROW EXCLUSIVE MODE"),
-            conflict=lambda: CatalogLockConflict(
-                "Another operation is changing this dataset's table."
-            ),
+            message="Another operation is changing this dataset's table.",
             reset=False,
         )
     except DBAPIError as exc:

@@ -176,3 +176,6 @@ Docker Compose reads it, with one difference: a reference to an unset variable
 (`${NAME}`) is kept as written, where Compose substitutes an empty string. When
 the value is empty the script stops and asks you to set it to the existing
 database's password, or to a new value for a first install.
+
+A `.env` the script creates is mode 600. Updating a value keeps the file's
+existing mode, so an existing `.env` that is looser than 600 stays as it is.

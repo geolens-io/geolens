@@ -1,7 +1,7 @@
 """RFC 7807 Problem Details error responses for the GeoLens API."""
 
 import json
-from typing import Any
+from typing import Annotated, Any
 
 import structlog
 from fastapi import FastAPI, HTTPException, Request, Response
@@ -10,7 +10,14 @@ from fastapi.exception_handlers import (
 )
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, ConfigDict
+from pydantic import (
+    BaseModel,
+    ConfigDict,
+    Field,
+    SerializerFunctionWrapHandler,
+    model_serializer,
+)
+from pydantic.json_schema import SkipJsonSchema
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
 from app.core.coded_errors import CodedValueError
@@ -21,11 +28,28 @@ from app.standards.ogc.utils import standards_api_path
 logger = structlog.stdlib.get_logger(__name__)
 
 
+def _absent_not_defaulted(schema: dict[str, Any]) -> None:
+    # An unset code is left out of the body, so a published default would tell
+    # generated clients the member is always present.
+    schema.pop("default", None)
+
+
 class ProblemDetail(BaseModel):
     type: str = "about:blank"
     title: str
     status: int
     detail: str | dict[str, Any] | list[Any]
+    code: Annotated[
+        str | SkipJsonSchema[None],
+        Field(
+            description=(
+                "A machine-readable code for the problem, on the errors that "
+                "carry one, such as `catalog_lock_conflict` on a 409 for a row "
+                "another request holds. Absent otherwise."
+            ),
+            json_schema_extra=_absent_not_defaulted,
+        ),
+    ] = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -39,6 +63,16 @@ class ProblemDetail(BaseModel):
             ]
         }
     )
+
+    @model_serializer(mode="wrap")
+    def _omit_unset_code(
+        self, handler: SerializerFunctionWrapHandler
+    ) -> dict[str, Any]:
+        # Bodies without a code keep the shape they had before the member existed.
+        data = handler(self)
+        if self.code is None:
+            data.pop("code", None)
+        return data
 
 
 # Reusable OpenAPI `responses` blocks for 4xx/5xx error documentation.
