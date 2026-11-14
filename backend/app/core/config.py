@@ -503,6 +503,7 @@ class Settings(
     redis_url: str | None = None  # unset refuses token-protected service dispatch
     cdn_base_url: str | None = None
     tile_signing_secret: SecretStr | None = None
+    session_secret_key: SecretStr | None = None
     tile_cache_ttl: int = Field(default=3600, ge=0)
 
     database_url_override: str | None = None
@@ -687,6 +688,7 @@ class Settings(
         "s3_addressing_style",
         "database_ssl_ca_cert",
         "tile_signing_secret",
+        "session_secret_key",
         # An uncommented-but-empty .env line arrives as "", which
         # would otherwise reach validate_known_bad_credentials' Fernet check
         # and fail boot on a config shape that means "not set".
@@ -1132,6 +1134,39 @@ class Settings(
                 f"encoded as UTF-8; the password hash accepts at most "
                 f"{BCRYPT_MAX_PASSWORD_BYTES}. Generate a shorter value with "
                 "`openssl rand -base64 16` and set it in your .env."
+            )
+        return self
+
+    @model_validator(mode="after")
+    def validate_session_secret_key(self) -> "Settings":
+        """Reject a SESSION_SECRET_KEY that is short or shared with another key.
+
+        TILE_SIGNING_SECRET predates this check, so a weak value there only
+        warns at startup instead of refusing to boot.
+        """
+        if self.session_secret_key is None:
+            return self
+        raw = self.session_secret_key.get_secret_value()
+        if len(raw) < 32:
+            raise ValueError(
+                "SESSION_SECRET_KEY must be at least 32 characters. "
+                "Generate one with: openssl rand -hex 32"
+            )
+        if raw == self.jwt_secret_key.get_secret_value():
+            raise ValueError(
+                "SESSION_SECRET_KEY must not be the same value as JWT_SECRET_KEY. "
+                "A dedicated key exists to separate it from the JWT secret."
+            )
+        if raw in KNOWN_PUBLIC_CREDENTIALS:
+            raise ValueError(
+                "SESSION_SECRET_KEY is set to a known-public literal from the "
+                "project's git history. Generate one with: openssl rand -hex 32"
+            )
+        if self.tile_signing_secret is not None and (
+            raw == self.tile_signing_secret.get_secret_value()
+        ):
+            raise ValueError(
+                "SESSION_SECRET_KEY must not be the same value as TILE_SIGNING_SECRET."
             )
         return self
 

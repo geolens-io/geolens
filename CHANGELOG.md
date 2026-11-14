@@ -95,6 +95,7 @@ and releases use semantic versioning.
 - OGC API, STAC and catalog search reads by a caller with no API key or sign-in, embed and share links included, now stop after 30 seconds of database time (`DB_ANONYMOUS_READ_TIMEOUT_SECONDS`, never more than `DB_STATEMENT_TIMEOUT_SECONDS`) and answer `503`, which a client can retry; signed-in callers and API keys keep the 300-second limit.
 - The web server now caches, for 5 seconds, the story frame policy it asks the API for on every app page, so a burst of page loads makes one API request. A host removed from the approved story frame hosts can still be framed by pages loaded up to 5 seconds after the change.
 - `install.sh` creates `.env` with mode 600 before any secret is written into it, and the installer and `upgrade.sh` keep the mode of an existing `.env`, including a read-only one, when they update a value instead of resetting it to the umask default.
+- `SESSION_SECRET_KEY` gives the OAuth sign-in session cookie its own signing key, as `TILE_SIGNING_SECRET` does for tile URLs. Both stay optional and fall back to `JWT_SECRET_KEY`; `SESSION_SECRET_KEY` must be at least 32 characters and differ from the JWT secret and the tile key, or the API refuses to start. A production boot warns when it is unset, and when an existing `TILE_SIGNING_SECRET` is short or equals the JWT secret, which still boots. `install.sh` generates both for a new `.env` only.
 
 ## [1.31.0] - 2026-11-10
 
