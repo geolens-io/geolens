@@ -74,15 +74,39 @@ describe('NewVersionBanner', () => {
     expect(screen.queryByRole('status')).toBeNull();
   });
 
-  it('re-checks when the tab becomes visible and re-prompts for a newer server version', async () => {
-    fetchMock.mockResolvedValue({ version: '1.1.0' });
+  it.each([
+    ['1.4.0-rc.1', '1.4.0rc1', false],
+    ['1.4.0-rc.1', '1.4.0rc2', true],
+    ['1.31.0', '1.31.1', true],
+  ])('bundle %s vs server %s shows banner: %s', async (bundle, server, shown) => {
+    vi.stubGlobal('__APP_VERSION__', bundle);
+    fetchMock.mockResolvedValue({ version: server });
     renderBanner();
-    await screen.findByRole('status');
-    fireEvent.click(screen.getByRole('button', { name: /close/i }));
-    fetchMock.mockResolvedValue({ version: '1.2.0' });
-    const calls = fetchMock.mock.calls.length;
-    act(() => setVisibility('visible'));
-    await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(calls));
-    expect(await screen.findByRole('status')).toBeInTheDocument();
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    if (shown) expect(await screen.findByRole('status')).toBeInTheDocument();
+    else expect(screen.queryByRole('status')).toBeNull();
+  });
+
+  it('re-checks on visibility only after the stale window and re-prompts for a newer version', async () => {
+    vi.useFakeTimers({ toFake: ['Date'] });
+    try {
+      fetchMock.mockResolvedValue({ version: '1.1.0' });
+      renderBanner();
+      await screen.findByRole('status');
+      fireEvent.click(screen.getByRole('button', { name: /close/i }));
+      fetchMock.mockResolvedValue({ version: '1.2.0' });
+      const calls = fetchMock.mock.calls.length;
+
+      act(() => setVisibility('visible'));
+      await new Promise((r) => setTimeout(r, 50));
+      expect(fetchMock.mock.calls.length).toBe(calls);
+
+      vi.setSystemTime(Date.now() + 61_000);
+      act(() => setVisibility('visible'));
+      await waitFor(() => expect(fetchMock.mock.calls.length).toBeGreaterThan(calls));
+      expect(await screen.findByRole('status')).toBeInTheDocument();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

@@ -3,6 +3,20 @@ import { apiFetch } from '@/api/client';
 import { queryKeys } from '@/lib/query-keys';
 
 const CHECK_INTERVAL_MS = 15 * 60 * 1000;
+// /health runs real probes and is rate limited, so a refocus within a minute
+// of the last check reuses it.
+const STALE_MS = 60 * 1000;
+
+// npm writes 1.4.0-rc.1 where Python metadata (PEP 440) writes 1.4.0rc1.
+function normalizeVersion(v: string): string {
+  return v
+    .trim()
+    .toLowerCase()
+    .replace(/[-._]?(alpha|beta|a|b|rc)[-._]?(\d)/, (_m, tag: string, d: string) => {
+      const t = tag === 'alpha' ? 'a' : tag === 'beta' ? 'b' : tag;
+      return `${t}${d}`;
+    });
+}
 
 /**
  * The server's version when it differs from this bundle's, else null. Checked
@@ -13,13 +27,13 @@ export function useNewServerVersion(): string | null {
   const { data } = useQuery({
     queryKey: queryKeys.serverVersion,
     queryFn: () => apiFetch<{ version?: string | null }>('/health'),
-    staleTime: 0,
+    staleTime: STALE_MS,
     retry: false,
     refetchOnWindowFocus: true,
     refetchInterval: CHECK_INTERVAL_MS,
     select: (d) => d?.version ?? null,
   });
   const bundle = typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '';
-  if (!bundle || !data || data === bundle) return null;
+  if (!bundle || !data || normalizeVersion(data) === normalizeVersion(bundle)) return null;
   return data;
 }
