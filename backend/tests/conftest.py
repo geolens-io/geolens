@@ -687,6 +687,31 @@ def _enable_dataset_editing(monkeypatch):
     monkeypatch.setattr(pc, "ENABLE_DATASET_EDITING", _AlwaysOn())
 
 
+@pytest.fixture(autouse=True)
+def _titiler_refuses_quicklook_draws(monkeypatch):
+    """Answer every remote-quicklook Titiler read with 503.
+
+    Keeps a test that stubs ``fetch_cog_info`` from reaching a live Titiler,
+    and through its relay the asset's origin. A test that draws a quicklook
+    installs its own transport over this one.
+    """
+    from types import SimpleNamespace
+
+    import httpx
+
+    def _client(*args, **kwargs) -> httpx.AsyncClient:
+        return httpx.AsyncClient(
+            transport=httpx.MockTransport(lambda request: httpx.Response(503))
+        )
+
+    monkeypatch.setattr(
+        "app.platform.storage.remote_quicklook.httpx",
+        SimpleNamespace(
+            AsyncClient=_client, Timeout=httpx.Timeout, HTTPError=httpx.HTTPError
+        ),
+    )
+
+
 # Shared test geometries
 EMPTY_FEATURE_COLLECTION = {
     "type": "FeatureCollection",
