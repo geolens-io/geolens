@@ -273,16 +273,14 @@ async def fetch_cog_info(
         return None
 
 
-async def fetch_cog_nodata(
-    url: str, *, dataset_id: uuid.UUID | None = None
-) -> float | None:
-    """The scalar nodata Titiler's ``/cog/info`` reports, or None.
+async def fetch_cog_header(url: str, *, dataset_id: uuid.UUID | None = None) -> dict:
+    """The scalar nodata, band count and data type Titiler's ``/cog/info`` reports.
 
     One header read, none of ``fetch_cog_info``'s statistics or transform
-    calls. None covers both a failed read and an asset with no scalar
-    nodata (Mask/Alpha, or none at all) — either way the caller leaves its
-    stored value as it was. The caller validates the URL first, as for
-    ``fetch_cog_info``.
+    calls. Only keys with a value are present: a failed read gives an empty
+    dict, and an asset with no scalar nodata (Mask/Alpha, or none at all)
+    has no ``nodata`` key. Either way the caller leaves its stored value as
+    it was. The caller validates the URL first, as for ``fetch_cog_info``.
     """
     try:
         async with httpx.AsyncClient(
@@ -292,12 +290,18 @@ async def fetch_cog_nodata(
                 build_titiler_cog_url("info", query={"url": relay_url(url, dataset_id)})
             )
             if info_resp.status_code != 200:
-                return None
-            return _nodata_of(info_resp.json())
-    except Exception as exc:  # broad: httpx/JSON errors vary, degrade to None
+                return {}
+            info = info_resp.json()
+            header = {
+                "nodata": _nodata_of(info),
+                "band_count": info.get("count"),
+                "dtype": info.get("dtype"),
+            }
+            return {k: v for k, v in header.items() if v is not None}
+    except Exception as exc:  # broad: httpx/JSON errors vary, degrade to empty
         logger.debug(
-            "Failed to fetch COG nodata from Titiler",
+            "Failed to fetch COG header from Titiler",
             dataset_id=str(dataset_id) if dataset_id else None,
             error=redact_exception_text(exc),
         )
-        return None
+        return {}

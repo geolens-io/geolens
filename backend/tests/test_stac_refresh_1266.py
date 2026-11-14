@@ -3420,12 +3420,12 @@ class TestNodataRepairOnRefresh:
     async def test_a_nodata_reply_repairs_a_null_row(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:
-        from app.modules.catalog.sources.cog_info import fetch_cog_nodata
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
         from tests.test_cog_info import _TITILER_INFO, _install
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
-            fetch_cog_nodata,
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
         )
         _install(
             monkeypatch, {**_TITILER_INFO, "nodata_type": "Nodata", "nodata_value": 0.0}
@@ -3444,12 +3444,12 @@ class TestNodataRepairOnRefresh:
     async def test_a_mask_reply_leaves_the_row_null(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:
-        from app.modules.catalog.sources.cog_info import fetch_cog_nodata
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
         from tests.test_cog_info import _TITILER_INFO, _install
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
-            fetch_cog_nodata,
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
         )
         _install(monkeypatch, {**_TITILER_INFO, "nodata_type": "Mask"})
         install, _ = stac_transport
@@ -3467,11 +3467,11 @@ class TestNodataRepairOnRefresh:
     ) -> None:
         async def _unreachable(url: str):
             raise AssertionError(
-                "fetch_cog_nodata called for a row that already had nodata"
+                "fetch_cog_header called for a row that already had nodata"
             )
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
             _unreachable,
         )
         install, _ = stac_transport
@@ -3481,7 +3481,7 @@ class TestNodataRepairOnRefresh:
         await test_db_session.execute(
             update(RasterAsset)
             .where(RasterAsset.dataset_id == dataset.id)
-            .values(nodata="7")
+            .values(nodata="7", band_count=1, dtype="uint8")
         )
         await test_db_session.commit()
 
@@ -3490,14 +3490,72 @@ class TestNodataRepairOnRefresh:
 
         assert (await _raster_asset(dataset.id)).nodata == "7"
 
+    async def test_a_reply_fills_band_count_and_dtype_without_overwriting(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
+        )
+        _install(
+            monkeypatch,
+            {
+                **_TITILER_INFO,
+                "nodata_type": "Nodata",
+                "nodata_value": 0.0,
+                "count": 3,
+                "dtype": "uint16",
+            },
+        )
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            update(RasterAsset)
+            .where(RasterAsset.dataset_id == dataset.id)
+            .values(dtype="float32")
+        )
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        row = await _raster_asset(dataset.id)
+        assert (row.nodata, row.band_count, row.dtype) == ("0.0", 3, "float32")
+
+    async def test_a_failed_read_changes_nothing(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        async def _failed(url: str):
+            return {}
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            _failed,
+        )
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        row = await _raster_asset(dataset.id)
+        assert (row.nodata, row.band_count, row.dtype) == (None, None, None)
+
     async def test_an_ssrf_refused_url_makes_no_repair_call(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:
         async def _unreachable(url: str):
-            raise AssertionError("fetch_cog_nodata called for an SSRF-refused address")
+            raise AssertionError("fetch_cog_header called for an SSRF-refused address")
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
             _unreachable,
         )
         monkeypatch.setattr(
@@ -3517,12 +3575,12 @@ class TestNodataRepairOnRefresh:
     async def test_a_relocated_items_unmoved_asset_gets_its_nodata_repaired(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:
-        from app.modules.catalog.sources.cog_info import fetch_cog_nodata
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
         from tests.test_cog_info import _TITILER_INFO, _install
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
-            fetch_cog_nodata,
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
         )
         _install(
             monkeypatch, {**_TITILER_INFO, "nodata_type": "Nodata", "nodata_value": 0.0}

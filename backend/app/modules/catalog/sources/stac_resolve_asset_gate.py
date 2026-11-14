@@ -27,7 +27,7 @@ from app.modules.catalog.sources.adapters.stac import (
 )
 from app.modules.catalog.sources.cog_info import (
     fetch_cog_info,
-    fetch_cog_nodata,
+    fetch_cog_header,
     reconcile_epsg,
 )
 from app.modules.catalog.sources.origin_probe import (
@@ -134,23 +134,25 @@ def _identity_refusal(
     return None
 
 
-async def _repair_nodata_if_unmoved(
+async def _repair_if_unmoved(
     href: str, *, moved: bool, repair_nodata: bool
-) -> str | None:
-    """The nodata-only backfill for an asset that did NOT move, or None.
+) -> dict[str, Any]:
+    """Nodata, band count and data type for an asset that did NOT move, or {}.
 
     Runs only when the asset stayed put. An SSRF refusal here only skips
     the repair; the rest of the resolution is unaffected and still worth
     adopting.
     """
     if moved or not repair_nodata:
-        return None
+        return {}
     try:
         await validate_url_for_ssrf(href)
     except SSRFError:
-        return None
-    nodata = await fetch_cog_nodata(href)
-    return str(nodata) if nodata is not None else None
+        return {}
+    header = await fetch_cog_header(href)
+    if "nodata" in header:
+        header["nodata"] = str(header["nodata"])
+    return header
 
 
 async def _resolve_from_item(
@@ -301,7 +303,7 @@ async def _resolve_from_item(
         if metadata.get("crs_unidentified"):
             return _ASSET_CRS_UNIDENTIFIED
 
-    repaired_nodata = await _repair_nodata_if_unmoved(
+    repaired = await _repair_if_unmoved(
         href, moved=href != asset_href, repair_nodata=repair_nodata
     )
 
@@ -329,7 +331,7 @@ async def _resolve_from_item(
         asset_metadata=metadata,
         epsg=reconcile_epsg(metadata or {}, declared_epsg),
         bbox=usable_bbox,
-        repaired_nodata=repaired_nodata,
+        repaired=repaired,
     )
 
 

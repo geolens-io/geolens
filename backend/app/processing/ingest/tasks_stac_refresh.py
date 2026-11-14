@@ -484,14 +484,14 @@ async def _point_at_quicklooks(
     return tuple(key for key in previous if key is not None)
 
 
-async def _repair_remote_nodata(
-    session: Any, dataset_uuid: uuid.UUID, nodata: str
+async def _repair_remote_header(
+    session: Any, dataset_uuid: uuid.UUID, repaired: dict[str, Any]
 ) -> None:
-    """Backfill nodata alone, for the asset ``fetch()`` did not re-describe.
+    """Backfill missing nodata, band count and dtype for an unmoved asset.
 
-    Scoped like ``_repoint_remote_asset``: a remote row only. Every other
-    structural column is left as it was: an unmoved asset was not
-    re-probed for anything else.
+    Scoped like ``_repoint_remote_asset``: a remote row only. A stored value
+    is never overwritten, and every other structural column is left as it
+    was: an unmoved asset was not re-probed for anything else.
     """
     from app.processing.raster.models import RasterAsset
 
@@ -501,7 +501,12 @@ async def _repair_remote_nodata(
             RasterAsset.dataset_id == dataset_uuid,
             RasterAsset.storage_backend == "remote",
         )
-        .values(nodata=nodata)
+        .values(
+            **{
+                column: func.coalesce(getattr(RasterAsset, column), value)
+                for column, value in repaired.items()
+            }
+        )
     )
 
 
@@ -595,7 +600,11 @@ class _StacRefresh:
         # Read in its own short session, closed before the write step takes
         # any catalog lock.
         stored = await _stored_remote_raster(self.dataset_id)
-        repair_nodata = stored is None or stored.nodata is None
+        repair_nodata = stored is None or None in (
+            stored.nodata,
+            stored.band_count,
+            stored.dtype,
+        )
         self.resolution = await get_processing_port().resolve_stac_binding(
             item_href=self.item_href,
             item_id=self.item_id,
@@ -700,10 +709,10 @@ class _StacRefresh:
                 dataset.record.spatial_extent = func.ST_GeomFromText(
                     bbox_to_extent_wkt(west, south, east, north), 4326
                 )
-        elif resolution.repaired_nodata is not None:
-            # The one column fetch() asked to have repaired, for an asset
+        elif resolution.repaired:
+            # The columns fetch() asked to have repaired, for an asset
             # not re-described above.
-            await _repair_remote_nodata(session, dataset.id, resolution.repaired_nodata)
+            await _repair_remote_header(session, dataset.id, resolution.repaired)
         # A moved asset that could not be drawn loses the old images, so the
         # next refresh draws it rather than showing the previous raster.
         superseded: tuple[str, ...] = ()
@@ -727,14 +736,14 @@ class _StacRefresh:
         # or not anything moved.
         dataset.last_refreshed_at = datetime.now(timezone.utc)
         # A moved asset changes the tiles and the embedding's inputs; a
-        # repaired nodata alone changes only what a tile renders, so it
+        # repaired header columns change only what a tile renders, so it
         # bumps the tile version without asking for a re-embed.
         return Published(
             dataset_version_id=None,
             feature_count=None,
             schema_diff=None,
             contacted_origin=True,
-            tiles_changed=moved or resolution.repaired_nodata is not None,
+            tiles_changed=moved or bool(resolution.repaired),
             reembed=moved,
             superseded_keys=superseded,
         )

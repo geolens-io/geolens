@@ -8,7 +8,7 @@ to a caller.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any
 
 from app.modules.catalog.sources.origin_probe import (
@@ -67,9 +67,9 @@ class StacResolution:
     # Why GeoLens declined an asset it could read, for a refusal that has
     # its own message. None for every verdict about the origin.
     refusal: str | None = None
-    # An unmoved asset's nodata backfill, when repair was requested and
-    # Titiler reported a scalar value. None otherwise.
-    repaired_nodata: str | None = None
+    # An unmoved asset's backfill (nodata, band_count, dtype), holding the
+    # keys Titiler reported when repair was requested. Empty otherwise.
+    repaired: dict[str, Any] = field(default_factory=dict)
 
     @property
     def resolved(self) -> bool:
