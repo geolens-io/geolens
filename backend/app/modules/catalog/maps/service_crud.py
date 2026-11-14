@@ -621,23 +621,23 @@ async def _saved_dashboard(
 
 async def _layer_columns(
     session: AsyncSession, layers: Sequence[MapLayer]
-) -> dict[uuid.UUID, list[str]]:
-    """Each layer's dataset column names, from the dataset's ``column_info``."""
+) -> dict[uuid.UUID, dict[str, str]]:
+    """Each layer's dataset columns and their types, from ``column_info``."""
     dataset_ids = {layer.dataset_id for layer in layers}
     if not dataset_ids:
         return {}
     rows = await session.execute(
         select(Dataset.id, Dataset.column_info).where(Dataset.id.in_(dataset_ids))
     )
-    names = {
-        dataset_id: [
-            col["name"]
+    types = {
+        dataset_id: {
+            col["name"]: str(col.get("type") or "").lower()
             for col in info or []
             if isinstance(col, dict) and isinstance(col.get("name"), str)
-        ]
+        }
         for dataset_id, info in rows.all()
     }
-    return {layer.id: names.get(layer.dataset_id, []) for layer in layers}
+    return {layer.id: types.get(layer.dataset_id, {}) for layer in layers}
 
 
 async def delete_map(

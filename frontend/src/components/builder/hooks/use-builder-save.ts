@@ -1218,7 +1218,8 @@ export function useBuilderSave(state: SaveState) {
       toast.error(t('toasts.popupConfigInvalidNamed', { layerName }), { id: 'popup-config-invalid', duration: 6000 });
       return;
     }
-    const widgetIssue = sendDashboard ? firstWidgetProblem(dashboard, localLayers) : null;
+    // A layer filter counts toward each widget's request, so an unedited dashboard is checked for size too.
+    const widgetIssue = firstWidgetProblem(dashboard, localLayers, sendDashboard ? undefined : ['filterTooLarge']);
     if (widgetIssue) {
       toast.error(
         widgetIssue.kind === 'viewWithoutGeometry'

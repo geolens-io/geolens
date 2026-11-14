@@ -34,9 +34,10 @@ class FeatureListWidget:
         title (None | str | Unset):
         scope (FeatureListWidgetScope | Unset): Summarize the whole layer, or only what the map view shows. Default:
             'layer'.
-        filter_ (list[Any] | None | Unset): Count only the features this MapLibre filter expression keeps, in the form a
-            layer's `filter` takes, on top of the layer's own filter. Each column it names must be one of the layer's, named
-            directly rather than computed. Needs the type's filter version; left out, the widget covers what its layer
+        filter_ (list[Any] | None | Unset): Count only the features this MapLibre filter expression keeps, on top of the
+            layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has`
+            and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each
+            column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer
             shows.
     """
 

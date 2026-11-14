@@ -9,7 +9,7 @@ import {
 } from '@/components/widgets/registry';
 import { isAggregateNumeric, isDateColumn, isListableColumn, isSortableColumn } from '@/lib/column-utils';
 import { canOpenAttributeTable } from '@/lib/layer-capabilities';
-import { filterFields } from '@/lib/maplibre-filter-utils';
+import { widgetFilterShape } from '@/lib/widget-filter-shape';
 import { widgetFilter } from '@/components/viewer/linked-filters';
 import { toSharedLayer } from '@/components/viewer/shared-layer';
 import { fitsAggregateFilterLimits } from './cluster-source';
@@ -140,25 +140,29 @@ export function widgetProblem(widget: WidgetInstance, layer: MapLayerResponse): 
     if (use.sortable && !isSortableColumn(use.name, column.type)) return { kind: 'notSortable', column: use.name };
   }
   if (!widget.filter) return null;
-  const fields = filterFields(widget.filter);
-  if (fields === null) return { kind: 'filterUnsupported' };
-  const missing = fields.find((name) => !columns.some((column) => column.name === name));
+  const shape = widgetFilterShape(widget.filter);
+  if (shape === null) return { kind: 'filterUnsupported' };
+  const missing = shape.columns.find((name) => !columns.some((column) => column.name === name));
   if (missing !== undefined) return { kind: 'missingColumn', column: missing };
   const { filter, ownUnsupported } = widgetFilter(toSharedLayer(layer), [], widget.filter);
   if (ownUnsupported) return { kind: 'filterUnsupported' };
   return filter && !fitsAggregateFilterLimits(filter) ? { kind: 'filterTooLarge' } : null;
 }
 
-/** The first problem that holds the save; a widget whose layer is gone isn't sent, so it holds nothing. */
+/**
+ * The first problem that holds the save; a widget whose layer is gone isn't
+ * sent, so it holds nothing. With `kinds`, only problems of those kinds count.
+ */
 export function firstWidgetProblem(
   draft: DashboardDraft,
   layers: readonly MapLayerResponse[],
+  kinds?: readonly WidgetProblem['kind'][],
 ): WidgetProblem | null {
   for (const widget of draft.widgets) {
     const layer = layers.find((candidate) => candidate.id === widget.layer_id);
     if (!layer || !canOpenAttributeTable(layer)) continue;
     const problem = widgetProblem(widget, layer);
-    if (problem) return problem;
+    if (problem && (!kinds || kinds.includes(problem.kind))) return problem;
   }
   return null;
 }

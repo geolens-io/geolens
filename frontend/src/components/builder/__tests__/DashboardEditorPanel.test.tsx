@@ -560,6 +560,50 @@ describe('DashboardEditorPanel', () => {
     expect(moved).not.toHaveProperty('filter');
   });
 
+  it('puts a filter edit in the draft at once, so a save or closing the panel right after keeps it', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    const { unmount } = render(<Harness onChange={onChange} />);
+    await user.click(screen.getByRole('button', { name: 'Add Indicator' }));
+    await user.click(screen.getByRole('button', { name: 'Add filter' }));
+    await user.click(screen.getByRole('combobox', { name: 'Field' }));
+    await user.click(await screen.findByRole('option', { name: 'land_use' }));
+    fetchMock.mockClear();
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'Residential' } });
+    expect(lastDraft(onChange).widgets[0].filter).toEqual(['all', ['==', ['get', 'land_use'], 'Residential']]);
+    unmount();
+    expect(lastDraft(onChange).widgets[0].filter).toEqual(['all', ['==', ['get', 'land_use'], 'Residential']]);
+  });
+
+  it('keeps a raw JSON Apply and a cleared condition, and asks for preview data once the filter rests', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness onChange={onChange} />);
+    await user.click(screen.getByRole('button', { name: 'Add Indicator' }));
+    await user.click(screen.getByRole('button', { name: 'Add filter' }));
+    await user.click(screen.getByRole('combobox', { name: 'Field' }));
+    await user.click(await screen.findByRole('option', { name: 'land_use' }));
+    fetchMock.mockClear();
+
+    await user.type(screen.getByRole('textbox', { name: 'Value' }), 'Residential');
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(fetchMock.mock.calls.filter(([, body]) => body.filter)).toHaveLength(1);
+
+    await user.click(screen.getByRole('button', { name: 'JSON' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'JSON' }), {
+      target: { value: '["==", ["get", "land_use"], "Park"]' },
+    });
+    await user.click(screen.getByRole('button', { name: 'Apply' }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(lastDraft(onChange).widgets[0].filter).toEqual(['==', ['get', 'land_use'], 'Park']);
+
+    await user.click(screen.getByRole('button', { name: 'JSON' }));
+    await user.click(screen.getByRole('button', { name: 'Remove condition' }));
+    await new Promise((resolve) => setTimeout(resolve, 300));
+    expect(lastDraft(onChange).widgets[0]).not.toHaveProperty('filter');
+  });
+
   it('counts a filter column outside the tile columns in the embed warning', () => {
     const widget = {
       id: '6f1c3a52-8d1e-4a57-9b1f-2c4e7a9d0b11',

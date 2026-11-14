@@ -414,48 +414,6 @@ export function validateRawFilter(value: unknown): FilterSpecification | null {
   return normalizeFilterNode(value) as FilterSpecification;
 }
 
-const LEGACY_PSEUDO_FIELDS = new Set(['$type', '$id']);
-
-/** The field a legacy-syntax form names in its first operand, as MapLibre's `isExpressionFilter` reads them. */
-function legacyField(node: unknown[]): unknown {
-  const [op, first, second] = node;
-  if (op === '!has' || op === '!in') return node.length >= 2 ? first : undefined;
-  if (op === 'in' && typeof first === 'string') return node.length === 3 && Array.isArray(second) ? undefined : first;
-  if (typeof op === 'string' && NUMERIC_COMPARISON_OPERATORS.has(op) && node.length === 3 && typeof first === 'string') {
-    return Array.isArray(second) ? undefined : first;
-  }
-  return undefined;
-}
-
-/**
- * Every feature property a filter can read, under either MapLibre syntax, as
- * the server's `filter_columns` finds them: `['get', name]`, `['has', name]` and
- * the field a legacy form names, but nothing inside a `literal`. Null when a
- * reference is computed or reads `properties`, so its columns can't be known.
- */
-export function filterFields(filter: unknown): string[] | null {
-  const fields = new Set<string>();
-  const stack: unknown[] = [filter];
-  while (stack.length > 0) {
-    const node = stack.pop();
-    if (!Array.isArray(node) || node.length === 0 || node[0] === 'literal') continue;
-    const [op, name] = node;
-    if (op === 'get' || op === 'has') {
-      if (node.length !== 2 || typeof name !== 'string') return null;
-      if (!LEGACY_PSEUDO_FIELDS.has(name)) fields.add(name);
-      continue;
-    }
-    if (op === 'properties') return null;
-    const field = legacyField(node);
-    if (field !== undefined) {
-      if (typeof field !== 'string') return null;
-      if (!LEGACY_PSEUDO_FIELDS.has(field)) fields.add(field);
-    }
-    stack.push(...node.slice(1));
-  }
-  return [...fields];
-}
-
 function sanitizeFilterNode(node: unknown): unknown {
   if (!Array.isArray(node) || node.length === 0) return node;
   if (node[0] === 'literal' || guardedComparison(node) || guardedNegation(node)) return node;

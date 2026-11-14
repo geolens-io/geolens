@@ -30,7 +30,8 @@ from pydantic import (
 )
 
 from app.core.config import validate_privacy_url_shape
-from app.modules.catalog.maps.filter_grammar import bounded_filter, filter_columns
+from app.modules.catalog.maps.filter_grammar import bounded_filter
+from app.modules.catalog.widgets.filter_shapes import widget_filter_cql2
 from app.platform.story_frames import (
     MAX_FRAME_URL_LENGTH,
     frame_url_host,
@@ -55,10 +56,9 @@ class _Widget(_Strict):
 
 
 def _widget_filter(value: list[Any] | None) -> list[Any] | None:
-    """A layer filter whose columns can all be named, so a save can check them."""
+    """A layer filter in a shape the viewer sends as CQL2 (``filter_shapes``)."""
     normalized = bounded_filter(value)
-    if normalized is not None:
-        filter_columns(normalized)
+    widget_filter_cql2(normalized)
     return normalized
 
 
@@ -76,9 +76,11 @@ class _LayerWidget(_Widget):
         default=None,
         exclude_if=lambda v: v is None,
         description="Count only the features this MapLibre filter expression "
-        "keeps, in the form a layer's `filter` takes, on top of the layer's "
-        "own filter. Each column it names must be one of the layer's, named "
-        "directly rather than computed. Needs "
+        "keeps, on top of the layer's own filter. It takes the conditions the "
+        "filter editor writes: comparisons, value lists, contains, `has` and "
+        "is-empty tests on columns named with `get`, joined by `all` or `any`, "
+        "or the legacy forms of those. Each column must be one of the layer's. "
+        "Needs "
         "the type's filter version; left out, the widget covers what its "
         "layer shows.",
     )

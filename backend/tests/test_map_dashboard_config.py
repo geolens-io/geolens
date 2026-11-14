@@ -80,7 +80,10 @@ def _merge(sent, stored, readable=(), hidden=(), repointed=(), columns=None):
         drop_repointed(stored, set(repointed)),
         layer_ids=set(readable) | set(hidden),
         hidden_layer_ids=set(hidden),
-        layer_columns=columns or {},
+        layer_columns={
+            layer: names if isinstance(names, dict) else dict.fromkeys(names, "text")
+            for layer, names in (columns or {}).items()
+        },
     )
 
 

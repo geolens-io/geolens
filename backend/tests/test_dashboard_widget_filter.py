@@ -1,13 +1,22 @@
 """A layer-bound dashboard widget's own filter: shape, version, save checks and older clients."""
 
+import json
+import random
 import uuid
+from pathlib import Path
 
 import pytest
 from fastapi import HTTPException
 from httpx import AsyncClient
 from pydantic import TypeAdapter, ValidationError
 
+from app.modules.catalog.datasets.domain import aggregate
 from app.modules.catalog.maps.dashboard import render_dashboard
+from app.modules.catalog.maps.filter_grammar import (
+    FilterValidationError,
+    bounded_filter,
+)
+from app.modules.catalog.widgets import filter_shapes
 from app.modules.catalog.widgets.schemas import DashboardWidget
 from tests.factories import create_dataset, get_user_id
 from tests.test_map_dashboard_config import (
@@ -138,74 +147,25 @@ class TestSave:
             {"id": widget["id"], "layer_id": str(layer), "reason": "filter_column"}
         ]
 
-    @pytest.mark.parametrize(
-        "filter_",
-        [
-            ["in", ["get", "kind"], ["literal", ["get", "park"]]],
-            ["!", ["in", ["get", "kind"], ["literal", ["has", "park"]]]],
-            [
-                "all",
-                ["in", ["get", "kind"], ["literal", ["has", "x", "y"]]],
-                ["any", ["!", ["in", ["get", "kind"], ["literal", ["get", "z"]]]]],
-            ],
-        ],
-        ids=["in_get", "not_in_has", "nested"],
-    )
-    def test_values_in_a_literal_list_are_not_read_as_columns(self, filter_):
+    def test_a_legacy_spelling_on_a_column_the_layer_lacks_is_refused(self):
         layer = uuid.uuid4()
-        widget = _widget("table", layer, v=2, filter=filter_)
+        for filter_ in (["!in", "missing", "x"], ["!has", "missing"]):
+            widget = _widget("table", layer, v=2, filter=filter_)
+            with pytest.raises(HTTPException) as exc:
+                _merge(
+                    {"widgets": [widget]},
+                    None,
+                    readable={layer},
+                    columns={layer: ["kind"]},
+                )
+            assert exc.value.detail["widgets"][0]["reason"] == "filter_column"
 
-        merged = _merge(
-            {"widgets": [widget]}, None, readable={layer}, columns={layer: ["kind"]}
-        )
-
-        assert merged["widgets"][0]["filter"] == filter_
-
-    @pytest.mark.parametrize(
-        "filter_",
-        [
-            ["!in", "missing", "x"],
-            ["!has", "missing"],
-            ["none", ["!has", "missing"]],
-            ["none", ["==", "missing", 1]],
-            ["all", ["==", ["get", "kind"], "a"], ["!has", "missing"]],
-            ["in", "x", ["get", "missing"]],
-        ],
-        ids=["not_in", "not_has", "none", "none_compare", "mixed", "contains"],
-    )
-    def test_a_legacy_spelling_on_a_missing_column_is_refused(self, filter_):
-        layer = uuid.uuid4()
-        widget = _widget("table", layer, v=2, filter=filter_)
-
-        with pytest.raises(HTTPException) as exc:
-            _merge(
-                {"widgets": [widget]}, None, readable={layer}, columns={layer: ["kind"]}
-            )
-
-        assert exc.value.detail["widgets"][0]["reason"] == "filter_column"
-
-    @pytest.mark.parametrize(
-        "filter_",
-        [
-            ["==", ["get", ["concat", "ki", "nd"]], "a"],
-            ["has", "kind", ["properties"]],
-            ["==", ["at", 0, ["properties"]], "a"],
-            ["!has", ["get", "kind"]],
-        ],
-        ids=["computed_get", "has_on_object", "properties", "computed_not_has"],
-    )
-    def test_a_filter_whose_columns_are_computed_is_refused(self, filter_):
-        with pytest.raises(ValidationError):
-            _adapter.validate_python(
-                _widget("table", uuid.uuid4(), v=2, filter=filter_)
-            )
-
-    def test_a_filter_listing_more_values_than_the_aggregate_binds_is_refused(self):
+    def test_a_filter_past_the_aggregates_bind_limit_is_refused(self):
         layer = uuid.uuid4()
 
         def listing(count):
             values = [f"v{i}" for i in range(count)]
-            members = ["in", ["get", "kind"], ["literal", values]]
+            members = ["!", ["in", ["get", "kind"], ["literal", values]]]
             return _widget("table", layer, v=2, filter=members)
 
         fits = _merge(
@@ -220,6 +180,29 @@ class TestSave:
                 None,
                 readable={layer},
                 columns={layer: ["kind"]},
+            )
+
+        assert len(fits["widgets"]) == 1
+        assert exc.value.detail["widgets"][0]["reason"] == "filter_too_large"
+
+    def test_a_filter_past_the_aggregates_depth_limit_is_refused(self):
+        layer = uuid.uuid4()
+        # 64 levels as CQL2; a timestamp literal is written one level deeper.
+        filter_ = ["!", ["in", ["get", "seen"], ["literal", ["2024-01-01"]]]]
+        for i in range(28):
+            filter_ = ["all" if i % 2 else "any", ["has", "kind"], filter_]
+        widget = _widget("table", layer, v=2, filter=filter_)
+        columns = {"kind": "text", "seen": "text"}
+
+        fits = _merge(
+            {"widgets": [widget]}, None, readable={layer}, columns={layer: columns}
+        )
+        with pytest.raises(HTTPException) as exc:
+            _merge(
+                {"widgets": [widget]},
+                None,
+                readable={layer},
+                columns={layer: {**columns, "seen": "timestamp with time zone"}},
             )
 
         assert len(fits["widgets"]) == 1
@@ -295,25 +278,70 @@ class TestSaveThroughTheApi:
         assert stored["widgets"][0]["v"] == 3
 
 
-@pytest.mark.parametrize(
-    ("expression", "kept"),
-    [
-        (["in", ["get", "kind"], ["literal", ["get", "park"]]], True),
-        (["!has", "missing"], False),
-        (["==", ["get", ["concat", "ki", "nd"]], "a"], False),
-    ],
-    ids=["literal_values", "legacy_missing", "computed"],
+SHAPES = json.loads(
+    (Path(__file__).parent / "fixtures" / "widget_filter_shapes.json").read_text()
 )
-def test_ai_filters_use_the_same_column_reading(expression, kept):
-    from app.processing.ai.chat_validation import _validate_filter_columns
-    from app.processing.ai.schemas import ChatMapLayer
 
-    layer = ChatMapLayer(
-        id="l1",
-        name="Trees",
-        dataset_id="d1",
-        dataset_table_name="trees",
-        column_info=[{"name": "kind", "type": "text"}],
+
+@pytest.mark.parametrize("case", SHAPES, ids=[case["name"] for case in SHAPES])
+def test_the_shared_shape_cases(case):
+    widget = _widget("table", uuid.uuid4(), v=2, filter=case["filter"])
+    if case["columns"] is None:
+        with pytest.raises(ValidationError):
+            _adapter.validate_python(widget)
+        return
+    stored = _adapter.validate_python(widget)
+    read = filter_shapes.widget_filter_cql2(stored.filter)
+    assert sorted(read.columns) == case["columns"]
+    assert (read.cql2, read.values, read.depth) == (
+        case["cql2"],
+        case["values"],
+        case["depth"],
     )
 
-    assert (_validate_filter_columns(expression, layer) is not None) is kept
+
+def test_the_depth_limit_is_the_aggregates():
+    assert filter_shapes.MAX_CQL2_DEPTH == aggregate._MAX_FILTER_DEPTH
+
+
+_FUZZ_TOKENS = [
+    "all", "any", "!", "in", "!in", "has", "!has", "none", "get", "literal",
+    "==", "!=", "<", ">=", "to-number", "typeof", "match", "case", "properties",
+    "$type", "$id", "kind", "null", "number", None, True, 0, -1e12, 1e12, 3.5, "",
+    {}, {"a": 1}, [],
+]  # fmt: skip
+
+
+def _fuzz_node(rng: random.Random, depth: int):
+    if depth > 6 or rng.random() < 0.3:
+        return rng.choice(_FUZZ_TOKENS)
+    return [_fuzz_node(rng, depth + 1) for _ in range(rng.randint(0, 4))]
+
+
+def test_malformed_filters_are_only_ever_refused_as_filter_errors():
+    rng = random.Random(3688)
+    for _ in range(5000):
+        tail = _fuzz_node(rng, 1)
+        candidate = [
+            rng.choice(_FUZZ_TOKENS),
+            *(tail if isinstance(tail, list) else [tail]),
+        ]
+        if rng.random() < 0.5:
+            candidate = _fuzz_node(rng, 0)
+        try:
+            filter_shapes.widget_filter_cql2(candidate)
+        except FilterValidationError:
+            pass
+        try:
+            normalized = bounded_filter(candidate)
+        except FilterValidationError:
+            continue
+        try:
+            filter_shapes.widget_filter_cql2(normalized, {"kind": "date"})
+        except FilterValidationError:
+            pass
+        widget = _widget("table", uuid.uuid4(), v=2, filter=candidate)
+        try:
+            _adapter.validate_python(widget)
+        except ValidationError:
+            pass

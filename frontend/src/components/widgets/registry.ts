@@ -1,5 +1,6 @@
 import type { FilterSpecification } from 'maplibre-gl';
 import { validateRawFilter } from '@/lib/maplibre-filter-utils';
+import { widgetFilterShape } from '@/lib/widget-filter-shape';
 import { WIDGET_TITLE_MAX_LENGTH } from './contract';
 import type { AnyWidgetDefinition, WidgetInstance, WidgetSurface } from './contract';
 import { barChartWidget } from './bar-chart/definition';
@@ -88,13 +89,15 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** A stored widget filter in its normalized form, null when it clears, or undefined when the grammar refuses it. */
+/** A stored widget filter in its normalized form, null when it clears, or undefined in a shape a widget doesn't take. */
 function parseWidgetFilter(raw: unknown): FilterSpecification | null | undefined {
+  let filter: FilterSpecification | null;
   try {
-    return validateRawFilter(raw);
+    filter = validateRawFilter(raw);
   } catch {
     return undefined;
   }
+  return widgetFilterShape(filter) ? filter : undefined;
 }
 
 /**

@@ -21,7 +21,7 @@ from pydantic import (
     field_validator,
 )
 
-from app.modules.catalog.maps.filter_grammar import filter_columns
+from app.modules.catalog.widgets.filter_shapes import MAX_CQL2_DEPTH, widget_filter_cql2
 from app.modules.catalog.widgets.schemas import (
     BarChartWidget,
     CategorySelectorWidget,
@@ -210,35 +210,23 @@ def _client_reads(widget: Any, readable: Collection[str]) -> bool:
     return f"{widget.type}:{widget.v}" in readable
 
 
-def _filter_reads_layer(widget: Any, columns: Mapping[str, set[str]]) -> bool:
-    """Whether every column the widget's filter names is one of its layer's."""
-    widget_filter = getattr(widget, "filter", None)
-    if widget_filter is None:
-        return True
-    return filter_columns(widget_filter) <= columns.get(_layer_id(widget) or "", set())
+def _filter_refusal(widget: Any, types: Mapping[str, str]) -> str | None:
+    """Why the widget's filter can't be saved on its layer, whose columns ``types`` lists.
 
-
-def _filter_fits_aggregate(widget: Any) -> bool:
-    """False when the filter's list members alone pass the aggregate's bind cap.
-
-    The aggregate binds each member of a converted ``in`` list once, so this
-    floor never refuses a filter the aggregate would take.
+    ``filter_column`` for a column the layer lacks, ``filter_too_large`` for a
+    filter past the aggregate's bind or depth limit on its own.
     """
     from app.standards.ogc.filtering import MAX_FEATURE_FILTER_BINDS
 
-    members = 0
-    stack = [getattr(widget, "filter", None)]
-    while stack:
-        node = stack.pop()
-        if not isinstance(node, list) or not node:
-            continue
-        if node[0] == "literal":
-            members += (
-                len(node[1]) if len(node) == 2 and isinstance(node[1], list) else 0
-            )
-            continue
-        stack.extend(node[1:])
-    return members <= MAX_FEATURE_FILTER_BINDS
+    widget_filter = getattr(widget, "filter", None)
+    if widget_filter is None:
+        return None
+    sent = widget_filter_cql2(widget_filter, types)
+    if not sent.columns <= types.keys():
+        return "filter_column"
+    if sent.values > MAX_FEATURE_FILTER_BINDS or sent.depth > MAX_CQL2_DEPTH:
+        return "filter_too_large"
+    return None
 
 
 def _raw_id(raw: Any) -> str | None:
@@ -294,15 +282,15 @@ def merge_dashboard(
     *,
     layer_ids: Collection[uuid.UUID],
     hidden_layer_ids: Collection[uuid.UUID],
-    layer_columns: Mapping[uuid.UUID, Collection[str]],
+    layer_columns: Mapping[uuid.UUID, Mapping[str, str]],
 ) -> dict[str, Any] | None:
     """The dashboard to store for a save; ``sent=None`` removes what the editor sees.
 
     ``layer_ids`` are the map's layers after the save and ``hidden_layer_ids``
     those among them whose dataset the editor can't read. ``layer_columns``
-    holds each layer's dataset columns; a sent widget whose ``filter`` names a
-    column not listed for its layer, or lists more values than the aggregate
-    binds, is refused (422).
+    maps each layer's dataset columns to their types; a sent widget whose
+    ``filter`` names a column not listed for its layer, or alone passes the
+    aggregate's bind or depth limit, is refused (422).
 
     A stored widget on a hidden layer, or one the editor's client can't read
     (outside its ``readable`` pairs, by default those of earlier releases),
@@ -354,19 +342,17 @@ def merge_dashboard(
 
     # A missing layer and an unreadable one share a reason so a refusal never
     # tells the editor a hidden layer exists.
-    columns = {str(layer_id): set(names) for layer_id, names in layer_columns.items()}
+    columns = {str(layer_id): types for layer_id, types in layer_columns.items()}
     refused = []
     for w in sent_widgets:
         if not _on_layers(w, readable):
             reason = "layer_unavailable"
         elif str(w.id) in locked_ids:
             reason = "id_in_use"
-        elif not _filter_reads_layer(w, columns):
-            reason = "filter_column"
-        elif not _filter_fits_aggregate(w):
-            reason = "filter_too_large"
         else:
-            continue
+            reason = _filter_refusal(w, columns.get(_layer_id(w) or "", {}))
+            if reason is None:
+                continue
         refused.append({"id": str(w.id), "layer_id": _layer_id(w), "reason": reason})
     refused.sort(key=lambda item: item["id"])
     if refused:

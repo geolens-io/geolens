@@ -24,7 +24,7 @@ import { useTheme } from '@/components/theme-provider';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import type { Bbox } from '@/lib/bbox';
 import { randomId } from '@/lib/random-id';
-import { filterFields } from '@/lib/maplibre-filter-utils';
+import { widgetFilterShape } from '@/lib/widget-filter-shape';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
 import { LayerFilterEditor } from './LayerFilterEditor';
@@ -178,12 +178,14 @@ const WidgetCard = memo(function WidgetCard({
   const layerless = !isLayerBound(definition.type);
   const problem = layer ? widgetProblem(widget, layer) : null;
   const previewConfig = useDebouncedValue(widget.config, PREVIEW_DEBOUNCE_MS);
-  const preview = { ...widget, config: previewConfig };
+  const previewFilter = useDebouncedValue(widget.filter, PREVIEW_DEBOUNCE_MS);
+  const { filter: _filter, ...unfiltered } = widget;
+  const preview = { ...unfiltered, config: previewConfig, ...(previewFilter ? { filter: previewFilter } : {}) };
   // Until the debounce catches up, the preview's config can still name the previous layer's columns.
   const previewReady = layerless || (layer !== undefined && !problem && !widgetProblem(preview, layer));
   // A dataset that limits its tile columns hides the rest from embedded copies, unless anyone can read it in full.
   const tileColumns = layer?.dataset_visibility === 'public' ? null : layer?.dataset_tile_columns;
-  const filterColumns = widget.filter ? filterFields(widget.filter) : [];
+  const filterColumns = widget.filter ? (widgetFilterShape(widget.filter)?.columns ?? null) : [];
   const hiddenFromEmbeds =
     !!tileColumns &&
     (filterColumns === null ||
@@ -269,8 +271,9 @@ const WidgetCard = memo(function WidgetCard({
 
       {layer && definition.filterVersion && (
         <LayerFilterEditor
-          // A new layer remounts the editor, which drops a change still waiting to be reported.
+          // Its conditions name this layer's columns.
           key={layer.id}
+          immediate
           columnInfo={(layer.dataset_column_info ?? []).map((column) => ({ name: column.name, type: column.type ?? '' }))}
           filter={widget.filter ?? null}
           onFilterChange={(filter) => onFilterChange(widget.id, filter)}

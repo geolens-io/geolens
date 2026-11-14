@@ -38,6 +38,23 @@ def _build_chat_actions(raw_actions: list[dict]) -> tuple[list[ChatAction], list
     return actions, dropped
 
 
+def _extract_get_refs(expr: list | None) -> set[str]:
+    """Recursively extract column names from ["get"/"has", "col"] nodes.
+
+    ["has", col] refs count too, or a hallucinated has-column filter passes
+    validation and hides every feature.
+    """
+    if not isinstance(expr, list) or len(expr) == 0:
+        return set()
+    refs: set[str] = set()
+    if len(expr) >= 2 and expr[0] in ("get", "has") and isinstance(expr[1], str):
+        refs.add(expr[1])
+    for item in expr:
+        if isinstance(item, list):
+            refs.update(_extract_get_refs(item))
+    return refs
+
+
 def _validate_filter_columns(
     expression: list | None, layer: ChatMapLayer | None
 ) -> list | None:
@@ -50,20 +67,7 @@ def _validate_filter_columns(
     col_names = {c.get("name") for c in (layer.column_info or []) if c.get("name")}
     if not col_names:
         return expression  # no column_info to validate against
-    # Function-scope import, as in _validate_actions: layering.
-    from app.modules.catalog.maps.filter_grammar import (
-        FilterValidationError,
-        filter_columns,
-    )
-
-    try:
-        refs = filter_columns(expression)
-    except FilterValidationError:
-        logger.warning(
-            "Filter computes the columns it reads, clearing filter",
-            layer_id=layer.id,
-        )
-        return None
+    refs = _extract_get_refs(expression)
     invalid = refs - col_names
     if invalid:
         logger.warning(

@@ -1,3 +1,4 @@
+import type { FilterSpecification } from 'maplibre-gl';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { dashboardReadableTypes } from '@/components/widgets/registry';
@@ -1631,6 +1632,29 @@ describe('useBuilderSave', () => {
         }),
       );
       expect(toast.error).toHaveBeenCalledWith('toasts.saveFailed');
+    });
+
+    it("holds a save whose layer filter takes an unedited widget's filter past the aggregate's size", async () => {
+      const { toast } = await import('sonner');
+      const values = Array.from({ length: 450 }, (_, i) => `value-${i}`);
+      const half = ['in', ['get', 'kind'], ['literal', values]] as FilterSpecification;
+      const filtered = { ...barChart({}), v: 3, filter: half };
+      const dashboard = { panel: 'right' as const, widgets: [filtered] };
+      await save(
+        makeSaveState({
+          hasUnsavedChanges: true,
+          localLayers: [{ ...widgetLayer(), filter: half }],
+          dashboard,
+          savedDashboard: dashboard,
+          dashboardEdited: false,
+        }),
+      );
+
+      expect(toast.error).toHaveBeenCalledWith(
+        'toasts.dashboardWidgetFilterTooLarge',
+        expect.objectContaining({ id: 'dashboard-widget-invalid' }),
+      );
+      expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
     });
 
     it.each([

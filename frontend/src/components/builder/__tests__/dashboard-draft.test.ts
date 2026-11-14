@@ -123,11 +123,17 @@ describe("a widget's own filter", () => {
   it.each([
     [['!in', 'owner', 'x']],
     [['!has', 'owner']],
-    [['none', ['!has', 'owner']]],
-    [['all', ['==', ['get', 'kind'], 'a'], ['!has', 'owner']]],
+    [['all', ['has', 'kind'], ['!in', 'owner', 'x']]],
   ])('finds the column a legacy spelling names: %j', (filter) => {
     expect(widgetProblem(filtered(filter), layer())).toEqual({ kind: 'missingColumn', column: 'owner' });
   });
+
+  it.each([[['none', ['!has', 'owner']]], [['all', ['==', ['get', 'kind'], 'a'], ['!has', 'owner']]], [['match', ['get', 'kind'], 'a', true, false]]])(
+    'holds a filter in a shape a widget does not take: %j',
+    (filter) => {
+      expect(widgetProblem(filtered(filter), layer())).toEqual({ kind: 'filterUnsupported' });
+    },
+  );
 
   it('holds a filter whose columns are computed', () => {
     expect(widgetProblem(filtered(['==', ['get', ['concat', 'ki', 'nd']], 'a']), layer())).toEqual({
