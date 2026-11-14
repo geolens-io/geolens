@@ -1707,9 +1707,10 @@ update_env_value() {
   value="$2"
   tmp=".env.tmp.$$"
 
-  # cp -p carries the existing mode onto the temp file (stat flags differ
-  # between GNU and BSD); umask 077 keeps a fresh file private.
-  ( umask 077; cp -p .env "$tmp" ) || { rm -f "$tmp"; return 1; }
+  # The temp file starts private and writable; the mode of the existing .env
+  # (read from ls -l, as stat flags differ between GNU and BSD) is applied last
+  # so a read-only .env stays updatable.
+  ( umask 077; : > "$tmp" ) || { rm -f "$tmp"; return 1; }
 
   __VAL="$value" awk -v key="$key" '
     BEGIN { val = ENVIRON["__VAL"]; updated = 0 }
@@ -1725,6 +1726,16 @@ update_env_value() {
       }
     }
   ' .env > "$tmp" || { rm -f "$tmp"; return 1; }
+  _mode="$(ls -l .env | awk '{
+    m = substr($1, 2, 9); o = 0
+    for (i = 1; i <= 9; i++) if (substr(m, i, 1) != "-") o += 2 ^ (9 - i)
+    printf "%03o", o
+  }')"
+  case "$_mode" in
+    [0-7][0-7][0-7]) ;;
+    *) _mode=600 ;;
+  esac
+  chmod "$_mode" "$tmp" || { rm -f "$tmp"; return 1; }
   mv "$tmp" .env || { rm -f "$tmp"; return 1; }
 }
 

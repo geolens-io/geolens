@@ -26,22 +26,22 @@ check_impl() {
   . ./fn.sh
 
   umask 022
-  for m in 600 640; do
-    printf 'A=1\nB=2\n' > .env; chmod "$m" .env
+  for m in 400 444 600 640; do
+    rm -f .env; printf 'A=1\nB=2\n' > .env; chmod "$m" .env
     update_env_value A 9
     [ "$(mode_of .env)" = "$m" ] || fail "$label: mode $m became $(mode_of .env)"
     grep -qx 'A=9' .env || fail "$label: value not updated"
     grep -qx 'B=2' .env || fail "$label: other key lost"
   done
 
-  # Failed write: the temp file cannot be moved over a directory.
-  rm -f .env; mkdir .env
-  if update_env_value A 1 2>/dev/null; then fail "$label: expected failure"; fi
-  rmdir .env
-  printf 'A=1\n' > .env; chmod 640 .env
+  # Failed write: each step that can fail is simulated in turn.
+  rm -f .env; printf 'A=1\n' > .env; chmod 640 .env
   awk() { return 1; }
   if update_env_value A 2 2>/dev/null; then fail "$label: awk failure not reported"; fi
   unset -f awk
+  mv() { return 1; }
+  if update_env_value A 2 2>/dev/null; then fail "$label: mv failure not reported"; fi
+  unset -f mv
   [ "$(cat .env)" = "A=1" ] || fail "$label: original content changed"
   [ "$(mode_of .env)" = "640" ] || fail "$label: original mode changed"
   [ -z "$(ls -A | grep '^\.env\.tmp')" ] || fail "$label: temp file left behind"
@@ -50,6 +50,6 @@ check_impl() {
 
 check_impl install "$ROOT/scripts/install.sh" update_env_value
 check_impl common "$ROOT/scripts/lib/common.sh" update_env_value
-grep -q '(umask 077 && cp .env.example .env)' "$ROOT/scripts/install.sh" \
-  || fail "install.sh does not create .env under umask 077"
+awk '/cp \.env\.example \.env/{c=NR} /chmod 600 \.env/{m=NR} c&&!u&&/update_env_value /{u=NR} END{exit !(c && m>c && m<u)}' "$ROOT/scripts/install.sh" \
+  || fail "install.sh must chmod 600 .env right after creating it, before the first update_env_value"
 echo "PASS: env file mode"
