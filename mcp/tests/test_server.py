@@ -2,7 +2,7 @@
 """Registration self-checks for the MCP server module (test #827, mock tier).
 
 DB-less: asserts the MCPServer instance in server.py registers exactly the
-advertised read-only tools with the argument schemas agents rely on, and that
+advertised tools with the argument schemas agents rely on, and that
 the decorated functions stay plain callables (the live-contract tier in
 test_live_contract.py invokes them as normal functions).
 """
@@ -35,6 +35,18 @@ EXPECTED_TOOLS = {
     # Sandboxed read-only SQL. restrict_tables is REQUIRED — the
     # backend refuses an unscoped query, so the schema must say so too.
     "query": ({"sql", "restrict_tables"}, {"sql", "restrict_tables", "row_limit"}),
+    # Map authoring, for a map_author API key.
+    "create_map": ({"name"}, {"name", "description", "basemap"}),
+    "add_layer": (
+        {"map_id", "dataset_id"},
+        {"map_id", "dataset_id", "style", "popup_fields"},
+    ),
+    "update_layer_style": (
+        {"map_id", "layer_id"},
+        {"map_id", "layer_id", "style", "popup_fields"},
+    ),
+    "set_camera": ({"map_id"}, {"map_id", "center", "zoom", "pitch", "bearing"}),
+    "set_basemap": ({"map_id", "basemap"}, {"map_id", "basemap"}),
 }
 
 

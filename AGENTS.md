@@ -17,7 +17,7 @@ These commitments constrain every change:
 
 ## Project Map
 
-Backend: `backend/app/{api,core,modules,platform,processing,standards}/`; migrations: `backend/alembic/`; tests: `backend/tests/`. React/Vite frontend: `frontend/src/` (map builder: `components/builder/`, `builder/` and `lib/builder/`; colocated Vitest tests); Playwright: `e2e/`. CLI: `cli/geolens_cli/`; read-only MCP server: `mcp/geolens_mcp/`; generated SDKs: `sdks/`; operations: `scripts/`, `db/`, `.github/`.
+Backend: `backend/app/{api,core,modules,platform,processing,standards}/`; migrations: `backend/alembic/`; tests: `backend/tests/`. React/Vite frontend: `frontend/src/` (map builder: `components/builder/`, `builder/` and `lib/builder/`; colocated Vitest tests); Playwright: `e2e/`. CLI: `cli/geolens_cli/`; MCP server (catalog reads, and map authoring with a `map_author` key): `mcp/geolens_mcp/`; generated SDKs: `sdks/`; operations: `scripts/`, `db/`, `.github/`.
 
 FastAPI serves catalog, standards and vector tiles; Titiler serves COG tiles. The worker runs Procrastinate jobs using PostgreSQL as its queue. Storage defaults to local files, with S3/MinIO and Azure options; Valkey provides caching. See [.github/ARCHITECTURE.md](.github/ARCHITECTURE.md) for topology and extension seams; manifests/lockfiles own dependency versions.
 
