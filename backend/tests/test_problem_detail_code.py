@@ -35,7 +35,8 @@ def test_set_code_is_emitted_beside_detail() -> None:
 
 
 def test_schema_declares_an_optional_string_code() -> None:
-    """The published schema lists code as an optional string, never null."""
+    """The published schema lists code as an optional string with no default, never null."""
     schema = ProblemDetail.model_json_schema()
     assert schema["properties"]["code"]["type"] == "string"
+    assert "default" not in schema["properties"]["code"]
     assert "code" not in schema["required"]

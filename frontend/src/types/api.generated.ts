@@ -14826,9 +14826,8 @@ export interface components {
             /**
              * Code
              * @description A machine-readable code for the problem, on the errors that carry one, such as `catalog_lock_conflict` on a 409 for a row another request holds. Absent otherwise.
-             * @default null
              */
-            code: string;
+            code?: string;
         };
         /** ProviderHealth */
         ProviderHealth: {

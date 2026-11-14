@@ -28,6 +28,12 @@ from app.standards.ogc.utils import standards_api_path
 logger = structlog.stdlib.get_logger(__name__)
 
 
+def _absent_not_defaulted(schema: dict[str, Any]) -> None:
+    # An unset code is left out of the body, so a published default would tell
+    # generated clients the member is always present.
+    schema.pop("default", None)
+
+
 class ProblemDetail(BaseModel):
     type: str = "about:blank"
     title: str
@@ -40,7 +46,8 @@ class ProblemDetail(BaseModel):
                 "A machine-readable code for the problem, on the errors that "
                 "carry one, such as `catalog_lock_conflict` on a 409 for a row "
                 "another request holds. Absent otherwise."
-            )
+            ),
+            json_schema_extra=_absent_not_defaulted,
         ),
     ] = None
 
