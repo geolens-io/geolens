@@ -63,6 +63,30 @@ def _finite(value: Any) -> bool:
     )
 
 
+def _stats_range(band_info: Any, band: int) -> tuple[Any, Any] | None:
+    stats = (
+        band_info[band - 1]
+        if isinstance(band_info, list) and len(band_info) >= band
+        else None
+    )
+    low = stats.get("min") if isinstance(stats, dict) else None
+    high = stats.get("max") if isinstance(stats, dict) else None
+    return (low, high) if _finite(low) and _finite(high) and high > low else None
+
+
+def stretch_is_known(described: Mapping[str, Any]) -> bool:
+    """Whether ``_render_query`` stretches this raster correctly without a probe.
+
+    True for unsigned 8 and 16-bit data, whose range starts at zero, and for
+    any dtype whose bands all carry stored statistics.
+    """
+    dtype = str(described.get("dtype") or "uint8").lower()
+    if dtype in ("uint8", "uint16"):
+        return True
+    bands = (1, 2, 3) if (described.get("band_count") or 1) >= 3 else (1,)
+    return all(_stats_range(described.get("band_info"), b) for b in bands)
+
+
 def _render_query(described: Mapping[str, Any]) -> list[tuple[str, str]]:
     """``bidx``/``rescale`` pairs choosing the bands the tile proxy renders.
 
@@ -80,11 +104,9 @@ def _render_query(described: Mapping[str, Any]) -> list[tuple[str, str]]:
     band_info = described.get("band_info")
     band_info = band_info if isinstance(band_info, list) else []
     for band in bands:
-        stats = band_info[band - 1] if len(band_info) >= band else None
-        low = stats.get("min") if isinstance(stats, dict) else None
-        high = stats.get("max") if isinstance(stats, dict) else None
-        if _finite(low) and _finite(high) and high > low:
-            query.append(("rescale", f"{low},{high}"))
+        known = _stats_range(band_info, band)
+        if known:
+            query.append(("rescale", f"{known[0]},{known[1]}"))
         else:
             query.append(("rescale", f"0,{_DTYPE_MAX.get(dtype, 65535)}"))
     return query

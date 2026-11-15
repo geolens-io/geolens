@@ -60,6 +60,7 @@ from app.processing.ingest.publication import (
 from app.platform.storage.remote_quicklook import (
     discard_remote_quicklooks,
     draw_remote_quicklooks,
+    stretch_is_known,
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
@@ -577,6 +578,7 @@ class _StacRefresh:
         # deletion of what they replaced; release() deletes them if none does.
         self.drawn: tuple[str, str] | None = None
         self.fill: dict[str, Any] = {}
+        self.redraw = False
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.bound = bound_pointer(dataset)
@@ -636,12 +638,16 @@ class _StacRefresh:
                 if value is not None and getattr(stored, column) is None
             }
         # Band count and dtype set the draw's band and stretch, so filling
-        # either redraws images made without them.
+        # either redraws images made without them, unless the stretch would
+        # clip the data without statistics.
+        self.redraw = False
+        if stored is not None and not moved and self.reshaped:
+            self.redraw = stretch_is_known({**stored._mapping, **self.fill})
         if stored is not None and (
             moved
             or stored.quicklook_256_uri is None
             or stored.quicklook_512_uri is None
-            or self.reshaped
+            or self.redraw
         ):
             described = (
                 self.resolution.asset_metadata
@@ -743,7 +749,7 @@ class _StacRefresh:
         superseded: tuple[str, ...] = ()
         # A redraw that failed drops the images drawn without the filled
         # header, so the next refresh draws them.
-        if self.drawn is not None or moved or self.reshaped:
+        if self.drawn is not None or moved or self.redraw:
             replaced = await _point_at_quicklooks(session, dataset.id, self.drawn)
             superseded = (self.drawn or ()) if replaced is None else replaced
         # Unconditional: an unchanged answer rewrites the same values, and a

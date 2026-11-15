@@ -3719,6 +3719,26 @@ class TestNodataRepairOnRefresh:
             reply={"nodata_type": "Nodata", "nodata_value": 0.0},
         )
 
+    async def test_a_float_fill_keeps_existing_quicklooks_but_stores_the_header(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        dataset, draw = await self._refresh_with_quicklooks(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            stored={
+                "quicklook_256_uri": "old256.png",
+                "quicklook_512_uri": "old512.png",
+            },
+            reply={"count": 1, "dtype": "float32"},
+        )
+
+        draw.assert_not_awaited()
+        row = await _raster_asset(dataset.id)
+        assert (row.dtype, row.quicklook_256_uri) == ("float32", "old256.png")
+
     async def test_existing_quicklooks_are_kept_when_nothing_was_filled(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:
