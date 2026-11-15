@@ -3627,6 +3627,98 @@ class TestNodataRepairOnRefresh:
         draw.assert_awaited_once()
         assert (await _raster_asset(dataset.id)).quicklook_256_uri == "q256.png"
 
+    async def test_a_failed_fill_redraw_clears_the_old_images_then_retries(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
+        )
+        _install(monkeypatch, {**_TITILER_INFO, "count": 3, "dtype": "uint16"})
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            update(RasterAsset)
+            .where(RasterAsset.dataset_id == dataset.id)
+            .values(quicklook_256_uri="old256.png", quicklook_512_uri="old512.png")
+        )
+        await test_db_session.commit()
+        draw = AsyncMock(return_value={})
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_stac_refresh.draw_remote_quicklooks", draw
+        )
+
+        await _execute(
+            test_db_session, await _dispatch(client, admin_auth_header, dataset.id)
+        )
+        row = await _raster_asset(dataset.id)
+        assert (row.quicklook_256_uri, row.quicklook_512_uri) == (None, None)
+
+        draw.return_value = {dataset.id: ("q256.png", "q512.png")}
+        await _execute(
+            test_db_session, await _dispatch(client, admin_auth_header, dataset.id)
+        )
+        row = await _raster_asset(dataset.id)
+        assert (row.quicklook_256_uri, row.quicklook_512_uri) == (
+            "q256.png",
+            "q512.png",
+        )
+
+    async def _reembeds(
+        self,
+        client,
+        admin_auth_header,
+        test_db_session,
+        stac_transport,
+        monkeypatch,
+        *,
+        stored: dict,
+        reply: dict,
+    ) -> bool:
+        embed = AsyncMock()
+        with patch("app.processing.embeddings.helpers.defer_embedding", new=embed):
+            await self._refresh_with_quicklooks(
+                client,
+                admin_auth_header,
+                test_db_session,
+                stac_transport,
+                monkeypatch,
+                stored=stored,
+                reply=reply,
+            )
+        return embed.await_count > 0
+
+    async def test_filling_band_count_or_dtype_queues_a_reembed(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        assert await self._reembeds(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            stored={"dtype": "uint8"},
+            reply={"count": 3, "dtype": "uint16"},
+        )
+
+    async def test_a_nodata_only_fill_queues_no_reembed(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        assert not await self._reembeds(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            stored={"band_count": 1, "dtype": "uint16"},
+            reply={"nodata_type": "Nodata", "nodata_value": 0.0},
+        )
+
     async def test_existing_quicklooks_are_kept_when_nothing_was_filled(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:

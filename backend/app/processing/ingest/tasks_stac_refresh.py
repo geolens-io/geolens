@@ -641,8 +641,7 @@ class _StacRefresh:
             moved
             or stored.quicklook_256_uri is None
             or stored.quicklook_512_uri is None
-            or "band_count" in self.fill
-            or "dtype" in self.fill
+            or self.reshaped
         ):
             described = (
                 self.resolution.asset_metadata
@@ -653,6 +652,11 @@ class _StacRefresh:
                 {self.dataset_id: (self.resolution.asset_href, described or {})}
             )
             self.drawn = drawn.get(self.dataset_id)
+
+    @property
+    def reshaped(self) -> bool:
+        """Whether this refresh filled band count or dtype, which quicklooks and the embedding read."""
+        return bool({"band_count", "dtype"} & self.fill.keys())
 
     async def stage(self, session, job, dataset) -> Verdict:
         return PUBLISH
@@ -737,7 +741,9 @@ class _StacRefresh:
         # A moved asset that could not be drawn loses the old images, so the
         # next refresh draws it rather than showing the previous raster.
         superseded: tuple[str, ...] = ()
-        if self.drawn is not None or moved:
+        # A redraw that failed drops the images drawn without the filled
+        # header, so the next refresh draws them.
+        if self.drawn is not None or moved or self.reshaped:
             replaced = await _point_at_quicklooks(session, dataset.id, self.drawn)
             superseded = (self.drawn or ()) if replaced is None else replaced
         # Unconditional: an unchanged answer rewrites the same values, and a
@@ -765,7 +771,7 @@ class _StacRefresh:
             schema_diff=None,
             contacted_origin=True,
             tiles_changed=moved or bool(self.fill),
-            reembed=moved,
+            reembed=moved or self.reshaped,
             superseded_keys=superseded,
         )
 
