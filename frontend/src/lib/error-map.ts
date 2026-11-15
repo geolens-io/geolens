@@ -187,6 +187,7 @@ const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   file_size_limit_exceeded: 'errors.uploadFileSizeLimitExceeded',
   filename_control_characters: 'errors.uploadFilenameControlCharacters',
   filename_missing_extension: 'errors.uploadFilenameMissingExtension',
+  geometry_columns_missing: 'errors.reuploadGeometryColumnsMissing',
   geometry_loss: 'errors.reuploadGeometryLoss',
   ingest_cell_limit_exceeded: 'errors.uploadIngestCellLimitExceeded',
   ingest_row_limit_exceeded: 'errors.uploadIngestRowLimitExceeded',

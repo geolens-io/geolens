@@ -69,6 +69,7 @@ async def test_restore_uses_the_kept_versions_source_names(
         source_format="geojson",
         file_hash=None,
         original_srid=4326,
+        geometry_columns=None,
     )
     dataset = SimpleNamespace(
         id=uuid.uuid4(),
@@ -103,6 +104,10 @@ async def test_restore_uses_the_kept_versions_source_names(
     session.add = Mock()
     with (
         patch("app.processing.ingest.tasks_restore.record_live_version", AsyncMock()),
+        patch(
+            "app.processing.ingest.tasks_restore.version_geometry_columns",
+            AsyncMock(return_value=None),
+        ),
         patch("app.processing.ingest.tasks_restore.stamp_kept_versions", AsyncMock()),
         patch("app.processing.ingest.metadata.refresh_attribute_metadata", AsyncMock()),
         patch("app.platform.audit.audit_emit", AsyncMock()),

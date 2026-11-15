@@ -2377,3 +2377,20 @@ def test_a_refusal_on_an_earlier_service_does_not_hide_the_new_services_layer(
     ctx, webmap = _root_reference(entry, moved)
     webmap["operationalLayers"][0]["url"] = f"{moved}/0"
     assert webmaps._unimported(ctx, webmap, {}) == ["root"]
+
+
+def test_a_refused_layer_reports_no_property_as_carried_over(
+    runner, plan_file, geolens
+):
+    service = FakeImport(
+        geolens, [_layer(0, "Parcels"), _layer(1, "Buildings", has_m=True)]
+    )
+    _refuse_preview(geolens, service, "Buildings", MULTIPATCH)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][A2]
+    assert MULTIPATCH_NOTE in entry["notes"]
+    assert not [n for n in entry["notes"] if "M values" in n]
+    assert "1" not in entry["layer_notes"]

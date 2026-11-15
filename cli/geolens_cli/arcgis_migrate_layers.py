@@ -20,6 +20,7 @@ from uuid import UUID
 
 from ._sdk_helpers import PollDeadlineExceeded, long_request_timeout, poll_until
 from .arcgis_inventory import external_by_url
+from .arcgis_layer_properties import property_notes
 from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
@@ -32,7 +33,7 @@ from .arcgis_migrate_session import (
     writable,
 )
 from .arcgis_migrate_shared import gone_note, migrated, reuse_note, wider_note
-from .arcgis_migrate_state import DONE, EXISTS, SKIPPED, ItemState
+from .arcgis_migrate_state import DONE, EXISTS, MAX_ERROR_CHARS, SKIPPED, ItemState
 
 GROUP_LAYER = "Group Layer"
 MAX_TITLE = 500
@@ -721,6 +722,14 @@ def recorded_titles(base: str, entry: ItemState, url: str | None) -> dict[str, s
     return {key: title for key, title in zip(named, titles) if key in recorded}
 
 
+def _held_notes(ctx: MigrationContext, entry: ItemState, layer: Any) -> list[str]:
+    """The layer's property notes: those recorded when it was imported plus
+    what this probe states."""
+    fresh = _redacted(ctx, property_notes([layer]))
+    kept = entry.layer_notes.get(_layer_key(layer), [])
+    return [n[:MAX_ERROR_CHARS] for n in dict.fromkeys([*kept, *fresh])]
+
+
 def import_layers(
     ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
 ) -> ItemResult:
@@ -748,10 +757,12 @@ def import_layers(
         # pins of the service the item still belongs to. A layer id from the
         # old service could match one of the new service's.
         entry.layer_datasets.clear()
+        entry.layer_notes.clear()
         entry.layer_jobs.clear()
         entry.dataset_ids.clear()
         entry.shared.clear()
     entry.service_url = row["url"]
+    notes += [n for layer in wanted for n in _held_notes(ctx, entry, layer)]
     entry.left_behind = _redacted(ctx, left_behind)
     entry.attachments = attachment_flags(wanted)
     entry.pass_layers = [_layer_key(layer) for layer in wanted]
@@ -767,6 +778,9 @@ def import_layers(
     waiting: list[str] = []
     for layer, title in zip(wanted, titles):
         key = _layer_key(layer)
+        # Saved with the pending job and the pin, so a retry that can't read the
+        # layer's properties again still reports them.
+        entry.layer_notes[key] = _held_notes(ctx, entry, layer)
         pinned = entry.layer_datasets.get(key)
         if pinned:
             # The plan may have been edited since that layer was imported.
@@ -794,6 +808,9 @@ def import_layers(
                 "reason": reason,
             }
             entry.left_behind.append(reason)
+            # Nothing of the layer arrives, so no property of it is carried over.
+            dropped = set(entry.layer_notes.pop(key, []))
+            notes = [n for n in notes if n not in dropped]
             ctx.save()
             continue
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
