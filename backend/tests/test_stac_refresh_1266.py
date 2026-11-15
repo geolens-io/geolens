@@ -3420,12 +3420,12 @@ class TestNodataRepairOnRefresh:
     async def test_a_nodata_reply_repairs_a_null_row(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:
-        from app.modules.catalog.sources.cog_info import fetch_cog_nodata
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
         from tests.test_cog_info import _TITILER_INFO, _install
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
-            fetch_cog_nodata,
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
         )
         _install(
             monkeypatch, {**_TITILER_INFO, "nodata_type": "Nodata", "nodata_value": 0.0}
@@ -3444,12 +3444,12 @@ class TestNodataRepairOnRefresh:
     async def test_a_mask_reply_leaves_the_row_null(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:
-        from app.modules.catalog.sources.cog_info import fetch_cog_nodata
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
         from tests.test_cog_info import _TITILER_INFO, _install
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
-            fetch_cog_nodata,
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
         )
         _install(monkeypatch, {**_TITILER_INFO, "nodata_type": "Mask"})
         install, _ = stac_transport
@@ -3467,11 +3467,11 @@ class TestNodataRepairOnRefresh:
     ) -> None:
         async def _unreachable(url: str):
             raise AssertionError(
-                "fetch_cog_nodata called for a row that already had nodata"
+                "fetch_cog_header called for a row that already had nodata"
             )
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
             _unreachable,
         )
         install, _ = stac_transport
@@ -3481,7 +3481,7 @@ class TestNodataRepairOnRefresh:
         await test_db_session.execute(
             update(RasterAsset)
             .where(RasterAsset.dataset_id == dataset.id)
-            .values(nodata="7")
+            .values(nodata="7", band_count=1, dtype="uint8")
         )
         await test_db_session.commit()
 
@@ -3490,14 +3490,305 @@ class TestNodataRepairOnRefresh:
 
         assert (await _raster_asset(dataset.id)).nodata == "7"
 
+    async def test_a_reply_fills_band_count_and_dtype_without_overwriting(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
+        )
+        _install(
+            monkeypatch,
+            {
+                **_TITILER_INFO,
+                "nodata_type": "Nodata",
+                "nodata_value": 0.0,
+                "count": 3,
+                "dtype": "uint16",
+            },
+        )
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            update(RasterAsset)
+            .where(RasterAsset.dataset_id == dataset.id)
+            .values(dtype="float32")
+        )
+        await test_db_session.commit()
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        row = await _raster_asset(dataset.id)
+        assert (row.nodata, row.band_count, row.dtype) == ("0.0", 3, "float32")
+
+    async def test_a_header_with_nothing_missing_to_fill_writes_nothing(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
+        )
+        _install(monkeypatch, {**_TITILER_INFO, "nodata_type": "Mask"})
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            update(RasterAsset)
+            .where(RasterAsset.dataset_id == dataset.id)
+            .values(band_count=1, dtype="uint16")
+        )
+        await test_db_session.commit()
+        before_version = dataset.tile_cache_version
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        assert (await _reload(dataset.id)).tile_cache_version == before_version
+
+    async def _refresh_with_quicklooks(
+        self,
+        client,
+        admin_auth_header,
+        test_db_session,
+        stac_transport,
+        monkeypatch,
+        *,
+        stored: dict,
+        reply: dict,
+    ):
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
+        )
+        _install(monkeypatch, {**_TITILER_INFO, **reply})
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            update(RasterAsset)
+            .where(RasterAsset.dataset_id == dataset.id)
+            .values(**stored)
+        )
+        await test_db_session.commit()
+        draw = AsyncMock(return_value={dataset.id: ("q256.png", "q512.png")})
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_stac_refresh.draw_remote_quicklooks", draw
+        )
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+        return dataset, draw
+
+    async def test_missing_quicklooks_are_drawn_with_the_filled_header(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        dataset, draw = await self._refresh_with_quicklooks(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            stored={"epsg": 4326},
+            reply={"count": 3, "dtype": "uint16"},
+        )
+
+        described = draw.await_args.args[0][dataset.id][1]
+        assert (described["band_count"], described["dtype"]) == (3, "uint16")
+
+    async def test_existing_quicklooks_are_redrawn_when_the_header_is_filled(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        dataset, draw = await self._refresh_with_quicklooks(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            stored={
+                "quicklook_256_uri": "old256.png",
+                "quicklook_512_uri": "old512.png",
+            },
+            reply={"count": 3, "dtype": "uint16"},
+        )
+
+        draw.assert_awaited_once()
+        assert (await _raster_asset(dataset.id)).quicklook_256_uri == "q256.png"
+
+    async def test_a_failed_fill_redraw_clears_the_old_images_then_retries(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
+        from tests.test_cog_info import _TITILER_INFO, _install
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
+        )
+        _install(monkeypatch, {**_TITILER_INFO, "count": 3, "dtype": "uint16"})
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+        await test_db_session.execute(
+            update(RasterAsset)
+            .where(RasterAsset.dataset_id == dataset.id)
+            .values(quicklook_256_uri="old256.png", quicklook_512_uri="old512.png")
+        )
+        await test_db_session.commit()
+        draw = AsyncMock(return_value={})
+        monkeypatch.setattr(
+            "app.processing.ingest.tasks_stac_refresh.draw_remote_quicklooks", draw
+        )
+
+        await _execute(
+            test_db_session, await _dispatch(client, admin_auth_header, dataset.id)
+        )
+        row = await _raster_asset(dataset.id)
+        assert (row.quicklook_256_uri, row.quicklook_512_uri) == (None, None)
+
+        draw.return_value = {dataset.id: ("q256.png", "q512.png")}
+        await _execute(
+            test_db_session, await _dispatch(client, admin_auth_header, dataset.id)
+        )
+        row = await _raster_asset(dataset.id)
+        assert (row.quicklook_256_uri, row.quicklook_512_uri) == (
+            "q256.png",
+            "q512.png",
+        )
+
+    async def _reembeds(
+        self,
+        client,
+        admin_auth_header,
+        test_db_session,
+        stac_transport,
+        monkeypatch,
+        *,
+        stored: dict,
+        reply: dict,
+    ) -> bool:
+        embed = AsyncMock()
+        with patch("app.processing.embeddings.helpers.defer_embedding", new=embed):
+            await self._refresh_with_quicklooks(
+                client,
+                admin_auth_header,
+                test_db_session,
+                stac_transport,
+                monkeypatch,
+                stored=stored,
+                reply=reply,
+            )
+        return embed.await_count > 0
+
+    async def test_filling_band_count_or_dtype_queues_a_reembed(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        assert await self._reembeds(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            stored={"dtype": "uint8"},
+            reply={"count": 3, "dtype": "uint16"},
+        )
+
+    async def test_a_nodata_only_fill_queues_no_reembed(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        assert not await self._reembeds(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            stored={"band_count": 1, "dtype": "uint16"},
+            reply={"nodata_type": "Nodata", "nodata_value": 0.0},
+        )
+
+    async def test_a_float_fill_keeps_existing_quicklooks_but_stores_the_header(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        dataset, draw = await self._refresh_with_quicklooks(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            stored={
+                "quicklook_256_uri": "old256.png",
+                "quicklook_512_uri": "old512.png",
+            },
+            reply={"count": 1, "dtype": "float32"},
+        )
+
+        draw.assert_not_awaited()
+        row = await _raster_asset(dataset.id)
+        assert (row.dtype, row.quicklook_256_uri) == ("float32", "old256.png")
+
+    async def test_existing_quicklooks_are_kept_when_nothing_was_filled(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        dataset, draw = await self._refresh_with_quicklooks(
+            client,
+            admin_auth_header,
+            test_db_session,
+            stac_transport,
+            monkeypatch,
+            stored={
+                "quicklook_256_uri": "old256.png",
+                "quicklook_512_uri": "old512.png",
+                "band_count": 1,
+                "dtype": "uint16",
+            },
+            reply={"nodata_type": "Mask"},
+        )
+
+        draw.assert_not_awaited()
+        assert (await _raster_asset(dataset.id)).quicklook_256_uri == "old256.png"
+
+    async def test_a_failed_read_changes_nothing(
+        self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
+    ) -> None:
+        async def _failed(url: str):
+            return {}
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            _failed,
+        )
+        install, _ = stac_transport
+        install({_ITEM: (200, _item_doc()), _ASSET: (206, None)})
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await _stac_dataset(test_db_session, created_by=admin_id)
+
+        payload = await _dispatch(client, admin_auth_header, dataset.id)
+        await _execute(test_db_session, payload)
+
+        row = await _raster_asset(dataset.id)
+        assert (row.nodata, row.band_count, row.dtype) == (None, None, None)
+
     async def test_an_ssrf_refused_url_makes_no_repair_call(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:
         async def _unreachable(url: str):
-            raise AssertionError("fetch_cog_nodata called for an SSRF-refused address")
+            raise AssertionError("fetch_cog_header called for an SSRF-refused address")
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
             _unreachable,
         )
         monkeypatch.setattr(
@@ -3517,12 +3808,12 @@ class TestNodataRepairOnRefresh:
     async def test_a_relocated_items_unmoved_asset_gets_its_nodata_repaired(
         self, client, admin_auth_header, test_db_session, stac_transport, monkeypatch
     ) -> None:
-        from app.modules.catalog.sources.cog_info import fetch_cog_nodata
+        from app.modules.catalog.sources.cog_info import fetch_cog_header
         from tests.test_cog_info import _TITILER_INFO, _install
 
         monkeypatch.setattr(
-            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_nodata",
-            fetch_cog_nodata,
+            "app.modules.catalog.sources.stac_resolve_asset_gate.fetch_cog_header",
+            fetch_cog_header,
         )
         _install(
             monkeypatch, {**_TITILER_INFO, "nodata_type": "Nodata", "nodata_value": 0.0}
