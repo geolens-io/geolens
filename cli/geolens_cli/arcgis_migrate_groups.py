@@ -41,6 +41,7 @@ from .arcgis_migrate_session import (
     ItemFailed,
     MigrationContext,
     WriteRaced,
+    writable,
 )
 from .arcgis_migrate_state import ItemState, MigrationState
 
@@ -726,7 +727,7 @@ def share(
     if "geolens_groups" not in target:
         return []
     try:
-        for dataset_id in entry.dataset_ids:
+        for dataset_id in writable(ctx, entry, entry.dataset_ids):
             _leftover(
                 ctx,
                 item,

@@ -53,13 +53,15 @@ def unmet_dependencies(
     item: Mapping[str, Any],
     items: Mapping[str, Mapping[str, Any]],
     state: MigrationState,
+    after: Mapping[str, list[str]] | None = None,
 ) -> list[str]:
-    """The plan items *item* still waits on: dependencies whose action makes
-    datasets or a map and that haven't settled. An export_only or skip
-    dependency makes nothing to wait for, and a removed one never runs."""
+    """The plan items *item* still waits on: its ``depends_on`` and the items
+    *after* says own service layers it shares, whose action makes datasets or
+    a map and that haven't settled. An export_only or skip dependency makes
+    nothing to wait for, and a removed one never runs."""
     return [
         dep
-        for dep in item["depends_on"]
+        for dep in [*item["depends_on"], *(after or {}).get(item["id"], [])]
         if dep in items
         and dep != item["id"]
         and not items[dep].get("removed")
@@ -150,7 +152,7 @@ def _follow_ups(
                 "parts of the web map were not carried over; see "
                 + entry.loss_report_path,
             )
-        made = entry is not None and (entry.dataset_ids or entry.map_id)
+        made = entry is not None and (entry.dataset_ids or entry.shared or entry.map_id)
         if item.get("removed"):
             add(
                 item["id"],

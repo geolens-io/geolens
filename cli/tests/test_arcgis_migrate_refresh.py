@@ -1300,12 +1300,18 @@ def test_a_stopped_refresh_ends_the_pass_and_marks_no_cutover(
 ):
     token = secrets.token_urlsafe(16)
     _edit_plan(plan_file, (A1, A2))
-    # Both items share the Parcels dataset; give them one visibility.
-    plan = json.loads(plan_file.read_text())
-    for item in plan["items"]:
-        item["target"]["visibility"] = "internal"
-    plan_file.write_text(json.dumps(plan))
-    service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    service = FakeImport(geolens, [])
+    probe = service.probe
+    by_url = {
+        _service_url(plan_file, A1): [_layer(0, "Parcels", has_attachments=False)],
+        _service_url(plan_file, A2): [_layer(0, "Roads", has_attachments=False)],
+    }
+
+    def each_service(seen):
+        service.layers = by_url[seen.json()["url"]]
+        return probe(seen)
+
+    geolens.routes["POST /services/probe/"] = each_service
     result, _ = _migrate(runner, plan_file, "--token", token)
     assert result.exit_code == 0, result.output
     service.fields.setdefault(PARCELS, {}).update(

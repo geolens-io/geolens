@@ -61,6 +61,7 @@ from .arcgis_migrate_export import (
     write_index,
 )
 from .arcgis_migrate_cutover import (
+    CHECKS,
     current,
     failing_checks,
     inventory_changes,
@@ -84,7 +85,8 @@ from .arcgis_migrate_report import (
     write_run_report,
 )
 from .arcgis_migrate_files import FILE_TYPES, import_file
-from .arcgis_migrate_layers import _import_recorded, import_layers
+from .arcgis_migrate_layers import _import_recorded, import_layers, settle_jobs
+from .arcgis_migrate_shared import SharedLayers
 from .arcgis_migrate_refresh import (
     Refresher,
     changed_in_geolens,
@@ -113,6 +115,8 @@ from .arcgis_migrate_session import (
     StopRun,
     changed_before_handover,
     operator_or_nobody_wrote_last,
+    writable,
+    write_refusal,
 )
 from .arcgis_migrate_state import (
     FAILED,
@@ -233,8 +237,17 @@ class MigrateOptions:
     accept: frozenset[str] = frozenset()
 
 
-def order_items(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
-    """*items* with every item after the plan items it ``depends_on``.
+def _depends(item: Mapping[str, Any], after: Mapping[str, list[str]]) -> list[str]:
+    """The item's ``depends_on``, plus the items owning service layers it
+    shares."""
+    return [*item["depends_on"], *after.get(item["id"], [])]
+
+
+def order_items(
+    items: list[Mapping[str, Any]], after: Mapping[str, list[str]] | None = None
+) -> list[Mapping[str, Any]]:
+    """*items* with every item after the plan items it ``depends_on``, and
+    after the items owning service layers it shares (*after*).
 
     Ties keep plan order. A dependency missing from the plan, or marked
     removed and so never run, doesn't hold an item back. An unlisted item is
@@ -248,7 +261,7 @@ def order_items(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
         if item.get("unlisted")
         else {
             d
-            for d in item["depends_on"]
+            for d in _depends(item, after or {})
             if d in index and d != item["id"] and d not in removed
         }
         for item in items
@@ -276,7 +289,10 @@ def order_items(items: list[Mapping[str, Any]]) -> list[Mapping[str, Any]]:
 
 
 def _wanted(
-    by_id: Mapping[str, Mapping[str, Any]], only: list[str], state: MigrationState
+    by_id: Mapping[str, Mapping[str, Any]],
+    only: list[str],
+    state: MigrationState,
+    after: Mapping[str, list[str]],
 ) -> set[str]:
     """The --only items plus every plan item they depend on that still has
     to run: an unfinished one, or a finished one ``_needs_run`` runs again."""
@@ -298,7 +314,7 @@ def _wanted(
         wanted.add(item_id)
         if by_id[item_id].get("removed") or by_id[item_id].get("unlisted"):
             continue
-        for dep in by_id[item_id]["depends_on"]:
+        for dep in _depends(by_id[item_id], after):
             if dep in by_id and (
                 state.status(dep) not in FINISHED
                 or _needs_run(by_id[dep], state.items.get(dep), no_retry=False)
@@ -360,12 +376,17 @@ def keep_recorded_imports(
 
 
 def select_items(
-    plan: Mapping[str, Any], state: MigrationState, only: list[str], no_retry: bool
+    plan: Mapping[str, Any],
+    state: MigrationState,
+    only: list[str],
+    no_retry: bool,
+    after: Mapping[str, list[str]] | None = None,
 ) -> list[Mapping[str, Any]]:
-    """The plan items this run executes, in order."""
-    ordered = order_items(plan["items"])
+    """The plan items this run executes, in order; *after* maps an item to
+    the items owning service layers it shares, which run first."""
+    ordered = order_items(plan["items"], after)
     by_id = {item["id"]: item for item in ordered}
-    wanted = _wanted(by_id, only, state) if only else set(by_id)
+    wanted = _wanted(by_id, only, state, after or {}) if only else set(by_id)
     return [
         item
         for item in ordered
@@ -1080,7 +1101,7 @@ def transfer(
     *revisions*. One an earlier attempt handed over is left with an owner it
     already has, and otherwise moves only while it is as that transfer left it.
     """
-    for dataset_id in entry.dataset_ids:
+    for dataset_id in writable(ctx, entry, entry.dataset_ids):
         read = get_dataset(ctx, dataset_id)
         if dataset_id in entry.last_update:
             if str(read.created_by) == owner.id:
@@ -1112,6 +1133,14 @@ class RunSummary:
     handover_failed: list[str] = field(default_factory=list)
 
 
+def _targeted(
+    ctx: MigrationContext, item: Mapping[str, Any], owner: Owner | None
+) -> tuple[Mapping[str, Any], list[str]]:
+    """*item* with the sharing target its import uses for *owner*, and the
+    notes that resolution leaves; every import-time write goes through it."""
+    return _sharing_target(ctx, item, owner.id if owner else None)
+
+
 def _sharing_target(
     ctx: MigrationContext, item: Mapping[str, Any], owner_id: str | None
 ) -> tuple[Mapping[str, Any], list[str]]:
@@ -1132,7 +1161,7 @@ def _keep_own(
     import wrote, gets its baseline only while the operator or nobody wrote it
     last and its data revision is the one captured before the writes, so a
     concurrent edit is never taken as the import's."""
-    for dataset_id in entry.dataset_ids:
+    for dataset_id in writable(ctx, entry, entry.dataset_ids):
         read = get_dataset(ctx, dataset_id)
         if str(read.created_by) != owner.id:
             raise ItemFailed(_not_yours(f"dataset {dataset_id}"))
@@ -1169,18 +1198,25 @@ def _migrate_one(
     pending: str | None = None,
 ) -> None:
     entry = state.start(item["id"])
-    item, sharing_notes = _sharing_target(ctx, item, owner.id if owner else None)
+    item, sharing_notes = _targeted(ctx, item, owner)
     try:
         result = handler(ctx, item, entry)
         entry.notes = [state.clean(note) for note in [*result.notes, *sharing_notes]]
         state.save()
         if owner is not None:
             # Datasets an earlier attempt handed over are no longer written.
-            fresh = [d for d in entry.dataset_ids if d not in entry.last_update]
+            ours = writable(ctx, entry, entry.dataset_ids)
+            fresh = [d for d in ours if d not in entry.last_update]
             revisions = _import_revisions(ctx, fresh)
-            entry.visibility = dict.fromkeys(
-                entry.dataset_ids, item["target"]["visibility"]
-            )
+            # A double-recorded dataset keeps the visibility last given it.
+            entry.visibility = {
+                **{
+                    d: v
+                    for d, v in entry.visibility.items()
+                    if d in entry.dataset_ids and d not in ours
+                },
+                **dict.fromkeys(ours, item["target"]["visibility"]),
+            }
             apply_item_metadata(ctx, item, entry, fresh)
             entry.notes.extend(
                 state.clean(n) for n in file_into_collections(ctx, item, entry)
@@ -1196,6 +1232,7 @@ def _migrate_one(
             entry.owner_pending = pending
             entry.portal_owner = item["owner"]
             ctx.save()
+        _refuse_unwritable(ctx, entry)
     except (ItemFailed, GeoLensError) as exc:
         state.finish(item["id"], FAILED, str(exc))
         return
@@ -1227,7 +1264,7 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
     as this command's own write, so a rerun resumes with the rest.
     """
     entry.handover_incomplete = True
-    for dataset_id in entry.dataset_ids:
+    for dataset_id in writable(ctx, entry, entry.dataset_ids):
         dataset = get_dataset(ctx, dataset_id)
         if str(dataset.created_by) == owner.id:
             continue
@@ -1238,10 +1275,19 @@ def _hand_over_one(ctx: MigrationContext, entry: ItemState, owner: Owner) -> Non
             entry, dataset_id, transfer_dataset(ctx.geolens, dataset_id, owner, dataset)
         )
         ctx.save()
+    _refuse_unwritable(ctx, entry)
     if entry.map_id:
         _transfer_map(ctx.geolens, entry, owner)
     entry.owner_id = owner.id
     entry.handover_incomplete = False
+
+
+def _refuse_unwritable(ctx: MigrationContext, entry: ItemState) -> None:
+    """``ItemFailed`` naming each of the item's datasets it may not write,
+    which nothing wrote this run."""
+    reasons = [r for d in entry.dataset_ids if (r := write_refusal(ctx, entry, d))]
+    if reasons:
+        raise ItemFailed("; ".join(reasons))
 
 
 def hand_over(
@@ -1341,6 +1387,24 @@ def run_items(
     by_id = {item["id"]: item for item in plan["items"]}
     summary = summary or RunSummary()
     for item in to_run:
+        entry = state.items.get(item["id"])
+        if item["action"] != _plan.IMPORT_LAYERS or item.get("unlisted") or not entry:
+            continue
+        try:
+            settle_jobs(ctx, _targeted(ctx, item, owners.get(item["id"]))[0], entry)
+        except (ItemFailed, GeoLensError):
+            # The item's own run meets the same failure and reports it.
+            continue
+        except StopRun as exc:
+            state.finish(item["id"], FAILED, str(exc))
+            summary.stopped = state.item(item["id"]).error
+            break
+    after = (
+        ctx.shared_layers.dependencies(state.items, blocking=True)
+        if ctx.shared_layers
+        else {}
+    )
+    for item in to_run if summary.stopped is None else ():
         if item["action"] == _plan.SKIP:
             state.finish(item["id"], SKIPPED, save=False)
             continue
@@ -1351,7 +1415,7 @@ def run_items(
         if handler is None:
             summary.unavailable.append(item["id"])
             continue
-        unmet = unmet_dependencies(item, by_id, state)
+        unmet = unmet_dependencies(item, by_id, state, after)
         if unmet:
             summary.waiting.append({"item": item["id"], "waiting_on": unmet})
             continue
@@ -1737,11 +1801,17 @@ def _print_cutover(
         if more > 0:
             say(f"{check['check']}: {more} more; see the report")
     if cutover["refused"]:
-        flags = " ".join(f"--accept-{name}" for name in cutover["refused"])
-        fmt.error(
-            "cutover refused: fix what is listed and run again, or accept the "
-            f"loss with {flags}"
-        )
+        acceptable = [name for name in cutover["refused"] if name in CHECKS]
+        flags = " ".join(f"--accept-{name}" for name in acceptable)
+        if len(acceptable) == len(cutover["refused"]):
+            fmt.error(
+                "cutover refused: fix what is listed and run again, or accept the "
+                f"loss with {flags}"
+            )
+        else:
+            # A double-recorded dataset has no --accept flag.
+            accept = f"; the other losses can be accepted with {flags}" if flags else ""
+            fmt.error(f"cutover refused: fix what is listed and run again{accept}")
     elif cutover["marked"]:
         fmt.success("cutover marked: this run is the migration's final one")
     elif dry_run:
@@ -2054,10 +2124,13 @@ def _run(
         plan = keep_recorded_imports(plan, state)
         to_run = select_items(plan, state, opts.only, opts.no_retry)
         refresh = select_refresh(plan, state, opts.only)
-        touched = [*to_run, *refresh]
         rows, portal_info, inventory_groups = _inventory_rows(
-            plan, opts.plan_path, touched
+            plan, opts.plan_path, [*to_run, *refresh]
         )
+        shared = SharedLayers(plan["items"], rows)
+        if after := shared.dependencies(state.items):
+            to_run = select_items(plan, state, opts.only, opts.no_retry, after)
+        touched = [*to_run, *refresh]
         # A dry run makes only the sign-in the run starts with.
         portal = (
             None
@@ -2222,6 +2295,7 @@ def _run(
         web_origin=_web_origin(instance),
         basemap_map={u: b for u, b in plan.get("basemap_map", {}).items() if b},
         aliases={i["id"]: i["alias_of"] for i in plan["items"] if i.get("alias_of")},
+        shared_layers=shared,
         importable=frozenset(
             i["id"]
             for i in plan["items"]
