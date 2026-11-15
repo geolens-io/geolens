@@ -133,6 +133,9 @@ def _prepare_layer_storage(
     }
 
 
+_MAX_SORT_ORDER = 32767
+
+
 async def apply_layer_diff(
     session: AsyncSession,
     map_id: uuid.UUID,
@@ -269,28 +272,37 @@ async def apply_layer_diff(
         appended = map_author_append_orders(
             session, (layer.sort_order for layer in existing_layers), len(added)
         )
+        # Omitted orders are allocated after the reorder, once the stack is final.
+        unplaced: list[MapLayer] = []
+        explicit_orders: list[int] = []
         for index, layer_data in enumerate(added):
             prepared = _prepare_layer_storage(layer_data, ds_meta)
-            session.add(
-                MapLayer(
-                    map_id=map_id,
-                    dataset_id=prepared["dataset_id"],
-                    sort_order=appended[index]
-                    if appended is not None
-                    else prepared.get("sort_order", 0),
-                    visible=prepared.get("visible", True),
-                    opacity=prepared.get("opacity", 1.0),
-                    paint=prepared["paint"],
-                    layout=prepared["layout"],
-                    layer_type=prepared["layer_type"],
-                    display_name=prepared["display_name"],
-                    filter=prepared.get("filter"),
-                    label_config=prepared.get("label_config"),
-                    popup_config=prepared.get("popup_config"),
-                    style_config=prepared["style_config"],
-                    show_in_legend=prepared.get("show_in_legend", True),
-                )
+            if appended is not None:
+                sort_order = appended[index]
+            elif "sort_order" in prepared:
+                sort_order = prepared["sort_order"]
+                explicit_orders.append(sort_order)
+            else:
+                sort_order = 0
+            new_layer = MapLayer(
+                map_id=map_id,
+                dataset_id=prepared["dataset_id"],
+                sort_order=sort_order,
+                visible=prepared.get("visible", True),
+                opacity=prepared.get("opacity", 1.0),
+                paint=prepared["paint"],
+                layout=prepared["layout"],
+                layer_type=prepared["layer_type"],
+                display_name=prepared["display_name"],
+                filter=prepared.get("filter"),
+                label_config=prepared.get("label_config"),
+                popup_config=prepared.get("popup_config"),
+                style_config=prepared["style_config"],
+                show_in_legend=prepared.get("show_in_legend", True),
             )
+            session.add(new_layer)
+            if appended is None and "sort_order" not in prepared:
+                unplaced.append(new_layer)
 
     if order is not None:
         ordered_set = set(order)
@@ -302,6 +314,21 @@ async def apply_layer_diff(
             hidden_ids,
             [layer for layer in listed + unlisted if layer.id not in hidden_ids],
         )
+
+    if added and unplaced:
+        cursor = (
+            max(
+                (layer.sort_order for layer in surviving),
+                default=-1,
+            )
+            + 1
+        )
+        cursor = max(cursor, *(o + 1 for o in explicit_orders), 0)
+        for layer in unplaced:
+            if cursor > _MAX_SORT_ORDER:
+                raise ValueError(f"Layer order exceeds maximum {_MAX_SORT_ORDER}")
+            layer.sort_order = cursor
+            cursor += 1
 
     if removed_ids or updated or added or order is not None:
         await touch_map(session, map_id)
