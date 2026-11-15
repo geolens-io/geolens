@@ -33,6 +33,7 @@ from .arcgis_fake import (
     USER,
     inventory_report,
     item_data_path,
+    load,
 )
 
 STRANGER = "9c" * 16
@@ -83,6 +84,25 @@ def test_default_actions_follow_the_inventory_class():
         D5: "export_only",
     }
     assert items[A1]["reason"] == "hosted_feature_layer"
+
+
+def test_a_file_item_added_by_url_is_planned_as_an_export():
+    by_url = {"url": "https://data.example.com/inspections.csv", "size": 0}
+
+    def search(seen):
+        start = seen.params["start"] == "1"
+        page = load("search_page1.json" if start else "search_page2.json")
+        for row in page["results"]:
+            if row["id"] == D3:
+                row.update(by_url)
+        return page
+
+    listed = next(r for r in load("search_page2.json")["results"] if r["id"] == D3)
+    routes = {"search": search, f"content/items/{D3}": {**listed, **by_url}}
+    item = _items(_plan(routes))[D3]
+
+    assert item["action"] == "export_only"
+    assert item["reason"] == "added_by_url_no_file"
 
 
 def test_plan_validates_and_survives_hand_edits():

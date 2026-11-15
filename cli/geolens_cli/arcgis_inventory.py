@@ -66,6 +66,9 @@ _NO_APP_EQUIVALENT = (UNSUPPORTED, "no_equivalent_app")
 _NOT_CATALOG_DATA = (UNSUPPORTED, "not_catalog_data")
 _OGC_REFERENCE = (PARTIAL, "ogc_service_reference")
 _DATA_FILE = (PARTIAL, "data_file_import_candidate")
+# A file type added by URL: the item has a URL and no file to download.
+ADDED_BY_URL = "added_by_url_no_file"
+_FILE_TYPES = frozenset({"CSV", "GeoJson", "Shapefile", "File Geodatabase"})
 
 # Item `type` -> (class, reason). `classify` refines Feature Service, Map
 # Service and Web Mapping Application by typeKeywords.
@@ -189,6 +192,8 @@ def classify(item: Mapping[str, Any]) -> dict[str, Any]:
             reason = "non_hosted_service_reachability_external"
     elif item_type == "Map Service" and hosted_service:
         klass, reason = PARTIAL, "hosted_tile_layer_cached_only"
+    elif added_by_url(item_type, item.get("url"), item.get("size")):
+        reason = ADDED_BY_URL
     elif item_type == "Web Mapping Application":
         if any("story map" in k for k in keywords):
             reason, retirement = "classic_story_map", "classic_story_maps"
@@ -200,6 +205,13 @@ def classify(item: Mapping[str, Any]) -> dict[str, Any]:
         "retirement": retirement,
         "hosted": hosted_service if item_type in _SERVICE_TYPES else None,
     }
+
+
+def added_by_url(item_type: str, url: Any, size: Any) -> bool:
+    """Whether an item of a file type was added by URL, so it has no file:
+    a URL and no positive size."""
+    has_size = isinstance(size, int) and not isinstance(size, bool) and size > 0
+    return item_type in _FILE_TYPES and bool(url) and not has_size
 
 
 def _iso_from_ms(value: Any) -> str | None:

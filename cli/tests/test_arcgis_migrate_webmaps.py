@@ -2068,6 +2068,52 @@ def test_a_layer_whose_service_imports_later_is_added_without_a_portal_change(
     assert len(_puts(geolens)) == 2
 
 
+def test_a_layer_geolens_refused_for_good_is_not_waited_on_by_its_web_map(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    _committing_save(geolens, commits=True, failure=None)
+    FakeImport(geolens, [_layer(0, "Parcels")])._serve_dataset(dataset_id("Parcels"))
+    roads = "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+    reason = "Roads: This layer holds multipatch geometry; layer not imported"
+
+    def import_roads_layers(plan):
+        for item in plan["items"]:
+            if item["id"] == roads:
+                item["action"] = "import_layers"
+
+    inventory = json.loads((plan_file.parent / "arcgis-inventory.json").read_text())
+    roads_url = next(r["url"] for r in inventory["items"] if r["id"] == roads)
+
+    def roads_refused(state):
+        state["items"][roads].update(
+            status="skipped",
+            error=None,
+            service_url=roads_url,
+            left_behind=[reason],
+            refused_layers={"0": {"label": "Roads", "layer_id": "0", "reason": reason}},
+        )
+
+    _edit_json(plan_file, import_roads_layers)
+    _edit_json(plan_file.parent / "arcgis-migration-state.json", roads_refused)
+    new_layer = {
+        "id": "roads_new_0",
+        "itemId": roads,
+        "layerType": "ArcGISFeatureLayer",
+        "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Roads/FeatureServer/0",
+    }
+    _edit_webmap(portal, lambda layers: layers.append(new_layer))
+
+    for _run in range(2):
+        result, payload = _migrate(runner, plan_file, "--token", token, "--only", B1)
+
+        assert result.exit_code == 0, result.output
+        assert B1 not in payload["not_up_to_date"]
+        assert _state(plan_file)["items"][B1]["pending_layers"] == []
+    assert len(_puts(geolens)) == 1
+    assert _state(plan_file)["items"][roads]["status"] == "skipped"
+
+
 DEFAULT_PAINT = {"fill-color": "#999999"}
 POINT_PAINT = {"circle-color": "#111111"}
 

@@ -31,6 +31,7 @@ import typer
 
 from . import arcgis_oauth
 from . import arcgis_plan as _plan
+from .arcgis_inventory import ADDED_BY_URL
 from . import output as _output
 from ._sdk_helpers import (
     EXIT_AUTH,
@@ -77,7 +78,12 @@ from .arcgis_migrate_groups import (
     prepare_groups,
     share,
 )
-from .arcgis_migrate_report import build_run_report, write_run_report
+from .arcgis_migrate_report import (
+    build_run_report,
+    unmet_dependencies,
+    waits_on,
+    write_run_report,
+)
 from .arcgis_migrate_files import FILE_TYPES, import_file
 from .arcgis_migrate_layers import _import_recorded, import_layers, settle_jobs
 from .arcgis_migrate_shared import SharedLayers
@@ -185,8 +191,7 @@ HANDLERS: dict[str, Handler] = {
     _plan.EXPORT_ONLY: export_item,
     _plan.IMPORT_MAP: import_map,
 }
-# Actions that make datasets or a map in GeoLens.
-IMPORTING = frozenset({_plan.IMPORT_LAYERS, _plan.IMPORT_FILE, _plan.IMPORT_MAP})
+IMPORTING = _plan.IMPORTING
 # Action -> how a rerun brings a finished item of it up to date.
 REFRESHERS: dict[str, Refresher] = {
     _plan.IMPORT_LAYERS: refresh_layers,
@@ -339,6 +344,35 @@ def _needs_run(
     if status == FAILED and no_retry:
         return False
     return not (status == SKIPPED and item["action"] == _plan.SKIP)
+
+
+def keep_recorded_imports(
+    plan: Mapping[str, Any], state: MigrationState
+) -> dict[str, Any]:
+    """*plan* with each item it exports by default only because the portal
+    shows it was added by URL kept as ``import_file`` while the state records
+    an earlier run's import of it: a pending upload or job, a fan-out, or
+    datasets. That import is finished or refreshed rather than stranded, and
+    the item is marked ``kept_import`` for its follow-up."""
+    items = []
+    for item in plan["items"]:
+        entry = state.items.get(item["id"])
+        default = (item.get("defaults") or {}).get("action", item["action"])
+        if (
+            entry is not None
+            and item["action"] == _plan.EXPORT_ONLY == default
+            and item["reason"].split(";", 1)[0] == ADDED_BY_URL
+            and (
+                entry.pending_upload
+                or entry.layer_jobs
+                or entry.fan_out
+                or entry.layer_datasets
+                or entry.dataset_ids
+            )
+        ):
+            item = {**item, "action": _plan.IMPORT_FILE, "kept_import": True}
+        items.append(item)
+    return {**plan, "items": items}
 
 
 def select_items(
@@ -1097,23 +1131,8 @@ class RunSummary:
     refreshed: list[str] = field(default_factory=list)
     handed_over: list[dict[str, str]] = field(default_factory=list)
     handover_failed: list[str] = field(default_factory=list)
-
-
-def _unmet(
-    item: Mapping[str, Any],
-    by_id: Mapping[str, Any],
-    state: MigrationState,
-    after: Mapping[str, list[str]],
-) -> list[str]:
-    # A removed dependency never runs, so like a missing one it holds nothing back.
-    return [
-        dep
-        for dep in _depends(item, after)
-        if dep in by_id
-        and dep != item["id"]
-        and not by_id[dep].get("removed")
-        and state.status(dep) not in (*FINISHED, SKIPPED)
-    ]
+    # Item -> the items owning service layers it shares that it waits on.
+    after: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _targeted(
@@ -1387,6 +1406,7 @@ def run_items(
         if ctx.shared_layers
         else {}
     )
+    summary.after = after
     for item in to_run if summary.stopped is None else ():
         if item["action"] == _plan.SKIP:
             state.finish(item["id"], SKIPPED, save=False)
@@ -1398,7 +1418,7 @@ def run_items(
         if handler is None:
             summary.unavailable.append(item["id"])
             continue
-        unmet = _unmet(item, by_id, state, after)
+        unmet = unmet_dependencies(item, by_id, state, after)
         if unmet:
             summary.waiting.append({"item": item["id"], "waiting_on": unmet})
             continue
@@ -1429,6 +1449,7 @@ def _report_files(
     stopped: str | None,
     cutover: Mapping[str, Any] | None = None,
     groups: GroupPlan | None = None,
+    after: Mapping[str, list[str]] | None = None,
 ) -> tuple[Path, Path]:
     return write_run_report(
         state.path.parent,
@@ -1436,6 +1457,7 @@ def _report_files(
             plan,
             state,
             runnable=HANDLERS,
+            after=after,
             owner_changes=owners.changed,
             owner_unresolved=owners.unresolved,
             owner_conflicts=owners.conflicts,
@@ -1511,7 +1533,14 @@ def _report(
     if not opts.dry_run:
         try:
             report_files = _report_files(
-                state, plan, owners, redact, summary.stopped, cutover, groups
+                state,
+                plan,
+                owners,
+                redact,
+                summary.stopped,
+                cutover,
+                groups,
+                summary.after,
             )
         except OSError as exc:
             report_failed = True
@@ -1591,8 +1620,9 @@ def _report(
                     "plan was last merged from and were left pending; merge a complete "
                     "inventory to run them: " + ", ".join(summary.unlisted[:5])
                 )
+            by_id = {item["id"]: item for item in plan["items"]}
             for wait in summary.waiting:
-                fmt.warn(f"{wait['item']} waits on {', '.join(wait['waiting_on'])}")
+                fmt.warn(f"{wait['item']} {waits_on(wait['waiting_on'], by_id, state)}")
             if summary.stopped:
                 fmt.error(f"stopped: {summary.stopped}")
         _print_cutover(fmt, cutover, opts.dry_run)
@@ -2103,6 +2133,7 @@ def _run(
             redact,
             persist=not opts.dry_run,
         )
+        plan = keep_recorded_imports(plan, state)
         to_run = select_items(plan, state, opts.only, opts.no_retry)
         refresh = select_refresh(plan, state, opts.only)
         rows, portal_info, inventory_groups = _inventory_rows(
@@ -2314,7 +2345,13 @@ def _run(
                 state.save()
                 _note_unattempted_handovers(state, owners, summary)
                 _json_path, md_path = _report_files(
-                    state, plan, owners, redact, stopped, groups=groups
+                    state,
+                    plan,
+                    owners,
+                    redact,
+                    stopped,
+                    groups=groups,
+                    after=summary.after,
                 )
                 fmt.info(f"Report: {md_path}")
             except OSError as exc:

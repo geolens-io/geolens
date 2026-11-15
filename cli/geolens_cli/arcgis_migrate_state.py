@@ -227,6 +227,13 @@ class ItemState:
     # gives the recorded datasets the plan's current title and visibility
     # without probing the service again.
     import_pass: dict[str, Any] | None = None
+    # Layer key -> label, layer id and reason of each layer GeoLens refused
+    # for good in the last import pass, which titles, web maps and cutover
+    # still account for.
+    refused_layers: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # The layer keys the last import pass set out to import, which tells a
+    # service whose every layer was refused from one with a layer still owed.
+    pass_layers: list[str] = field(default_factory=list)
     # Dataset -> the visibility this command last gave it, so a rerun can
     # tell a portal sharing change from an edit made in GeoLens.
     visibility: dict[str, str] = field(default_factory=dict)
@@ -271,6 +278,14 @@ class ItemState:
                 self.dataset_ids or self.layer_datasets or self.shared or self.map_id
             )
         )
+
+    def refusals(self, url: str | None) -> dict[str, dict[str, Any]]:
+        """The layers this item's import refused for good, when they were
+        refused on the service at *url*, the one the item names now; a
+        refusal of a service it no longer names counts for nothing."""
+        if not url or self.service_url != url:
+            return {}
+        return self.refused_layers
 
     def unsettled_reason(self) -> str | None:
         """Why a web map isn't up to date while a save's outcome is unknown."""

@@ -39,7 +39,7 @@ from .arcgis_migrate_session import (
     writable,
 )
 from .arcgis_migrate_shared import gone_note, migrated, reuse_note, wider_note
-from .arcgis_migrate_state import DONE, EXISTS, MAX_ERROR_CHARS, ItemState
+from .arcgis_migrate_state import DONE, EXISTS, MAX_ERROR_CHARS, SKIPPED, ItemState
 
 GROUP_LAYER = "Group Layer"
 MAX_TITLE = 500
@@ -54,6 +54,9 @@ _STORE_UNAVAILABLE = "credential_store_unavailable"
 _ALREADY_COMMITTED = "already processed"
 # The note an import with no importable layer ends with, fresh or resumed.
 _NO_LAYER_NOTE = "the service has no layer to import"
+# Preview refusal codes that come from the layer's own definition, which a
+# rerun can't change: the layer holds no rows, or multipatch geometry.
+PERMANENT_REFUSALS = frozenset({"unsupported_layer_type", "unsupported_geometry"})
 
 
 def _row(ctx: MigrationContext, item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -301,6 +304,19 @@ def _wait_for_dataset(ctx: MigrationContext, job_id: UUID, title: str) -> str:
         ctx.sleep(JOB_POLL_INTERVAL)
 
 
+class _LayerRefused(Exception):
+    """GeoLens refused the layer for good; the message is the report note."""
+
+
+def _permanent_refusal(exc: GeoLensError) -> str | None:
+    """The server's reason when *exc* is a 422 refusal no rerun can change."""
+    detail = exc.detail if isinstance(exc.detail, Mapping) else {}
+    if exc.status != 422 or detail.get("code") not in PERMANENT_REFUSALS:
+        return None
+    message = detail.get("message")
+    return message.rstrip(".") if isinstance(message, str) and message else None
+
+
 def _existing_dataset(exc: GeoLensError) -> str | None:
     detail = exc.detail if isinstance(exc.detail, Mapping) else {}
     if exc.status == 409 and detail.get("code") == "duplicate_source":
@@ -322,7 +338,7 @@ def _import_layer(
 
     A job a previous run committed for the layer is waited for instead of
     importing the layer again; only a job that ended without a dataset is
-    replaced.
+    replaced. ``_LayerRefused`` when the preview refuses the layer for good.
     """
     from geolens.api.datasets import (
         preview_service_layer_services_preview_post as preview,
@@ -362,6 +378,11 @@ def _import_layer(
             previewed = _send(ctx, row, probe.url, preview.sync_detailed, body=request)
     except GeoLensError as exc:
         existing = _existing_dataset(exc)
+        refusal = _permanent_refusal(exc)
+        if refusal is not None:
+            raise _LayerRefused(
+                f"{_layer_label(layer)}: {refusal}; layer not imported"
+            ) from None
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
         if existing not in entry.reused:
@@ -453,8 +474,9 @@ def _borrow(
     """Record *key* as borrowed when another item owns that layer of the
     service: one whose state records its dataset, else the item the plan
     picks. None when this item owns it; else why the layer isn't imported
-    yet, or "" once it is borrowed. Nothing is previewed for a borrowed layer,
-    so GeoLens never holds a second copy of it."""
+    yet, or "" once it is borrowed; ``_LayerRefused`` when its owner's preview
+    refused it for good. Nothing is previewed for a borrowed layer, so GeoLens
+    never holds a second copy of it."""
     layers = ctx.shared_layers
     service = layers.service_of(item["id"], entry) if layers else None
     if service is None:
@@ -473,6 +495,12 @@ def _borrow(
     if owner_id == item["id"]:
         return None
     dataset = held.get(owner_id)
+    owner_state = ctx.items.get(owner_id)
+    owner_url = (ctx.inventory.get(owner_id) or {}).get("url")
+    refused = owner_state.refusals(owner_url).get(key) if owner_state else None
+    if dataset is None and refused:
+        # The owner's preview refused the layer for good; waiting can't help.
+        raise _LayerRefused(refused["reason"])
     if dataset is None:
         return (
             f"layer {key} belongs to item {owner_id} over the same service, which "
@@ -664,9 +692,6 @@ def _resume_import(
     visibility = item["target"]["visibility"]
     if not recorded:
         return ItemResult(notes=[*entry.import_pass["notes"], _NO_LAYER_NOTE])
-    titles = _titles(
-        base, [(rec["label"], rec["layer_id"]) for rec in recorded.values()]
-    )
     # A pass saved before layer notes existed never recorded whether the layer's
     # properties were read, so each of its layers gets the unknown note.
     for key, rec in recorded.items():
@@ -676,7 +701,7 @@ def _resume_import(
             entry.layer_notes[key] = []
             entry.layers_unread[key] = [note]
             entry.import_pass["notes"] = [*entry.import_pass["notes"], note]
-    for (key, _rec), title in zip(recorded.items(), titles):
+    for key, title in recorded_titles(base, entry, entry.service_url).items():
         if key in entry.layer_datasets:
             _apply_target(
                 ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
@@ -688,6 +713,28 @@ def _resume_import(
         status=DONE if entry.layer_datasets else EXISTS,
         notes=[*entry.import_pass["notes"], *shared_notes],
     )
+
+
+def forget_other_service(entry: ItemState, url: str | None) -> None:
+    """Drop the refusals recorded for another service once the item's URL
+    names a new one: layer keys are per service, so they'd hide its layers."""
+    if entry.service_url in (None, url) or not entry.refused_layers:
+        return
+    reasons = {refused["reason"] for refused in entry.refused_layers.values()}
+    entry.left_behind = [r for r in entry.left_behind if r not in reasons]
+    entry.refused_layers = {}
+
+
+def recorded_titles(base: str, entry: ItemState, url: str | None) -> dict[str, str]:
+    """Layer key -> dataset title for each layer of the recorded import pass,
+    named beside the layers refused on the service at *url* as the import
+    that made them named them."""
+    recorded = (entry.import_pass or {}).get("layers") or {}
+    named = {**recorded}
+    for key, refused in entry.refusals(url).items():
+        named.setdefault(key, refused)
+    titles = _titles(base, [(r["label"], r["layer_id"]) for r in named.values()])
+    return {key: title for key, title in zip(named, titles) if key in recorded}
 
 
 def layer_report(ctx: MigrationContext, entry: ItemState, layer: Any) -> list[str]:
@@ -722,12 +769,14 @@ def import_layers(
     again.
     """
     row = _row(ctx, item)
+    forget_other_service(entry, row["url"])
     if _import_recorded(entry, row["url"]):
         return _resume_import(ctx, item, entry)
     probe, wanted, notes, left_behind, titles = _planned(ctx, item, row)
     # A fresh pass replaces anything a previous one recorded, so a pass that
     # stops part way leaves nothing to resume from.
     entry.import_pass = None
+    entry.refused_layers = {}
     if entry.service_url not in (None, row["url"]):
         # Only once the new service answered: a typo'd URL must not drop the
         # pins of the service the item still belongs to. A layer id from the
@@ -741,6 +790,7 @@ def import_layers(
     entry.service_url = row["url"]
     entry.left_behind = _redacted(ctx, left_behind)
     entry.attachments = attachment_flags(wanted)
+    entry.pass_layers = [_layer_key(layer) for layer in wanted]
     entry.relationships = relationship_records(wanted)
     if not wanted:
         entry.import_pass = {"notes": _redacted(ctx, notes), "layers": {}}
@@ -749,6 +799,7 @@ def import_layers(
         return ItemResult(notes=[*notes, _NO_LAYER_NOTE])
 
     found = 0
+    refused = entry.refused_layers
     waiting: list[str] = []
     for layer, title in zip(wanted, titles):
         key = _layer_key(layer)
@@ -761,21 +812,39 @@ def import_layers(
             continue
         # Already borrowed, or this item's own import job is pending.
         decided = key in entry.shared or key in entry.layer_jobs
-        if not decided and (why := _borrow(ctx, item, entry, key)):
-            waiting.append(why)
+        try:
+            if not decided and (why := _borrow(ctx, item, entry, key)):
+                waiting.append(why)
+                continue
+            if key in entry.shared:
+                # The owning item reports the layer's properties.
+                entry.layer_notes.pop(key, None)
+                entry.layers_unread.pop(key, None)
+                found += 1
+                continue
+            # Saved with the pending job and the pin, so a retry that can't read
+            # the layer's properties again still reports them.
+            notes += layer_report(ctx, entry, layer)
+            found += _import_layer(
+                ctx, row, probe, layer, title, item["target"]["visibility"], entry
+            )
+        except _LayerRefused as exc:
+            # On the entry at once, so a later layer's failure keeps it.
+            reason = ctx.redact(str(exc))
+            refused[key] = {
+                "label": _layer_label(layer),
+                "layer_id": _layer_id(layer),
+                "reason": reason,
+            }
+            entry.left_behind.append(reason)
+            # Nothing of the layer arrives: no property note, read or unread.
+            dropped = {
+                *entry.layer_notes.pop(key, []),
+                *entry.layers_unread.pop(key, []),
+            }
+            notes = [n for n in notes if n not in dropped]
+            ctx.save()
             continue
-        if key in entry.shared:
-            # The owning item reports the layer's properties.
-            entry.layer_notes.pop(key, None)
-            entry.layers_unread.pop(key, None)
-            found += 1
-            continue
-        # Saved with the pending job and the pin, so a retry that can't read the
-        # layer's properties again still reports them.
-        notes += layer_report(ctx, entry, layer)
-        found += _import_layer(
-            ctx, row, probe, layer, title, item["target"]["visibility"], entry
-        )
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
         ctx.save()
     # A layer pinned by an earlier attempt adds no import above.
@@ -791,17 +860,20 @@ def import_layers(
     entry.relationships = {
         k: v for k, v in entry.relationships.items() if k not in entry.shared
     }
+    reasons = [r["reason"] for r in refused.values()]
+    imported = [layer for layer in wanted if _layer_key(layer) not in refused]
+    if not imported:
+        # Left without an import pass, so a rerun previews the layers again.
+        return ItemResult(status=SKIPPED, notes=[*notes, *reasons])
     entry.import_pass = {
-        "notes": _redacted(ctx, notes),
+        "notes": [*_redacted(ctx, notes), *reasons],
         "layers": {
             _layer_key(layer): {
                 "label": _layer_label(layer),
                 "layer_id": _layer_id(layer),
             }
-            for layer in wanted
+            for layer in imported
         },
     }
-    return ItemResult(
-        status=EXISTS if found == len(wanted) else DONE,
-        notes=[*notes, *shared_notes],
-    )
+    status = EXISTS if found == len(imported) and not refused else DONE
+    return ItemResult(status=status, notes=[*notes, *reasons, *shared_notes])

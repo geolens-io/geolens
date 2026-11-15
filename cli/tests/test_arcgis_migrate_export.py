@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import shutil
@@ -18,7 +19,7 @@ from geolens_cli.arcgis_migrate_state import ItemState, MigrationState
 from geolens_cli.arcgis_portal import redact_json
 
 from . import test_arcgis_migrate_layers as layers
-from .arcgis_fake import C1, C2, C3, D1, FakePortal, portal_routes
+from .arcgis_fake import C1, C2, C3, D1, D2, NO_FILE_PAGE, FakePortal, portal_routes
 from .test_arcgis_migrate_layers import _migrate, _state, _write_plan
 
 geolens = layers.geolens
@@ -84,7 +85,7 @@ def test_the_index_is_written_when_the_export_folder_is_gone(tmp_path):
     record = {"bytes": 1024, "partial": False, "errors": [], "path": "export/d"}
     state = SimpleNamespace(items={C3: SimpleNamespace(export=record, status="done")})
     folder = tmp_path / "run" / "export"
-    ctx = SimpleNamespace(export_dir=folder, redact=Redactor())
+    ctx = SimpleNamespace(export_dir=folder, redact=Redactor(), inventory={})
 
     export.write_index(ctx, {"items": [item]}, state)
 
@@ -1875,3 +1876,79 @@ def test_an_older_plans_feature_collection_is_treated_as_export_only(
         _, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
         assert "unfinished-items" not in payload["cutover"]["refused"]
     assert len({(s, tuple(sorted(f))) for s, f in outcomes}) == 1
+
+
+WMS_URL = "https://wms.example.gov/service"
+
+
+def test_an_item_added_by_url_without_a_file_ends_done_with_its_url_indexed(
+    runner, tmp_path, geolens, install
+):
+    install(
+        {
+            f"content/items/{D2}/data": NO_FILE_PAGE,
+            f"content/items/{D2}/resources": _resources(),
+        }
+    )
+    plan_file = _plan(tmp_path, rows={D2: {"type": "KML"}})
+
+    result, _ = _migrate(runner, plan_file, "--only", D2, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][D2]
+    assert entry["status"] == "done" and entry["export"]["errors"] == []
+    folder = _export(plan_file, "kml", D2)
+    assert sorted(p.name for p in folder.iterdir()) == ["item.json"]
+    index = _export(plan_file, "INDEX.md").read_text()
+    assert f"Points to {WMS_URL}" in index and "no data file was saved" in index
+
+
+def test_any_other_500_on_the_data_leaves_the_export_to_retry(
+    runner, tmp_path, geolens, install
+):
+    install(
+        {f"content/items/{C3}/data": (500, b"<html><title>Server Error</title></html>")}
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][C3]
+    assert entry["status"] == "failed" and "rerun to retry" in entry["error"]
+
+
+def test_an_empty_data_answer_saves_no_data_file(runner, tmp_path, geolens, install):
+    install({f"content/items/{D2}/data": b""})
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D2, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    folder = _export(plan_file, "wms", D2)
+    assert sorted(p.name for p in folder.iterdir()) == ["item.json"]
+    assert "no data file was saved" in _export(plan_file, "INDEX.md").read_text()
+
+
+def test_a_recorded_empty_data_file_is_dropped_by_the_next_run(
+    runner, tmp_path, geolens, install
+):
+    portal = install({f"content/items/{D2}/data": b""})
+    plan_file = _plan(tmp_path)
+    assert _migrate(runner, plan_file, "--only", D2, "--token", TOKEN)[0].exit_code == 0
+    folder = _export(plan_file, "wms", D2)
+    (folder / "data.bin").write_bytes(b"")
+    state = _state(plan_file)
+    state["items"][D2]["export"]["files"]["data.bin"] = {
+        "size": 0,
+        "sha256": hashlib.sha256(b"").hexdigest(),
+    }
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    downloads = len(portal.requests_to(f"content/items/{D2}/data"))
+
+    result, _ = _migrate(runner, plan_file, "--only", D2, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert len(portal.requests_to(f"content/items/{D2}/data")) == downloads + 1
+    assert sorted(p.name for p in folder.iterdir()) == ["item.json"]
+    assert set(_state(plan_file)["items"][D2]["export"]["files"]) == {"item.json"}

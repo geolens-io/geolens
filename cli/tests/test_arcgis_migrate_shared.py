@@ -1133,3 +1133,86 @@ def test_a_resumed_borrower_gets_no_unknown_note_for_a_layer_it_borrows(
     assert _unknown(items[by_url]) == []
     assert items[by_url]["layers_unread"] == {}
     assert _unknown(items[hosted]) == []
+
+
+def test_a_layer_its_owner_refused_for_good_is_refused_for_the_borrower_too(
+    runner, tmp_path, geolens
+):
+    service, _c, plan_file, hosted, by_url = _fresh(
+        tmp_path, geolens, url_first=False, url_suffix="/1"
+    )
+    layers._refuse_preview(geolens, service, "Owners", layers.MULTIPATCH)
+    items = _run(runner, plan_file, hosted)
+    assert items[hosted]["status"] == "done"
+    assert set(items[hosted]["refused_layers"]) == {"1"}
+    previews = len(service.bodies(PREVIEW))
+
+    result, _ = _migrated(runner, plan_file, by_url)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][by_url]
+    assert entry["status"] == "skipped" and entry["error"] is None
+    assert entry["left_behind"] == [items[hosted]["refused_layers"]["1"]["reason"]]
+    assert entry["shared"] == {}
+    assert len(service.bodies(PREVIEW)) == previews
+
+
+def test_the_report_says_why_a_borrower_waits_on_the_owner_of_its_layers(
+    runner, tmp_path, geolens
+):
+    _service, _c, plan_file, hosted, by_url = _fresh(tmp_path, geolens, url_first=False)
+    plan = json.loads(plan_file.read_text())
+    assert not next(i for i in plan["items"] if i["id"] == by_url)["depends_on"]
+    geolens.routes[layers.PROBE] = (503, layers._problem(503, "service unavailable"))
+
+    result, payload = _migrated(runner, plan_file, hosted, by_url)
+
+    assert result.exit_code != 0
+    assert payload["waiting"] == [{"item": by_url, "waiting_on": [hosted]}]
+    report = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    [text] = [
+        f["text"]
+        for f in report["follow_ups"]
+        if f["item"] == by_url and f["kind"] == "unresolved_dependency"
+    ]
+    assert text.startswith(f"waits on {hosted} (failed: probe failed")
+
+
+@pytest.mark.parametrize("only_borrower", [True, False])
+def test_an_owners_refusal_on_its_old_service_does_not_skip_a_borrower(
+    runner, tmp_path, geolens, only_borrower
+):
+    service, _c, plan_file, hosted, by_url = _fresh(
+        tmp_path, geolens, url_first=False, url_suffix="/0"
+    )
+    _edit_plan(
+        plan_file,
+        lambda plan: [
+            item.update(action="skip")
+            for item in plan["items"]
+            if item["id"] not in (hosted, by_url)
+        ],
+    )
+    layers._refuse_preview(geolens, service, "Parcels", layers.MULTIPATCH)
+    items = _run(runner, plan_file, hosted)
+    assert set(items[hosted]["refused_layers"]) == {"0"}
+    moved = SERVICE.replace("/Parcels/", "/ParcelsMoved/")
+    inventory_file = plan_file.parent / "arcgis-inventory.json"
+    inventory = json.loads(inventory_file.read_text())
+    for row in inventory["items"]:
+        if row["id"] == hosted:
+            row["url"] = moved
+        elif row["id"] == by_url:
+            row["url"] = moved + "/0"
+    inventory_file.write_text(json.dumps(inventory))
+
+    if only_borrower:
+        _migrated(runner, plan_file, by_url)
+    else:
+        _migrate(runner, plan_file, "--token", TOKEN)
+
+    entry = _state(plan_file)["items"][by_url]
+    # It waits for the owner to import the new service's layer.
+    assert entry["status"] == "failed"
+    assert entry["error"].startswith(f"layer 0 belongs to item {hosted}")
+    assert entry["refused_layers"] == {} and entry["left_behind"] == []

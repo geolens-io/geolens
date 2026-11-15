@@ -44,6 +44,8 @@ SKIP = "skip"
 ACTIONS = (IMPORT_LAYERS, IMPORT_FILE, IMPORT_MAP, EXPORT_ONLY, SKIP)
 # The actions that put datasets into GeoLens.
 DATASET_ACTIONS = (IMPORT_LAYERS, IMPORT_FILE)
+# The actions that make datasets or a map in GeoLens.
+IMPORTING = frozenset({IMPORT_LAYERS, IMPORT_FILE, IMPORT_MAP})
 
 DEFAULTS = {"visibility": "private", "collection_from": "folder"}
 # "shared" is ArcGIS for shared with groups only.

@@ -45,7 +45,7 @@ from .arcgis_migrate_state import (
 )
 from .arcgis_inventory import draft_resource
 from .arcgis_plan import UNREAD_DEPENDENCIES as _UNREAD_REASON
-from .arcgis_portal import PortalClient, PortalError, redact_json
+from .arcgis_portal import NO_FILE, PortalClient, PortalError, redact_json
 from .arcgis_story_markdown import render_classic, render_storymap
 
 EXPORT_DIRNAME = "export"
@@ -55,7 +55,8 @@ JSON_LIMIT = 32 * 1024 * 1024
 _ITEM_ID = re.compile(r"[0-9a-fA-F]{32}")
 _TOKEN_STATUSES = (498, 499)
 _NOT_JSON = object()
-# A portal answers these for an item that has no data of its own.
+# A portal answers these for an item that has no data of its own; an item
+# added by URL answers a 500 of kind NO_FILE.
 _NO_DATA = (400, 404)
 FILENAMES = {"Form": "form.zip", "Notebook": "notebook.ipynb"}
 # The extension of an uploaded file whose portal item names none; types that
@@ -323,7 +324,9 @@ class _Export:
             if exc.kind == "too_large":
                 self.partial = True
                 self.errors.append(f"{what}: over the export size cap, not saved")
-            elif what == "data" and exc.http_status in _NO_DATA:
+            elif what == "data" and (
+                exc.http_status in _NO_DATA or exc.kind == NO_FILE
+            ):
                 pass  # the item has no data of its own
             else:
                 self.note_error(what, exc)
@@ -437,6 +440,10 @@ def _save_data(
 ) -> Any:
     staged = export.download(f"content/items/{item['id']}/data", "data")
     if staged is None:
+        return None
+    if not staged.stat().st_size:
+        # Service items answer 200 with no body; an empty file is not data.
+        staged.unlink()
         return None
     name = FILENAMES.get(item["type"])
     folder = export.folder
@@ -751,12 +758,23 @@ def _bundle_in_place(
         or not files
     ):
         return False
+    if any(
+        _is_data(name) and (f.get("size") if isinstance(f, dict) else f) == 0
+        for name, f in files.items()
+    ):
+        # An empty data file an earlier version saved; exporting again drops it.
+        return False
     folder = ctx.export_dir / _slug(item["type"]) / item["id"]
     try:
         _recover_leftovers(folder)
         return _bundle_files(folder) == files
     except OSError:
         return False
+
+
+def _is_data(name: str) -> bool:
+    """Whether a bundle path is the item's data file."""
+    return "/" not in name and (name.startswith("data.") or name in FILENAMES.values())
 
 
 def _bundle_files(folder: Path) -> dict[str, dict[str, Any]]:
@@ -895,6 +913,17 @@ def _export_into(
     return ItemResult(notes=notes)
 
 
+def _reference_note(row: Mapping[str, Any] | None, export: Mapping[str, Any]) -> str:
+    """The URL an item points to when its bundle holds no data file; nothing
+    for an older record that doesn't list its files."""
+    files = export.get("files")
+    if not row or not row.get("url") or not isinstance(files, dict) or not files:
+        return ""
+    if any(_is_data(name) for name in files):
+        return ""
+    return f" Points to {row['url']}; no data file was saved."
+
+
 def write_index(
     ctx: MigrationContext, plan: Mapping[str, Any], state: MigrationState
 ) -> None:
@@ -930,7 +959,8 @@ def write_index(
             f"{export['bytes'] / (1024 * 1024):.1f} MB",
             status,
             f"`{export['path']}`",
-            item_replacement(item, plan, state),
+            item_replacement(item, plan, state)
+            + _reference_note(ctx.inventory.get(item["id"]), export),
         ]
         lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
         rows += 1
