@@ -1747,6 +1747,7 @@ def test_a_state_file_without_the_recorded_import_resumes_the_full_import(
     assert state["items"][A2].get("import_pass") == {
         "notes": [],
         "layers": {"0": {"label": "Parcels", "layer_id": "0"}},
+        "named_beside": {},
     }
     del state["items"][A2]["import_pass"]
     state["items"][A2]["status"] = "pending"
