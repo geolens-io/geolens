@@ -2524,18 +2524,45 @@ def test_a_data_file_the_portal_says_is_gone_keeps_its_dataset_and_later_items_r
 def test_a_refused_layer_the_portal_no_longer_lists_is_no_longer_a_loss(
     runner, plan_file, geolens
 ):
-    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
-    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    service = FakeImport(
+        geolens, [_layer(0, "Parcels"), _layer(1, "Buildings"), _layer(2, "Annex")]
+    )
+    refuse = service.preview
+
+    def preview(seen):
+        if seen.json()["layer_name"] in ("Buildings", "Annex"):
+            return (422, layers._problem(422, layers.MULTIPATCH))
+        return refuse(seen)
+
+    geolens.routes[layers.PREVIEW] = preview
     assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    gone = layers.MULTIPATCH_NOTE
+    kept = gone.replace("Buildings:", "Annex:", 1)
+    assert {gone, kept} <= set(_state(plan_file)["items"][A2]["notes"])
     FakeRefresh(geolens, service).allow(PARCELS)
-    service.layers = [_layer(0, "Parcels")]
+    service.layers = [_layer(0, "Parcels"), _layer(2, "Annex")]
 
     result, payload = _migrate(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 0, result.output
     assert payload["refreshed"] == [A2]
     entry = _state(plan_file)["items"][A2]
-    assert entry["left_behind"] == [] and entry["refused_layers"] == {}
+    assert set(entry["refused_layers"]) == {"2"} and entry["left_behind"] == [kept]
+    for notes in (entry["notes"], entry["import_pass"]["notes"]):
+        assert gone not in notes and kept in notes
+    report = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    assert [
+        f["text"]
+        for f in report["follow_ups"]
+        if f["item"] == A2 and f["kind"] == "skipped_layer"
+    ] == [kept]
+
+    _edit_state(plan_file, A2, status="failed", error="interrupted", last_update={})
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    notes = _state(plan_file)["items"][A2]["notes"]
+    assert gone not in notes and kept in notes
 
 
 @pytest.mark.parametrize("rerun", ["refresh", "resume"])

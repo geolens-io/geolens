@@ -61,11 +61,13 @@ from .arcgis_migrate_session import (
     write_refusal,
 )
 from .arcgis_migrate_state import (
+    MAX_ERROR_CHARS,
     ItemState,
     aware_time,
     whole_number,
 )
 from .arcgis_plan import IMPORT_FILE
+from .arcgis_portal import redact_json
 from .refresh import (
     RefreshPollResult,
     _value,
@@ -507,7 +509,11 @@ def refresh_layers(
     wanted, _notes, left_behind = importable_layers(probe)
     # A refused layer the portal no longer lists is no longer a loss.
     listed = {_layer_key(layer) for layer in probe.layers}
-    refused = {k: r for k, r in entry.refusals(row["url"]).items() if k in listed}
+    recorded = entry.refusals(row["url"])
+    refused = {k: r for k, r in recorded.items() if k in listed}
+    _drop_refusal_notes(
+        ctx, entry, [r["reason"] for k, r in recorded.items() if k not in refused]
+    )
     entry.refused_layers = refused
     entry.left_behind = [
         *_redacted(ctx, left_behind),
@@ -544,6 +550,24 @@ def refresh_layers(
         + gone
         + _bring_each(ctx, item, entry, partial(_start_refresh, ctx, row, entry))
     )
+
+
+def _drop_refusal_notes(
+    ctx: MigrationContext, entry: ItemState, reasons: list[str]
+) -> None:
+    """Take *reasons*, refusals of layers the portal no longer lists, out of
+    the item's notes, stored cleaned, and its import pass's, stored as built."""
+    kept = {r["reason"] for r in entry.refused_layers.values()} - set(reasons)
+    gone = set(reasons) - kept
+    if not gone:
+        return
+    cleaned = {redact_json(r, ctx.redact)[:MAX_ERROR_CHARS] for r in gone}
+    cleaned -= {redact_json(r, ctx.redact)[:MAX_ERROR_CHARS] for r in kept}
+    entry.notes[:] = [n for n in entry.notes if n not in cleaned]
+    if entry.import_pass is not None:
+        entry.import_pass["notes"] = [
+            n for n in entry.import_pass["notes"] if n not in gone
+        ]
 
 
 def _start_replace(
