@@ -725,13 +725,26 @@ def forget_other_service(entry: ItemState, url: str | None) -> None:
     entry.refused_layers = {}
 
 
+def backfill_named_beside(entry: ItemState, url: str | None) -> None:
+    """Fill in ``named_beside`` for a pass saved without it, from the refusals
+    still held, so it must run before a refresh prunes any of them."""
+    if entry.import_pass is not None and "named_beside" not in entry.import_pass:
+        entry.import_pass["named_beside"] = {
+            key: {"label": r["label"], "layer_id": r["layer_id"]}
+            for key, r in entry.refusals(url).items()
+        }
+
+
 def recorded_titles(base: str, entry: ItemState, url: str | None) -> dict[str, str]:
     """Layer key -> dataset title for each layer of the recorded import pass,
-    named beside the layers refused on the service at *url* as the import
-    that made them named them."""
-    recorded = (entry.import_pass or {}).get("layers") or {}
+    named beside the refused layers the import pass recorded, so a refusal
+    dropped later leaves the titles alone. A pass saved before that record
+    existed uses the layers refused on the service at *url*."""
+    pass_ = entry.import_pass or {}
+    recorded = pass_.get("layers") or {}
     named = {**recorded}
-    for key, refused in entry.refusals(url).items():
+    beside = pass_["named_beside"] if "named_beside" in pass_ else entry.refusals(url)
+    for key, refused in beside.items():
         named.setdefault(key, refused)
     titles = _titles(base, [(r["label"], r["layer_id"]) for r in named.values()])
     return {key: title for key, title in zip(named, titles) if key in recorded}
@@ -873,6 +886,10 @@ def import_layers(
                 "layer_id": _layer_id(layer),
             }
             for layer in imported
+        },
+        "named_beside": {
+            key: {"label": r["label"], "layer_id": r["layer_id"]}
+            for key, r in refused.items()
         },
     }
     status = EXISTS if found == len(imported) and not refused else DONE

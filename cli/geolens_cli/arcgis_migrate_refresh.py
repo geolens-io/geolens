@@ -50,6 +50,7 @@ from .arcgis_migrate_layers import (
     attachment_flags,
     forget_other_service,
     importable_layers,
+    backfill_named_beside,
     recorded_titles,
     relationship_records,
 )
@@ -509,6 +510,7 @@ def refresh_layers(
     wanted, _notes, left_behind = importable_layers(probe)
     # A refused layer the portal no longer lists is no longer a loss.
     listed = {_layer_key(layer) for layer in probe.layers}
+    backfill_named_beside(entry, row["url"])
     recorded = entry.refusals(row["url"])
     refused = {k: r for k, r in recorded.items() if k in listed}
     entry.refused_layers = refused

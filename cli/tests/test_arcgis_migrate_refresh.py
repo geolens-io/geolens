@@ -2584,6 +2584,43 @@ def test_a_rerun_keeps_the_title_a_layer_got_beside_a_refused_one(
     assert service.fields[PARCELS]["title"] == title
 
 
+def test_a_refused_layer_leaving_the_service_keeps_the_title_beside_it(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
+    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    title = "Parcels (public view) - Parcels"
+    assert service.fields[PARCELS]["title"] == title
+    FakeRefresh(geolens, service).allow(PARCELS)
+    service.layers = [_layer(0, "Parcels")]
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][A2]["refused_layers"] == {}
+    assert service.fields[PARCELS]["title"] == title
+
+
+def test_a_pass_saved_before_titles_were_recorded_keeps_titles_when_the_sibling_leaves(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
+    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    path = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(path.read_text())
+    del state["items"][A2]["import_pass"]["named_beside"]
+    path.write_text(json.dumps(state))
+    FakeRefresh(geolens, service).allow(PARCELS)
+    service.layers = [_layer(0, "Parcels")]
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[PARCELS]["title"] == "Parcels (public view) - Parcels"
+
+
 def test_a_kept_refusal_keeps_its_note_when_a_twin_leaves_the_portal(
     runner, plan_file, geolens
 ):
