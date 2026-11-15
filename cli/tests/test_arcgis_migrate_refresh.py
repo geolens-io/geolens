@@ -2602,7 +2602,7 @@ def test_a_refused_layer_leaving_the_service_keeps_the_title_beside_it(
     assert service.fields[PARCELS]["title"] == title
 
 
-def test_a_pass_saved_before_titles_were_recorded_is_named_by_the_active_refusals(
+def test_a_pass_saved_before_titles_were_recorded_keeps_titles_when_the_sibling_leaves(
     runner, plan_file, geolens
 ):
     service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
@@ -2613,6 +2613,7 @@ def test_a_pass_saved_before_titles_were_recorded_is_named_by_the_active_refusal
     del state["items"][A2]["import_pass"]["named_beside"]
     path.write_text(json.dumps(state))
     FakeRefresh(geolens, service).allow(PARCELS)
+    service.layers = [_layer(0, "Parcels")]
 
     result, _ = _migrate(runner, plan_file, "--only", A2)
 
