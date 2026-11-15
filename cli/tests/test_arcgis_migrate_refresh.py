@@ -2582,3 +2582,24 @@ def test_a_rerun_keeps_the_title_a_layer_got_beside_a_refused_one(
 
     assert result.exit_code == 0, result.output
     assert service.fields[PARCELS]["title"] == title
+
+
+def test_a_kept_refusal_keeps_its_note_when_a_twin_leaves_the_portal(
+    runner, plan_file, geolens
+):
+    twins = [_layer(0, "Parcels"), _layer(1, "Buildings"), _layer(2, "Buildings")]
+    service = FakeImport(geolens, twins)
+    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    note = layers.MULTIPATCH_NOTE
+    FakeRefresh(geolens, service).allow(PARCELS)
+    service.layers = [_layer(0, "Parcels"), _layer(2, "Buildings")]
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][A2]
+    assert set(entry["refused_layers"]) == {"2"} and entry["left_behind"] == [note]
+    assert note in entry["notes"] and note in entry["import_pass"]["notes"]
+    report = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    assert {"item": A2, "kind": "skipped_layer", "text": note} in report["follow_ups"]

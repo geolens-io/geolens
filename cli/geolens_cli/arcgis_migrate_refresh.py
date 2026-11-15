@@ -511,10 +511,10 @@ def refresh_layers(
     listed = {_layer_key(layer) for layer in probe.layers}
     recorded = entry.refusals(row["url"])
     refused = {k: r for k, r in recorded.items() if k in listed}
+    entry.refused_layers = refused
     _drop_refusal_notes(
         ctx, entry, [r["reason"] for k, r in recorded.items() if k not in refused]
     )
-    entry.refused_layers = refused
     entry.left_behind = [
         *_redacted(ctx, left_behind),
         *(r["reason"] for r in refused.values()),
@@ -556,8 +556,9 @@ def _drop_refusal_notes(
     ctx: MigrationContext, entry: ItemState, reasons: list[str]
 ) -> None:
     """Take *reasons*, refusals of layers the portal no longer lists, out of
-    the item's notes, stored cleaned, and its import pass's, stored as built."""
-    kept = {r["reason"] for r in entry.refused_layers.values()} - set(reasons)
+    the item's notes, stored cleaned, and its import pass's, stored as built;
+    a reason a kept refusal shares stays."""
+    kept = {r["reason"] for r in entry.refused_layers.values()}
     gone = set(reasons) - kept
     if not gone:
         return
