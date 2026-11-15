@@ -664,7 +664,7 @@ class MapLayerInput(BaseModel):
         default=0,
         ge=0,
         le=_MAX_SORT_ORDER,
-        description="Draw order (lower draws first)",
+        description="Draw order; 0 draws on top",
     )
     visible: bool = True
     opacity: float = Field(

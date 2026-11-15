@@ -14441,7 +14441,7 @@
           },
           "sort_order": {
             "default": 0,
-            "description": "Draw order (lower draws first)",
+            "description": "Draw order; 0 draws on top",
             "maximum": 32767.0,
             "minimum": 0.0,
             "title": "Sort Order",

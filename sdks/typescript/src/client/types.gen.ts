@@ -8414,7 +8414,7 @@ export type MapLayerInput = {
     /**
      * Sort Order
      *
-     * Draw order (lower draws first)
+     * Draw order; 0 draws on top
      */
     sort_order?: number;
     /**

@@ -1014,6 +1014,32 @@ def test_a_loss_report_a_rerun_couldnt_write_is_written_by_the_next_one(
     assert loss["loss_report"]["summary"] == {"popup_expression": 1}
 
 
+def test_a_translated_map_is_saved_with_the_web_maps_top_layer_first(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    translated = _translated(dataset_id("Parcels"))
+    # A server that keeps the web map's bottom-first order.
+    geolens.routes[IMPORT] = (
+        201,
+        {
+            **translated,
+            "layers": translated["layers"][:2],
+            "layer_sources": ["parcels_0", "view_0"],
+        },
+    )
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    [sent] = _puts(geolens)
+    # view_0 sits above parcels_0 in the web map, and sort_order 0 draws on top.
+    assert [(layer.get("id"), layer["sort_order"]) for layer in sent["layers"]] == [
+        (LAYER_ID.format(2), 0),
+        (LAYER_ID.format(1), 1),
+    ]
+
+
 def test_a_lost_view_note_fits_notes_near_their_limit(
     runner, plan_file, geolens, portal
 ):
@@ -1434,6 +1460,15 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
             {"id": ["y"], "layerType": "ArcGISFeatureLayer", "title": "Array"},
         ]
         portal.routes[data] = webmap
+    extra = [f"x{n}" for n in range(199)] if variant == "at-the-cap" else []
+    if extra:
+        # Layers below the rest of the web map, which fill it to the cap.
+        data = f"content/items/{B1}/data"
+        webmap = copy.deepcopy(portal.routes[data])
+        webmap["operationalLayers"][:0] = [
+            {"id": x, "layerType": "ArcGISFeatureLayer", "title": x} for x in extra
+        ]
+        portal.routes[data] = webmap
     parcels = dataset_id("Parcels")
     elsewhere = "00000000-0000-0000-0009-000000000001"
 
@@ -1444,14 +1479,15 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
         if not body.get("dry_run"):
             return (201, _response())
         view = {"dataset_id": parcels, "sort_order": 0, "opacity": 0.5}
-        # At the cap, the translation already fills the map.
-        extra = [f"x{n}" for n in range(199)] if variant == "at-the-cap" else []
+        # At the cap, the translation already fills the map; it lists the web
+        # map's top layer first.
+        below = extra[::-1]
         return (
             201,
             {
                 **_translated(parcels),
-                "layers": [view, *({**view, "display_name": x} for x in extra)],
-                "layer_sources": ["view_0", *extra],
+                "layers": [view, *({**view, "display_name": x} for x in below)],
+                "layer_sources": ["view_0", *below],
             },
         )
 
@@ -1510,9 +1546,10 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
     entry = _state(plan_file)["items"][B1]
     assert entry["layer_ids"]["parcels_0"] == parcels_row
     if variant == "at-the-cap":
-        # The kept row takes the place of the translation's last layer.
+        # The kept row takes the place of the web map's top layer, the one the
+        # translator's own cap gives up first.
         assert len(sent["layers"]) == 200
-        assert "- operationalLayers[id=x198]: layer_cap (x198)" in sent["notes"]
+        assert "- operationalLayers[id=view_0]: layer_cap (view_0)" in sent["notes"]
         loss = json.loads((plan_file.parent / entry["loss_report_path"]).read_text())
         assert loss["loss_report"]["summary"]["layer_cap"] == 1
 
@@ -1527,7 +1564,7 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
                 ("b", "ArcGISFeatureLayer"),
                 ("a", "ArcGISFeatureLayer"),
             ],
-            ["a", "b"],
+            ["b", "a"],
         ),
         # An unsupported layer doesn't take the id's place.
         (
@@ -1536,7 +1573,7 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
                 ("b", "ArcGISFeatureLayer"),
                 ("a", "ArcGISFeatureLayer"),
             ],
-            ["b", "a"],
+            ["a", "b"],
         ),
     ],
     ids=["supported-duplicate", "unsupported-duplicate"],

@@ -78,6 +78,19 @@ imported earlier hold those fields as text. Their next refresh is held for
 review once, with the type changes listed. Accept it to switch to bigint,
 date and timestamptz columns. TimeOnly fields stay text.
 
+ArcGIS web maps imported or migrated with `geolens arcgis migrate` before this
+release stack their layers upside down: the layer that draws at the bottom in
+ArcGIS draws on top in GeoLens. The upgrade doesn't change them. Reorder their
+layers in the map builder. A map imported through
+`POST /maps/import/arcgis-webmap` can instead be deleted and imported again.
+A rerun of `geolens arcgis migrate` translates a map it created again, in the
+new order, when the web map changed in the portal since the last run or a
+layer is still owed, as long as the map wasn't edited in GeoLens since then;
+otherwise it leaves the layers as they are. Don't delete a migrated map to
+redo it: a rerun reports it as gone and doesn't create it again. A
+`style.json` exported earlier lists layers in the reverse of their draw order;
+export it again.
+
 Every existing map starts with "Readers can open the attribute table" on. While
 it is on, the map's embed tokens can page its layers' rows through
 `GET /datasets/{id}/rows/`, within each dataset's `tile_columns` allowlist

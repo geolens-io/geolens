@@ -610,11 +610,12 @@ def _translate_again(
         for layer, s in zip(result.layers, sources)
     ]
     kept = _kept_rows(entry, found, set(matches) - set(readable))
-    pairs = list(zip(sources, translated))
+    place = _layer_order(webmap)
+    pairs = sorted(zip(sources, translated), key=lambda pair: place.get(pair[0], -1))
     # A save holds every layer it names and the rows it keeps hidden from the
-    # saver, within the map's cap; the translation gives up its last layers.
-    # Leaving out a layer with a hidden row keeps that row, so each cut is
-    # counted again.
+    # saver, within the map's cap; like the translator's own cap, the cut
+    # gives up the web map's top layers. Leaving out a layer with a hidden row
+    # keeps that row, so each cut is counted again.
     room = len(pairs)
     while (
         room
@@ -631,7 +632,7 @@ def _translate_again(
         }
         for source, layer in capped
     ]
-    sources, layers = _with_kept_rows(pairs, kept, _layer_order(webmap))
+    sources, layers = _with_kept_rows(pairs, kept, place)
     # A save skips a null center or zoom, since clients send null for a camera
     # they didn't read, so the map keeps its last view and the notes say so.
     kept_view = None in (
@@ -657,7 +658,6 @@ def _translate_again(
         "expected_updated_at": seen["updated_at"],
     }
     skipped = sorted(set(matches) - set(readable))
-    place = _layer_order(webmap)
     after = {
         "sources": sources,
         "sent_ids": [layer.get("id") for layer in layers],
@@ -1120,17 +1120,12 @@ def _with_kept_rows(
     place: Mapping[str, int],
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """The layers a save sends and their operational layers: the translated
-    ones in their order, each *kept* row placed where its operational layer
-    stands in the web map (*place*), numbered in turn."""
-    end = max(place.values(), default=0) + 1
-    pairs = list(translated)
-    for source, layer in sorted(kept.items(), key=lambda k: place.get(k[0], end)):
-        at = place.get(source, end)
-        index = next(
-            (n for n, (s, _) in enumerate(pairs) if place.get(s, end) > at),
-            len(pairs),
-        )
-        pairs.insert(index, (source, layer))
+    ones and the *kept* rows, numbered top first by where their operational
+    layer stands in the web map (*place*), which lists the bottom layer first.
+    A layer the web map no longer places goes to the bottom."""
+    pairs = sorted(
+        [*translated, *kept.items()], key=lambda pair: -place.get(pair[0], -1)
+    )
     return [source for source, _ in pairs], [
         {**layer, "sort_order": n} for n, (_, layer) in enumerate(pairs)
     ]
