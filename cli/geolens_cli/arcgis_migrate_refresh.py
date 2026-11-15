@@ -513,6 +513,11 @@ def refresh_layers(
         held = layer_report(ctx, entry, layer)
         # The stored text, not a regenerated one: the layer may have been renamed.
         entry.notes[:] = [n for n in entry.notes if n not in stale or n in held]
+        if entry.import_pass is not None:
+            # A resumed pass hands its notes back to the item.
+            entry.import_pass["notes"] = [
+                n for n in entry.import_pass["notes"] if n not in stale or n in held
+            ]
         found += held
     entry.notes.extend(n for n in found if n not in entry.notes)
     added = [

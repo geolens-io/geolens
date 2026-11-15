@@ -275,7 +275,7 @@ def test_a_rerun_that_reads_the_properties_replaces_the_unknown_note(
 
 
 def test_an_older_sdk_model_keeps_the_flag_as_an_extra_key():
-    from geolens_cli.arcgis_layer_properties import property_notes
+    from geolens_cli.arcgis_layer_properties import unread
 
     class OldLayerInfo:
         name = "Parcels"
@@ -283,7 +283,11 @@ def test_an_older_sdk_model_keeps_the_flag_as_an_extra_key():
         layer_id = 0
         additional_properties = {"properties_read": True}
 
-    assert property_notes([OldLayerInfo()]) == []
+    class OldUnread(OldLayerInfo):
+        additional_properties = {"properties_read": False}
+
+    assert unread(OldLayerInfo()) is False
+    assert unread(OldUnread()) is True
 
 
 def _stored(plan_file) -> dict:
@@ -413,3 +417,23 @@ def test_a_secret_crossing_the_label_cut_is_not_stored_in_a_refresh_note(
     texts.append(cutover.output)
     assert any("(layer 0)" in t for t in texts)
     assert not any(secret[:4] in t for t in texts)
+
+
+def test_a_resumed_pass_does_not_bring_back_a_note_a_refresh_cleared(
+    runner, plan_file, geolens
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(
+        geolens, [_layer(0, "Parcels", properties_read=False, has_attachments=False)]
+    )
+    _migrate(runner, plan_file, "--only", A2)
+    service.layers[0]["properties_read"] = True
+    FakeRefresh(geolens, service).allow(PARCELS)
+    _migrate(runner, plan_file, "--only", A2)
+    _edit_state(plan_file, A2, status="pending")
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 0, result.output
+    assert payload["cutover"]["marked"] is True
+    assert _notes(plan_file) == []
