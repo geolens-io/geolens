@@ -9,7 +9,7 @@ import pytest
 
 from . import test_arcgis_migrate_layers as layers
 from .arcgis_fake import A2
-from .test_arcgis_migrate_layers import FakeImport, _layer, _migrate
+from .test_arcgis_migrate_layers import FakeImport, _layer, _migrate, dataset_id
 from .test_arcgis_migrate_refresh import PARCELS, FakeRefresh, _edit_plan, _edit_state
 
 geolens = layers.geolens
@@ -329,3 +329,54 @@ def test_a_resumed_pass_saved_before_layer_notes_existed_is_unknown(
     assert result.exit_code == 1
     assert payload["cutover"]["refused"] == ["layer-property-loss"]
     assert _notes(plan_file) == [_UNREAD]
+
+
+_PHRASE = "Parcels could not be read"
+
+
+def test_a_real_loss_on_a_layer_named_like_the_unread_note_survives_a_clean_read(
+    runner, plan_file, geolens
+):
+    service = FakeImport(
+        geolens, [_layer(0, _PHRASE, has_m=True, properties_read=True)]
+    )
+    _migrate(runner, plan_file, "--only", A2)
+    # The later read states no loss, so the recorded one is all that is left.
+    service.layers[0].pop("has_m")
+    FakeRefresh(geolens, service).allow(dataset_id(_PHRASE))
+
+    _migrate(runner, plan_file, "--only", A2)
+
+    notes = _stored(plan_file)["notes"]
+    assert [n for n in notes if "M values" in n]
+    assert len(_stored(plan_file)["layer_notes"]["0"]) == 1
+    assert _stored(plan_file)["layers_unread"] == {}
+
+
+def test_a_long_label_keeps_the_explanation_of_a_real_loss_readable(
+    runner, plan_file, geolens
+):
+    name = "L" * 2100
+    FakeImport(geolens, [_layer(0, name, has_m=True)])
+
+    _migrate(runner, plan_file, "--only", A2)
+
+    [note] = [n for n in _stored(plan_file)["notes"] if "M values" in n]
+    assert note.endswith("the geometries arrive without them")
+
+
+def test_a_long_label_on_an_unread_layer_is_cleared_by_a_clean_read(
+    runner, plan_file, geolens
+):
+    name = "L" * 2100
+    service = FakeImport(geolens, [_layer(0, name, properties_read=False)])
+    _migrate(runner, plan_file, "--only", A2)
+    [note] = _stored(plan_file)["layers_unread"]["0"]
+    assert note.endswith("what is not carried over is unknown")
+    service.layers[0]["properties_read"] = True
+    FakeRefresh(geolens, service).allow(dataset_id(name))
+
+    _migrate(runner, plan_file, "--only", A2)
+
+    assert _stored(plan_file)["layers_unread"] == {}
+    assert [n for n in _stored(plan_file)["notes"] if "unknown" in n] == []

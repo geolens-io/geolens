@@ -36,12 +36,11 @@ from .arcgis_migrate_files import (
     _megabytes,
     _Skipped,
 )
-from .arcgis_layer_properties import UNREAD
 from .arcgis_migrate_layers import (
     JOB_POLL_INTERVAL,
     JOB_TIMEOUT,
     _layer_key,
-    _held_notes,
+    layer_report,
     _layer_label,
     _redacted,
     _send,
@@ -60,7 +59,6 @@ from .arcgis_migrate_session import (
     write_refusal,
 )
 from .arcgis_migrate_state import (
-    MAX_ERROR_CHARS,
     ItemState,
     aware_time,
     whole_number,
@@ -510,12 +508,12 @@ def refresh_layers(
     known = [layer for layer in wanted if _layer_key(layer) in entry.layer_datasets]
     found = []
     for layer in known:
-        held = _held_notes(ctx, entry, layer)
-        stale = [n for n in entry.layer_notes.get(_layer_key(layer), []) if UNREAD in n]
-        entry.layer_notes[_layer_key(layer)] = held
+        key = _layer_key(layer)
+        stale = list(entry.layers_unread.get(key, []))
+        held = layer_report(ctx, entry, layer)
         # The stored text, not a regenerated one: the layer may have been renamed.
         entry.notes[:] = [n for n in entry.notes if n not in stale or n in held]
-        found += [n[:MAX_ERROR_CHARS] for n in held]
+        found += held
     entry.notes.extend(n for n in found if n not in entry.notes)
     added = [
         f"layer {_layer_label(layer)} was added to the service in the portal and "
