@@ -1,0 +1,181 @@
+"""The x/y or WKT columns a dataset's geometry was built from, and their CRS.
+
+A CSV or spreadsheet has no geometry of its own; the import builds it from
+the columns chosen at commit. A file replacement builds it the same way, so
+the preview door and the replacement worker both read the choice here.
+"""
+
+from __future__ import annotations
+
+import re
+import uuid
+from collections.abc import Iterable, Mapping
+from typing import Any, NamedTuple
+
+from sqlalchemy import select
+
+from app.platform.column_names import laundered_column_name
+
+GEOMETRY_COLUMN_KEYS: tuple[str, ...] = ("x_column", "y_column", "geom_column")
+COLUMN_SRID_KEY = "column_srid"
+
+# Drivers that read a table of rows, where geometry is a choice of columns and
+# GDAL's own detection of a WKT column must not override that choice.
+TABULAR_DRIVERS = frozenset({"CSV", "XLSX", "XLS", "ODS"})
+
+
+class GeometrySelection(NamedTuple):
+    """The columns geometry is built from and the CRS of their coordinates."""
+
+    columns: dict[str, str]
+    srid: int | None
+
+    def fields(self) -> dict[str, Any]:
+        """The keys an upload binding, a job or a version records it under."""
+        return {**self.columns, COLUMN_SRID_KEY: self.srid}
+
+
+def geometry_selection(mapping: Any) -> GeometrySelection | None:
+    """The x/y pair or WKT column a mapping names, or ``None`` when it names neither.
+
+    Reads commit metadata, upload ``origin_ref`` payloads and version rows. The
+    pair wins over a WKT column, as at import. Names are the ones the loader
+    stores the columns under. The CRS is the recorded one, or a commit's
+    ``srid_override``.
+    """
+    if not isinstance(mapping, Mapping):
+        return None
+    named = {
+        key: laundered_column_name(value)
+        for key in GEOMETRY_COLUMN_KEYS
+        if isinstance(value := mapping.get(key), str) and value
+    }
+    if "x_column" in named and "y_column" in named:
+        columns = {"x_column": named["x_column"], "y_column": named["y_column"]}
+    elif "geom_column" in named:
+        columns = {"geom_column": named["geom_column"]}
+    else:
+        return None
+    srid = mapping.get(COLUMN_SRID_KEY, mapping.get("srid_override"))
+    return GeometrySelection(
+        columns, srid if isinstance(srid, int) and not isinstance(srid, bool) else None
+    )
+
+
+def selection_fields(mapping: Any) -> dict[str, Any] | None:
+    """The fields of the selection a mapping names, or ``None``."""
+    selection = geometry_selection(mapping)
+    return None if selection is None else selection.fields()
+
+
+def build_srid(
+    build: GeometrySelection, *, srid_override: int | None, detected: int | None
+) -> int:
+    """The CRS a build reads its columns in: the commit's override, else the
+    recorded one, else what the file declares, else EPSG:4326."""
+    for srid in (srid_override, build.srid, detected):
+        if srid is not None:
+            return srid
+    return 4326
+
+
+def columns_to_build(
+    recorded: GeometrySelection | None,
+    *,
+    source_geometry_type: str | None,
+    source_columns: Iterable[Mapping[str, Any]],
+    driver: str | None,
+) -> tuple[GeometrySelection | None, list[str]]:
+    """The selection a source's geometry is built from, and the columns it lacks.
+
+    A table of rows always builds from the recorded columns, so a WKT column
+    GDAL detects cannot replace them. Any other source with geometry of its
+    own keeps it. Names compare as ogr2ogr stores them.
+    """
+    if recorded is None:
+        return None, []
+    if driver not in TABULAR_DRIVERS and source_geometry_type is not None:
+        return None, []
+    names = {laundered_column_name(column["name"]) for column in source_columns}
+    missing = [
+        column
+        for column in recorded.columns.values()
+        if laundered_column_name(column) not in names
+    ]
+    return (None if missing else recorded), missing
+
+
+_WKT_TYPE_RE = re.compile(
+    r"^\s*(?:SRID=\d+;)?\s*([A-Z]+?)\s*(ZM|Z|M)?\s*(?:\(|EMPTY)", re.IGNORECASE
+)
+_FIRST_COORDINATE_RE = re.compile(r"\(\s*([^(),]+?)\s*[,)]")
+# PostGIS reads ordinates past X and Y as Z, then M, when the type names neither.
+_IMPLICIT_DIMENSION = {3: "Z", 4: "ZM"}
+_MULTI_OF = {
+    "POINT": "MULTIPOINT",
+    "LINESTRING": "MULTILINESTRING",
+    "POLYGON": "MULTIPOLYGON",
+}
+
+
+def declared_build_type(
+    build: GeometrySelection, sample_rows: Iterable[Mapping[str, Any]]
+) -> str:
+    """The geometry type a preview declares for geometry built from ``build``.
+
+    Points for an x/y pair. For a WKT column, the type the build stores for
+    the sample rows' values, or the generic type when they don't settle it.
+    """
+    if "x_column" in build.columns:
+        return "POINT"
+    column = laundered_column_name(build.columns["geom_column"])
+    types: set[str] = set()
+    flags: set[str] = set()
+    for row in sample_rows:
+        for key, value in row.items():
+            if laundered_column_name(key) != column or not isinstance(value, str):
+                continue
+            match = _WKT_TYPE_RE.match(value)
+            if match is None:
+                return "GEOMETRY"
+            types.add(match.group(1).upper())
+            flags.add(_wkt_dimension(match.group(2), value[match.end() - 1 :]))
+    families = {_MULTI_OF.get(geometry_type, geometry_type) for geometry_type in types}
+    # Rows that disagree on dimensions are refused by the build.
+    if len(families) != 1 or len(flags) != 1:
+        return "GEOMETRY"
+    base = next(iter(types)) if len(types) == 1 else next(iter(families))
+    return base + next(iter(flags))
+
+
+def _wkt_dimension(suffix: str | None, body: str) -> str:
+    """The Z/M suffix PostGIS gives a WKT value: the named one, else by ordinate count."""
+    if suffix:
+        return suffix.upper()
+    coordinate = _FIRST_COORDINATE_RE.search(body)
+    if coordinate is None:
+        return ""
+    return _IMPLICIT_DIMENSION.get(len(coordinate.group(1).split()), "")
+
+
+async def recorded_geometry_selection(
+    session, *, dataset_id: uuid.UUID, current_version: int | None, ref: Any
+) -> GeometrySelection | None:
+    """The selection the dataset's live data was built from, or ``None``.
+
+    ``ref`` is the dataset's origin payload, where the upload binding records
+    it. A dataset imported before it did and never replaced since reads it
+    from its import job, the oldest completed job for the dataset.
+    """
+    recorded = geometry_selection(ref)
+    if recorded is not None or current_version != 1:
+        return recorded
+    from app.platform.jobs.models import IngestJob
+
+    user_metadata = await session.scalar(
+        select(IngestJob.user_metadata)
+        .where(IngestJob.dataset_id == dataset_id, IngestJob.status == "complete")
+        .order_by(IngestJob.created_at)
+        .limit(1)
+    )
+    return geometry_selection(user_metadata)

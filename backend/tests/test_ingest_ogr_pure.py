@@ -201,6 +201,8 @@ class TestParseTextOgrinfo:
             "geometry_type": None,
             "layer_name": "",
             "feature_count": None,
+            "columns": [],
+            "driver": None,
         }
 
 
