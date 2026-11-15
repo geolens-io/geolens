@@ -120,6 +120,8 @@ class DatasetVersion(Base):
     geometry_type: Mapped[str | None] = mapped_column(Text, nullable=True)
     file_hash: Mapped[str | None] = mapped_column(Text, nullable=True)
     column_info: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    # The x/y or WKT columns this version's geometry was built from, and their CRS.
+    geometry_columns: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     # What a restore of this version puts back on the dataset.
     original_srid: Mapped[int | None] = mapped_column(Integer, nullable=True)
     is_3d: Mapped[bool | None] = mapped_column(Boolean, nullable=True)

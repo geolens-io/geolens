@@ -27,6 +27,15 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   dataset_deleted: 'errors.jobFailureDatasetDeleted',
   dispatch_interrupted: 'errors.jobFailureDispatchInterrupted',
   duplicate_source: 'errors.jobFailureDuplicateSource',
+  geometry_columns_missing: 'errors.reuploadGeometryColumnsMissing',
+  geometry_columns_not_found: 'errors.jobFailureGeometryColumnsNotFound',
+  geometry_wkt_invalid: 'errors.jobFailureGeometryWktInvalid',
+  geometry_wkt_invalid_wgs84: 'errors.jobFailureGeometryWktInvalidWgs84',
+  geometry_wkt_malformed: 'errors.jobFailureGeometryWktMalformed',
+  geometry_wkt_mixed_dimensions: 'errors.jobFailureGeometryWktMixedDimensions',
+  geometry_xy_not_finite: 'errors.jobFailureGeometryXyNotFinite',
+  geometry_xy_not_numeric: 'errors.jobFailureGeometryXyNotNumeric',
+  geometry_xy_outside_wgs84: 'errors.jobFailureGeometryXyOutsideWgs84',
   missing_crs: 'errors.jobFailureMissingCrs',
   missing_crs_database: 'errors.jobFailureMissingCrsDatabase',
   missing_crs_raster: 'errors.jobFailureMissingCrsRaster',
@@ -51,10 +60,55 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   worker_lost: 'errors.jobFailureWorkerLost',
 };
 
-/** A fixed reason's sentence in the reader's language, or undefined for any other code. */
-export function fixedFailureReason(code: string | null | undefined): string | undefined {
+/**
+ * The server's sentences that carry values (`GEOMETRY_BUILD_SENTENCES` in
+ * backend/app/core/geometry_build_errors.py, `{name}` there, `{{name}}` here),
+ * so the values can be read back out of a stored reason.
+ */
+const FIXED_FAILURE_SENTENCES: Record<string, string> = {
+  geometry_columns_missing:
+    "The replacement lacks the columns this dataset's geometry is built from ({{columns}}), so nothing was changed. Add them to the file, or import the file as a new dataset instead.",
+  geometry_columns_not_found:
+    "The file has no column named {{columns}}, so no geometry was built. Choose columns the file has.",
+  geometry_xy_not_numeric: "{{rows}} row(s) contain X/Y values that are not numbers",
+  geometry_xy_outside_wgs84: "{{rows}} row(s) contain X/Y coordinates outside EPSG:4326 ranges",
+  geometry_xy_not_finite: "{{rows}} row(s) contain X/Y coordinates outside finite values",
+  geometry_wkt_invalid_wgs84:
+    "{{rows}} row(s) contain invalid WKT geometry or coordinates outside EPSG:4326 ranges",
+  geometry_wkt_invalid: "{{rows}} row(s) contain invalid WKT geometry or coordinates outside finite values",
+  geometry_wkt_mixed_dimensions:
+    "The WKT column mixes coordinate dimensions ({{dimensions}}), so no geometry was built. Give every row the same dimensions.",
+};
+
+/** The values ``template`` names, read out of ``reason``, or undefined when it doesn't match. */
+function readSentenceValues(template: string, reason: string): Record<string, string> | undefined {
+  const names: string[] = [];
+  const pattern = template
+    .split(/\{\{(\w+)\}\}/)
+    .map((part, index) => {
+      if (index % 2 === 0) return part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      names.push(part);
+      return '([\\s\\S]*)';
+    })
+    .join('');
+  const match = new RegExp(`^${pattern}$`).exec(reason);
+  return match ? Object.fromEntries(names.map((name, index) => [name, match[index + 1]])) : undefined;
+}
+
+/**
+ * A fixed reason's sentence in the reader's language, or undefined for any
+ * other code and for a sentence whose values can't be read from ``reason``.
+ */
+export function fixedFailureReason(
+  code: string | null | undefined,
+  reason?: string,
+): string | undefined {
   const key = code ? FIXED_FAILURE_CODE_KEYS[code] : undefined;
-  return key ? (i18n.t(key, { ns: 'common' }) as string) : undefined;
+  if (!key || !code) return undefined;
+  const template = FIXED_FAILURE_SENTENCES[code];
+  if (!template) return i18n.t(key, { ns: 'common' }) as string;
+  const values = reason === undefined ? undefined : readSentenceValues(template, reason);
+  return values ? (i18n.t(key, { ns: 'common', ...values }) as string) : undefined;
 }
 
 /**
@@ -68,6 +122,7 @@ export function describeFailureReason(
   code?: string | null,
 ): string {
   return (
-    fixedFailureReason(code) ?? (reason === INTERNAL_FAILURE_REASON ? localizedFallback : reason)
+    fixedFailureReason(code, reason) ??
+    (reason === INTERNAL_FAILURE_REASON ? localizedFallback : reason)
   );
 }
