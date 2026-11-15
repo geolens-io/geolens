@@ -2082,10 +2082,14 @@ def test_a_layer_geolens_refused_for_good_is_not_waited_on_by_its_web_map(
             if item["id"] == roads:
                 item["action"] = "import_layers"
 
+    inventory = json.loads((plan_file.parent / "arcgis-inventory.json").read_text())
+    roads_url = next(r["url"] for r in inventory["items"] if r["id"] == roads)
+
     def roads_refused(state):
         state["items"][roads].update(
             status="skipped",
             error=None,
+            service_url=roads_url,
             left_behind=[reason],
             refused_layers={"0": {"label": "Roads", "layer_id": "0", "reason": reason}},
         )

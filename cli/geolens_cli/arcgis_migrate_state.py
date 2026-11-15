@@ -273,6 +273,14 @@ class ItemState:
             )
         )
 
+    def refusals(self, url: str | None) -> dict[str, dict[str, Any]]:
+        """The layers this item's import refused for good, when they were
+        refused on the service at *url*, the one the item names now; a
+        refusal of a service it no longer names counts for nothing."""
+        if not url or self.service_url != url:
+            return {}
+        return self.refused_layers
+
     def unsettled_reason(self) -> str | None:
         """Why a web map isn't up to date while a save's outcome is unknown."""
         if self.pending_write is None:

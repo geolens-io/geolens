@@ -2278,12 +2278,15 @@ def test_a_refusal_is_kept_when_a_later_layer_fails_the_item(
         ]
     }
     ctx = SimpleNamespace(
-        aliases={}, items={A2: ItemState.from_dict(entry)}, importable={A2}
+        aliases={},
+        items={A2: ItemState.from_dict(entry)},
+        importable={A2},
+        inventory={A2: {"url": entry["service_url"]}},
     )
     assert webmaps._unimported(ctx, webmap, {}) == ["l1"]
 
 
-def _root_reference(entry: dict) -> tuple[Any, dict]:
+def _root_reference(entry: dict, url: str | None = None) -> tuple[Any, dict]:
     """A web map context and a web map whose one layer names A2's service root."""
     from types import SimpleNamespace
 
@@ -2296,7 +2299,10 @@ def _root_reference(entry: dict) -> tuple[Any, dict]:
         ]
     }
     ctx = SimpleNamespace(
-        aliases={}, items={A2: ItemState.from_dict(entry)}, importable={A2}
+        aliases={},
+        items={A2: ItemState.from_dict(entry)},
+        importable={A2},
+        inventory={A2: {"url": url or entry["service_url"]}},
     )
     return ctx, webmap
 
@@ -2368,6 +2374,6 @@ def test_a_refusal_on_an_earlier_service_does_not_hide_the_new_services_layer(
     entry = _state(plan_file)["items"][A2]
     assert entry["status"] == "failed"
     assert entry["refused_layers"] == {} and entry["left_behind"] == []
-    ctx, webmap = _root_reference(entry)
+    ctx, webmap = _root_reference(entry, moved)
     webmap["operationalLayers"][0]["url"] = f"{moved}/0"
     assert webmaps._unimported(ctx, webmap, {}) == ["root"]

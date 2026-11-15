@@ -489,7 +489,8 @@ def _borrow(
         return None
     dataset = held.get(owner_id)
     owner_state = ctx.items.get(owner_id)
-    refused = owner_state.refused_layers.get(key) if owner_state else None
+    owner_url = (ctx.inventory.get(owner_id) or {}).get("url")
+    refused = owner_state.refusals(owner_url).get(key) if owner_state else None
     if dataset is None and refused:
         # The owner's preview refused the layer for good; waiting can't help.
         raise _LayerRefused(refused["reason"])
@@ -684,7 +685,7 @@ def _resume_import(
     visibility = item["target"]["visibility"]
     if not recorded:
         return ItemResult(notes=[*entry.import_pass["notes"], _NO_LAYER_NOTE])
-    for key, title in recorded_titles(base, entry).items():
+    for key, title in recorded_titles(base, entry, entry.service_url).items():
         if key in entry.layer_datasets:
             _apply_target(
                 ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
@@ -708,12 +709,13 @@ def forget_other_service(entry: ItemState, url: str | None) -> None:
     entry.refused_layers = {}
 
 
-def recorded_titles(base: str, entry: ItemState) -> dict[str, str]:
+def recorded_titles(base: str, entry: ItemState, url: str | None) -> dict[str, str]:
     """Layer key -> dataset title for each layer of the recorded import pass,
-    named beside the refused layers as the import that made them named them."""
+    named beside the layers refused on the service at *url* as the import
+    that made them named them."""
     recorded = (entry.import_pass or {}).get("layers") or {}
     named = {**recorded}
-    for key, refused in entry.refused_layers.items():
+    for key, refused in entry.refusals(url).items():
         named.setdefault(key, refused)
     titles = _titles(base, [(r["label"], r["layer_id"]) for r in named.values()])
     return {key: title for key, title in zip(named, titles) if key in recorded}

@@ -864,14 +864,19 @@ def _unimported(
             or source.status not in FINISHED
             or source.exported_not_imported()
         )
-        and not (source is not None and _refused(layer, source))
+        and not (
+            source is not None
+            and _refused(layer, source, (ctx.inventory.get(source_id) or {}).get("url"))
+        )
     )
 
 
-def _refused(layer: Mapping[str, Any], source: ItemState) -> bool:
-    """Whether GeoLens refused *layer*'s service layer for good, so no rerun
-    imports it: its index is refused, or the layer names none and every layer
-    the last import pass set out to import was refused."""
+def _refused(layer: Mapping[str, Any], source: ItemState, url: str | None) -> bool:
+    """Whether GeoLens refused *layer*'s service layer for good on the service
+    at *url*, the one the source item names now, so no rerun imports it: its
+    index is refused, or the layer names none and every layer the last import
+    pass set out to import was refused."""
+    refused = source.refusals(url)
     url = layer.get("url")
     try:
         path = urlsplit(url).path if isinstance(url, str) else ""
@@ -879,10 +884,8 @@ def _refused(layer: Mapping[str, Any], source: ItemState) -> bool:
         return False
     sub = _TRAILING_LAYER.search(path)
     if sub:
-        return sub.group(1) in source.refused_layers
-    return bool(source.pass_layers) and set(source.pass_layers) <= set(
-        source.refused_layers
-    )
+        return sub.group(1) in refused
+    return bool(source.pass_layers) and set(source.pass_layers) <= set(refused)
 
 
 def _owed_layers(

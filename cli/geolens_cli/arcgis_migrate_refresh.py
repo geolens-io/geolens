@@ -502,7 +502,7 @@ def refresh_layers(
     wanted, _notes, left_behind = importable_layers(probe)
     # A refused layer the portal no longer lists is no longer a loss.
     listed = {_layer_key(layer) for layer in probe.layers}
-    refused = {k: r for k, r in entry.refused_layers.items() if k in listed}
+    refused = {k: r for k, r in entry.refusals(row["url"]).items() if k in listed}
     entry.refused_layers = refused
     entry.left_behind = [
         *_redacted(ctx, left_behind),
@@ -727,7 +727,13 @@ def _bring_one(
     ctx.save()
     try:
         apply_item_metadata(
-            ctx, item, entry, [dataset_id], _dataset_titles(item, entry)
+            ctx,
+            item,
+            entry,
+            [dataset_id],
+            _dataset_titles(
+                item, entry, (ctx.inventory.get(item["id"]) or {}).get("url")
+            ),
         )
     except ItemFailed:
         # A metadata write can land before a later step fails; it is this
@@ -753,9 +759,11 @@ def _record_own_write(
     return True
 
 
-def _dataset_titles(item: Mapping[str, Any], entry: ItemState) -> dict[str, str]:
+def _dataset_titles(
+    item: Mapping[str, Any], entry: ItemState, url: str | None
+) -> dict[str, str]:
     """Dataset -> the title an import of the item would give it now, for the
-    datasets the state records the layer of."""
+    datasets the state records the layer of; *url* is the item's service."""
     base = item["target"]["title"] or item["title"]
     if item["action"] == IMPORT_FILE:
         many = JOB_KEY not in entry.layer_datasets
@@ -768,7 +776,7 @@ def _dataset_titles(item: Mapping[str, Any], entry: ItemState) -> dict[str, str]
         return {}
     return {
         entry.layer_datasets[key]: title
-        for key, title in recorded_titles(base, entry).items()
+        for key, title in recorded_titles(base, entry, url).items()
         if key in entry.layer_datasets
     }
 
