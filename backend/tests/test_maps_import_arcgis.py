@@ -209,7 +209,7 @@ class TestDryRun:
 
         assert resp.status_code == 201, resp.text
         data = resp.json()
-        assert data["layer_sources"] == ["b", "a"]
+        assert data["layer_sources"] == ["a", "b"]
         assert data["notes"] == created["notes"]
         assert data["view"]["basemap_style"] == created["basemap_style"]
         assert data["view"]["center_lng"] == pytest.approx(-74)
@@ -230,10 +230,10 @@ class TestDryRun:
         assert saved.status_code == 200, saved.text
         result = saved.json()
         assert [layer["id"] for layer in result["layers"]] == [
-            layer_ids["b"],
             layer_ids["a"],
+            layer_ids["b"],
         ]
-        assert result["layers"][0]["display_name"] == "Renamed b"
+        assert result["layers"][0]["display_name"] == "Renamed a"
         assert result["center_lng"] == pytest.approx(-74)
 
 
@@ -568,8 +568,8 @@ class TestResponseShape:
         )
         assert resp.status_code == 201, resp.text
         data = resp.json()
-        assert [x["dataset_id"] for x in data["map"]["layers"]] == [str(second.id)]
-        assert data["layer_ids"] == {"b": data["map"]["layers"][0]["id"]}
+        assert [x["dataset_id"] for x in data["map"]["layers"]] == [str(first.id)]
+        assert data["layer_ids"] == {"a": data["map"]["layers"][0]["id"]}
 
     @pytest.mark.parametrize(
         "hidden", [{"visibility": "private"}, {"record_status": "draft"}]

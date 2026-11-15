@@ -12993,7 +12993,7 @@ export interface components {
             dataset_id: string;
             /**
              * Sort Order
-             * @description Draw order (lower draws first)
+             * @description Draw order; 0 draws on top
              * @default 0
              */
             sort_order: number;

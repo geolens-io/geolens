@@ -1014,6 +1014,32 @@ def test_a_loss_report_a_rerun_couldnt_write_is_written_by_the_next_one(
     assert loss["loss_report"]["summary"] == {"popup_expression": 1}
 
 
+def test_a_translated_map_is_saved_with_the_web_maps_top_layer_first(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    translated = _translated(dataset_id("Parcels"))
+    # A server that keeps the web map's bottom-first order.
+    geolens.routes[IMPORT] = (
+        201,
+        {
+            **translated,
+            "layers": translated["layers"][:2],
+            "layer_sources": ["parcels_0", "view_0"],
+        },
+    )
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    [sent] = _puts(geolens)
+    # view_0 sits above parcels_0 in the web map, and sort_order 0 draws on top.
+    assert [(layer.get("id"), layer["sort_order"]) for layer in sent["layers"]] == [
+        (LAYER_ID.format(2), 0),
+        (LAYER_ID.format(1), 1),
+    ]
+
+
 def test_a_lost_view_note_fits_notes_near_their_limit(
     runner, plan_file, geolens, portal
 ):
@@ -1527,7 +1553,7 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
                 ("b", "ArcGISFeatureLayer"),
                 ("a", "ArcGISFeatureLayer"),
             ],
-            ["a", "b"],
+            ["b", "a"],
         ),
         # An unsupported layer doesn't take the id's place.
         (
@@ -1536,7 +1562,7 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
                 ("b", "ArcGISFeatureLayer"),
                 ("a", "ArcGISFeatureLayer"),
             ],
-            ["b", "a"],
+            ["a", "b"],
         ),
     ],
     ids=["supported-duplicate", "unsupported-duplicate"],

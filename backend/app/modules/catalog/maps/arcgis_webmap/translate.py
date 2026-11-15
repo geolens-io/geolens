@@ -134,7 +134,7 @@ def _unit(value: Any) -> float:
 def _flatten(
     layers: list, loss: LossReport, path: str, group: _Group | None, depth: int
 ) -> list[tuple[dict, str, _Group | None]]:
-    """Operational layers in draw order, group members inlined under their top group."""
+    """Operational layers bottom first, group members inlined under their top group."""
     out: list[tuple[dict, str, _Group | None]] = []
     for index, raw in enumerate(layers):
         layer = _d(raw)
@@ -442,9 +442,7 @@ def _add_layer(
     )
     try:
         data = _layer_input(layer, path, dataset_id, group, scratch, columns)
-        built = MapLayerInput.model_validate(
-            {**data, "sort_order": min(len(result.layers), 32767)}
-        )
+        built = MapLayerInput.model_validate({**data, "sort_order": 0})
     except ValidationError as exc:
         result.loss.add(path, "layer_invalid", str(exc.errors()[0].get("msg", "")))
     except Exception as exc:  # broad: hostile portal JSON must report a loss, not a 500
@@ -505,6 +503,13 @@ def translate_webmap(
                 (dataset_columns or {}).get(dataset_id),
             )
 
+    # operationalLayers lists the bottom layer first, and a GeoLens layer at
+    # sort_order 0 draws on top.
+    result.layers = [
+        layer.model_copy(update={"sort_order": n})
+        for n, layer in enumerate(reversed(result.layers))
+    ]
+    result.layer_sources.reverse()
     result.basemap_style = _basemap(webmap, basemap_map, available_basemaps, loss)
     report_unknown_keys([webmap], WEBMAP_KEYS, "webmap", loss)
     _viewpoint(webmap, result)

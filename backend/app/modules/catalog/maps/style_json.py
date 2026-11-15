@@ -1481,10 +1481,10 @@ def build_maplibre_style(
     ``api_url``; raster tile URLs and ``glyphs`` are on ``app_url``, where the
     frontend serves them. Without a base URL a path stays relative.
     """
-
     sources: dict[str, Any] = {}
     style_layers: list[dict[str, Any]] = []
-    for layer in sorted(layers, key=lambda item: item.sort_order):
+    # MapLibre draws later layers on top; sort_order 0 draws on top in GeoLens.
+    for layer in sorted(layers, key=lambda item: item.sort_order, reverse=True):
         source_id = f"geolens-{_safe_id(str(layer.dataset_id))}"
         # Same bound as `_validate_emitted_style`, one stage earlier. A
         # malformed layer is dropped and its source stays unregistered until

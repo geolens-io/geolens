@@ -1120,17 +1120,12 @@ def _with_kept_rows(
     place: Mapping[str, int],
 ) -> tuple[list[str], list[dict[str, Any]]]:
     """The layers a save sends and their operational layers: the translated
-    ones in their order, each *kept* row placed where its operational layer
-    stands in the web map (*place*), numbered in turn."""
-    end = max(place.values(), default=0) + 1
-    pairs = list(translated)
-    for source, layer in sorted(kept.items(), key=lambda k: place.get(k[0], end)):
-        at = place.get(source, end)
-        index = next(
-            (n for n, (s, _) in enumerate(pairs) if place.get(s, end) > at),
-            len(pairs),
-        )
-        pairs.insert(index, (source, layer))
+    ones and the *kept* rows, numbered top first by where their operational
+    layer stands in the web map (*place*), which lists the bottom layer first.
+    A layer the web map no longer places goes to the bottom."""
+    pairs = sorted(
+        [*translated, *kept.items()], key=lambda pair: -place.get(pair[0], -1)
+    )
     return [source for source, _ in pairs], [
         {**layer, "sort_order": n} for n, (_, layer) in enumerate(pairs)
     ]
