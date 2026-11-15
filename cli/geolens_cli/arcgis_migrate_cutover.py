@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from . import arcgis_plan as _plan
+from .arcgis_layer_properties import recorded_notes
 from .arcgis_migrate_groups import wanted_groups
 from .arcgis_migrate_shared import double_recorded
 from .arcgis_portal import PortalClient, PortalError
@@ -27,9 +28,10 @@ from .arcgis_migrate_state import (
 UNFINISHED = "unfinished-items"
 INVENTORY = "incomplete-inventory"
 ATTACHMENTS = "attachment-loss"
+LAYER_PROPERTIES = "layer-property-loss"
 USERS = "unresolved-users"
 SHARING = "under-sharing"
-CHECKS = (UNFINISHED, INVENTORY, ATTACHMENTS, USERS, SHARING)
+CHECKS = (UNFINISHED, INVENTORY, ATTACHMENTS, LAYER_PROPERTIES, USERS, SHARING)
 # Refused whatever is accepted: no item writes such a dataset.
 DOUBLE_RECORDED = "double-recorded-datasets"
 ADMIN_VIEW_ITEMS = "portal:admin:viewItems"
@@ -97,6 +99,21 @@ def _attachments(
         {"item": item["id"], "reason": f"layer {layer} ({dataset}) {has} attachments"}
         for item in plan["items"]
         for layer, dataset, has in attachment_losses(item, state.items.get(item["id"]))
+    ]
+
+
+def _layer_properties(
+    plan: Mapping[str, Any], state: MigrationState
+) -> list[dict[str, str]]:
+    """One entry per recorded note on a layer property an import doesn't
+    carry; each note says what stays behind."""
+    return [
+        {"item": item["id"], "reason": note}
+        for item in plan["items"]
+        if not item.get("removed") and item["action"] == _plan.IMPORT_LAYERS
+        for note in (
+            recorded_notes(state.items[item["id"]]) if item["id"] in state.items else []
+        )
     ]
 
 
@@ -402,6 +419,7 @@ def failing_checks(
         UNFINISHED: _unfinished(plan, state),
         INVENTORY: _inventory(plan, inventory_changed),
         ATTACHMENTS: _attachments(plan, state),
+        LAYER_PROPERTIES: _layer_properties(plan, state),
         USERS: _users(plan, state, unresolved, prepared_groups),
         SHARING: _sharing(plan, state, prepared_groups),
     }
