@@ -92,6 +92,7 @@ _DESCRIPTION_SINCE_TUPLE = (1, 32, 0)
 _DESCRIPTION_SINCE = "1.32"
 # How many layers a map may hold, as PUT /maps/{id} caps them.
 _MAX_LAYERS = 200
+_CAP_CUT = f"left out with the map's bottom layers past {_MAX_LAYERS}"
 # What a map's notes may hold, as PUT /maps/{id} caps them.
 _MAP_NOTES_MAX = 50_000
 _NOTES_CUT = "... more entries in the CLI report"
@@ -611,11 +612,11 @@ def _translate_again(
     ]
     kept = _kept_rows(entry, found, set(matches) - set(readable))
     place = _layer_order(webmap)
-    pairs = sorted(zip(sources, translated), key=lambda pair: place.get(pair[0], -1))
+    pairs = sorted(zip(sources, translated), key=lambda pair: -place.get(pair[0], -1))
     # A save holds every layer it names and the rows it keeps hidden from the
     # saver, within the map's cap; like the translator's own cap, the cut
-    # gives up the web map's top layers. Leaving out a layer with a hidden row
-    # keeps that row, so each cut is counted again.
+    # gives up the web map's bottom layers. Leaving out a layer with a hidden
+    # row keeps that row, so each cut is counted again.
     room = len(pairs)
     while (
         room
@@ -628,7 +629,7 @@ def _translate_again(
         {
             "path": f"operationalLayers[id={source}]",
             "kind": "layer_cap",
-            "detail": layer.get("display_name") or source,
+            "detail": f"{layer.get('display_name') or source}: {_CAP_CUT}",
         }
         for source, layer in capped
     ]

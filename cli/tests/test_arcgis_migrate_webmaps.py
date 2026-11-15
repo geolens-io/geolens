@@ -1330,7 +1330,10 @@ def test_hidden_rows_count_against_the_map_layer_cap(
     assert result.exit_code == 0, result.output
     [sent] = _puts(geolens)
     assert len(sent["layers"]) == 198
-    assert "- operationalLayers[id=y199]: layer_cap (y199)" in sent["notes"]
+    assert (
+        "- operationalLayers[id=y199]: layer_cap "
+        "(y199: left out with the map's bottom layers past 200)" in sent["notes"]
+    )
 
 
 def test_a_hidden_layer_cut_at_the_cap_counts_as_kept(
@@ -1338,9 +1341,17 @@ def test_a_hidden_layer_cut_at_the_cap_counts_as_kept(
 ):
     _services(geolens)
     parcels = dataset_id("Parcels")
-    # parcels_0 is gone from the portal and view_0 comes last; both of their
-    # map layers are hidden from the run's account.
-    full = [*(f"y{n}" for n in range(199)), "view_0"]
+    # parcels_0 is gone from the translation and view_0 is its bottom layer,
+    # under 199 layers added above it; both of their map layers are hidden
+    # from the run's account.
+    above = [f"y{n}" for n in range(199)]
+    full = [*reversed(above), "view_0"]
+    data = f"content/items/{B1}/data"
+    webmap = copy.deepcopy(portal.routes[data])
+    webmap["operationalLayers"] += [
+        {"id": y, "layerType": "ArcGISFeatureLayer", "title": y} for y in above
+    ]
+    portal.routes[data] = webmap
 
     def translate(seen):
         body = seen.json()
@@ -1371,7 +1382,10 @@ def test_a_hidden_layer_cut_at_the_cap_counts_as_kept(
     [sent] = _puts(geolens)
     # 198 sent and the two hidden rows GeoLens keeps make 200.
     assert len(sent["layers"]) == 198
-    assert "- operationalLayers[id=view_0]: layer_cap (view_0)" in sent["notes"]
+    assert (
+        "- operationalLayers[id=view_0]: layer_cap "
+        "(view_0: left out with the map's bottom layers past 200)" in sent["notes"]
+    )
 
 
 def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
@@ -1546,10 +1560,15 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
     entry = _state(plan_file)["items"][B1]
     assert entry["layer_ids"]["parcels_0"] == parcels_row
     if variant == "at-the-cap":
-        # The kept row takes the place of the web map's top layer, the one the
-        # translator's own cap gives up first.
+        # The kept row takes the place of the web map's bottom layer, the one
+        # the translator's own cap gives up first, so the top layers stay.
         assert len(sent["layers"]) == 200
-        assert "- operationalLayers[id=view_0]: layer_cap (view_0)" in sent["notes"]
+        assert (
+            "- operationalLayers[id=x0]: layer_cap "
+            "(x0: left out with the map's bottom layers past 200)" in sent["notes"]
+        )
+        sent_ids = {layer.get("id") for layer in sent["layers"]}
+        assert entry["layer_ids"]["view_0"] in sent_ids
         loss = json.loads((plan_file.parent / entry["loss_report_path"]).read_text())
         assert loss["loss_report"]["summary"]["layer_cap"] == 1
 

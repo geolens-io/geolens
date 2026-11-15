@@ -425,34 +425,96 @@ def _viewpoint(webmap: dict, result: Translation) -> None:
         result.bearing = round(bearing - 360 if bearing > 180 else bearing, 2)
 
 
-def _add_layer(
-    result: Translation,
+_Built = tuple[MapLayerInput | None, LossReport]
+
+
+def _build_layer(
     layer: dict,
     path: str,
     dataset_id: uuid.UUID,
     group: _Group | None,
     columns: Sequence[Mapping[str, Any]] | None,
-) -> None:
+) -> _Built:
+    """The translated layer and its losses, or None and why it is invalid."""
     scratch = LossReport()
-    ref = UnmatchedLayer(
-        _text(layer.get("id"), 255),
-        _text(layer.get("title"), 255),
-        _text(layer.get("url"), 2000),
-        "invalid",
-    )
     try:
         data = _layer_input(layer, path, dataset_id, group, scratch, columns)
-        built = MapLayerInput.model_validate({**data, "sort_order": 0})
+        return MapLayerInput.model_validate({**data, "sort_order": 0}), scratch
     except ValidationError as exc:
-        result.loss.add(path, "layer_invalid", str(exc.errors()[0].get("msg", "")))
+        detail = str(exc.errors()[0].get("msg", ""))
     except Exception as exc:  # broad: hostile portal JSON must report a loss, not a 500
-        result.loss.add(path, "layer_invalid", type(exc).__name__)
-    else:
-        result.loss.merge(scratch)
-        result.layers.append(built)
-        result.layer_sources.append(ref.layer_id)
+        detail = type(exc).__name__
+    invalid = LossReport()
+    invalid.add(path, "layer_invalid", detail)
+    return None, invalid
+
+
+def _add_layer(result: Translation, layer: dict, built: _Built) -> None:
+    translated, losses = built
+    result.loss.merge(losses)
+    layer_id = _text(layer.get("id"), 255)
+    if translated is not None:
+        result.layers.append(translated)
+        result.layer_sources.append(layer_id)
         return
-    result.unmatched.append(ref)
+    result.unmatched.append(
+        UnmatchedLayer(
+            layer_id,
+            _text(layer.get("title"), 255),
+            _text(layer.get("url"), 2000),
+            "invalid",
+        )
+    )
+
+
+def _fates(
+    entries: list[tuple[dict, str, _Group | None]],
+    dataset_matches: Mapping[str, uuid.UUID],
+) -> list[tuple[str, Any]]:
+    """Each operational layer's loss kind and detail, or ``("match", dataset)``."""
+    seen_ids: set[str] = set()
+    fates: list[tuple[str, Any]] = []
+    for layer, _path, _group in entries:
+        unsupported = _unsupported_type(layer)
+        layer_id = _text(layer.get("id"), 255)
+        if unsupported is not None:
+            fates.append(("unsupported_layer_type", unsupported))
+        elif layer_id in seen_ids:
+            fates.append(("duplicate_layer_id", layer_id))
+        else:
+            seen_ids.add(layer_id)
+            dataset_id = dataset_matches.get(layer_id)
+            fates.append(
+                ("match", dataset_id)
+                if dataset_id is not None
+                else ("unmatched_layer", _text(layer.get("title"), 255))
+            )
+    return fates
+
+
+def _build_top_layers(
+    entries: list[tuple[dict, str, _Group | None]],
+    fates: list[tuple[str, Any]],
+    dataset_columns: Mapping[uuid.UUID, Sequence[Mapping[str, Any]]] | None,
+) -> dict[int, _Built]:
+    """Matched layers built top first, the end ArcGIS lists last, until the map
+    holds its cap; a layer that fails to build doesn't count."""
+    built: dict[int, _Built] = {}
+    kept = 0
+    for index in range(len(entries) - 1, -1, -1):
+        kind, dataset_id = fates[index]
+        if kind != "match" or kept >= _MAX_LAYERS_PER_MAP:
+            continue
+        layer, path, group = entries[index]
+        columns = (dataset_columns or {}).get(dataset_id)
+        built[index] = _build_layer(layer, path, dataset_id, group, columns)
+        kept += built[index][0] is not None
+    return built
+
+
+def _cap_detail(title: str) -> str:
+    cut = f"left out with the map's bottom layers past {_MAX_LAYERS_PER_MAP}"
+    return f"{title}: {cut}" if title else cut
 
 
 def translate_webmap(
@@ -471,37 +533,26 @@ def translate_webmap(
     entries = _flatten(
         _l(webmap.get("operationalLayers")), loss, "operationalLayers", None, 0
     )
-    seen_ids: set[str] = set()
-    for layer, path, group in entries:
-        title = _text(layer.get("title"), 255)
-        unsupported = _unsupported_type(layer)
-        if unsupported is not None:
-            loss.add(path, "unsupported_layer_type", unsupported)
-            continue
-        layer_id = _text(layer.get("id"), 255)
-        if layer_id in seen_ids:
-            loss.add(path, "duplicate_layer_id", layer_id)
-            continue
-        seen_ids.add(layer_id)
-        dataset_id = dataset_matches.get(layer_id)
-        if dataset_id is None:
-            result.unmatched.append(
-                UnmatchedLayer(
-                    layer_id, title, _text(layer.get("url"), 2000), "no_match"
-                )
-            )
-            loss.add(path, "unmatched_layer", title)
-        elif len(result.layers) >= _MAX_LAYERS_PER_MAP:
-            loss.add(path, "layer_cap", title)
+    fates = _fates(entries, dataset_matches)
+    built = _build_top_layers(entries, fates, dataset_columns)
+    for index, (layer, path, _group) in enumerate(entries):
+        kind, detail = fates[index]
+        if index in built:
+            _add_layer(result, layer, built[index])
+        elif kind == "match":
+            title = _text(layer.get("title"), 255)
+            loss.add(path, "layer_cap", _cap_detail(title))
         else:
-            _add_layer(
-                result,
-                layer,
-                path,
-                dataset_id,
-                group,
-                (dataset_columns or {}).get(dataset_id),
-            )
+            if kind == "unmatched_layer":
+                result.unmatched.append(
+                    UnmatchedLayer(
+                        _text(layer.get("id"), 255),
+                        detail,
+                        _text(layer.get("url"), 2000),
+                        "no_match",
+                    )
+                )
+            loss.add(path, kind, detail)
 
     # operationalLayers lists the bottom layer first, and a GeoLens layer at
     # sort_order 0 draws on top.
