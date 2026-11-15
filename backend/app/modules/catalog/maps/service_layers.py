@@ -20,6 +20,7 @@ from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
     MapLayerInput,
+    check_sort_order,
     split_legacy_builder_paint,
 )
 from app.modules.catalog.maps.service_shared import (
@@ -256,6 +257,12 @@ async def add_layer(
         )
         highest_sort_order = result.scalar_one_or_none()
         sort_order = 0 if highest_sort_order is None else highest_sort_order + 1
+        try:
+            check_sort_order(sort_order)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
 
     layer = MapLayer(
         map_id=map_id,

@@ -1218,7 +1218,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_semantic.py": 521,
         # A layer diff checks a changed filter against the caller's access and its widgets,
         # and stacks a map_author key's added layers on top.
-        "backend/app/modules/catalog/maps/service_diff.py": 464,
+        "backend/app/modules/catalog/maps/service_diff.py": 462,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
@@ -1343,7 +1343,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/api/main.py": 1241,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
-    "backend/app/modules/catalog/maps/schemas.py": 1590,
+    "backend/app/modules/catalog/maps/schemas.py": 1602,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,

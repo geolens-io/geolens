@@ -20,6 +20,7 @@ from app.modules.catalog.maps.author_key import map_author_append_orders
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
+    check_sort_order,
     split_legacy_builder_paint,
 )
 from app.modules.catalog.maps.service_layers import (
@@ -131,9 +132,6 @@ def _prepare_layer_storage(
         "layer_type": resolved_layer_type,
         "display_name": layer_data.get("display_name") or None,
     }
-
-
-_MAX_SORT_ORDER = 32767
 
 
 async def apply_layer_diff(
@@ -272,6 +270,8 @@ async def apply_layer_diff(
         appended = map_author_append_orders(
             session, (layer.sort_order for layer in existing_layers), len(added)
         )
+        if appended:
+            check_sort_order(appended[-1])
         # Omitted orders are allocated after the reorder, once the stack is final.
         unplaced: list[MapLayer] = []
         explicit_orders: list[int] = []
@@ -325,9 +325,7 @@ async def apply_layer_diff(
         )
         cursor = max(cursor, *(o + 1 for o in explicit_orders), 0)
         for layer in unplaced:
-            if cursor > _MAX_SORT_ORDER:
-                raise ValueError(f"Layer order exceeds maximum {_MAX_SORT_ORDER}")
-            layer.sort_order = cursor
+            layer.sort_order = check_sort_order(cursor)
             cursor += 1
 
     if removed_ids or updated or added or order is not None:
