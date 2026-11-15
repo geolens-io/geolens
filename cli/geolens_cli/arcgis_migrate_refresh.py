@@ -36,7 +36,7 @@ from .arcgis_migrate_files import (
     _megabytes,
     _Skipped,
 )
-from .arcgis_layer_properties import unread_note
+from .arcgis_layer_properties import UNREAD
 from .arcgis_migrate_layers import (
     JOB_POLL_INTERVAL,
     JOB_TIMEOUT,
@@ -509,10 +509,10 @@ def refresh_layers(
     found = []
     for layer in known:
         held = _held_notes(ctx, entry, layer)
+        stale = [n for n in entry.layer_notes.get(_layer_key(layer), []) if UNREAD in n]
         entry.layer_notes[_layer_key(layer)] = held
-        unread = _redacted(ctx, [unread_note(layer)])[0]
-        if unread not in held:
-            entry.notes[:] = [n for n in entry.notes if n != unread]
+        # The stored text, not a regenerated one: the layer may have been renamed.
+        entry.notes[:] = [n for n in entry.notes if n not in stale or n in held]
         found += [n[:MAX_ERROR_CHARS] for n in held]
     entry.notes.extend(n for n in found if n not in entry.notes)
     added = [

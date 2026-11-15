@@ -10,7 +10,7 @@ import pytest
 from . import test_arcgis_migrate_layers as layers
 from .arcgis_fake import A2
 from .test_arcgis_migrate_layers import FakeImport, _layer, _migrate
-from .test_arcgis_migrate_refresh import PARCELS, FakeRefresh, _edit_plan
+from .test_arcgis_migrate_refresh import PARCELS, FakeRefresh, _edit_plan, _edit_state
 
 geolens = layers.geolens
 quick = layers.quick
@@ -284,3 +284,48 @@ def test_an_older_sdk_model_keeps_the_flag_as_an_extra_key():
         additional_properties = {"properties_read": True}
 
     assert property_notes([OldLayerInfo()]) == []
+
+
+def _stored(plan_file) -> dict:
+    state = json.loads((plan_file.parent / "arcgis-migration-state.json").read_text())
+    return state["items"][A2]
+
+
+@pytest.mark.parametrize("flag", [False, None, "absent"])
+@pytest.mark.parametrize("title", ["Renamed", "R" * 2100], ids=["renamed", "truncated"])
+def test_a_renamed_layer_read_later_drops_its_unknown_note(
+    runner, plan_file, geolens, flag, title
+):
+    _edit_plan(plan_file, (A2,))
+    layer = _layer(0, "Parcels", has_attachments=False)
+    if flag == "absent":
+        del layer["properties_read"]
+    else:
+        layer["properties_read"] = flag
+    service = FakeImport(geolens, [layer])
+    _migrate(runner, plan_file, "--only", A2)
+    assert len(_notes(plan_file)) == 1
+    service.layers[0].update(title=title, name=title, properties_read=True)
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 0, result.output
+    assert payload["cutover"]["marked"] is True
+    assert _notes(plan_file) == []
+    assert _stored(plan_file)["layer_notes"]["0"] == []
+
+
+def test_a_resumed_pass_saved_before_layer_notes_existed_is_unknown(
+    runner, plan_file, geolens
+):
+    _edit_plan(plan_file, (A2,))
+    FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    _migrate(runner, plan_file, "--only", A2)
+    _edit_state(plan_file, A2, layer_notes={}, notes=[], status="pending")
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["layer-property-loss"]
+    assert _notes(plan_file) == [_UNREAD]

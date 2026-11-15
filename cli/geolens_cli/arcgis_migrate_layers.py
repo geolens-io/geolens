@@ -20,7 +20,7 @@ from uuid import UUID
 
 from ._sdk_helpers import PollDeadlineExceeded, long_request_timeout, poll_until
 from .arcgis_inventory import external_by_url
-from .arcgis_layer_properties import property_notes, unread_note
+from .arcgis_layer_properties import UNREAD, property_notes, unread_note_for
 from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
@@ -522,6 +522,19 @@ def _resume_import(
     titles = _titles(
         base, [(rec["label"], rec["layer_id"]) for rec in recorded.values()]
     )
+    # A pass saved before layer notes existed never recorded whether the layer's
+    # properties were read, so each of its layers gets the unknown note.
+    for key, rec in recorded.items():
+        if key not in entry.layer_notes:
+            layer_id = rec["layer_id"]
+            label = (
+                rec["label"]
+                if layer_id is None
+                else f"{rec['label']} (layer {layer_id})"
+            )
+            note = _redacted(ctx, [unread_note_for(label)])[0][:MAX_ERROR_CHARS]
+            entry.layer_notes[key] = [note]
+            entry.import_pass["notes"] = [*entry.import_pass["notes"], note]
     for (key, _rec), title in zip(recorded.items(), titles):
         _apply_target(
             ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
@@ -534,12 +547,11 @@ def _held_notes(ctx: MigrationContext, entry: ItemState, layer: Any) -> list[str
     what this probe states."""
     fresh = _redacted(ctx, property_notes([layer]))
     kept = entry.layer_notes.get(_layer_key(layer), [])
-    unread = _redacted(ctx, [unread_note(layer)])[0]
-    if unread in fresh:
+    real = [n for n in kept if UNREAD not in n]
+    if any(UNREAD in n for n in fresh):
         # A failed read doesn't undo what an earlier one found.
-        fresh = fresh if not kept else []
-    else:
-        kept = [n for n in kept if n != unread]
+        fresh = [] if real else fresh
+    kept = real
     return [n[:MAX_ERROR_CHARS] for n in dict.fromkeys([*kept, *fresh])]
 
 

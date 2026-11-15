@@ -52,8 +52,12 @@ def _listed(names: list[str]) -> str:
 
 
 def unread_note(layer: Any) -> str:
+    return unread_note_for(_label(layer))
+
+
+def unread_note_for(label: str) -> str:
     return (
-        f"layer {_label(layer)}: its time, subtype, M-value and time field "
+        f"layer {label}: its time, subtype, M-value and time field "
         f"settings {UNREAD}, so what is {NOT_CARRIED} is unknown"
     )
 
