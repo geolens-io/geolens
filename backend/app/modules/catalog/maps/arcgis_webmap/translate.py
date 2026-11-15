@@ -514,7 +514,11 @@ def _build_top_layers(
 
 def _cap_detail(title: str) -> str:
     cut = f"left out with the map's bottom layers past {_MAX_LAYERS_PER_MAP}"
-    return f"{title}: {cut}" if title else cut
+    if not title:
+        return cut
+    # A loss detail holds 255 characters; shorten the title, never the reason.
+    room = 255 - len(": ") - len(cut)
+    return f"{title if len(title) <= room else title[: room - 1] + '…'}: {cut}"
 
 
 def translate_webmap(

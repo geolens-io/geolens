@@ -837,6 +837,18 @@ class TestLayerProperties:
             for i in range(5)
         ]
 
+    def test_a_long_title_keeps_the_cap_reason_in_the_loss_detail(self) -> None:
+        webmap = {
+            "operationalLayers": [
+                {"id": f"L{i}", "layerType": "ArcGISFeatureLayer", "title": "x" * 255}
+                for i in range(201)
+            ]
+        }
+        result = _translate(webmap, {f"L{i}": uuid.uuid4() for i in range(201)})
+        (detail,) = [i.detail for i in result.loss.items if i.kind == "layer_cap"]
+        assert len(detail) <= 255
+        assert detail.endswith(": left out with the map's bottom layers past 200")
+
     def test_a_group_cut_by_the_cap_keeps_its_upper_members(self) -> None:
         def feature(layer_id: str) -> dict:
             return {
