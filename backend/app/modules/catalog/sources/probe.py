@@ -146,6 +146,7 @@ def _build_arcgis_response(
             has_m=layer.get("has_m"),
             time_only_fields=layer.get("time_only_fields") or [],
             timestamp_offset_fields=layer.get("timestamp_offset_fields") or [],
+            properties_read=layer.get("properties_read", False),
             kind=classify_layer_kind(layer, adapter_type="arcgis"),
         )
         for layer in enriched_layers

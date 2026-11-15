@@ -109,7 +109,7 @@ async def fetch_arcgis_layer_details(
 ) -> dict[str, dict]:
     """``{layer id: {"has_attachments": bool, "relationships": [...], ...}}``
     with the properties ``_uncarried`` reads, each key present only where the
-    entry states it."""
+    entry states it; ``properties_read`` is true for every layer definition read."""
     try:
         async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
             data = await read_arcgis_json(
@@ -135,7 +135,7 @@ async def fetch_arcgis_layer_details(
             layer_id = entry.get("id") if isinstance(entry, dict) else None
             if isinstance(layer_id, bool) or not isinstance(layer_id, int | str):
                 continue
-            found: dict = {}
+            found: dict = {"properties_read": True}
             if isinstance(entry.get("hasAttachments"), bool):
                 found["has_attachments"] = entry["hasAttachments"]
             if relationships := _relationships(entry):
@@ -152,6 +152,6 @@ def apply_layer_details(layers: list[dict], details: dict[str, dict]) -> list[di
     return [
         {**layer, **details[str(layer.get("id"))]}
         if str(layer.get("id")) in details
-        else layer
+        else {**layer, "properties_read": False}
         for layer in layers
     ]

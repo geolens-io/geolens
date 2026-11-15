@@ -12530,6 +12530,11 @@ export interface components {
              */
             timestamp_offset_fields?: string[];
             /**
+             * Properties Read
+             * @description Whether the ArcGIS layer's own definition was read, so that the time, subtype, M-value and time-field properties above are the layer's. False when that read failed or left the layer out. Null for other service types.
+             */
+            properties_read?: boolean | null;
+            /**
              * Layer Id
              * @description Numeric or string layer ID used by ArcGIS services.
              */

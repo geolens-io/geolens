@@ -13169,6 +13169,18 @@
             "title": "Timestamp Offset Fields",
             "type": "array"
           },
+          "properties_read": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the ArcGIS layer's own definition was read, so that the time, subtype, M-value and time-field properties above are the layer's. False when that read failed or left the layer out. Null for other service types.",
+            "title": "Properties Read"
+          },
           "layer_id": {
             "anyOf": [
               {
