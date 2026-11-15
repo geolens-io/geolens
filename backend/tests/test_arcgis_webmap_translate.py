@@ -813,6 +813,79 @@ class TestLayerProperties:
         assert len(result.layers) == 200
         assert result.loss.summary["layer_cap"] == 5
 
+    def test_the_cap_keeps_the_top_layers_and_reports_the_bottom_ones(self) -> None:
+        count = 205
+        webmap = {
+            "operationalLayers": [
+                {"id": f"L{i}", "layerType": "ArcGISFeatureLayer", "title": f"t{i}"}
+                for i in range(count)
+            ]
+        }
+        matches = {f"L{i}": uuid.uuid4() for i in range(count)}
+        result = _translate(webmap, matches)
+        assert result.layer_sources == [f"L{i}" for i in range(count - 1, 4, -1)]
+        assert [x.sort_order for x in result.layers] == list(range(200))
+        assert [
+            (item.path, item.detail)
+            for item in result.loss.items
+            if item.kind == "layer_cap"
+        ] == [
+            (
+                f"operationalLayers[{i}]",
+                f"t{i}: left out with the map's bottom layers past 200",
+            )
+            for i in range(5)
+        ]
+
+    def test_a_long_title_keeps_the_cap_reason_in_the_loss_detail(self) -> None:
+        webmap = {
+            "operationalLayers": [
+                {"id": f"L{i}", "layerType": "ArcGISFeatureLayer", "title": "x" * 255}
+                for i in range(201)
+            ]
+        }
+        result = _translate(webmap, {f"L{i}": uuid.uuid4() for i in range(201)})
+        (detail,) = [i.detail for i in result.loss.items if i.kind == "layer_cap"]
+        assert len(detail) <= 255
+        assert detail.endswith(": left out with the map's bottom layers past 200")
+
+    def test_a_group_cut_by_the_cap_keeps_its_upper_members(self) -> None:
+        def feature(layer_id: str) -> dict:
+            return {
+                "id": layer_id,
+                "layerType": "ArcGISFeatureLayer",
+                "title": layer_id,
+            }
+
+        webmap = {
+            "operationalLayers": [
+                *(feature(f"below{i}") for i in range(3)),
+                {
+                    "id": "G",
+                    "layerType": "GroupLayer",
+                    "title": "Group",
+                    "layers": [feature(f"g{i}") for i in range(4)],
+                },
+                *(feature(f"above{i}") for i in range(198)),
+            ]
+        }
+        ids = [
+            *(f"below{i}" for i in range(3)),
+            *(f"g{i}" for i in range(4)),
+            *(f"above{i}" for i in range(198)),
+        ]
+        result = _translate(webmap, {layer_id: uuid.uuid4() for layer_id in ids})
+        assert result.layer_sources[-2:] == ["g3", "g2"]
+        for layer in result.layers[-2:]:
+            assert layer.style_config["builder"]["folder_group_id"] == "G"
+        assert [i.path for i in result.loss.items if i.kind == "layer_cap"] == [
+            "operationalLayers[0]",
+            "operationalLayers[1]",
+            "operationalLayers[2]",
+            "operationalLayers[3].layers[0]",
+            "operationalLayers[3].layers[1]",
+        ]
+
 
 class TestDefinitionExpression:
     @pytest.mark.parametrize(
