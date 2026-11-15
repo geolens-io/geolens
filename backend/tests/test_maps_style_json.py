@@ -3124,3 +3124,21 @@ def test_labels_are_emitted_above_every_layers_geometry():
     imported = {x.sort_order: x for x in parse_maplibre_style_import(style).layers}
     assert imported[1].label_config["column"] == "name"
     assert imported[0].label_config is None
+
+
+@pytest.mark.parametrize(
+    "terrain_order", [0, 1], ids=["terrain-above", "terrain-below"]
+)
+def test_a_mesh_only_terrain_layer_leaves_the_hillshade_its_raster_dem_source(
+    terrain_order,
+):
+    dem_id = uuid.uuid4()
+    hillshade = _dem_layer(dem_id, sort_order=1 - terrain_order)
+    terrain = _dem_layer(
+        dem_id, sort_order=terrain_order, style_config={"render_mode": "terrain"}
+    )
+
+    style = build_maplibre_style(_map(), [hillshade, terrain])
+
+    [shaded] = [x for x in style["layers"] if x["type"] == "hillshade"]
+    assert style["sources"][shaded["source"]]["type"] == "raster-dem"

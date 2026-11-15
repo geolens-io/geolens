@@ -1509,10 +1509,12 @@ def build_maplibre_style(
             emitted = _style_layer_for_map_layer(
                 layer, source_id, mvt_source_layer_prefix
             )
+            # A layer that draws nothing, such as a mesh-only terrain DEM,
+            # registers no source for the dataset's drawn layers to inherit.
+            new_source = None
             if source_id in sources:
                 _append_cluster_source_metadata(sources[source_id], layer)
-                new_source = None
-            else:
+            elif emitted:
                 new_source = _source_for_layer(
                     layer, api_url, app_url, shared_cols.get(source_id)
                 )
