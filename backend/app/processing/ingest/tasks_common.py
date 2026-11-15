@@ -20,6 +20,7 @@ import structlog
 
 from procrastinate import App
 
+from app.platform.source_geometry_columns import selection_fields
 from app.platform.dataset_origin import (
     CONTACTED_ORIGIN_KINDS,
     KEEP,
@@ -680,23 +681,47 @@ async def _detect_and_override_geometry(
 
     ``renamed_columns`` is what ``rename_reserved_columns`` returned: a column
     the user picked may have moved to ``src_<name>`` since the preview, and the
-    override must read it under its new name.
+    override must read it under its new name. A picked name is read as the
+    loader stored it; one the table lacks raises the coded
+    ``geometry_columns_not_found`` refusal.
 
     Callers are responsible for importing the file as non-spatial (see the
     ``ogr_geometry_type = None if user_wants_geom else ...`` branch in
     ``ingest_file``) before invoking this helper.
     """
+    from sqlalchemy import text as _text
+
+    from app.core import geometry_build_errors
+    from app.platform.column_names import laundered_column_name
     from app.processing.ingest.metadata import _qtable
 
     moved = {r["original"]: r["renamed"] for r in renamed_columns or []}
 
     def _chosen(key: str) -> str | None:
-        name = (user_metadata.get(key) or "").lower()
+        name = laundered_column_name(user_metadata.get(key) or "")
         return moved.get(name, name) or None
 
     x_column = _chosen("x_column")
     y_column = _chosen("y_column")
     geom_column = _chosen("geom_column")
+
+    if not (x_column and y_column) and not geom_column:
+        return None
+    used = ("x_column", "y_column") if x_column and y_column else ("geom_column",)
+    stored = set(
+        (
+            await session.execute(
+                _text(
+                    "SELECT attname FROM pg_attribute WHERE attrelid = "
+                    "to_regclass(:table) AND attnum > 0 AND NOT attisdropped"
+                ),
+                {"table": _qtable(table_name, schema=_current_tenant_schema())},
+            )
+        ).scalars()
+    )
+    missing = [user_metadata[key] for key in used if _chosen(key) not in stored]
+    if missing:
+        raise geometry_build_errors.columns_not_found(missing)
 
     if x_column and y_column:
         from app.processing.ingest.metadata import construct_point_geometry
@@ -712,8 +737,6 @@ async def _detect_and_override_geometry(
         return "Point"
 
     if geom_column:
-        from sqlalchemy import text as _text
-
         from app.processing.ingest.metadata import construct_wkt_geometry
 
         await construct_wkt_geometry(
@@ -1397,6 +1420,7 @@ async def _write_reupload_catalog(
         file_hash=file_hash,
         original_srid=original_srid,
         column_info=dataset.column_info,
+        geometry_columns=selection_fields(binding.ref),
         is_3d=measurement.three_d.get("is_3d"),
         n_dims=measurement.three_d.get("n_dims"),
         uploaded_by=actor_id,

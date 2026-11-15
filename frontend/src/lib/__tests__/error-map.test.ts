@@ -303,6 +303,19 @@ describe('API error localization boundary', () => {
     ).toEqual({ key: 'errors.reuploadGeometryLoss' });
   });
 
+  it('names the columns a re-upload lacks for the geometry it rebuilds', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'geometry_columns_missing',
+          message: 'Some future wording of the same refusal.',
+          columns: 'lat',
+        },
+        422,
+      ),
+    ).toEqual({ key: 'errors.reuploadGeometryColumnsMissing', values: { columns: 'lat' } });
+  });
+
   // A plain 422 detail string, so without the matcher it lands on
   // the generic "values are invalid" and the code the user typed is lost.
   it('maps the commit doors srid_override refusal and keeps the code', () => {
