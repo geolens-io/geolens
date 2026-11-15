@@ -489,6 +489,42 @@ def test_public_is_internal_under_the_policy_for_a_non_admin_owner(
     assert any("restrict_public_visibility" in n for n in payload["items"][0]["notes"])
 
 
+def test_a_pending_commit_settled_first_takes_the_policys_visibility(
+    runner, tmp_path, team
+):
+    service = _service(team)
+    team.routes["GET /settings/feature-flags/"] = {"restrict_public_visibility": True}
+    plan_file = _write(tmp_path, members=[])
+    plan = json.loads(plan_file.read_text())
+    plan["owner_map"]["gis_admin"] = "bob"
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["visibility"] = "public"
+    plan_file.write_text(json.dumps(plan))
+    # The first commit is lost, leaving its previewed job pending.
+    service.commit = lambda seen, name: (500, _problem(500, "lost"))
+    assert _run(runner, plan_file)[0].exit_code != 0
+    [pending] = _state(plan_file)["items"][A2]["layer_jobs"].values()
+    del service.commit
+    parcels = DATASETS[0]
+    # The item's own write then fails, after the pass that settles the job.
+    team.routes[f"PATCH /datasets/{parcels}"] = (500, _problem(500, "boom"))
+    service.bodies("POST /ingest/commit/").clear()
+    start = len(team.seen)
+
+    _run(runner, plan_file)
+
+    [commit] = [
+        s.json()
+        for s in team.seen[start:]
+        if s.method == "POST" and s.url.endswith(f"/ingest/commit/{pending}")
+    ]
+    assert commit["visibility"] == "internal"
+    assert commit["title"] == "Parcels (public view) - Parcels"
+    assert _state(plan_file)["items"][A2]["status"] == "failed"
+    assert service.dataset(parcels, OPERATOR)["visibility"] == "internal"
+
+
 def test_cutover_counts_groups_a_non_admin_inventory_may_have_missed(
     runner, tmp_path, team
 ):
@@ -1025,7 +1061,11 @@ def test_a_share_reads_the_grants_again_right_before_writing(monkeypatch):
         call=lambda fn, **kwargs: sent.append(kwargs["body"].to_dict())
     )
     ctx = SimpleNamespace(
-        geolens=geolens, save=lambda: None, operator_id=OPERATOR, sharing=None
+        shared_layers=None,
+        geolens=geolens,
+        save=lambda: None,
+        operator_id=OPERATOR,
+        sharing=None,
     )
     entry = ItemState(dataset_ids=[DATASETS[0]])
 
@@ -1122,7 +1162,11 @@ def test_a_dataset_share_follows_the_target_and_keeps_geolens_grants(
         call=lambda fn, **kwargs: puts.append(kwargs["body"].to_dict()["group_ids"])
     )
     ctx = SimpleNamespace(
-        geolens=geolens, save=lambda: None, operator_id=OPERATOR, sharing=None
+        shared_layers=None,
+        geolens=geolens,
+        save=lambda: None,
+        operator_id=OPERATOR,
+        sharing=None,
     )
     ds = DATASETS[0]
     entry = ItemState(
@@ -1170,6 +1214,7 @@ def test_a_dataset_share_never_makes_a_private_dataset_restricted_off_plan(
     )
     puts: list[list[str]] = []
     ctx = SimpleNamespace(
+        shared_layers=None,
         geolens=SimpleNamespace(
             call=lambda fn, **kw: puts.append(kw["body"].to_dict()["group_ids"])
         ),
@@ -1208,6 +1253,7 @@ def test_a_dataset_group_removed_in_geolens_and_shared_again_is_theirs(monkeypat
     )
     puts: list = []
     ctx = SimpleNamespace(
+        shared_layers=None,
         geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
         save=lambda: None,
         operator_id=OPERATOR,
@@ -1327,6 +1373,7 @@ def test_a_dataset_changed_between_its_two_reads_isnt_shared(monkeypatch):
     monkeypatch.setattr(refresh, "changed_in_geolens", lambda *args: None)
     puts: list = []
     ctx = SimpleNamespace(
+        shared_layers=None,
         geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
         save=lambda: None,
         operator_id=OPERATOR,
@@ -1386,6 +1433,7 @@ def _map_ctx(monkeypatch, found, after=None, *, answers=True):
 
     monkeypatch.setattr(webmaps, "get_map", lambda geolens, map_id: reads["map"])
     ctx = SimpleNamespace(
+        shared_layers=None,
         geolens=SimpleNamespace(write=write, call=write),
         save=lambda: None,
         operator_id=OPERATOR,
@@ -1650,6 +1698,7 @@ def test_a_map_changed_after_the_check_isnt_written(monkeypatch):
     monkeypatch.setattr(webmaps, "get_map", lambda geolens, map_id: next(reads))
     puts: list = []
     ctx = SimpleNamespace(
+        shared_layers=None,
         geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
         save=lambda: None,
     )
@@ -1942,7 +1991,7 @@ def test_members_a_v3_state_added_are_reported_once_and_kept(
     assert api.removed == []
     [warning] = [w for w in payload["group_warnings"] if "check them by hand" in w]
     assert "bob" in warning
-    assert _state(plan_file)["schema_version"] == "6"
+    assert _state(plan_file)["schema_version"] == "7"
 
     # A later run that reads the members neither warns again nor removes bob.
     _members_next_run(plan_file, [])
