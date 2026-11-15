@@ -25,6 +25,7 @@ from .arcgis_migrate_session import (
     ItemFailed,
     MigrationContext,
     refuse_credentials,
+    writable,
 )
 from .arcgis_migrate_state import ItemState
 
@@ -193,7 +194,8 @@ def file_into_collections(
             ]
         return []
     names = list(dict.fromkeys(n for n in target["collections"] if n))
-    if ctx.collection_from != FOLDER or not names or not entry.dataset_ids:
+    datasets = writable(ctx, entry, entry.dataset_ids)
+    if ctx.collection_from != FOLDER or not names or not datasets:
         return []
     if ctx.collections_denied:
         return [DENIED]
@@ -203,7 +205,7 @@ def file_into_collections(
             if collection_id is None:
                 ctx.collections_denied = True
                 return [DENIED]
-            _add(ctx, collection_id, entry.dataset_ids)
+            _add(ctx, collection_id, datasets)
             if collection_id not in entry.collection_ids:
                 entry.collection_ids.append(collection_id)
     except GeoLensError as exc:

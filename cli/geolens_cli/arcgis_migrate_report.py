@@ -106,7 +106,7 @@ def _follow_ups(
                 "parts of the web map were not carried over; see "
                 + entry.loss_report_path,
             )
-        made = entry is not None and (entry.dataset_ids or entry.map_id)
+        made = entry is not None and (entry.dataset_ids or entry.shared or entry.map_id)
         if item.get("removed"):
             add(
                 item["id"],
