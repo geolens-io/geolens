@@ -60,6 +60,7 @@ from app.processing.ingest.publication import (
 from app.platform.storage.remote_quicklook import (
     discard_remote_quicklooks,
     draw_remote_quicklooks,
+    stretch_is_known,
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
@@ -484,14 +485,14 @@ async def _point_at_quicklooks(
     return tuple(key for key in previous if key is not None)
 
 
-async def _repair_remote_nodata(
-    session: Any, dataset_uuid: uuid.UUID, nodata: str
+async def _repair_remote_header(
+    session: Any, dataset_uuid: uuid.UUID, repaired: dict[str, Any]
 ) -> None:
-    """Backfill nodata alone, for the asset ``fetch()`` did not re-describe.
+    """Backfill missing nodata, band count and dtype for an unmoved asset.
 
-    Scoped like ``_repoint_remote_asset``: a remote row only. Every other
-    structural column is left as it was: an unmoved asset was not
-    re-probed for anything else.
+    Scoped like ``_repoint_remote_asset``: a remote row only. A stored value
+    is never overwritten, and every other structural column is left as it
+    was: an unmoved asset was not re-probed for anything else.
     """
     from app.processing.raster.models import RasterAsset
 
@@ -501,7 +502,12 @@ async def _repair_remote_nodata(
             RasterAsset.dataset_id == dataset_uuid,
             RasterAsset.storage_backend == "remote",
         )
-        .values(nodata=nodata)
+        .values(
+            **{
+                column: func.coalesce(getattr(RasterAsset, column), value)
+                for column, value in repaired.items()
+            }
+        )
     )
 
 
@@ -571,6 +577,8 @@ class _StacRefresh:
         # Quicklooks this attempt stored. The commit that names them owes the
         # deletion of what they replaced; release() deletes them if none does.
         self.drawn: tuple[str, str] | None = None
+        self.fill: dict[str, Any] = {}
+        self.redraw = False
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.bound = bound_pointer(dataset)
@@ -595,7 +603,11 @@ class _StacRefresh:
         # Read in its own short session, closed before the write step takes
         # any catalog lock.
         stored = await _stored_remote_raster(self.dataset_id)
-        repair_nodata = stored is None or stored.nodata is None
+        repair_nodata = stored is None or None in (
+            stored.nodata,
+            stored.band_count,
+            stored.dtype,
+        )
         self.resolution = await get_processing_port().resolve_stac_binding(
             item_href=self.item_href,
             item_id=self.item_id,
@@ -613,16 +625,44 @@ class _StacRefresh:
         # A moved asset is drawn from its new description, an unmoved one
         # without quicklooks from the stored one; a failed draw changes nothing.
         moved = self.resolution.asset_href != self.asset_href
+        self.fill = {}
+        if stored is not None and not moved:
+            reported = {
+                "nodata": self.resolution.repaired_nodata,
+                "band_count": self.resolution.repaired_band_count,
+                "dtype": self.resolution.repaired_dtype,
+            }
+            self.fill = {
+                column: value
+                for column, value in reported.items()
+                if value is not None and getattr(stored, column) is None
+            }
+        # Band count and dtype set the draw's band and stretch, so filling
+        # either redraws images made without them, unless the stretch would
+        # clip the data without statistics.
+        self.redraw = False
+        if stored is not None and not moved and self.reshaped:
+            self.redraw = stretch_is_known({**stored._mapping, **self.fill})
         if stored is not None and (
             moved
             or stored.quicklook_256_uri is None
             or stored.quicklook_512_uri is None
+            or self.redraw
         ):
-            described = self.resolution.asset_metadata if moved else stored._mapping
+            described = (
+                self.resolution.asset_metadata
+                if moved
+                else {**stored._mapping, **self.fill}
+            )
             drawn = await draw_remote_quicklooks(
                 {self.dataset_id: (self.resolution.asset_href, described or {})}
             )
             self.drawn = drawn.get(self.dataset_id)
+
+    @property
+    def reshaped(self) -> bool:
+        """Whether this refresh filled band count or dtype, which quicklooks and the embedding read."""
+        return bool({"band_count", "dtype"} & self.fill.keys())
 
     async def stage(self, session, job, dataset) -> Verdict:
         return PUBLISH
@@ -700,14 +740,16 @@ class _StacRefresh:
                 dataset.record.spatial_extent = func.ST_GeomFromText(
                     bbox_to_extent_wkt(west, south, east, north), 4326
                 )
-        elif resolution.repaired_nodata is not None:
-            # The one column fetch() asked to have repaired, for an asset
-            # not re-described above.
-            await _repair_remote_nodata(session, dataset.id, resolution.repaired_nodata)
+        elif self.fill:
+            # The columns fetch() found missing and the read supplied, for an
+            # asset not re-described above.
+            await _repair_remote_header(session, dataset.id, self.fill)
         # A moved asset that could not be drawn loses the old images, so the
         # next refresh draws it rather than showing the previous raster.
         superseded: tuple[str, ...] = ()
-        if self.drawn is not None or moved:
+        # A redraw that failed drops the images drawn without the filled
+        # header, so the next refresh draws them.
+        if self.drawn is not None or moved or self.redraw:
             replaced = await _point_at_quicklooks(session, dataset.id, self.drawn)
             superseded = (self.drawn or ()) if replaced is None else replaced
         # Unconditional: an unchanged answer rewrites the same values, and a
@@ -727,15 +769,15 @@ class _StacRefresh:
         # or not anything moved.
         dataset.last_refreshed_at = datetime.now(timezone.utc)
         # A moved asset changes the tiles and the embedding's inputs; a
-        # repaired nodata alone changes only what a tile renders, so it
+        # repaired header columns change only what a tile renders, so it
         # bumps the tile version without asking for a re-embed.
         return Published(
             dataset_version_id=None,
             feature_count=None,
             schema_diff=None,
             contacted_origin=True,
-            tiles_changed=moved or resolution.repaired_nodata is not None,
-            reembed=moved,
+            tiles_changed=moved or bool(self.fill),
+            reembed=moved or self.reshaped,
             superseded_keys=superseded,
         )
 
