@@ -63,6 +63,8 @@ _TOKEN_STATUSES = (498, 499)
 _MAX_MATCHES = 1000
 # The layer types the server translates; its translator is the source.
 _FEATURE_LAYER_TYPES = ("ArcGISFeatureLayer", "FeatureLayer")
+# How many groups deep the server's translator reads; it skips deeper groups.
+_MAX_GROUP_DEPTH = 16
 _THUMBNAIL_TYPES = {b"\x89PNG\r\n\x1a\n": "image/png", b"\xff\xd8\xff": "image/jpeg"}
 # The most image bytes whose data URI fits ThumbnailUploadRequest.data_uri's
 # max_length of 100,000 characters.
@@ -101,9 +103,9 @@ _LOSS_NOTE = re.compile(rf"\d+ ({re.escape(_UNMATCHED_NOTE)}|{re.escape(_LOST_NO
 
 
 def _walk(layers: Any) -> list[Mapping[str, Any]]:
-    """Operational layers in the order the server reads them: depth first,
-    group members in place of their group. Entries that aren't objects are
-    skipped."""
+    """Operational layers the server reads, in its order: depth first, group
+    members in place of their group. Entries that aren't objects, and groups
+    nested deeper than the server reads, are skipped."""
     found: list[Mapping[str, Any]] = []
     stack = [iter(layers if isinstance(layers, list) else [])]
     while stack:
@@ -111,6 +113,8 @@ def _walk(layers: Any) -> list[Mapping[str, Any]]:
             if not isinstance(layer, dict):
                 continue
             if layer.get("layerType") == "GroupLayer":
+                if len(stack) > _MAX_GROUP_DEPTH:
+                    continue
                 members = layer.get("layers")
                 stack.append(iter(members if isinstance(members, list) else []))
                 break
@@ -188,9 +192,12 @@ def _sourced_layers(
 
 def match_datasets(ctx: MigrationContext, webmap: Mapping[str, Any]) -> dict[str, str]:
     """Operational layer id -> dataset id, for the layers whose item the run
-    imported."""
+    imported, at most the server's limit counted from the top of the web map,
+    whose top layers the server keeps."""
     matches: dict[str, str] = {}
-    for layer_id, layer, aliased, _, source in _sourced_layers(ctx, webmap):
+    for layer_id, layer, aliased, _, source in reversed(
+        list(_sourced_layers(ctx, webmap))
+    ):
         if len(matches) >= _MAX_MATCHES:
             break
         if source is None or source.status not in FINISHED:
