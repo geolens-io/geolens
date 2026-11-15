@@ -152,6 +152,15 @@ _MAX_LAYERS_PER_MAP = 200
 # Highest draw order a layer may hold; the input schemas and the server-side
 # append both enforce it.
 _MAX_SORT_ORDER = 32767
+
+
+def check_sort_order(order: int) -> int:
+    """Return a server-allocated draw order, refusing one past the maximum."""
+    if order > _MAX_SORT_ORDER:
+        raise ValueError(f"Layer order exceeds maximum {_MAX_SORT_ORDER}")
+    return order
+
+
 # How many style-import warnings the summary reports individually before it
 # starts counting instead.
 _MAX_IMPORT_WARNINGS = 100
