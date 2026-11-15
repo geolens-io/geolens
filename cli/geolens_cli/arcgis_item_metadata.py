@@ -22,6 +22,7 @@ from .arcgis_migrate_session import (
     ItemFailed,
     MigrationContext,
     refuse_credentials,
+    writable,
 )
 from .arcgis_migrate_state import ItemState
 
@@ -256,7 +257,11 @@ def apply_item_metadata(
     from geolens.models.dataset_meta import DatasetMeta
 
     row = ctx.inventory.get(item["id"])
-    ids = [d for d in entry.dataset_ids if datasets is None or d in datasets]
+    ids = [
+        d
+        for d in writable(ctx, entry, entry.dataset_ids)
+        if datasets is None or d in datasets
+    ]
     if row is None or not ids:
         return
     fields = item_metadata(row, item["target"], ctx.portal_info)
@@ -286,9 +291,10 @@ def apply_item_metadata(
                 if action == "write":
                     meta[name] = value or None
                 elif action == "keep":
-                    entry.notes.append(
+                    _note(
+                        entry,
                         f"kept the {name.replace('_', ' ')} edited in GeoLens on "
-                        f"dataset {dataset_id}"
+                        f"dataset {dataset_id}",
                     )
                 if claim:
                     baseline[name] = value
@@ -315,13 +321,21 @@ def apply_item_metadata(
                 keywords,
                 entry.metadata_baseline[dataset_id]["keywords"],
             )
-            entry.notes.extend(
-                f"kept the removal of keyword {word!r} on dataset {dataset_id}"
-                for word in kept
-            )
+            for word in kept:
+                _note(
+                    entry,
+                    f"kept the removal of keyword {word!r} on dataset {dataset_id}",
+                )
     except GeoLensError as exc:
         raise ItemFailed(f"writing the item metadata failed, {exc}") from None
     ctx.save()
+
+
+def _note(entry: ItemState, note: str) -> None:
+    """Add *note* once: a rerun's refresh writes the metadata again into the
+    notes the item already has."""
+    if note not in entry.notes:
+        entry.notes.append(note)
 
 
 def _plan_keywords(

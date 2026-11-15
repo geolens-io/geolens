@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Any
 
 from ._sdk_helpers import call_sdk_with_reauth, detail_text
+from . import arcgis_migrate_shared as _shared
 from .arcgis_migrate_state import DONE
 from .arcgis_portal import (
     PortalClient,
@@ -250,6 +251,12 @@ class MigrationContext:
     # A skipped hosted view's item id -> the parent item whose datasets stand
     # in for it, from the plan's alias_of.
     aliases: dict[str, str] = field(default_factory=dict)
+    # (item id, service URL) -> its probe, read once a run: the pass that
+    # settles pending jobs and the item's import share it.
+    probes: dict[tuple[str, str], Any] = field(default_factory=dict)
+    # Which plan item owns each service layer several items import
+    # (arcgis_migrate_shared.SharedLayers); None when nothing is shared.
+    shared_layers: Any = None
     portal_root: str = ""
     redact: Callable[[str], str] = str
     # The GeoLens operator's user id, whose writes a rerun recognises as its own.
@@ -268,6 +275,17 @@ class MigrationContext:
     server_version: str | None = None
     sleep: Callable[[float], None] = time.sleep
     clock: Callable[[], float] = time.monotonic
+
+
+def write_refusal(ctx: MigrationContext, entry: Any, dataset: str) -> str | None:
+    """Why the item whose state is *entry* may not write *dataset* now, or
+    None (arcgis_migrate_shared.may_write); every dataset writer asks it."""
+    return _shared.may_write(ctx, entry, dataset)
+
+
+def writable(ctx: MigrationContext, entry: Any, datasets: Any) -> list[str]:
+    """Those of *datasets* the item whose state is *entry* may write now."""
+    return [d for d in datasets if write_refusal(ctx, entry, d) is None]
 
 
 def outgoing_secret(

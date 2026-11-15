@@ -43,6 +43,7 @@ from .arcgis_migrate_layers import (
     _layer_label,
     _redacted,
     _send,
+    _shared_notes,
     _title,
     _titles,
     attachment_flags,
@@ -54,6 +55,7 @@ from .arcgis_migrate_session import (
     ItemFailed,
     MigrationContext,
     refuse_credentials,
+    write_refusal,
 )
 from .arcgis_migrate_state import ItemState, aware_time, whole_number
 from .arcgis_plan import IMPORT_FILE
@@ -501,9 +503,13 @@ def refresh_layers(
         "isn't migrated"
         for layer in wanted
         if _layer_key(layer) not in entry.layer_datasets
+        and _layer_key(layer) not in entry.shared
     ]
-    return added + _bring_each(
-        ctx, item, entry, partial(_start_refresh, ctx, row, entry)
+    _notes, gone = _shared_notes(ctx, item, entry)
+    return (
+        added
+        + gone
+        + _bring_each(ctx, item, entry, partial(_start_refresh, ctx, row, entry))
     )
 
 
@@ -740,10 +746,14 @@ def _dataset_titles(item: Mapping[str, Any], entry: ItemState) -> dict[str, str]
             for key, dataset in entry.layer_datasets.items()
         }
     recorded = (entry.import_pass or {}).get("layers") or {}
-    if not recorded or set(recorded) != set(entry.layer_datasets):
+    if not recorded or set(recorded) != {*entry.layer_datasets, *entry.shared}:
         return {}
     titles = _titles(base, [(r["label"], r["layer_id"]) for r in recorded.values()])
-    return {entry.layer_datasets[key]: t for key, t in zip(recorded, titles)}
+    return {
+        entry.layer_datasets[key]: t
+        for key, t in zip(recorded, titles)
+        if key in entry.layer_datasets
+    }
 
 
 def _apply_visibility(
@@ -809,6 +819,9 @@ def _bring_each(
 ) -> list[str]:
     problems = []
     for dataset_id in dict.fromkeys(entry.layer_datasets.values()):
+        if refused := write_refusal(ctx, entry, dataset_id):
+            problems.append(refused)
+            continue
         try:
             problem = _bring_one(ctx, item, entry, dataset_id, start)
         except (ItemFailed, GeoLensError) as exc:
