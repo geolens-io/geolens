@@ -1112,3 +1112,24 @@ def test_a_borrowed_layer_leaves_its_properties_to_the_owning_item(
     items = _run(runner, plan_file, A1, A2)
 
     assert _unknown(items[hosted]) == [] and _unknown(items[by_url]) == []
+
+
+def test_a_resumed_borrower_gets_no_unknown_note_for_a_layer_it_borrows(
+    runner, tmp_path, geolens
+):
+    service, collections, plan_file, hosted, by_url = _fresh(
+        tmp_path, geolens, url_first=True, hosted_access="public"
+    )
+    _run(runner, plan_file, A1, A2)
+    state_path = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(state_path.read_text())
+    borrower = state["items"][by_url]
+    borrower.update(layer_notes={}, layers_unread={}, status="pending")
+    state_path.write_text(json.dumps(state))
+    FakeRefresh(geolens, service).allow(PARCELS, OWNERS)
+
+    items = _run(runner, plan_file, A1, A2)
+
+    assert _unknown(items[by_url]) == []
+    assert items[by_url]["layers_unread"] == {}
+    assert _unknown(items[hosted]) == []

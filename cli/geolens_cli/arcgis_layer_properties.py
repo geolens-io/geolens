@@ -9,6 +9,7 @@ names the layer, what was not carried over and what arrived instead.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 # Every note below contains it; the report lists such notes as follow-ups.
@@ -25,17 +26,19 @@ def _names(value: Any) -> list[str]:
     )
 
 
-def label_for(name: str, layer_id: Any) -> str:
+def label_for(name: str, layer_id: Any, redact: Callable[[str], str] = str) -> str:
     """The layer's name, cut short so a note's explanation survives the state's
     length cap, and its id, since two layers of a service may share a name."""
+    # Redacted whole first: a secret cut in half no longer matches.
+    name = redact(name)
     name = name if len(name) <= MAX_LABEL else f"{name[:MAX_LABEL]}..."
     return name if layer_id is None else f"{name} (layer {layer_id})"
 
 
-def _label(layer: Any) -> str:
+def _label(layer: Any, redact: Callable[[str], str] = str) -> str:
     title = getattr(layer, "title", None)
     name = title if isinstance(title, str) and title else str(layer.name)
-    return label_for(name, getattr(layer, "layer_id", None))
+    return label_for(name, getattr(layer, "layer_id", None), redact)
 
 
 def unread(layer: Any) -> bool:
@@ -62,8 +65,8 @@ def _listed(names: list[str]) -> str:
     return f"{shown} and {more} more" if more > 0 else shown
 
 
-def unread_note(layer: Any) -> str:
-    return unread_note_for(_label(layer))
+def unread_note(layer: Any, redact: Callable[[str], str] = str) -> str:
+    return unread_note_for(_label(layer, redact))
 
 
 def unread_note_for(label: str) -> str:
@@ -73,14 +76,14 @@ def unread_note_for(label: str) -> str:
     )
 
 
-def property_notes(layers: Any) -> list[str]:
+def property_notes(layers: Any, redact: Callable[[str], str] = str) -> list[str]:
     """One note per property each layer whose properties were read has that an
     import drops."""
     notes: list[str] = []
     for layer in layers:
         if unread(layer):
             continue
-        label = _label(layer)
+        label = _label(layer, redact)
         time_fields = _get(layer, "time_fields")
         if isinstance(time_fields, list):
             on = _names(time_fields)

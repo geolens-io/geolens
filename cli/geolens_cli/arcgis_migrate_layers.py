@@ -670,8 +670,8 @@ def _resume_import(
     # A pass saved before layer notes existed never recorded whether the layer's
     # properties were read, so each of its layers gets the unknown note.
     for key, rec in recorded.items():
-        if key not in entry.layer_notes:
-            label = label_for(rec["label"], rec["layer_id"])
+        if key not in entry.layer_notes and key not in entry.shared:
+            label = label_for(rec["label"], rec["layer_id"], ctx.redact)
             note = _redacted(ctx, [unread_note_for(label)])[0][:MAX_ERROR_CHARS]
             entry.layer_notes[key] = []
             entry.layers_unread[key] = [note]
@@ -697,13 +697,13 @@ def layer_report(ctx: MigrationContext, entry: ItemState, layer: Any) -> list[st
     key = _layer_key(layer)
     real = list(entry.layer_notes.get(key, []))
     if not unread(layer):
-        real += _redacted(ctx, property_notes([layer]))
+        real += _redacted(ctx, property_notes([layer], ctx.redact))
         entry.layers_unread.pop(key, None)
     real = [n[:MAX_ERROR_CHARS] for n in dict.fromkeys(real)]
     entry.layer_notes[key] = real
     if unread(layer) and not real:
         entry.layers_unread[key] = [
-            _redacted(ctx, [unread_note(layer)])[0][:MAX_ERROR_CHARS]
+            _redacted(ctx, [unread_note(layer, ctx.redact)])[0][:MAX_ERROR_CHARS]
         ]
     return [*real, *entry.layers_unread.get(key, [])]
 

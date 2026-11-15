@@ -380,3 +380,36 @@ def test_a_long_label_on_an_unread_layer_is_cleared_by_a_clean_read(
 
     assert _stored(plan_file)["layers_unread"] == {}
     assert [n for n in _stored(plan_file)["notes"] if "unknown" in n] == []
+
+
+@pytest.mark.parametrize("unread", [False, True], ids=["known_loss", "unread"])
+def test_a_secret_crossing_the_label_cut_is_not_stored_in_a_refresh_note(
+    runner, plan_file, geolens, unread
+):
+    import secrets
+
+    secret = secrets.token_urlsafe(24)
+    service = FakeImport(
+        geolens,
+        [_layer(0, "Parcels", properties_read=not unread, has_attachments=False)],
+    )
+    args = ("--only", A2, "--token", secret)
+    _migrate(runner, plan_file, *args)
+    # The refresh reads the layer under a title holding the secret, which the
+    # import-time credential check never sees.
+    service.layers[0]["title"] = "A" * 70 + secret
+    if not unread:
+        service.layers[0]["has_m"] = True
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    _migrate(runner, plan_file, *args)
+    cutover, _ = _migrate(runner, plan_file, "--cutover", "--token", secret)
+
+    texts = [
+        p.read_text()
+        for p in plan_file.parent.iterdir()
+        if p.name.startswith("arcgis-migration-")
+    ]
+    texts.append(cutover.output)
+    assert any("(layer 0)" in t for t in texts)
+    assert not any(secret[:4] in t for t in texts)
