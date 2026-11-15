@@ -9,11 +9,13 @@ names the layer, what was not carried over and what arrived instead.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Any
 
 # Every note below contains it; the report lists such notes as follow-ups.
 NOT_CARRIED = "not carried over"
 MAX_LISTED = 8
+MAX_LABEL = 80
 
 
 def _names(value: Any) -> list[str]:
@@ -24,12 +26,25 @@ def _names(value: Any) -> list[str]:
     )
 
 
-def _label(layer: Any) -> str:
+def label_for(name: str, layer_id: Any, redact: Callable[[str], str] = str) -> str:
+    """The layer's name, cut short so a note's explanation survives the state's
+    length cap, and its id, since two layers of a service may share a name."""
+    # Redacted whole first: a secret cut in half no longer matches.
+    name = redact(name)
+    name = name if len(name) <= MAX_LABEL else f"{name[:MAX_LABEL]}..."
+    return name if layer_id is None else f"{name} (layer {layer_id})"
+
+
+def _label(layer: Any, redact: Callable[[str], str] = str) -> str:
     title = getattr(layer, "title", None)
     name = title if isinstance(title, str) and title else str(layer.name)
-    # Two layers of a service may share a name; their notes must stay apart.
-    layer_id = getattr(layer, "layer_id", None)
-    return name if layer_id is None else f"{name} (layer {layer_id})"
+    return label_for(name, getattr(layer, "layer_id", None), redact)
+
+
+def unread(layer: Any) -> bool:
+    """Whether the probe didn't read the layer's own properties (an older
+    server sends no flag)."""
+    return _get(layer, "properties_read") is not True
 
 
 def _get(layer: Any, key: str) -> Any:
@@ -50,11 +65,25 @@ def _listed(names: list[str]) -> str:
     return f"{shown} and {more} more" if more > 0 else shown
 
 
-def property_notes(layers: Any) -> list[str]:
-    """One note per property each probed layer has that an import drops."""
+def unread_note(layer: Any, redact: Callable[[str], str] = str) -> str:
+    return unread_note_for(_label(layer, redact))
+
+
+def unread_note_for(label: str) -> str:
+    return (
+        f"layer {label}: its time, subtype, M-value and time field settings "
+        f"could not be read, so what is {NOT_CARRIED} is unknown"
+    )
+
+
+def property_notes(layers: Any, redact: Callable[[str], str] = str) -> list[str]:
+    """One note per property each layer whose properties were read has that an
+    import drops."""
     notes: list[str] = []
     for layer in layers:
-        label = _label(layer)
+        if unread(layer):
+            continue
+        label = _label(layer, redact)
         time_fields = _get(layer, "time_fields")
         if isinstance(time_fields, list):
             on = _names(time_fields)
@@ -92,6 +121,10 @@ def property_notes(layers: Any) -> list[str]:
 def recorded_notes(entry: Any) -> list[str]:
     """The loss notes of an item: those in its notes and those kept for each
     layer it imported, which an item that failed on another layer still has."""
-    held = [n for key in entry.layer_datasets for n in entry.layer_notes.get(key, [])]
+    held = [
+        n
+        for key in entry.layer_datasets
+        for n in (*entry.layer_notes.get(key, []), *entry.layers_unread.get(key, []))
+    ]
     own = [n for n in entry.notes if n.startswith("layer ") and NOT_CARRIED in n]
     return list(dict.fromkeys([*own, *held]))

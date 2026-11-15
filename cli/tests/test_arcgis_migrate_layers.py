@@ -45,6 +45,7 @@ def _layer(layer_id: int, name: str, kind: str = "Feature Layer", **extra: Any) 
         "layer_type": "table" if kind == "Table" else "layer",
         "importable": kind in ("Feature Layer", "Table"),
         "object_id_field": "OBJECTID",
+        "properties_read": True,
         **extra,
     }
 
@@ -2379,18 +2380,17 @@ def test_a_refusal_on_an_earlier_service_does_not_hide_the_new_services_layer(
     assert webmaps._unimported(ctx, webmap, {}) == ["root"]
 
 
+@pytest.mark.parametrize("read", [True, None], ids=["read", "unread"])
 def test_a_refused_layer_reports_no_property_as_carried_over(
-    runner, plan_file, geolens
+    runner, plan_file, geolens, read
 ):
-    service = FakeImport(
-        geolens, [_layer(0, "Parcels"), _layer(1, "Buildings", has_m=True)]
-    )
+    buildings = _layer(1, "Buildings", has_m=True, properties_read=read)
+    service = FakeImport(geolens, [_layer(0, "Parcels"), buildings])
     _refuse_preview(geolens, service, "Buildings", MULTIPATCH)
 
     result, _ = _migrate(runner, plan_file, "--only", A2)
 
     assert result.exit_code == 0, result.output
     entry = _state(plan_file)["items"][A2]
-    assert MULTIPATCH_NOTE in entry["notes"]
-    assert not [n for n in entry["notes"] if "M values" in n]
-    assert "1" not in entry["layer_notes"]
+    assert [n for n in entry["notes"] if "Buildings" in n] == [MULTIPATCH_NOTE]
+    assert "1" not in entry["layer_notes"] and "1" not in entry["layers_unread"]

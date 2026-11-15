@@ -20,7 +20,13 @@ from uuid import UUID
 
 from ._sdk_helpers import PollDeadlineExceeded, long_request_timeout, poll_until
 from .arcgis_inventory import external_by_url
-from .arcgis_layer_properties import property_notes
+from .arcgis_layer_properties import (
+    property_notes,
+    unread,
+    unread_note,
+    unread_note_for,
+    label_for,
+)
 from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
@@ -686,6 +692,15 @@ def _resume_import(
     visibility = item["target"]["visibility"]
     if not recorded:
         return ItemResult(notes=[*entry.import_pass["notes"], _NO_LAYER_NOTE])
+    # A pass saved before layer notes existed never recorded whether the layer's
+    # properties were read, so each of its layers gets the unknown note.
+    for key, rec in recorded.items():
+        if key not in entry.layer_notes and key not in entry.shared:
+            label = label_for(rec["label"], rec["layer_id"], ctx.redact)
+            note = _redacted(ctx, [unread_note_for(label)])[0][:MAX_ERROR_CHARS]
+            entry.layer_notes[key] = []
+            entry.layers_unread[key] = [note]
+            entry.import_pass["notes"] = [*entry.import_pass["notes"], note]
     for key, title in recorded_titles(base, entry, entry.service_url).items():
         if key in entry.layer_datasets:
             _apply_target(
@@ -722,12 +737,22 @@ def recorded_titles(base: str, entry: ItemState, url: str | None) -> dict[str, s
     return {key: title for key, title in zip(named, titles) if key in recorded}
 
 
-def _held_notes(ctx: MigrationContext, entry: ItemState, layer: Any) -> list[str]:
-    """The layer's property notes: those recorded when it was imported plus
-    what this probe states."""
-    fresh = _redacted(ctx, property_notes([layer]))
-    kept = entry.layer_notes.get(_layer_key(layer), [])
-    return [n[:MAX_ERROR_CHARS] for n in dict.fromkeys([*kept, *fresh])]
+def layer_report(ctx: MigrationContext, entry: ItemState, layer: Any) -> list[str]:
+    """Record and return the layer's property notes: the losses recorded when it
+    was imported plus what this probe states, or one note saying they weren't
+    read when nothing was ever read."""
+    key = _layer_key(layer)
+    real = list(entry.layer_notes.get(key, []))
+    if not unread(layer):
+        real += _redacted(ctx, property_notes([layer], ctx.redact))
+        entry.layers_unread.pop(key, None)
+    real = [n[:MAX_ERROR_CHARS] for n in dict.fromkeys(real)]
+    entry.layer_notes[key] = real
+    if unread(layer) and not real:
+        entry.layers_unread[key] = [
+            _redacted(ctx, [unread_note(layer, ctx.redact)])[0][:MAX_ERROR_CHARS]
+        ]
+    return [*real, *entry.layers_unread.get(key, [])]
 
 
 def import_layers(
@@ -758,11 +783,11 @@ def import_layers(
         # old service could match one of the new service's.
         entry.layer_datasets.clear()
         entry.layer_notes.clear()
+        entry.layers_unread.clear()
         entry.layer_jobs.clear()
         entry.dataset_ids.clear()
         entry.shared.clear()
     entry.service_url = row["url"]
-    notes += [n for layer in wanted for n in _held_notes(ctx, entry, layer)]
     entry.left_behind = _redacted(ctx, left_behind)
     entry.attachments = attachment_flags(wanted)
     entry.pass_layers = [_layer_key(layer) for layer in wanted]
@@ -778,11 +803,9 @@ def import_layers(
     waiting: list[str] = []
     for layer, title in zip(wanted, titles):
         key = _layer_key(layer)
-        # Saved with the pending job and the pin, so a retry that can't read the
-        # layer's properties again still reports them.
-        entry.layer_notes[key] = _held_notes(ctx, entry, layer)
         pinned = entry.layer_datasets.get(key)
         if pinned:
+            notes += layer_report(ctx, entry, layer)
             # The plan may have been edited since that layer was imported.
             target = _commit_body(title, item["target"]["visibility"])
             _apply_target(ctx, entry, pinned, target)
@@ -794,8 +817,14 @@ def import_layers(
                 waiting.append(why)
                 continue
             if key in entry.shared:
+                # The owning item reports the layer's properties.
+                entry.layer_notes.pop(key, None)
+                entry.layers_unread.pop(key, None)
                 found += 1
                 continue
+            # Saved with the pending job and the pin, so a retry that can't read
+            # the layer's properties again still reports them.
+            notes += layer_report(ctx, entry, layer)
             found += _import_layer(
                 ctx, row, probe, layer, title, item["target"]["visibility"], entry
             )
@@ -808,8 +837,11 @@ def import_layers(
                 "reason": reason,
             }
             entry.left_behind.append(reason)
-            # Nothing of the layer arrives, so no property of it is carried over.
-            dropped = set(entry.layer_notes.pop(key, []))
+            # Nothing of the layer arrives: no property note, read or unread.
+            dropped = {
+                *entry.layer_notes.pop(key, []),
+                *entry.layers_unread.pop(key, []),
+            }
             notes = [n for n in notes if n not in dropped]
             ctx.save()
             continue

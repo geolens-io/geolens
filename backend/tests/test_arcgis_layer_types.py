@@ -253,6 +253,27 @@ class TestProbeReportsUncarriedProperties:
         assert found[4]["time_fields"] == [] and found[4]["has_m"] is None
         assert found[2] == {**found[1], "has_m": None}
 
+    async def test_reports_whether_each_layer_definition_was_read(self) -> None:
+        async def read(handler) -> dict:
+            layers = await _probed_layers(handler)
+            return {layer.layer_id: layer.properties_read for layer in layers}
+
+        body = {"layers": [{"id": 0}, {"id": 1, "hasM": False}], "tables": []}
+
+        # Layers 2 and 4 have no definition in the document.
+        assert await read(lambda request: _stream(body)) == {
+            0: True,
+            1: True,
+            2: False,
+            4: False,
+        }
+        assert await read(lambda request: httpx.Response(500)) == {
+            0: False,
+            1: False,
+            2: False,
+            4: False,
+        }
+
     async def test_reads_subtypes_declared_as_feature_types(self) -> None:
         body = {
             "layers": [

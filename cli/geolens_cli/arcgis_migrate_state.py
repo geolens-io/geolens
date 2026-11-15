@@ -152,6 +152,9 @@ class ItemState:
     # Service layer -> the notes on what its import left out, kept with the
     # pin so a retry whose optional layer read fails still reports them.
     layer_notes: dict[str, list[str]] = field(default_factory=dict)
+    # Service layer -> the note saying its properties weren't read, for a layer
+    # that has none of its own recorded.
+    layers_unread: dict[str, list[str]] = field(default_factory=dict)
     # Datasets GeoLens already held that the import reused, whose owner's
     # edits from before the migration are taken as they are.
     reused: list[str] = field(default_factory=list)
