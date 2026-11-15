@@ -1414,6 +1414,41 @@ class TestMapHistory:
         )
         assert summaries["Save Diff Layer"] == "Added Save Diff Layer layer"
 
+    async def test_post_layer_append_stops_at_the_order_ceiling(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """An append past 32767 is refused and writes nothing; 32767 itself is allowed."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = [
+            await create_dataset(test_db_session, created_by=admin_id, name=f"Cap {i}")
+            for i in range(3)
+        ]
+        created = await _create_map(client, admin_auth_header, "Ceiling Map")
+        url = f"/maps/{created['id']}/layers"
+        seed = await client.post(
+            url,
+            json={"dataset_id": str(ds[0].id), "sort_order": 32766},
+            headers=admin_auth_header,
+        )
+        assert seed.status_code == 201, seed.text
+
+        last = await client.post(
+            url, json={"dataset_id": str(ds[1].id)}, headers=admin_auth_header
+        )
+        assert last.status_code == 201, last.text
+        assert last.json()["sort_order"] == 32767
+
+        refused = await client.post(
+            url, json={"dataset_id": str(ds[2].id)}, headers=admin_auth_header
+        )
+        assert refused.status_code == 400, refused.text
+        assert refused.json()["detail"] == "Layer order exceeds maximum 32767"
+        fetched = await client.get(f"/maps/{created['id']}", headers=admin_auth_header)
+        assert len(fetched.json()["layers"]) == 2
+
     async def test_patch_added_layers_without_sort_order_append(
         self,
         client: AsyncClient,

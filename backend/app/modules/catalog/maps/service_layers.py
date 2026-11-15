@@ -19,6 +19,7 @@ from app.modules.catalog.maps.author_key import (
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
+    _MAX_SORT_ORDER,
     MapLayerInput,
     split_legacy_builder_paint,
 )
@@ -256,6 +257,11 @@ async def add_layer(
         )
         highest_sort_order = result.scalar_one_or_none()
         sort_order = 0 if highest_sort_order is None else highest_sort_order + 1
+        if sort_order > _MAX_SORT_ORDER:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Layer order exceeds maximum {_MAX_SORT_ORDER}",
+            )
 
     layer = MapLayer(
         map_id=map_id,

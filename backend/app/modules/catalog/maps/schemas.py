@@ -149,6 +149,9 @@ _MAX_STYLE_DICT_BYTES = (
 )  # 64 KB serialized — generous for any real style override
 # MapUpdate.layers caps the per-map layer count. Real maps rarely exceed 50 layers.
 _MAX_LAYERS_PER_MAP = 200
+# Highest draw order a layer may hold; the input schemas and the server-side
+# append both enforce it.
+_MAX_SORT_ORDER = 32767
 # How many style-import warnings the summary reports individually before it
 # starts counting instead.
 _MAX_IMPORT_WARNINGS = 100
@@ -651,7 +654,7 @@ class MapLayerInput(BaseModel):
     sort_order: int = Field(
         default=0,
         ge=0,
-        le=32767,
+        le=_MAX_SORT_ORDER,
         description="Draw order (lower draws first)",
     )
     visible: bool = True
@@ -722,7 +725,7 @@ class MapLayerInput(BaseModel):
 
 class MapLayerPatch(BaseModel):
     id: uuid.UUID
-    sort_order: int | None = Field(default=None, ge=0, le=32767)
+    sort_order: int | None = Field(default=None, ge=0, le=_MAX_SORT_ORDER)
     visible: bool | None = None
     opacity: float | None = Field(default=None, ge=0.0, le=1.0)
     paint: dict | None = Field(

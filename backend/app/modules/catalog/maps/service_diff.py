@@ -20,6 +20,7 @@ from app.modules.catalog.maps.author_key import map_author_append_orders
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
+    _MAX_SORT_ORDER,
     split_legacy_builder_paint,
 )
 from app.modules.catalog.maps.service_layers import (
@@ -131,9 +132,6 @@ def _prepare_layer_storage(
         "layer_type": resolved_layer_type,
         "display_name": layer_data.get("display_name") or None,
     }
-
-
-_MAX_SORT_ORDER = 32767
 
 
 async def apply_layer_diff(

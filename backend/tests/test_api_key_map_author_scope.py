@@ -344,6 +344,32 @@ async def test_the_key_creates_a_private_map_it_then_authors(
 
 
 @pytest.mark.anyio
+async def test_the_keys_append_stops_at_the_order_ceiling(
+    client: AsyncClient, owner, datasets
+):
+    headers, _ = owner
+    author = _key_header(await _mint(client, headers, "map_author"))
+    created = await client.post("/maps/", json={"name": "Ceiling"}, headers=author)
+    map_id = created.json()["id"]
+    url = f"/maps/{map_id}/layers"
+
+    patched = await client.patch(
+        url,
+        json={"added": [{"dataset_id": str(datasets[0].id), "sort_order": 32767}]},
+        headers=headers,
+    )
+    assert patched.status_code == 200, patched.text
+
+    refused = await client.post(
+        url, json={"dataset_id": str(datasets[1].id)}, headers=author
+    )
+    assert refused.status_code == 400, refused.text
+    assert refused.json()["detail"] == "Layer order exceeds maximum 32767"
+    fetched = await client.get(f"/maps/{map_id}", headers=headers)
+    assert len(fetched.json()["layers"]) == 1
+
+
+@pytest.mark.anyio
 async def test_other_scopes_record_no_creating_key(
     client: AsyncClient, owner, test_db_session
 ):
