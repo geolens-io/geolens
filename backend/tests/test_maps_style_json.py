@@ -3076,3 +3076,51 @@ def test_an_exported_style_imports_in_the_same_draw_order():
         "Middle": 1,
         "Bottom": 2,
     }
+
+
+def _source_cols(style, dataset_id):
+    [url] = style["sources"][f"geolens-{dataset_id}"]["tiles"]
+    return parse_qs(urlsplit(url).query).get("cols", [""])[0].split(",")
+
+
+def test_a_shared_source_requests_the_columns_of_every_layer_that_draws_it():
+    dataset_id = uuid.uuid4()
+    upper = _layer(
+        dataset_id=dataset_id,
+        sort_order=0,
+        filter=None,
+        label_config={"column": "name"},
+        style_config={"column": "category"},
+    )
+    lower = _layer(dataset_id=dataset_id, sort_order=1, filter=None, label_config=None)
+
+    style = build_maplibre_style(_map(), [upper, lower])
+
+    assert _source_cols(style, dataset_id) == ["category", "name"]
+
+
+def test_labels_are_emitted_above_every_layers_geometry():
+    def polygon(sort_order, label_config):
+        return _layer(
+            sort_order=sort_order,
+            dataset_geometry_type="POLYGON",
+            paint={"fill-color": "#336699", "fill-opacity": 1},
+            label_config=label_config,
+        )
+
+    upper = polygon(0, None)
+    lower = polygon(1, {"column": "name"})
+
+    style = build_maplibre_style(_map(), [upper, lower])
+
+    meta = [layer["metadata"]["geolens"] for layer in style["layers"]]
+    label = next(i for i, m in enumerate(meta) if m.get("companion") == "label")
+    upper_fill = next(
+        i
+        for i, m in enumerate(meta)
+        if m.get("layer_id") == str(upper.id) and "companion" not in m
+    )
+    assert label > upper_fill
+    imported = {x.sort_order: x for x in parse_maplibre_style_import(style).layers}
+    assert imported[1].label_config["column"] == "name"
+    assert imported[0].label_config is None

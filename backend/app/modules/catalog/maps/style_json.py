@@ -344,7 +344,10 @@ def _absolute(base_url: str | None, path: str) -> str:
 
 
 def _tile_url_for_layer(
-    layer: MapLayerResponse, api_url: str | None = None, app_url: str | None = None
+    layer: MapLayerResponse,
+    api_url: str | None = None,
+    app_url: str | None = None,
+    cols: Iterable[str] | None = None,
 ) -> str:
     if (
         layer.layer_type == "raster_geolens"
@@ -370,7 +373,7 @@ def _tile_url_for_layer(
         **tile_template_params(None, layer.publication_version),
     }
     # Stable attribute projection that data-driven styles need at z<10.
-    cols = _data_driven_columns_for_layer(layer)
+    cols = sorted(cols) if cols is not None else _data_driven_columns_for_layer(layer)
     if cols:
         params["cols"] = ",".join(cols)
     query = urlencode(params)
@@ -392,7 +395,10 @@ def _raster_dem_source(
 
 
 def _source_for_layer(
-    layer: MapLayerResponse, api_url: str | None = None, app_url: str | None = None
+    layer: MapLayerResponse,
+    api_url: str | None = None,
+    app_url: str | None = None,
+    cols: Iterable[str] | None = None,
 ) -> dict[str, Any]:
     source: dict[str, Any]
     source_type = _source_type_for_layer(layer)
@@ -411,7 +417,7 @@ def _source_for_layer(
         is_cluster = (layer.style_config or {}).get("render_mode") == "cluster"
         source = {
             "type": "vector",
-            "tiles": [_tile_url_for_layer(layer, api_url, app_url)],
+            "tiles": [_tile_url_for_layer(layer, api_url, app_url, cols)],
             "minzoom": 1,
             "maxzoom": 22 if is_cluster else 14,
         }
@@ -1483,6 +1489,16 @@ def build_maplibre_style(
     """
     sources: dict[str, Any] = {}
     style_layers: list[dict[str, Any]] = []
+    # A dataset's layers share one source, whose tiles must carry every
+    # column any of them reads, whichever layer creates it.
+    shared_cols: dict[str, set[str]] = {}
+    for layer in layers:
+        try:
+            found = _data_driven_columns_for_layer(layer)
+        except _MALFORMED_STYLE_ERRORS:
+            continue
+        source_id = f"geolens-{_safe_id(str(layer.dataset_id))}"
+        shared_cols.setdefault(source_id, set()).update(found)
     # MapLibre draws later layers on top; sort_order 0 draws on top in GeoLens.
     for layer in sorted(layers, key=lambda item: item.sort_order, reverse=True):
         source_id = f"geolens-{_safe_id(str(layer.dataset_id))}"
@@ -1497,7 +1513,9 @@ def build_maplibre_style(
                 _append_cluster_source_metadata(sources[source_id], layer)
                 new_source = None
             else:
-                new_source = _source_for_layer(layer, api_url, app_url)
+                new_source = _source_for_layer(
+                    layer, api_url, app_url, shared_cols.get(source_id)
+                )
         except _MALFORMED_STYLE_ERRORS:
             logger.warning(
                 "Dropping map layer %s from the exported style: its stored "
@@ -1509,6 +1527,11 @@ def build_maplibre_style(
         if new_source is not None:
             sources[source_id] = new_source
         style_layers.extend(emitted)
+    # Labels draw above every layer's geometry, as in the map builder; the
+    # sort is stable, so each group keeps its order.
+    style_layers.sort(
+        key=lambda item: item["metadata"]["geolens"].get("companion") == "label"
+    )
 
     # Set lineMetrics: true on vector sources needing line-gradient
     # (paint['line-gradient'] or builder.lineGradient), tracking the
