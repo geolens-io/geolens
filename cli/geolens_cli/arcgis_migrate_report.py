@@ -98,6 +98,7 @@ def _follow_ups(
     owner_changes: Sequence[Mapping[str, str]],
     owner_unresolved: Sequence[Mapping[str, str]] = (),
     owner_conflicts: Sequence[Mapping[str, str]] = (),
+    after: Mapping[str, list[str]] | None = None,
 ) -> list[dict[str, str]]:
     """What the operator still has to do, one entry per item and reason."""
     items = {item["id"]: item for item in plan["items"]}
@@ -270,7 +271,7 @@ def _follow_ups(
                 "not_available",
                 f"the {item['action']} action can't run yet",
             )
-        unmet = unmet_dependencies(item, items, state)
+        unmet = unmet_dependencies(item, items, state, after)
         if unmet:
             add(item["id"], "unresolved_dependency", waits_on(unmet, items, state))
     for item in plan["items"]:
@@ -388,10 +389,12 @@ def build_run_report(
     generated_at: str | None = None,
     members_removed: Mapping[str, Sequence[str]] | None = None,
     sharing_changes: Sequence[Mapping[str, Any]] | None = None,
+    after: Mapping[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """The report of the whole plan as of *state*; *members_removed* holds the
-    users this run removed from each ArcGIS group's GeoLens group, and
-    *sharing_changes* the GeoLens groups it shared items with or took off."""
+    users this run removed from each ArcGIS group's GeoLens group,
+    *sharing_changes* the GeoLens groups it shared items with or took off, and
+    *after* the items owning service layers an item shares, which it waits on."""
     rows = []
     for item in plan["items"]:
         entry = state.items.get(item["id"])
@@ -439,7 +442,13 @@ def build_run_report(
         ],
         "sharing_changes": [dict(row) for row in sharing_changes or []],
         "follow_ups": _follow_ups(
-            plan, state, runnable, owner_changes, owner_unresolved, owner_conflicts
+            plan,
+            state,
+            runnable,
+            owner_changes,
+            owner_unresolved,
+            owner_conflicts,
+            after,
         ),
         "loss_reports": sorted(
             {row["loss_report"] for row in rows if row["loss_report"]}

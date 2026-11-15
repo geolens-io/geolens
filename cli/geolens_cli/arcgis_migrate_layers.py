@@ -698,6 +698,16 @@ def _resume_import(
     )
 
 
+def forget_other_service(entry: ItemState, url: str | None) -> None:
+    """Drop the refusals recorded for another service once the item's URL
+    names a new one: layer keys are per service, so they'd hide its layers."""
+    if entry.service_url in (None, url) or not entry.refused_layers:
+        return
+    reasons = {refused["reason"] for refused in entry.refused_layers.values()}
+    entry.left_behind = [r for r in entry.left_behind if r not in reasons]
+    entry.refused_layers = {}
+
+
 def recorded_titles(base: str, entry: ItemState) -> dict[str, str]:
     """Layer key -> dataset title for each layer of the recorded import pass,
     named beside the refused layers as the import that made them named them."""
@@ -723,6 +733,7 @@ def import_layers(
     again.
     """
     row = _row(ctx, item)
+    forget_other_service(entry, row["url"])
     if _import_recorded(entry, row["url"]):
         return _resume_import(ctx, item, entry)
     probe, wanted, notes, left_behind, titles = _planned(ctx, item, row)

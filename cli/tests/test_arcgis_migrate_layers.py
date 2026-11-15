@@ -2343,3 +2343,31 @@ def test_a_root_reference_is_not_waited_on_when_every_layer_was_refused(
 
     ctx, webmap = _root_reference(entry)
     assert webmaps._unimported(ctx, webmap, {}) == []
+
+
+def test_a_refusal_on_an_earlier_service_does_not_hide_the_new_services_layer(
+    runner, plan_file, geolens
+):
+    from geolens_cli import arcgis_migrate_webmaps as webmaps
+
+    service = FakeImport(geolens, [_layer(0, "Buildings")])
+    _refuse_preview(geolens, service, "Buildings", MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    assert set(_state(plan_file)["items"][A2]["refused_layers"]) == {"0"}
+    moved = "https://services.example.com/arcgis/rest/services/Moved/FeatureServer"
+    inventory = plan_file.parent / "arcgis-inventory.json"
+    report = json.loads(inventory.read_text())
+    for row in report["items"]:
+        if row["id"] == A2:
+            row["url"] = moved
+    inventory.write_text(json.dumps(report))
+    geolens.routes[PROBE] = (503, _problem(503, "service unavailable"))
+
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "failed"
+    assert entry["refused_layers"] == {} and entry["left_behind"] == []
+    ctx, webmap = _root_reference(entry)
+    webmap["operationalLayers"][0]["url"] = f"{moved}/0"
+    assert webmaps._unimported(ctx, webmap, {}) == ["root"]

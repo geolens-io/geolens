@@ -1105,3 +1105,24 @@ def test_a_layer_its_owner_refused_for_good_is_refused_for_the_borrower_too(
     assert entry["left_behind"] == [items[hosted]["refused_layers"]["1"]["reason"]]
     assert entry["shared"] == {}
     assert len(service.bodies(PREVIEW)) == previews
+
+
+def test_the_report_says_why_a_borrower_waits_on_the_owner_of_its_layers(
+    runner, tmp_path, geolens
+):
+    _service, _c, plan_file, hosted, by_url = _fresh(tmp_path, geolens, url_first=False)
+    plan = json.loads(plan_file.read_text())
+    assert not next(i for i in plan["items"] if i["id"] == by_url)["depends_on"]
+    geolens.routes[layers.PROBE] = (503, layers._problem(503, "service unavailable"))
+
+    result, payload = _migrated(runner, plan_file, hosted, by_url)
+
+    assert result.exit_code != 0
+    assert payload["waiting"] == [{"item": by_url, "waiting_on": [hosted]}]
+    report = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    [text] = [
+        f["text"]
+        for f in report["follow_ups"]
+        if f["item"] == by_url and f["kind"] == "unresolved_dependency"
+    ]
+    assert text.startswith(f"waits on {hosted} (failed: probe failed")

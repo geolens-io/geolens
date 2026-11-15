@@ -47,6 +47,7 @@ from .arcgis_migrate_layers import (
     _shared_notes,
     _title,
     attachment_flags,
+    forget_other_service,
     importable_layers,
     recorded_titles,
     relationship_records,
@@ -466,6 +467,7 @@ def refresh_layers(
     if row is None or not row.get("url"):
         return ["the inventory has no service URL for the item"]
     if entry.service_url not in (None, row["url"]):
+        forget_other_service(entry, row["url"])
         return [
             "its service URL changed in the portal since it was migrated, so its "
             "datasets were not refreshed from the old one"

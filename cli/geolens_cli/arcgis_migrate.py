@@ -1131,6 +1131,8 @@ class RunSummary:
     refreshed: list[str] = field(default_factory=list)
     handed_over: list[dict[str, str]] = field(default_factory=list)
     handover_failed: list[str] = field(default_factory=list)
+    # Item -> the items owning service layers it shares that it waits on.
+    after: dict[str, list[str]] = field(default_factory=dict)
 
 
 def _targeted(
@@ -1404,6 +1406,7 @@ def run_items(
         if ctx.shared_layers
         else {}
     )
+    summary.after = after
     for item in to_run if summary.stopped is None else ():
         if item["action"] == _plan.SKIP:
             state.finish(item["id"], SKIPPED, save=False)
@@ -1446,6 +1449,7 @@ def _report_files(
     stopped: str | None,
     cutover: Mapping[str, Any] | None = None,
     groups: GroupPlan | None = None,
+    after: Mapping[str, list[str]] | None = None,
 ) -> tuple[Path, Path]:
     return write_run_report(
         state.path.parent,
@@ -1453,6 +1457,7 @@ def _report_files(
             plan,
             state,
             runnable=HANDLERS,
+            after=after,
             owner_changes=owners.changed,
             owner_unresolved=owners.unresolved,
             owner_conflicts=owners.conflicts,
@@ -1528,7 +1533,14 @@ def _report(
     if not opts.dry_run:
         try:
             report_files = _report_files(
-                state, plan, owners, redact, summary.stopped, cutover, groups
+                state,
+                plan,
+                owners,
+                redact,
+                summary.stopped,
+                cutover,
+                groups,
+                summary.after,
             )
         except OSError as exc:
             report_failed = True
@@ -2333,7 +2345,13 @@ def _run(
                 state.save()
                 _note_unattempted_handovers(state, owners, summary)
                 _json_path, md_path = _report_files(
-                    state, plan, owners, redact, stopped, groups=groups
+                    state,
+                    plan,
+                    owners,
+                    redact,
+                    stopped,
+                    groups=groups,
+                    after=summary.after,
                 )
                 fmt.info(f"Report: {md_path}")
             except OSError as exc:
