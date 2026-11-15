@@ -459,6 +459,7 @@ class OgrinfoResult(TypedDict, total=False):
     sample_rows: list[dict]
     all_layers: list[dict] | None
     attachments_omitted: bool
+    driver: str | None
 
 
 class IngestionError(Exception):
@@ -835,7 +836,17 @@ def _extract_common_layer_metadata(
         "columns": columns,
         "all_layers": all_layers,
         "attachments_omitted": len(layers) < len(all_found),
+        "driver": data.get("driverShortName"),
     }
+
+
+# A field line of ``ogrinfo -so``: ``name: Type (width.precision)``, with an
+# optional ``(Subtype)`` after the type.
+_TEXT_FIELD_RE = re.compile(
+    r"^(?P<name>.+?): (?P<type>[A-Za-z0-9]+)(?:\((?P<subtype>[A-Za-z0-9]+)\))? "
+    r"\(\d+(?:\.\d+)?\)$"
+)
+_TEXT_DRIVER_RE = re.compile(r"using driver `(?P<driver>[^']+)' successful")
 
 
 def _parse_text_ogrinfo(output: str) -> dict:
@@ -844,11 +855,23 @@ def _parse_text_ogrinfo(output: str) -> dict:
     geometry_type = None
     layer_name = ""
     feature_count = None
+    driver = None
+    columns: list[dict[str, str]] = []
 
     for line in output.splitlines():
         line = line.strip()
 
-        if line.startswith("Layer name:"):
+        if driver is None and (found := _TEXT_DRIVER_RE.search(line)):
+            driver = found.group("driver")
+        elif field := _TEXT_FIELD_RE.match(line):
+            columns.append(
+                {
+                    "name": field.group("name"),
+                    "type": field.group("type"),
+                    **({"subtype": sub} if (sub := field.group("subtype")) else {}),
+                }
+            )
+        elif line.startswith("Layer name:"):
             layer_name = line.split(":", 1)[1].strip()
         elif line.startswith("Geometry:"):
             value = line.split(":", 1)[1].strip()
@@ -872,6 +895,8 @@ def _parse_text_ogrinfo(output: str) -> dict:
         "geometry_type": geometry_type,
         "layer_name": layer_name,
         "feature_count": feature_count,
+        "columns": columns,
+        "driver": driver,
     }
 
 
@@ -971,10 +996,6 @@ async def run_ogrinfo(
         )
 
     result = _parse_text_ogrinfo(stdout.decode(errors="replace"))
-    # Text-fallback parse doesn't extract field definitions, so the DBF
-    # collision detector will still have to fall back to ogrinfo_preview
-    # on GDAL < 3.7. Keep the key present so callers can rely on it.
-    result["columns"] = []
     result["all_layers"] = None
     return result
 
@@ -1370,10 +1391,18 @@ async def run_ogr2ogr(
         )
 
     if is_csv:
-        # The CSV driver otherwise stores every column as text. The default
-        # scan stops after 1 MB and empties later values that don't fit the
-        # inferred type, so scan the whole file.
-        cmd.extend(["-oo", "AUTODETECT_TYPE=YES", "-oo", "AUTODETECT_SIZE_LIMIT=0"])
+        # The type scan otherwise stops after 1 MB and empties later values that
+        # don't fit. A non-spatial load drops the geometry the driver reads from
+        # a column named WKT, so it can't compete with chosen columns.
+        cmd.extend(
+            [
+                "-oo",
+                "AUTODETECT_TYPE=YES",
+                "-oo",
+                "AUTODETECT_SIZE_LIMIT=0",
+                *(("-nlt", "NONE") if is_non_spatial else ()),
+            ]
+        )
 
     if is_csv and not is_non_spatial:
         cmd.extend(

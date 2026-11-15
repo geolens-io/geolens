@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import EDIT_METADATA
 from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
+from app.core.geometry_build_errors import columns_missing
 from app.core.upload_errors import (
     CodedRefusal,
     geometry_loss_refusal,
@@ -51,6 +52,12 @@ from app.modules.catalog.datasets.domain.service import (
     get_dataset,
 )
 from app.core.dependencies import get_db
+from app.platform.source_geometry_columns import (
+    build_srid,
+    columns_to_build,
+    declared_build_type,
+    recorded_geometry_selection,
+)
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
@@ -835,6 +842,12 @@ async def reupload_preview(
     prior_geometry_type = dataset.geometry_type
     prior_table_name = dataset.table_name
     prior_geometry = (dataset.srid, dataset.is_3d, dataset.n_dims)
+    recorded = await recorded_geometry_selection(
+        db,
+        dataset_id=dataset_id,
+        current_version=dataset.current_version,
+        ref=dataset.origin_ref,
+    )
     await db.rollback()
 
     # Resolve S3 key to local file for ogrinfo
@@ -881,13 +894,44 @@ async def reupload_preview(
                 ),
             )
 
+    # The file builds its geometry from the columns the dataset's was built
+    # from, in their CRS unless overridden, as the worker does.
+    srid_override = request.srid_override if request else None
+    build, missing_columns = columns_to_build(
+        recorded,
+        source_geometry_type=info.get("geometry_type"),
+        source_columns=info["columns"],
+        driver=info.get("driver"),
+    )
+    if build is not None:
+        info = {
+            **info,
+            "geometry_type": declared_build_type(build, info.get("sample_rows") or ()),
+        }
+        srid_override = build_srid(
+            build, srid_override=srid_override, detected=info.get("srid")
+        )
+
     # The diff below reads attribute columns only, so a geometry
     # loss would otherwise look like an unremarkable schema diff.
     geometry_loss = geometry_loss_refusal(
         record_type=prior_record_type,
         dataset_geometry_type=prior_geometry_type,
-        source_has_geometry=info.get("geometry_type") is not None,
+        source_has_geometry=info.get("geometry_type") is not None or build is not None,
     )
+    # A workbook's sheet is chosen from this preview, so the sheet it reads
+    # by default is not the one to hold to the recorded columns.
+    if recorded is not None and all_layers is not None and layer_name is None:
+        missing_columns, geometry_loss = [], None
+    if missing_columns:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "geometry_columns_missing",
+                "message": str(columns_missing(missing_columns)),
+                "columns": ", ".join(missing_columns),
+            },
+        )
     if geometry_loss:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -905,7 +949,7 @@ async def reupload_preview(
         db,
         diff=diff,
         info=info,
-        srid_override=request.srid_override if request else None,
+        srid_override=srid_override,
         live_table=prior_table_name,
         live_geometry=prior_geometry,
     )

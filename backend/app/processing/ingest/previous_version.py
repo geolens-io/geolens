@@ -6,6 +6,7 @@ it renames anything; the replacement and restore writes call the stamp.
 
 from __future__ import annotations
 
+import json
 from typing import Any
 
 import structlog
@@ -13,6 +14,10 @@ from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.platform.relations import dependent_relations, relation_present
+from app.platform.source_geometry_columns import (
+    recorded_geometry_selection,
+    selection_fields,
+)
 from app.platform.jobs.heartbeat import (
     previous_version_name_claimed,
     previous_version_table,
@@ -148,13 +153,23 @@ _RECORD_LIVE_VERSION = text(
     INSERT INTO catalog.dataset_versions AS v (
         dataset_id, version_number, source_filename, source_format,
         feature_count, srid, geometry_type, file_hash, original_srid, is_3d,
-        n_dims, column_info, uploaded_by, uploaded_at
+        n_dims, column_info, geometry_columns, uploaded_by, uploaded_at
     )
     SELECT d.id, d.current_version, d.source_filename, d.source_format,
         d.feature_count, d.srid, d.geometry_type,
         CASE WHEN d.origin_ref->>'kind' = 'upload'
             THEN d.origin_ref->>'file_hash' END,
-        d.original_srid, d.is_3d, d.n_dims, d.column_info, r.created_by, r.created_at
+        d.original_srid, d.is_3d, d.n_dims, d.column_info,
+        CASE WHEN d.origin_ref->>'kind' = 'upload' THEN NULLIF(
+            jsonb_strip_nulls(jsonb_build_object(
+                'x_column', d.origin_ref->'x_column',
+                'y_column', d.origin_ref->'y_column',
+                'geom_column', d.origin_ref->'geom_column',
+                'column_srid', d.origin_ref->'column_srid'
+            )),
+            '{}'::jsonb
+        ) END,
+        r.created_by, r.created_at
     FROM catalog.datasets d
     JOIN catalog.records r ON r.id = d.record_id
     WHERE d.id = :dataset_id
@@ -166,9 +181,46 @@ _RECORD_LIVE_VERSION = text(
         ),
         is_3d = COALESCE(v.is_3d, EXCLUDED.is_3d),
         n_dims = COALESCE(v.n_dims, EXCLUDED.n_dims),
-        column_info = COALESCE(v.column_info, EXCLUDED.column_info)
+        column_info = COALESCE(v.column_info, EXCLUDED.column_info),
+        geometry_columns = COALESCE(v.geometry_columns, EXCLUDED.geometry_columns)
+    RETURNING geometry_columns
     """
 )
+
+_VERSION_GEOMETRY_COLUMNS = text(
+    "SELECT geometry_columns, restored_from_version FROM catalog.dataset_versions "
+    "WHERE dataset_id = :dataset_id AND version_number = :version"
+)
+
+
+async def version_geometry_columns(
+    session: AsyncSession, dataset_id: Any, version_number: int
+) -> dict[str, Any] | None:
+    """The x/y or WKT columns a version's data was built from, or ``None``.
+
+    A restored version's data is the version it restored, so the walk follows
+    restores back. Version 1 recorded before versions kept the columns reads
+    them from its import job.
+    """
+    seen: set[int] = set()
+    number: int | None = version_number
+    while number is not None and number not in seen:
+        seen.add(number)
+        row = (
+            await session.execute(
+                _VERSION_GEOMETRY_COLUMNS,
+                {"dataset_id": dataset_id, "version": number},
+            )
+        ).first()
+        if row is not None and row.geometry_columns:
+            return selection_fields(row.geometry_columns)
+        if number == 1:
+            imported = await recorded_geometry_selection(
+                session, dataset_id=dataset_id, current_version=1, ref=None
+            )
+            return None if imported is None else imported.fields()
+        number = None if row is None else row.restored_from_version
+    return None
 
 
 async def record_live_version(session: AsyncSession, dataset: Any) -> None:
@@ -178,7 +230,27 @@ async def record_live_version(session: AsyncSession, dataset: Any) -> None:
     columns on to the incoming data: a restore of the kept version reads its
     source fields, source CRS and dimensionality back from this row.
     """
-    await session.execute(_RECORD_LIVE_VERSION, {"dataset_id": dataset.id})
+    recorded = (
+        await session.execute(_RECORD_LIVE_VERSION, {"dataset_id": dataset.id})
+    ).scalar_one_or_none()
+    if recorded is not None:
+        return
+    fields = await version_geometry_columns(
+        session, dataset.id, dataset.current_version
+    )
+    if fields is not None:
+        await session.execute(
+            text(
+                "UPDATE catalog.dataset_versions SET geometry_columns = "
+                "CAST(:fields AS jsonb) WHERE dataset_id = :dataset_id "
+                "AND version_number = :version"
+            ),
+            {
+                "fields": json.dumps(fields),
+                "dataset_id": dataset.id,
+                "version": dataset.current_version,
+            },
+        )
 
 
 async def stamp_kept_versions(
