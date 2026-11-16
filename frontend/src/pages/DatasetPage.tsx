@@ -691,6 +691,7 @@ export function DatasetPage() {
                   geometryType={dataset.geometry_type ?? null}
                   hasGenericGeometry={dataset.has_generic_geometry}
                   datasetId={id}
+                  dataRevision={`${dataset.current_version}:${dataset.last_refreshed_at ?? ''}`}
                   columnInfo={dataset.column_info}
                   containerRef={mapContainerRef}
                   canEdit={canEditData && featureTable && !isTable}
