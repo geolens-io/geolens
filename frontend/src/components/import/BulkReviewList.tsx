@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useEffect } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useTranslation } from 'react-i18next';
 import { Layers, X, ChevronDown, ChevronRight, LifeBuoy } from 'lucide-react';
@@ -53,7 +53,9 @@ function cardGeometry(
   request?: CommitImportRequest | null,
   draft?: GeometryDraft,
 ): CardGeometry {
-  if (file.geometry_type) return { kind: null, srid: null };
+  if (file.geometry_type) {
+    return { kind: null, srid: draft ? draft.srid : (request?.srid_override ?? null) };
+  }
   if (draft) return { kind: draft.geometry, srid: draft.srid };
   if (request) {
     const kind = request.x_column ? 'point' : request.geom_column ? 'wkt' : null;
@@ -280,22 +282,12 @@ export function BulkReviewList({
   const [drafts, setDrafts] = useState<Record<string, GeometryDraft>>({});
   const [confirmDefaults, setConfirmDefaults] = useState<'batch' | 'vrt' | null>(null);
 
-  // A submit supersedes the draft, and a draft entered after a failed attempt
-  // is newer than the request that failed. Only a review-state entry has one.
+  // While a commit is in flight or done, the card shows what was submitted;
+  // a failed entry goes back to the form's live selection, which a retry sends.
   const draftOf = useCallback(
-    (e: FileEntry) => (e.status === 'preview' || e.status === 'commit-failed' ? drafts[e.id] : undefined),
+    (e: FileEntry) => (e.status === 'committing' || e.status === 'tracking' ? undefined : drafts[e.id]),
     [drafts],
   );
-
-  useEffect(() => {
-    const submitted = entries.filter((e) => e.status === 'committing' && drafts[e.id]);
-    if (submitted.length === 0) return;
-    setDrafts((prev) => {
-      const next = { ...prev };
-      for (const e of submitted) delete next[e.id];
-      return next;
-    });
-  }, [entries, drafts]);
 
   const handleGeometryDraft = useCallback((entryId: string, draft: GeometryDraft) => {
     setDrafts((prev) => {

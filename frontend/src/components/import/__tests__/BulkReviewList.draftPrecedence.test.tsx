@@ -63,7 +63,7 @@ describe('BulkReviewList draft precedence', () => {
     Element.prototype.scrollIntoView = vi.fn();
   });
 
-  it('shows what a defaults batch submitted, not the draft it ignored', async () => {
+  it('shows what was submitted while committing, and the live draft again after a failure', async () => {
     const user = userEvent.setup();
     const { rerender } = render(list(csvEntry('preview')));
 
@@ -75,7 +75,20 @@ describe('BulkReviewList draft precedence', () => {
     expect(screen.getByText(/20 features/)).toHaveTextContent('EPSG:4326');
 
     rerender(list(csvEntry('commit-failed', defaultsRequest)));
+    expect(screen.getByText(/20 features/)).toHaveTextContent(/non-spatial.*no CRS/i);
+    expect(screen.getByText('TAB')).toBeInTheDocument();
+  });
+
+  it('keeps an edit made while committing for the card after a failure', async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(list(csvEntry('committing', defaultsRequest)));
     expect(screen.getByText(/20 features/)).toHaveTextContent('EPSG:4326');
-    expect(screen.getByText('VEC')).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText('Mode'));
+    await user.click(await screen.findByRole('option', { name: 'Import as non-spatial' }));
+    expect(screen.getByText(/20 features/)).toHaveTextContent('EPSG:4326');
+
+    rerender(list(csvEntry('commit-failed', defaultsRequest)));
+    expect(screen.getByText(/20 features/)).toHaveTextContent(/non-spatial.*no CRS/i);
   });
 });

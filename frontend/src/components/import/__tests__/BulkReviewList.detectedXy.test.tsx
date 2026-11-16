@@ -123,4 +123,16 @@ describe('BulkReviewList tabular summary', () => {
     expect(screen.getByText('TAB')).toBeInTheDocument();
     expect(screen.queryByText('VEC')).not.toBeInTheDocument();
   });
+
+  it('shows an SRID override on a file with native geometry and no CRS', async () => {
+    const entry = csvEntry(null);
+    Object.assign(entry.previewData as object, { geometry_type: 'Point', crs: null });
+    renderEntry(entry);
+    expect(screen.getByText(/20 features/)).toHaveTextContent('no CRS');
+
+    await userEvent.click(screen.getByText('draft-27700'));
+
+    expect(screen.getByText(/20 features/)).toHaveTextContent('EPSG:27700');
+    expect(screen.getByText('EPSG:27700', { exact: false, selector: 'dd' })).toBeInTheDocument();
+  });
 });
