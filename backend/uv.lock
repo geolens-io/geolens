@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.13"
 resolution-markers = [
     "python_full_version >= '3.14'",
@@ -792,15 +792,15 @@ wheels = [
 
 [[package]]
 name = "geoalchemy2"
-version = "0.20.0"
+version = "0.21.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "packaging" },
     { name = "sqlalchemy" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/63/74/6cb1ef591bf47d28f41aa770f2f3a91c0a570aee0a4083bed7f8c533d8df/geoalchemy2-0.20.0.tar.gz", hash = "sha256:450f427f4bc3cf2d5ddee0af3763aed0f3eea2384e7c9a99798d8f1508279322", size = 280805, upload-time = "2026-05-12T14:50:26.132Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/53/06/9a315ab93f6c0d35541e8af593d3d69c23a7268076c831db4478c06ddb49/geoalchemy2-0.21.0.tar.gz", hash = "sha256:f6e458b7b6af6194d698a5bd4a45550b8f851bf3e4326b0d61b2a7b83ec1c6a4", size = 314900, upload-time = "2026-11-04T13:18:55.607Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/4e/08/b66ad4239f592e05202e25925c08cdd04cc14c3994000ec70ec61fea202c/geoalchemy2-0.20.0-py3-none-any.whl", hash = "sha256:1489a1d106519542a79c97cd0b4c537d80462c353610ebc2429cf2c43daac717", size = 96467, upload-time = "2026-05-12T14:50:24.998Z" },
+    { url = "https://files.pythonhosted.org/packages/fd/d5/ff6574cf2b205ad6160de7ed26cf47efece0990df06804dcd831034067b0/geoalchemy2-0.21.0-py3-none-any.whl", hash = "sha256:be189cf948a5987fa1d2ac8c8729330194f1c9c92efdbfb07a3df32854841b34", size = 109681, upload-time = "2026-11-04T13:18:54.332Z" },
 ]
 
 [[package]]
