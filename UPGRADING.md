@@ -111,6 +111,24 @@ saved through a 1.29 instance drops the story's reader settings (navigation,
 layout, theme), so set them again once every instance is on 1.30. Chapters,
 blocks and scenes without a transition are kept.
 
+Migrations 0104 and 0105 add nullable columns and widen the API key scope
+check, and 1.31 reads none of them, so a rolling upgrade from 1.31 keeps
+working. A `map_author` key is refused by an instance still on 1.31.
+
+From 1.32, an admin transfer of a map revokes that map's embed tokens, and
+while public visibility is restricted to admins, embed tokens a non-admin
+minted on a private or internal map stop working. Mint new ones as the new
+owner or an admin where a map needs them. Reads by a caller with no sign-in or
+API key (OGC API, STAC, catalog search) now stop after 30 seconds of database
+time and answer 503; set `DB_ANONYMOUS_READ_TIMEOUT_SECONDS` to change it.
+
+`SESSION_SECRET_KEY` is a new optional signing key for the OAuth sign-in
+session cookie. Unset, it falls back to `JWT_SECRET_KEY`. If you set it, use at
+least 32 characters that differ from the JWT secret and the tile signing key,
+or the API refuses to start, and use the same value on every API replica. New installs get one generated; an
+existing `.env` keeps what it has. `install.sh` and `upgrade.sh` now keep the
+mode of an existing `.env` and create a new one with mode 600.
+
 During a rolling upgrade to 1.32, an instance still on 1.31 answers 403 to a
 tile URL that a 1.32 instance signed for an embedded map. Embedded maps can
 miss tiles until every instance is on 1.32, and a map opened during the upgrade

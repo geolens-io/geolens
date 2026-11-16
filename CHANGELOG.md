@@ -7,6 +7,14 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.32.0] - 2026-11-16
+
+1.32.0 adds two migrations. 0104 adds the `map_author` API key scope and a
+nullable `created_by_api_key_id` on maps; 0105 adds a nullable
+`geometry_columns` to dataset versions. Instances still on 1.31.0 keep serving
+while they run. `EXTENSION_API_VERSION` stays 23. UPGRADING.md covers the
+database password and tile signing secret changes due in 1.33.0.
+
 ### Added
 - `GET /collections/{id}/items` sends a weak `ETag` and `Cache-Control: no-cache` (`private, no-cache` when the request carries a credential), and answers a matching `If-None-Match` with 304 without running the feature query, so a client that re-reads an items URL on a timer, such as an ArcGIS Online GeoJSON layer with a refresh interval, stops downloading an unchanged page. The tag changes with the dataset's data, the query and the base URL of the links. A table registered in place, which its owner writes directly, gets no validator.
 - `geolens arcgis inventory` and `geolens arcgis migrate` sign in through the browser with OAuth 2.0 (authorization code with PKCE) when you pass `--client-id` or set `GEOLENS_ARCGIS_CLIENT_ID` to the client ID of an OAuth 2.0 credentials item registered in your organization. Accounts that sign in with SAML or OpenID Connect, which can't use `--username`, can run an inventory and a migration this way. The portal sends the browser back to a listener on `127.0.0.1`, on a free port or the one `--redirect-port` names. The CLI renews the access token during the run and keeps the refresh token in the OS keyring (`credentials.toml` when there is no keyring), so the next run skips the browser. An inventory signed in this way records `auth.mode` as `oauth`. `geolens arcgis logout --portal-url <url> --client-id <id>` forgets a saved sign-in.
@@ -46,10 +54,14 @@ and releases use semantic versioning.
   the anonymous preflight for `POST /datasets/{id}/aggregate/` is answered
   instead of refused with `405`. These routes still return only what an
   anonymous caller could already read. A request that carries a cookie,
-  `Authorization`, an embed token, or `?api_key=` or `?embed_token=` keeps the
+  `Authorization`, an embed token or `?embed_token=` keeps the
   `CORS_ALLOWED_ORIGINS` allowlist, and the write routes on the same paths get
-  no wildcard. This changes the CORS contract: these routes used to send no
-  CORS headers to an origin outside the allowlist.
+  no wildcard. A read with an accepted `?api_key=` from an origin outside the
+  allowlist is covered under Fixed; it gets the wildcard even when it also
+  carries a cookie, because the cookie is dropped before the route runs. An
+  allowed origin keeps the credentialed answer it got before. This changes the
+  CORS contract: these routes used to send no CORS headers to an
+  origin outside the allowlist.
 - `geolens arcgis migrate --cutover` checks the inventory's freshness and unresolved plan owners before the run, and stops without importing or refreshing anything, printing only the refusal, when either fails without its `--accept-*` flag. The freshness check ignores portal items the plan skips and names the items that changed, apart from those created since the inventory.
 - `geolens arcgis migrate` hands a migrated dataset or map to the new owner when `owner_map` or an item's `target.owner` is edited after the item was migrated, the same way it follows an ArcGIS owner change; a handover GeoLens refuses is still reported to do by hand.
 - The default ceiling for the OGC API Features `limit` parameter is now 5,000 instead of 1,000. An instance where an admin already set `ogc_items_max_page_size` keeps its own value. Clients such as ArcGIS Online ask for up to 5,000 features per map tile and do not follow the `next` link, so the old ceiling drew only the first 1,000 features of a busy tile. The setting is on the admin Network tab.
@@ -113,6 +125,7 @@ and releases use semantic versioning.
 - `geolens arcgis migrate` skips a layer GeoLens can never import, such as one with multipatch geometry, with GeoLens's reason in the report instead of failing it on every run; other layers of the service still import, the run exits 0 when nothing else is wrong, and `--cutover` still lists the layer as not migrated.
 
 ### Security
+- Python dependencies: dnspython 2.9.2 and opentelemetry-api 1.45.2, for CVE-2026-128089 and CVE-2026-126360, in the API image and the MCP server.
 - `.env.example` and `.env.test.example` no longer set the database password to the published default `geolens`: `install.sh` and `make dev-init` generate one when they create `.env`, stop with a message when an existing `.env` leaves it empty, and `make env-test` copies the dev stack's. The API and worker log `postgres_password_published_default` at startup while `POSTGRES_PASSWORD` or a database URL override still signs in with it.
 - An admin transfer of a map to another owner revokes the map's embed tokens, which served with the previous owner's rights, so they stop being accepted at once; the new owner mints a fresh one, and the `map.transfer_owner` audit entry counts the tokens revoked. Tile URLs already signed through such a token stop working within 60 seconds.
 - While public visibility is restricted to admins, an embed token a non-admin minted on a private or internal map stops being accepted at once for tiles, features and the shared-map view, and is accepted again if the setting is turned off. Tile URLs already signed through such a token stop working within 60 seconds.
@@ -7518,7 +7531,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.31.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.32.0...HEAD
+[1.32.0]: https://github.com/geolens-io/geolens/compare/v1.31.0...v1.32.0
 [1.31.0]: https://github.com/geolens-io/geolens/compare/v1.30.1...v1.31.0
 [1.30.1]: https://github.com/geolens-io/geolens/compare/v1.30.0...v1.30.1
 [1.30.0]: https://github.com/geolens-io/geolens/compare/v1.29.2...v1.30.0
