@@ -56,8 +56,9 @@ database password and tile signing secret changes due in 1.33.0.
   anonymous caller could already read. A request that carries a cookie,
   `Authorization`, an embed token or `?embed_token=` keeps the
   `CORS_ALLOWED_ORIGINS` allowlist, and the write routes on the same paths get
-  no wildcard. A read with an accepted `?api_key=` is covered under Fixed. This
-  changes the CORS contract: these routes used to send no CORS headers to an
+  no wildcard. A read with an accepted `?api_key=` is covered under Fixed; it
+  gets the wildcard even when it also carries a cookie, because the cookie is
+  dropped before the route runs. This changes the CORS contract: these routes used to send no CORS headers to an
   origin outside the allowlist.
 - `geolens arcgis migrate --cutover` checks the inventory's freshness and unresolved plan owners before the run, and stops without importing or refreshing anything, printing only the refusal, when either fails without its `--accept-*` flag. The freshness check ignores portal items the plan skips and names the items that changed, apart from those created since the inventory.
 - `geolens arcgis migrate` hands a migrated dataset or map to the new owner when `owner_map` or an item's `target.owner` is edited after the item was migrated, the same way it follows an ArcGIS owner change; a handover GeoLens refuses is still reported to do by hand.
