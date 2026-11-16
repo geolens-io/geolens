@@ -669,7 +669,7 @@ export const DatasetMap = memo(function DatasetMap({
   useEffect(() => {
     if (seenRevisionRef.current !== dataRevision) {
       seenRevisionRef.current = dataRevision;
-      if (previousExtentKeyRef.current !== extentKey) refitPendingRef.current = true;
+      if (previousExtentKeyRef.current !== extentKey) refitPendingRef.current = extentKey !== null;
     }
     previousExtentKeyRef.current = extentKey;
     if (!refitPendingRef.current || !extentKey || !mapInstance) return;

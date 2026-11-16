@@ -2072,7 +2072,7 @@ describe('DatasetMap extent change after mount', () => {
     mapSpy.attachMapInstance = true;
   });
 
-  function renderMap(bbox: [number, number, number, number], dataRevision = '1') {
+  function renderMap(bbox: [number, number, number, number] | null, dataRevision = '1') {
     return (
       <DatasetMap
         bbox={bbox}
@@ -2145,6 +2145,15 @@ describe('DatasetMap extent change after mount', () => {
       [[-74.0, 40.7], [-73.9, 40.8]],
       expect.objectContaining({ padding: 60 }),
     );
+  });
+
+  it('leaves the camera alone when an edit gives a dataset emptied by a replacement its first extent', () => {
+    const { rerender } = render(renderMap(OLD_BBOX));
+    rerender(renderMap(null, '2'));
+
+    rerender(renderMap(NEW_BBOX, '2'));
+
+    expect(mapSpy.fitBounds).not.toHaveBeenCalled();
   });
 
   it('leaves the camera alone when a refetch returns the same extent', () => {
