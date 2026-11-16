@@ -494,6 +494,7 @@
     "rasterSummary": "{{bands}} · {{width}}×{{height}} · {{crs}}",
     "vectorSummary": "{{geometryType}} · {{features}} · {{crs}}",
     "noCrs": "kein CRS",
+    "pointFromColumns": "Punkt (aus Spalten)",
     "actionSummary": "{{files}} · {{vectors}} · {{rasters}} · {{tables}}",
     "actionHint": "Standardimport: jede Datei → neuer Datensatz im Katalog.",
     "actionHintMultiLayer": "Standardimport: jede Datei → neuer Datensatz im Katalog. Bei Dateien mit mehreren Ebenen wird nur die ausgewählte Ebene importiert, sofern nicht alle Ebenen importiert werden.",

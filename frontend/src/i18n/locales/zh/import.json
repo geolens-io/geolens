@@ -566,6 +566,7 @@
     "rasterSummary": "{{bands}} · {{width}}×{{height}} · {{crs}}",
     "vectorSummary": "{{geometryType}} · {{features}} · {{crs}}",
     "noCrs": "无 CRS",
+    "pointFromColumns": "点（来自列）",
     "actionSummary": "{{files}} · {{vectors}} · {{rasters}} · {{tables}}",
     "actionHint": "默认导入：每个文件 → 目录中的新数据集。",
     "actionHintMultiLayer": "默认导入：每个文件 → 目录中的新数据集。多图层文件仅导入所选图层，除非您导入全部图层。",

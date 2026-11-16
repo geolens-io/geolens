@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useTranslation } from 'react-i18next';
 import { Layers, X, ChevronDown, ChevronRight, LifeBuoy } from 'lucide-react';
@@ -7,7 +7,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { ImportMetadataForm } from './ImportMetadataForm';
+import { ImportMetadataForm, type GeometryDraft } from './ImportMetadataForm';
 import { TilesetFacts } from './TilesetFacts';
 import { TypeTag } from './TypeTag';
 import { StatusPill } from './StatusPill';
@@ -42,7 +42,34 @@ function ReportProblemButton() {
 }
 
 
-function DetectionPanel({ entry }: { entry: FileEntry }) {
+type CardGeometry = { kind: 'point' | 'wkt' | null; srid: number | null };
+
+/**
+ * What a table without native geometry will import as. The form's live draft
+ * wins over a submitted request, which wins over the detected columns.
+ */
+function cardGeometry(
+  file: FilePreviewResponse,
+  request?: CommitImportRequest | null,
+  draft?: GeometryDraft,
+): CardGeometry {
+  if (file.geometry_type) return { kind: null, srid: null };
+  if (draft) return { kind: draft.geometry, srid: draft.srid };
+  if (request) {
+    const kind = request.x_column ? 'point' : request.geom_column ? 'wkt' : null;
+    return { kind, srid: request.srid_override ?? null };
+  }
+  const detected = file.detected_geometry_columns;
+  const kind = detected?.x_column && detected.y_column ? 'point' : detected?.wkt_column ? 'wkt' : null;
+  return { kind, srid: null };
+}
+
+function cardCrs(file: FilePreviewResponse, geometry: CardGeometry): number | null {
+  return geometry.srid ?? file.crs ?? (geometry.kind === 'point' ? 4326 : null);
+}
+
+
+function DetectionPanel({ entry, draft }: { entry: FileEntry; draft?: GeometryDraft }) {
   const { t } = useTranslation('import');
   const preview = entry.previewData;
   if (!preview) return null;
@@ -69,6 +96,9 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
 
   const raster = isRasterPreview(preview);
   const file = isFilePreview(preview) ? preview : null;
+  const geometry = file ? cardGeometry(file, entry.commitRequest, draft) : null;
+  const fromColumns = geometry?.kind ?? null;
+  const crs = file && geometry ? cardCrs(file, geometry) : null;
 
   return (
     <div className="col-span-full mt-3 grid gap-5 border-t border-dashed border-border pt-4 md:grid-cols-2">
@@ -99,7 +129,11 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
             <>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.type')}</dt>
               <dd className="font-mono text-mini">
-                {file.geometry_type ? getGeometryTypeLabel(t, file.geometry_type) : t('detect.nonSpatial')}
+                {file.geometry_type
+                  ? getGeometryTypeLabel(t, file.geometry_type)
+                  : fromColumns
+                    ? t(fromColumns === 'point' ? 'review.pointFromColumns' : 'preview.geometryDetected')
+                    : t('detect.nonSpatial')}
               </dd>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.features')}</dt>
               <dd className="font-mono text-mini">
@@ -107,8 +141,8 @@ function DetectionPanel({ entry }: { entry: FileEntry }) {
               </dd>
               <dt className="font-mono text-mini text-muted-foreground">{t('detect.labels.crs')}</dt>
               <dd className="font-mono text-mini">
-                {file.crs ? `EPSG:${file.crs}` : '—'}
-                {file.crs && file.crs !== 4326 && file.crs !== 3857 && (
+                {crs ? `EPSG:${crs}` : '—'}
+                {crs && crs !== 4326 && crs !== 3857 && (
                   <span className="ms-1 text-muted-foreground">→ {t('detect.willReproject')}</span>
                 )}
               </dd>
@@ -170,10 +204,12 @@ function ReviewFormBlock({
   entry,
   isCommitting,
   onCommitSingle,
+  onGeometryDraftChange,
 }: {
   entry: FileEntry;
   isCommitting: boolean;
   onCommitSingle: (entryId: string, request: CommitImportRequest) => void;
+  onGeometryDraftChange: (entryId: string, draft: GeometryDraft) => void;
 }) {
   const preview = entry.previewData;
   if (!preview) return null;
@@ -210,6 +246,7 @@ function ReviewFormBlock({
         previewColumns={fp?.columns}
         detectedGeometryType={fp?.geometry_type}
         detectedGeometryColumns={fp?.detected_geometry_columns}
+        onGeometryDraftChange={(draft) => onGeometryDraftChange(entry.id, draft)}
       />
     </div>
   );
@@ -240,7 +277,33 @@ export function BulkReviewList({
 }: BulkReviewListProps) {
   const { t } = useTranslation('import');
   const [expandedId, setExpandedId] = useState<string | null>(entries[0]?.id ?? null);
+  const [drafts, setDrafts] = useState<Record<string, GeometryDraft>>({});
   const [confirmDefaults, setConfirmDefaults] = useState<'batch' | 'vrt' | null>(null);
+
+  // A submit supersedes the draft, and a draft entered after a failed attempt
+  // is newer than the request that failed. Only a review-state entry has one.
+  const draftOf = useCallback(
+    (e: FileEntry) => (e.status === 'preview' || e.status === 'commit-failed' ? drafts[e.id] : undefined),
+    [drafts],
+  );
+
+  useEffect(() => {
+    const submitted = entries.filter((e) => e.status === 'committing' && drafts[e.id]);
+    if (submitted.length === 0) return;
+    setDrafts((prev) => {
+      const next = { ...prev };
+      for (const e of submitted) delete next[e.id];
+      return next;
+    });
+  }, [entries, drafts]);
+
+  const handleGeometryDraft = useCallback((entryId: string, draft: GeometryDraft) => {
+    setDrafts((prev) => {
+      const old = prev[entryId];
+      if (old && old.geometry === draft.geometry && old.srid === draft.srid) return prev;
+      return { ...prev, [entryId]: draft };
+    });
+  }, []);
 
   const { readyCount, rasterReadyCount, vectorCount, rasterCount, tableCount, tilesetCount, pointcloudCount, hasMultiLayerFile } = useMemo(() => {
     let ready = 0, rasterReady = 0, vec = 0, ras = 0, tab = 0, tiles = 0, clouds = 0, multiLayer = false;
@@ -253,7 +316,7 @@ export function BulkReviewList({
       if (isTilesetPreview(e.previewData)) { tiles++; }
       else if (isPointCloudPreview(e.previewData)) { clouds++; }
       else if (isRasterPreview(e.previewData)) { ras++; }
-      else if ((e.previewData as FilePreviewResponse).geometry_type) { vec++; }
+      else if ((e.previewData as FilePreviewResponse).geometry_type || cardGeometry(e.previewData as FilePreviewResponse, e.commitRequest, draftOf(e)).kind) { vec++; }
       else { tab++; }
       if (isFilePreview(e.previewData) && (e.previewData.layers?.length ?? 0) > 1) multiLayer = true;
     }
@@ -267,13 +330,13 @@ export function BulkReviewList({
       pointcloudCount: clouds,
       hasMultiLayerFile: multiLayer,
     };
-  }, [entries]);
+  }, [entries, draftOf]);
 
   function formatCrs(crs: number | null | undefined, fallback: string) {
     return crs ? `EPSG:${crs}` : fallback;
   }
 
-  function formatPreviewSummary(preview: FileEntry['previewData']): string {
+  function formatPreviewSummary(preview: FileEntry['previewData'], request?: CommitImportRequest | null, draft?: GeometryDraft): string {
     if (!preview) return '';
 
     if (isTilesetPreview(preview)) {
@@ -305,9 +368,13 @@ export function BulkReviewList({
       });
     }
 
+    const geometry = cardGeometry(preview, request, draft);
+    const fromColumns = geometry.kind;
     const geometryType = preview.geometry_type
       ? getGeometryTypeLabel(t, preview.geometry_type)
-      : t('bulk.kindTable');
+      : fromColumns
+        ? t(fromColumns === 'point' ? 'review.pointFromColumns' : 'preview.geometryDetected')
+        : t('bulk.kindTable');
     const features = preview.feature_count != null
       ? t('review.featureCount', {
           count: preview.feature_count,
@@ -318,7 +385,7 @@ export function BulkReviewList({
     return t('review.vectorSummary', {
       geometryType,
       features,
-      crs: formatCrs(preview.crs, t('review.noCrs')),
+      crs: formatCrs(cardCrs(preview, geometry), t('review.noCrs')),
     });
   }
 
@@ -359,7 +426,12 @@ export function BulkReviewList({
         {/* File rows */}
         {entries.map((entry) => {
           const ext = fileExt(entry.fileName);
-          const kind = kindFromEntry(entry);
+          const baseKind = kindFromEntry(entry);
+          const kind =
+            baseKind === 'table' && entry.previewData && isFilePreview(entry.previewData)
+              && cardGeometry(entry.previewData, entry.commitRequest, draftOf(entry)).kind
+              ? 'vector'
+              : baseKind;
           const layerCount = entry.previewData && isFilePreview(entry.previewData)
             ? entry.previewData.layers?.length ?? 0
             : 0;
@@ -420,7 +492,7 @@ export function BulkReviewList({
                   </div>
                   {entry.previewData && (
                     <p className="mt-0.5 font-mono text-mini text-muted-foreground">
-                      {formatPreviewSummary(entry.previewData)}
+                      {formatPreviewSummary(entry.previewData, entry.commitRequest, draftOf(entry))}
                     </p>
                   )}
                 </button>
@@ -497,13 +569,14 @@ export function BulkReviewList({
                       </div>
                     )}
 
-                  <DetectionPanel entry={entry} />
+                  <DetectionPanel entry={entry} draft={draftOf(entry)} />
 
                   {(entry.status === 'preview' || entry.status === 'committing' || entry.status === 'commit-failed') && (
                     <ReviewFormBlock
                       entry={entry}
                       isCommitting={entry.status === 'committing'}
                       onCommitSingle={onCommitSingle}
+                      onGeometryDraftChange={handleGeometryDraft}
                     />
                   )}
 
