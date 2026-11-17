@@ -84,7 +84,7 @@
     "clsx": "^2.1.1",
     "copc": "0.0.9",
     "draco3d": "1.5.9",
-    "i18next": "^26.7.1",
+    "i18next": "^27.1.0",
     "laz-perf": "0.0.7",
     "lucide-react": "^1.70.0",
     "maplibre-gl": "^6.5.0",
