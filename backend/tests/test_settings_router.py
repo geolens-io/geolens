@@ -1076,6 +1076,45 @@ async def test_put_public_url_rejects_falsy_non_strings(
     assert resp.status_code == 422
 
 
+@pytest.fixture
+async def restore_public_url_rows(test_db_session):
+    """Put the stored public URL rows back afterwards, even if the test fails.
+
+    A cleared URL is a stored null that shadows the environment, and the
+    database outlives the test.
+    """
+    from sqlalchemy import select
+
+    from app.core.db.models import AppSetting
+    from app.core.public_urls import (
+        LEGACY_PUBLIC_API_URL_KEY,
+        PUBLIC_API_URL_KEY,
+        PUBLIC_APP_URL_KEY,
+        invalidate_public_url_cache,
+    )
+
+    keys = (PUBLIC_APP_URL_KEY, PUBLIC_API_URL_KEY, LEGACY_PUBLIC_API_URL_KEY)
+
+    async def _rows():
+        result = await test_db_session.execute(
+            select(AppSetting.key, AppSetting.value).where(AppSetting.key.in_(keys))
+        )
+        return dict(result.all())
+
+    before = await _rows()
+    yield
+    await test_db_session.rollback()
+    after = await _rows()
+    for key in keys:
+        if key in before and after.get(key) != before[key]:
+            row = await test_db_session.get(AppSetting, key)
+            row.value = before[key]
+        elif key not in before and key in after:
+            await test_db_session.delete(await test_db_session.get(AppSetting, key))
+    await test_db_session.commit()
+    invalidate_public_url_cache()
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "key,explicit_value",
@@ -1085,7 +1124,11 @@ async def test_put_public_url_rejects_falsy_non_strings(
     ],
 )
 async def test_put_public_url_null_and_empty_still_clear(
-    client: AsyncClient, admin_auth_header: dict, key: str, explicit_value: str
+    client: AsyncClient,
+    admin_auth_header: dict,
+    restore_public_url_rows,
+    key: str,
+    explicit_value: str,
 ):
     """JSON null and an empty/whitespace string remain legitimate clears,
     distinct from the falsy non-strings rejected above."""

@@ -19,6 +19,7 @@ from app.core.service_tokens import (
     credential_header_line,
 )
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
+from app.platform.arcgis_wfs import fetch_arcgis_wfs_hits
 from app.platform.extensions import get_catalog_port
 from app.platform.egress_proxy import (
     gdal_source_url,
@@ -33,10 +34,10 @@ from app.platform.service_auth import (
 )
 from app.core.config import settings
 from app.core.runtime.staging import ensure_staging_ready
-from app.platform.esri_services import esri_service_kind
 from app.platform.service_items import (
     ItemFetchFailedError,
     materialise_oapif_items,
+    recognise_esri_oapif,
 )
 from app.platform.service_endpoints import (
     CrossOriginEndpointError,
@@ -111,11 +112,17 @@ async def _localise_protected_oapif(
     Returns what to run ogrinfo against, the file to delete afterwards, and
     the name/total to report instead of trusting ogrinfo.
     """
-    if not gdal_source.startswith("OAPIF:") or (
-        credential is None and esri_service_kind(_service_url(gdal_source)) != "oapif"
-    ):
+    if not gdal_source.startswith("OAPIF:"):
         return _Localised(gdal_source, layer_name, credential, None, None, None)
     try:
+        if (
+            credential is None
+            and await recognise_esri_oapif(
+                _service_url(gdal_source), layer_name, deadline=deadline
+            )
+            is None
+        ):
+            return _Localised(gdal_source, layer_name, credential, None, None, None)
         extract = await materialise_oapif_items(
             _service_url(gdal_source),
             layer_name,
@@ -143,6 +150,24 @@ async def _localise_protected_oapif(
     # dropped (GeoJSON driver has exactly one layer); the collection the
     # caller asked for is still what gets reported.
     return _Localised(extract.path, "", None, extract.path, layer_name, extract.total)
+
+
+async def _wfs_hits(
+    url: str, layer: str, credential_line: str | None, deadline: float
+) -> int | None:
+    """The layer's total from a ``resultType=hits`` read within the preview's
+    deadline, in WFS 2.0.0 then 1.1.0, or None. Never reads features."""
+    try:
+        async with asyncio.timeout(max(deadline - time.monotonic(), 0)):
+            for version in ("2.0.0", "1.1.0"):
+                total = await fetch_arcgis_wfs_hits(
+                    url, layer, credential_line=credential_line, version=version
+                )
+                if total is not None:
+                    return total
+    except TimeoutError:
+        pass
+    return None
 
 
 def _remove_quietly(path: str | None) -> None:
@@ -189,6 +214,21 @@ def _service_url(gdal_source: str) -> str:
         if gdal_source.startswith(prefix):
             return gdal_source[len(prefix) :]
     return gdal_source
+
+
+class ServicePreviewTimeoutError(IngestionError):
+    """ogrinfo did not answer within the preview's time budget."""
+
+    def http_error(self) -> HTTPException:
+        """The coded 502 every preview door answers with."""
+        return HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail={
+                "code": "service_preview_timeout",
+                "message": "The layer took too long to preview. The service "
+                "answered, but did not return the layer's first features in time.",
+            },
+        )
 
 
 def build_gdal_source(
@@ -321,6 +361,10 @@ async def run_service_preview(
         "-features",
         "-limit",
         str(sample_limit),
+        # GDAL pages a WFS layer in full for an extent it can't take from
+        # capabilities, or a count without a usable hits answer; the preview
+        # shows no extent and reads the count itself (_wfs_hits).
+        *(["-noextent", "-nocount"] if gdal_source.startswith("WFS:") else []),
         "--config",
         "GDAL_HTTP_TIMEOUT",
         str(_HTTP_TIMEOUT_SECONDS),
@@ -467,10 +511,10 @@ async def run_service_preview(
                     layer_name=layer_name,
                     timeout=timeout,
                 )
-                # A timeout is a real failure, not a genuinely-empty layer — raise
-                # so the router surfaces a 502 instead of a fake-success preview
-                # with zero columns. empty_fallback is for zero-feature layers only.
-                raise IngestionError(
+                # A timeout is a real failure, not an empty layer: the router
+                # answers a coded 502 rather than a zero-column preview.
+                # empty_fallback is for zero-feature layers only.
+                raise ServicePreviewTimeoutError(
                     f"ogrinfo timed out after {timeout:.0f}s for service preview"
                 ) from exc
             finally:
@@ -571,17 +615,21 @@ async def run_service_preview(
 
     srid = get_catalog_port().extract_srid_from_json(coord_system or {})
 
+    feature_count = (
+        await _wfs_hits(_service_url(gdal_source), layer_name, header_line, deadline)
+        if gdal_source.startswith("WFS:")
+        else localised.total
+        if localised.reported_name is not None
+        else layer.get("featureCount")
+    )
+
     result = {
         "srid": srid,
         "geometry_type": geometry_type,
         # For a localised collection these come from the request/service,
         # not ogrinfo, which is describing a scratch file.
         "layer_name": localised.reported_name or layer.get("name", layer_name),
-        "feature_count": (
-            localised.total
-            if localised.reported_name is not None
-            else layer.get("featureCount")
-        ),
+        "feature_count": feature_count,
         "columns": columns,
         "sample_rows": sample_rows,
     }

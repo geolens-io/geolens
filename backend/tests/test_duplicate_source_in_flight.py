@@ -423,6 +423,7 @@ async def test_a_database_job_refused_at_publication_leaves_no_table_or_dataset(
     database,
     deferred,
     monkeypatch,
+    clean_tables,
 ):
     body = {"schema_name": "dbo", "table_name": "parcels"}
     queued = await client.post(DB_URL, json=body, headers=admin_auth_header)

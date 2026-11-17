@@ -50,6 +50,7 @@ x-db-ssl-env: &db-ssl-env
   DB_POOL_RECYCLE: "${DB_POOL_RECYCLE:-1800}"
   # Every backend process loads it through app.core.config; only get_db applies it.
   DB_STATEMENT_TIMEOUT_SECONDS: "${DB_STATEMENT_TIMEOUT_SECONDS:-300}"
+  DB_ANONYMOUS_READ_TIMEOUT_SECONDS: "${DB_ANONYMOUS_READ_TIMEOUT_SECONDS:-30}"
 
 x-storage-env: &storage-env
   STORAGE_PROVIDER: "${STORAGE_PROVIDER:-local}"
@@ -304,6 +305,7 @@ services:
       PRESIGNED_MULTIPART_THRESHOLD_MB: "${PRESIGNED_MULTIPART_THRESHOLD_MB:-100}"
       TILE_CACHE_TTL: "${TILE_CACHE_TTL:-3600}"
       TILE_SIGNING_SECRET:
+      SESSION_SECRET_KEY:
       UPLOAD_MAX_SIZE_MB: "${UPLOAD_MAX_SIZE_MB:-500}"
       MAX_TILESET_UNPACKED_MB: "${MAX_TILESET_UNPACKED_MB:-20480}"
       MAX_TILESET_ENTRIES: "${MAX_TILESET_ENTRIES:-100000}"
@@ -544,6 +546,12 @@ services:
       TRUSTED_PROXY_CIDRS: "${TRUSTED_PROXY_CIDRS:-}"
       # Extra script-src sources for the SPA CSP; empty keeps 'self' only.
       CSP_SCRIPT_SRC_EXTRA: "${CSP_SCRIPT_SRC_EXTRA:-}"
+      # Edge tile rate limits; empty keeps the defaults (600/min and burst 200 for
+      # raster tiles, 5400/min and burst 720 for vector tiles).
+      TILE_RASTER_RATE_PER_MINUTE: "${TILE_RASTER_RATE_PER_MINUTE:-}"
+      TILE_RASTER_BURST: "${TILE_RASTER_BURST:-}"
+      TILE_VECTOR_RATE_PER_MINUTE: "${TILE_VECTOR_RATE_PER_MINUTE:-}"
+      TILE_VECTOR_BURST: "${TILE_VECTOR_BURST:-}"
     healthcheck:
       test: ["CMD-SHELL", "wget --quiet --tries=1 --spider http://127.0.0.1:8080/ || exit 1"]
       interval: 30s

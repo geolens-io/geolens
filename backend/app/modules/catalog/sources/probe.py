@@ -141,6 +141,12 @@ def _build_arcgis_response(
             importable=layer.get("importable", True),
             has_attachments=layer.get("has_attachments"),
             relationships=layer.get("relationships") or [],
+            time_fields=layer.get("time_fields"),
+            subtype_field=layer.get("subtype_field"),
+            has_m=layer.get("has_m"),
+            time_only_fields=layer.get("time_only_fields") or [],
+            timestamp_offset_fields=layer.get("timestamp_offset_fields") or [],
+            properties_read=layer.get("properties_read", False),
             kind=classify_layer_kind(layer, adapter_type="arcgis"),
         )
         for layer in enriched_layers

@@ -38,7 +38,7 @@ from tests.factories import create_dataset, create_roleless_user, get_user_id
 
 @pytest.fixture
 def mock_export_service(monkeypatch):
-    """Patch app.processing.export.router.export_dataset to avoid ogr2ogr.
+    """Patch app.processing.export.selection.export_dataset to avoid ogr2ogr.
 
     Mirrors test_export_hardening.py:181-220 so the allow-case asserts the
     access-control GATE, not real OGR/GDAL file generation.
@@ -73,7 +73,7 @@ def mock_export_service(monkeypatch):
             f.write(b"mock export data")
         return file_path, filename, media
 
-    monkeypatch.setattr("app.processing.export.router.export_dataset", _fake_export)
+    monkeypatch.setattr("app.processing.export.selection.export_dataset", _fake_export)
 
     yield _fake_export
 

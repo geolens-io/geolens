@@ -256,6 +256,41 @@ def _configured_api_path(
     return ""
 
 
+DESKTOP_ENTRY_PATH = "/desktop"
+_DESKTOP_ENTRY_SCOPE_KEY = "geolens.desktop_entry"
+
+
+def desktop_entry_serves(path: str) -> bool:
+    """Whether the desktop entry serves this API path; a query string is ignored."""
+    path = path.partition("?")[0]
+    return path in {"/", "/conformance", "/openapi.json", "/collections"} or (
+        path.startswith("/collections/")
+    )
+
+
+def mark_desktop_entry(scope: dict) -> None:
+    scope[_DESKTOP_ENTRY_SCOPE_KEY] = True
+
+
+def is_desktop_entry(scope: dict) -> bool:
+    """Whether this request reached the API through the desktop entry."""
+    return scope.get(_DESKTOP_ENTRY_SCOPE_KEY) is True
+
+
+class _DesktopEntryApiUrl(str):
+    """The API URL of a request made through the desktop entry.
+
+    Its value is the plain API URL. ``join_public_url`` puts a link to a path
+    the entry serves under the entry, and leaves every other link as it is.
+    """
+
+
+def _for_entry(api_url: str, request: Request | None) -> str:
+    if request is not None and is_desktop_entry(request.scope):
+        return _DesktopEntryApiUrl(api_url)
+    return api_url
+
+
 def join_public_url(base_url: str, path: str) -> str:
     if not path.startswith("/"):
         path = "/" + path
@@ -264,6 +299,8 @@ def join_public_url(base_url: str, path: str) -> str:
         raise ValueError(
             f"Cannot join public URL: base_url={base_url!r} is not a valid URL"
         )
+    if isinstance(base_url, _DesktopEntryApiUrl) and desktop_entry_serves(path):
+        normalized += DESKTOP_ENTRY_PATH
     return normalized + path
 
 
@@ -433,12 +470,13 @@ def resolve_public_app_url(
 
 
 def get_env_public_api_url(request: Request | None = None) -> str:
-    return resolve_public_api_url(
+    api_url = resolve_public_api_url(
         settings.public_app_url,
         settings.public_api_url,
         settings.public_base_url,
         request=request,
     )
+    return _for_entry(api_url, request)
 
 
 _PUBLIC_URL_CACHE: tuple[float, dict[str, str | None]] | None = None
@@ -718,4 +756,4 @@ async def get_public_api_url(
     _, api_url = await get_public_urls(
         db, request=request, for_external_use=for_external_use
     )
-    return api_url
+    return _for_entry(api_url, request)

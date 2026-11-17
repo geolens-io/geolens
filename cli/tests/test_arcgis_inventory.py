@@ -203,6 +203,26 @@ def test_classify_table(item_type, keywords, klass, reason, retirement, hosted):
     }
 
 
+@pytest.mark.parametrize(
+    ("item_type", "url", "size", "reason"),
+    [
+        ("CSV", "https://data.example.com/a.csv", 0, "added_by_url_no_file"),
+        ("GeoJson", "https://data.example.com/a.geojson", -1, "added_by_url_no_file"),
+        ("CSV", "https://data.example.com/a.csv", None, "added_by_url_no_file"),
+        ("CSV", None, 12345, "data_file_import_candidate"),
+        ("CSV", "https://data.example.com/a.csv", 12345, "data_file_import_candidate"),
+        ("KML", "https://data.example.com/a.kml", 0, "ogc_service_reference"),
+    ],
+)
+def test_a_file_item_with_a_url_and_no_size_is_a_reference(
+    item_type, url, size, reason
+):
+    """A file type with a URL and no file is classed as a reference."""
+    verdict = inventory.classify({"type": item_type, "url": url, "size": size})
+    assert verdict["reason"] == reason
+    assert verdict["class"] == "partial"
+
+
 def test_retirement_dates_cite_a_source():
     """A dated retirement always carries the Esri page it came from."""
     for entry in inventory.RETIREMENTS.values():
@@ -3151,3 +3171,23 @@ def test_markdown_header_flags_a_sign_in_with_no_role():
     report["auth"].pop("role", None)
 
     assert "role-less sign-in" in arcgis_report.render_markdown(report)
+
+
+def test_an_unpublished_story_takes_its_web_map_from_the_draft_resource(run):
+    item_id = "7f" * 16
+    routes = _one_item(
+        item_id,
+        "StoryMap",
+        ("smstatusdraft", "smdraftresourceid:draft_1.json"),
+        **{
+            f"content/items/{item_id}/resources/draft_1.json": _app_data(
+                "storymap.json"
+            )
+        },
+    )
+
+    result, _ = run(FakePortal(routes), "--scope", "org")
+
+    report = _report(result)
+    assert _rows(report)[item_id]["dependencies_status"] == "parsed"
+    assert _links(report, item_id) == {(WEB_MAP_ID, "app_web_map", None)}

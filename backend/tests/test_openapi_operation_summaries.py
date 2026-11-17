@@ -7,7 +7,8 @@ titles of the API reference and the docstrings of the generated SDKs.
 
 from __future__ import annotations
 
-from app.api.main import _iter_api_routes, app
+from app.api.main import app
+from app.api.openapi_contract import _iter_api_routes
 
 
 def test_no_operation_uses_the_function_name_as_its_summary():

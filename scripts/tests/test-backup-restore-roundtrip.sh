@@ -52,7 +52,7 @@ fi
 PGHOST="${POSTGRES_HOST:-localhost}"
 PGPORT="${POSTGRES_PORT:-5434}"
 PGUSER="${POSTGRES_USER:-geolens}"
-export PGPASSWORD="${POSTGRES_PASSWORD:-geolens}"
+export PGPASSWORD="${POSTGRES_PASSWORD:-}"
 ADMIN_DB="${POSTGRES_DB:-geolens}"
 
 for bin in pg_dump pg_dumpall pg_restore psql createdb dropdb; do

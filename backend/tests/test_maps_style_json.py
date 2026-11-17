@@ -3026,3 +3026,119 @@ def test_a_minzoom_just_below_the_builder_maximum_is_kept_1778():
 
     assert imported.layers[0].layout == {"_minzoom": BUILDER_MAX_ZOOM - 1}
     assert imported.summary.warnings == []
+
+
+def test_the_layer_at_sort_order_zero_is_emitted_last_so_it_draws_on_top():
+    top = _layer(sort_order=0, display_name="Top", label_config=None)
+    bottom = _layer(sort_order=1, display_name="Bottom", label_config=None)
+
+    style = build_maplibre_style(_map(), [top, bottom])
+
+    assert [
+        layer["metadata"]["geolens"]["sort_order"] for layer in style["layers"]
+    ] == [1, 0]
+
+
+def test_a_plain_style_imports_its_last_layer_on_top():
+    dataset_id = uuid.uuid4()
+    source = {
+        "type": "vector",
+        "tiles": [f"/tiles/{dataset_id}/{{z}}/{{x}}/{{y}}.pbf"],
+        "metadata": {"geolens": {"dataset_id": str(dataset_id)}},
+    }
+    style = {
+        "version": 8,
+        "sources": {"s": source},
+        "layers": [
+            {"id": name, "type": "circle", "source": "s", "source-layer": "data"}
+            for name in ("bottom", "top")
+        ],
+    }
+
+    imported = parse_maplibre_style_import(style)
+
+    assert {x.display_name: x.sort_order for x in imported.layers} == {
+        "top": 0,
+        "bottom": 1,
+    }
+
+
+def test_an_exported_style_imports_in_the_same_draw_order():
+    layers = [
+        _layer(sort_order=n, display_name=name, label_config=None)
+        for n, name in enumerate(("Top", "Middle", "Bottom"))
+    ]
+
+    imported = parse_maplibre_style_import(build_maplibre_style(_map(), layers))
+
+    assert {x.display_name: x.sort_order for x in imported.layers} == {
+        "Top": 0,
+        "Middle": 1,
+        "Bottom": 2,
+    }
+
+
+def _source_cols(style, dataset_id):
+    [url] = style["sources"][f"geolens-{dataset_id}"]["tiles"]
+    return parse_qs(urlsplit(url).query).get("cols", [""])[0].split(",")
+
+
+def test_a_shared_source_requests_the_columns_of_every_layer_that_draws_it():
+    dataset_id = uuid.uuid4()
+    upper = _layer(
+        dataset_id=dataset_id,
+        sort_order=0,
+        filter=None,
+        label_config={"column": "name"},
+        style_config={"column": "category"},
+    )
+    lower = _layer(dataset_id=dataset_id, sort_order=1, filter=None, label_config=None)
+
+    style = build_maplibre_style(_map(), [upper, lower])
+
+    assert _source_cols(style, dataset_id) == ["category", "name"]
+
+
+def test_labels_are_emitted_above_every_layers_geometry():
+    def polygon(sort_order, label_config):
+        return _layer(
+            sort_order=sort_order,
+            dataset_geometry_type="POLYGON",
+            paint={"fill-color": "#336699", "fill-opacity": 1},
+            label_config=label_config,
+        )
+
+    upper = polygon(0, None)
+    lower = polygon(1, {"column": "name"})
+
+    style = build_maplibre_style(_map(), [upper, lower])
+
+    meta = [layer["metadata"]["geolens"] for layer in style["layers"]]
+    label = next(i for i, m in enumerate(meta) if m.get("companion") == "label")
+    upper_fill = next(
+        i
+        for i, m in enumerate(meta)
+        if m.get("layer_id") == str(upper.id) and "companion" not in m
+    )
+    assert label > upper_fill
+    imported = {x.sort_order: x for x in parse_maplibre_style_import(style).layers}
+    assert imported[1].label_config["column"] == "name"
+    assert imported[0].label_config is None
+
+
+@pytest.mark.parametrize(
+    "terrain_order", [0, 1], ids=["terrain-above", "terrain-below"]
+)
+def test_a_mesh_only_terrain_layer_leaves_the_hillshade_its_raster_dem_source(
+    terrain_order,
+):
+    dem_id = uuid.uuid4()
+    hillshade = _dem_layer(dem_id, sort_order=1 - terrain_order)
+    terrain = _dem_layer(
+        dem_id, sort_order=terrain_order, style_config={"render_mode": "terrain"}
+    )
+
+    style = build_maplibre_style(_map(), [hillshade, terrain])
+
+    [shaded] = [x for x in style["layers"] if x["type"] == "hillshade"]
+    assert style["sources"][shaded["source"]]["type"] == "raster-dem"

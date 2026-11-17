@@ -12,7 +12,7 @@ shipping path.
 """
 
 import os
-from unittest.mock import MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
@@ -22,6 +22,15 @@ from app.processing.ingest.ogr import run_ogr2ogr_service
 # The wire value for a bearer credential, composed by the door.
 _BEARER_TOKEN = "example-jwt-token-base64url"
 _BEARER_LINE = f"Authorization: Bearer {_BEARER_TOKEN}"
+
+
+@pytest.fixture(autouse=True)
+def _wfs_is_not_arcgis(monkeypatch):
+    """These WFS doubles serve no GetCapabilities, which an import reads to
+    tell an ArcGIS WFS behind another URL."""
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr.recognise_arcgis_wfs", AsyncMock(return_value=None)
+    )
 
 
 @pytest.fixture(autouse=True)

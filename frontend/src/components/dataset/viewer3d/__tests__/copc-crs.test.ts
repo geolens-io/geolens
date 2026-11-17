@@ -8,7 +8,23 @@ const UTM =
 const UTM2 =
   'PROJCRS["WGS 84 / UTM zone 10N",BASEGEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],PRIMEM["Greenwich",0,ANGLEUNIT["degree",0.0174532925199433]]],CONVERSION["UTM zone 10N",METHOD["Transverse Mercator",ID["EPSG",9807]],PARAMETER["Latitude of natural origin",0,ANGLEUNIT["degree",0.0174532925199433]],PARAMETER["Longitude of natural origin",-123,ANGLEUNIT["degree",0.0174532925199433]],PARAMETER["Scale factor at natural origin",0.9996,SCALEUNIT["unity",1]],PARAMETER["False easting",500000,LENGTHUNIT["metre",1]],PARAMETER["False northing",0,LENGTHUNIT["metre",1]]],CS[Cartesian,2],AXIS["(E)",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["(N)",north,ORDER[2],LENGTHUNIT["metre",1]]]';
 
+const GEOCENTRIC2 =
+  'GEODCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],CS[Cartesian,3],AXIS["(X)",east,ORDER[1],LENGTHUNIT["metre",1]],AXIS["(Y)",north,ORDER[2],LENGTHUNIT["metre",1]],AXIS["(Z)",up,ORDER[3],LENGTHUNIT["metre",1]]]';
+const GEOGRAPHIC3D =
+  'GEOGCRS["WGS 84",DATUM["World Geodetic System 1984",ELLIPSOID["WGS 84",6378137,298.257223563,LENGTHUNIT["metre",1]]],CS[ellipsoidal,3],AXIS["lat",north,ORDER[1],ANGLEUNIT["degree",0.0174532925199433]],AXIS["lon",east,ORDER[2],ANGLEUNIT["degree",0.0174532925199433]],AXIS["h",up,ORDER[3],LENGTHUNIT["metre",1]]]';
+
 describe('parseCopcCrs', () => {
+  it('keeps a three-dimensional geographic CRS and a projected one named for a geodetic CRS', () => {
+    expect(parseCopcCrs(GEOGRAPHIC3D)).not.toBeNull();
+    expect(parseCopcCrs(UTM2.replace('"WGS 84 / UTM zone 10N"', '"geocentric GEODCRS[ CS[Cartesian,3] x"'))).not.toBeNull();
+  });
+
+  it('does not throw on malformed WKT', () => {
+    for (const wkt of ['GEODCRS[', 'GEOCCS["', 'CS[Cartesian,3]]]', '"', 'COMPD_CS[']) {
+      expect(() => parseCopcCrs(wkt)).not.toThrow();
+    }
+  });
+
   it('reads a projected CRS, with metres for Z', () => {
     expect(parseCopcCrs(UTM)).toEqual({ horizontalWkt: UTM, zToMeters: 1 });
   });
@@ -77,6 +93,12 @@ describe('parseCopcCrs', () => {
   it.each([
     ['nothing', undefined],
     ['an empty string', ''],
+    ['a WKT2 geocentric CRS', GEOCENTRIC2],
+    ['a geocentric CRS inside a compound CRS', `COMPOUNDCRS["x",${GEOCENTRIC2},VERTCRS["h",VDATUM["d"],CS[vertical,1],AXIS["H",up,LENGTHUNIT["metre",1]]]]`],
+    ['a geocentric CRS inside a bound CRS', `BOUNDCRS[SOURCECRS[${GEOCENTRIC2}],TARGETCRS[${GEOCENTRIC2}],ABRIDGEDTRANSFORMATION["t",METHOD["m"]]]`],
+    ['a WKT2 geocentric CRS with a lower-case system type', GEOCENTRIC2.replace('Cartesian', 'cartesian')],
+    ['a WKT2 geocentric CRS with an upper-case system type', GEOCENTRIC2.replace('Cartesian', 'CARTESIAN')],
+    ['a WKT1 geocentric CRS in lower case', 'geoccs["x",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["metre",1]]'],
     ['a geocentric CRS', 'GEOCCS["WGS 84",DATUM["WGS_1984",SPHEROID["WGS 84",6378137,298.257223563]],PRIMEM["Greenwich",0],UNIT["metre",1],AXIS["Geocentric X",OTHER],AXIS["Geocentric Y",OTHER],AXIS["Geocentric Z",NORTH]]'],
     ['text proj4 cannot read', 'not a CRS'],
     ['a compound CRS without a horizontal part', 'COMPD_CS["x",VERT_CS["h",UNIT["metre",1]]]'],

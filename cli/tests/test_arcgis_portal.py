@@ -6,10 +6,13 @@ import json
 import secrets
 from urllib.parse import urlsplit
 
+import pytest
+
 from geolens_cli import arcgis_inventory as inventory
+from geolens_cli.arcgis_portal import NO_FILE, PortalError
 from geolens_cli.main import app
 
-from .arcgis_fake import PORTAL, FakePortal, portal_routes
+from .arcgis_fake import NO_FILE_PAGE, PORTAL, FakePortal, portal_routes
 from .conftest import GEOLENS_INSTANCE
 
 USER_ID = "00000000-0000-0000-0000-000000000301"
@@ -63,3 +66,39 @@ def test_inventory_requests_reach_only_the_portal_and_geolens(
     assert _hosts(item_urls) - allowed
     assert portal.seen
     assert _hosts(s.url for s in [*portal.seen, *fake_geolens.seen]) <= allowed
+
+
+@pytest.mark.parametrize(
+    ("reply", "kind"),
+    [
+        (NO_FILE_PAGE, NO_FILE),
+        (
+            (200, {"error": {"code": 500, "message": "Item does not have a file."}}),
+            NO_FILE,
+        ),
+        ((500, b"<html><title>Internal Server Error</title></html>"), "server"),
+        (
+            (200, {"error": {"code": 500, "message": "Unable to read the item."}}),
+            "server",
+        ),
+    ],
+)
+def test_only_the_no_file_answer_is_read_as_an_item_without_a_file(
+    tmp_path, reply, kind
+):
+    """Only a 500 saying the item has no file gets the no-file kind."""
+    path = "content/items/" + "ab" * 16 + "/data"
+    portal = FakePortal({path: reply})
+    client = inventory.PortalClient(
+        PORTAL,
+        opener=portal,
+        redact=inventory.Redactor(),
+        token="t",
+        sleep=lambda s: None,
+    )
+
+    with pytest.raises(PortalError) as raised:
+        client.download(path, tmp_path / "data", None)
+
+    assert raised.value.kind == kind
+    assert raised.value.http_status == 500

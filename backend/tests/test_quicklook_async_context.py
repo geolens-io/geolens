@@ -33,10 +33,8 @@ from sqlalchemy import text
 import app.processing.vector.quicklook as quicklook_module
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.jobs.models import IngestJob
-from app.processing.ingest.tasks_common import (
-    _generate_quicklook,
-    _job_phase_session,
-)
+from app.processing.ingest.tasks_common import _job_phase_session
+from app.processing.ingest.tasks_quicklook import _generate_quicklook
 from tests.factories import get_user_id
 
 
@@ -55,7 +53,7 @@ def _force_quicklook_timeout(monkeypatch, timeout: float = 0.001) -> None:
     import inside ``_draw_quicklook``.
 
     Check it once by commenting out the draw's ``await session.rollback()``
-    before the upload in ``tasks_common.py``: at least
+    before the upload in ``tasks_quicklook.py``: at least
     ``test_generate_quicklook_url_persists_after_geom_timeout`` must fail.
     """
     real_wrapper = quicklook_module.generate_vector_quicklook_with_timeout

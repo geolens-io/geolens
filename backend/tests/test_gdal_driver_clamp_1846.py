@@ -36,7 +36,7 @@ import threading
 import zipfile
 from pathlib import Path
 from unittest import mock
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -80,6 +80,15 @@ needs_ogr = pytest.mark.skipif(
 # ---------------------------------------------------------------------------
 # What the helpers say
 # ---------------------------------------------------------------------------
+
+
+@pytest.fixture(autouse=True)
+def _wfs_is_not_arcgis(monkeypatch):
+    """These WFS doubles serve no GetCapabilities, which an import reads to
+    tell an ArcGIS WFS behind another URL."""
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr.recognise_arcgis_wfs", AsyncMock(return_value=None)
+    )
 
 
 def _skipped(env):

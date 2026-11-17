@@ -7,7 +7,8 @@ import inspect
 import re
 import textwrap
 
-from app.api.main import _iter_api_routes, app
+from app.api.main import app
+from app.api.openapi_contract import _iter_api_routes
 
 
 def _openapi() -> dict:
@@ -662,7 +663,7 @@ def test_retained_validation_model_keeps_the_schema_it_references() -> None:
     anything. Not reachable from the live app today, because no operation names
     `HTTPValidationError` explicitly; that is exactly why it needs a direct test.
     """
-    from app.api.main import _drop_unreferenced_validation_models
+    from app.api.openapi_contract import _drop_unreferenced_validation_models
 
     referenced = {
         "paths": {

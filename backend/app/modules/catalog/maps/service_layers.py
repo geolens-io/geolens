@@ -5,18 +5,22 @@ from collections.abc import Iterable
 from typing import Any
 
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select, text, update
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
 from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
+from app.modules.catalog.maps.author_key import (
+    NOT_ITS_MAP,
+    map_author_key_id,
+    map_author_may_change,
+)
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
     MapLayerInput,
+    check_sort_order,
     split_legacy_builder_paint,
 )
 from app.modules.catalog.maps.service_shared import (
@@ -26,8 +30,13 @@ from app.modules.catalog.maps.service_shared import (
     normalize_dem_style_config,
 )
 from app.modules.catalog.write_recheck import admit_writer, recheck_admitted_writer
+from app.platform.catalog_locks import bounded_row_lock
+from app.platform.request_credential import api_key_scope_refusal
 
 MAP_WRITE_DENIED = "Not authorized to modify this map"
+
+
+_MAP_BUSY = "Another change to this map is in progress. Retry shortly."
 
 
 async def bulk_check_dataset_access(
@@ -113,23 +122,13 @@ async def lock_map_layers(session: AsyncSession, map_id: uuid.UUID) -> None:
     ``check_map_ownership`` admitted, so a write that leaves the map row itself
     unchanged takes it before its first write too.
     """
-    await session.execute(
-        text("SELECT set_config('lock_timeout', :timeout, true)"),
-        {"timeout": _LAYER_LOCK_TIMEOUT},
+    await bounded_row_lock(
+        session,
+        select(Map.id).where(Map.id == map_id).with_for_update(key_share=True),
+        message=_MAP_BUSY,
+        detail=_MAP_BUSY,
+        lock_timeout=_LAYER_LOCK_TIMEOUT,
     )
-    try:
-        await session.execute(
-            select(Map.id).where(Map.id == map_id).with_for_update(key_share=True)
-        )
-    except DBAPIError as exc:
-        if not is_lock_conflict(exc):
-            raise
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail="Another change to this map is in progress. Retry shortly.",
-        ) from exc
-    await session.execute(text("RESET lock_timeout"))
     await recheck_map_ownership(session, map_id)
 
 
@@ -158,9 +157,17 @@ async def recheck_map_ownership(session: AsyncSession, map_id: uuid.UUID) -> Non
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail=MAP_WRITE_DENIED
             )
+        if not map_author_may_change(
+            session, user.id, row.created_by, row.created_by_api_key_id
+        ):
+            raise api_key_scope_refusal(NOT_ITS_MAP)
 
     await recheck_admitted_writer(
-        session, ("map", map_id), (Map.created_by,), Map.id == map_id, enforce
+        session,
+        ("map", map_id),
+        (Map.created_by, Map.created_by_api_key_id),
+        Map.id == map_id,
+        enforce,
     )
 
 
@@ -238,7 +245,10 @@ async def add_layer(
     )
     await _admit_layer(session, map_id)
     sort_order = body.sort_order
-    if "sort_order" not in body.model_fields_set:
+    if (
+        "sort_order" not in body.model_fields_set
+        or map_author_key_id(session) is not None
+    ):
         result = await session.execute(
             select(MapLayer.sort_order)
             .where(MapLayer.map_id == map_id)
@@ -247,6 +257,12 @@ async def add_layer(
         )
         highest_sort_order = result.scalar_one_or_none()
         sort_order = 0 if highest_sort_order is None else highest_sort_order + 1
+        try:
+            check_sort_order(sort_order)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)
+            ) from exc
 
     layer = MapLayer(
         map_id=map_id,

@@ -22,7 +22,7 @@ from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.maps.dashboard import DashboardConfig, DashboardConfigInput
-from app.modules.catalog.maps.filter_grammar import validate_filter
+from app.modules.catalog.maps.filter_grammar import bounded_filter
 from app.modules.catalog.maps.publish_vocabulary import (
     LABEL_CONFIG_DESCRIPTION,
     STYLE_CONFIG_DESCRIPTION,
@@ -149,6 +149,18 @@ _MAX_STYLE_DICT_BYTES = (
 )  # 64 KB serialized — generous for any real style override
 # MapUpdate.layers caps the per-map layer count. Real maps rarely exceed 50 layers.
 _MAX_LAYERS_PER_MAP = 200
+# Highest draw order a layer may hold; the input schemas and the server-side
+# append both enforce it.
+_MAX_SORT_ORDER = 32767
+
+
+def check_sort_order(order: int) -> int:
+    """Return a server-allocated draw order, refusing one past the maximum."""
+    if order > _MAX_SORT_ORDER:
+        raise ValueError(f"Layer order exceeds maximum {_MAX_SORT_ORDER}")
+    return order
+
+
 # How many style-import warnings the summary reports individually before it
 # starts counting instead.
 _MAX_IMPORT_WARNINGS = 100
@@ -173,22 +185,6 @@ def _validate_style_dict(v: dict | None) -> dict | None:
     """Reject style-override dicts whose JSON serialization exceeds the cap."""
     _reject_oversize_json(v, "Style configuration")
     return v
-
-
-def _validate_filter_field(v: list | None) -> list | None:
-    """Bound a layer filter's nesting and size, then normalize its grammar.
-
-    `filter` needs its own size cap (the cap above only covers dicts); an
-    unbounded filter would store megabytes of JSONB, re-serialized on every
-    export and builder load.
-
-    `validate_filter` runs first since it carries the nesting bound;
-    size-checking an unbounded filter first would RecursionError instead
-    of a Pydantic-catchable ValueError.
-    """
-    normalized = validate_filter(v)
-    _reject_oversize_json(normalized, "Filter expression")
-    return normalized
 
 
 def _validate_maplibre_style_dict(v: dict | None) -> dict | None:
@@ -667,8 +663,8 @@ class MapLayerInput(BaseModel):
     sort_order: int = Field(
         default=0,
         ge=0,
-        le=32767,
-        description="Draw order (lower draws first)",
+        le=_MAX_SORT_ORDER,
+        description="Draw order; 0 draws on top",
     )
     visible: bool = True
     opacity: float = Field(
@@ -710,8 +706,8 @@ class MapLayerInput(BaseModel):
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
     # The editable MapLibre filter subset (filter_grammar, shared with style
     # import/export and AI set_filter), plus the size cap the other open
-    # columns carry, via _validate_filter_field.
-    _validate_filter = field_validator("filter")(_validate_filter_field)
+    # columns carry, via bounded_filter.
+    _validate_filter = field_validator("filter")(bounded_filter)
     layer_type: str | None = Field(
         default=None,
         pattern=r"^(vector_geolens|raster_geolens|geojson)$",
@@ -738,7 +734,7 @@ class MapLayerInput(BaseModel):
 
 class MapLayerPatch(BaseModel):
     id: uuid.UUID
-    sort_order: int | None = Field(default=None, ge=0, le=32767)
+    sort_order: int | None = Field(default=None, ge=0, le=_MAX_SORT_ORDER)
     visible: bool | None = None
     opacity: float | None = Field(default=None, ge=0.0, le=1.0)
     paint: dict | None = Field(
@@ -774,8 +770,8 @@ class MapLayerPatch(BaseModel):
     _validate_style_config = field_validator("style_config")(_validate_style_dict)
     # The editable MapLibre filter subset (filter_grammar, shared with style
     # import/export and AI set_filter), plus the size cap the other open
-    # columns carry, via _validate_filter_field.
-    _validate_filter = field_validator("filter")(_validate_filter_field)
+    # columns carry, via bounded_filter.
+    _validate_filter = field_validator("filter")(bounded_filter)
 
     @model_validator(mode="before")
     @classmethod

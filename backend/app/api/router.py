@@ -70,6 +70,7 @@ from app.modules.catalog.maps.router_link_preview import (
     router as maps_link_preview_router,
 )
 from app.modules.catalog.maps.router_ownership import router as maps_ownership_router
+from app.standards.ogc.desktop import desktop_router
 from app.standards.ogc.router import ogc_features_router, ogc_router
 from app.modules.catalog.records.router import router as records_router
 from app.modules.catalog.stories.router import router as stories_router
@@ -103,6 +104,7 @@ api_router = APIRouter()
 
 # OGC discovery must stay first because it owns the root landing paths.
 api_router.include_router(ogc_router)
+api_router.include_router(desktop_router)
 api_router.include_router(auth_router)
 api_router.include_router(groups_router)
 api_router.include_router(admin_router)

@@ -305,3 +305,29 @@ class TestReuploadErrorCodes:
             _service_refresh_error_code(CredentialStoreUnavailable("down"))
             == "credential_store_unavailable"
         )
+
+
+class TestServiceRefreshKeepsFixedReasonCode:
+    """A refresh failing on a coded reason records that code, not the generic one."""
+
+    def test_a_coded_service_failure_keeps_its_code(self) -> None:
+        from app.platform.service_items import ServiceErrorResponseError
+        from app.processing.ingest.ogr import (
+            WfsCountMismatchError,
+            refuse_short_arcgis_wfs,
+        )
+
+        assert _service_refresh_error_code(ServiceErrorResponseError(400)) == (
+            "service_error"
+        )
+        with pytest.raises(WfsCountMismatchError) as short:
+            refuse_short_arcgis_wfs(3, 5)
+        assert _service_refresh_error_code(short.value) == "arcgis_wfs_short"
+        with pytest.raises(WfsCountMismatchError) as repeated:
+            refuse_short_arcgis_wfs(7, 5)
+        assert _service_refresh_error_code(repeated.value) == "arcgis_wfs_repeated"
+
+    def test_a_failure_without_a_fixed_reason_stays_generic(self) -> None:
+        assert _service_refresh_error_code(ValueError("boom")) == (
+            "service_refresh_failed"
+        )

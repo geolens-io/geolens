@@ -100,6 +100,18 @@ def sqlstate(exc: DBAPIError) -> str | None:
     return str(code) if code else None
 
 
+QUERY_CANCELED = "57014"
+
+
+def is_query_canceled(exc: BaseException) -> bool:
+    """True when PostgreSQL cancelled the statement, as a statement timeout does.
+
+    The transaction is aborted after it, so a caller that degrades on database
+    errors must re-raise this one rather than answer from a partial read.
+    """
+    return isinstance(exc, DBAPIError) and sqlstate(exc) == QUERY_CANCELED
+
+
 def is_operational(exc: DBAPIError) -> bool:
     """True when *exc* means the database failed us, not that the request was bad.
 

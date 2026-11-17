@@ -20,6 +20,13 @@ from uuid import UUID
 
 from ._sdk_helpers import PollDeadlineExceeded, long_request_timeout, poll_until
 from .arcgis_inventory import external_by_url
+from .arcgis_layer_properties import (
+    property_notes,
+    unread,
+    unread_note,
+    unread_note_for,
+    label_for,
+)
 from .arcgis_migrate_session import (
     GeoLensError,
     ItemFailed,
@@ -28,8 +35,11 @@ from .arcgis_migrate_session import (
     StopRun,
     changed_before_handover,
     operator_or_nobody_wrote_last,
+    refuse_credentials,
+    writable,
 )
-from .arcgis_migrate_state import DONE, EXISTS, ItemState
+from .arcgis_migrate_shared import gone_note, migrated, reuse_note, wider_note
+from .arcgis_migrate_state import DONE, EXISTS, MAX_ERROR_CHARS, SKIPPED, ItemState
 
 GROUP_LAYER = "Group Layer"
 MAX_TITLE = 500
@@ -44,6 +54,9 @@ _STORE_UNAVAILABLE = "credential_store_unavailable"
 _ALREADY_COMMITTED = "already processed"
 # The note an import with no importable layer ends with, fresh or resumed.
 _NO_LAYER_NOTE = "the service has no layer to import"
+# Preview refusal codes that come from the layer's own definition, which a
+# rerun can't change: the layer holds no rows, or multipatch geometry.
+PERMANENT_REFUSALS = frozenset({"unsupported_layer_type", "unsupported_geometry"})
 
 
 def _row(ctx: MigrationContext, item: Mapping[str, Any]) -> Mapping[str, Any]:
@@ -291,6 +304,19 @@ def _wait_for_dataset(ctx: MigrationContext, job_id: UUID, title: str) -> str:
         ctx.sleep(JOB_POLL_INTERVAL)
 
 
+class _LayerRefused(Exception):
+    """GeoLens refused the layer for good; the message is the report note."""
+
+
+def _permanent_refusal(exc: GeoLensError) -> str | None:
+    """The server's reason when *exc* is a 422 refusal no rerun can change."""
+    detail = exc.detail if isinstance(exc.detail, Mapping) else {}
+    if exc.status != 422 or detail.get("code") not in PERMANENT_REFUSALS:
+        return None
+    message = detail.get("message")
+    return message.rstrip(".") if isinstance(message, str) and message else None
+
+
 def _existing_dataset(exc: GeoLensError) -> str | None:
     detail = exc.detail if isinstance(exc.detail, Mapping) else {}
     if exc.status == 409 and detail.get("code") == "duplicate_source":
@@ -312,7 +338,7 @@ def _import_layer(
 
     A job a previous run committed for the layer is waited for instead of
     importing the layer again; only a job that ended without a dataset is
-    replaced.
+    replaced. ``_LayerRefused`` when the preview refuses the layer for good.
     """
     from geolens.api.datasets import (
         preview_service_layer_services_preview_post as preview,
@@ -326,9 +352,13 @@ def _import_layer(
         dataset = _finish_job(ctx, row, probe, UUID(recorded), title_visibility)
         del entry.layer_jobs[key]
         if dataset is not None:
+            # Recorded first, so a write refused below is refused again on a
+            # rerun instead of the layer being previewed as a stranger's.
+            entry.layer_datasets[key] = dataset
+            entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
+            ctx.save()
             # The commit that made it may predate an edit of the plan.
             _apply_target(ctx, entry, dataset, title_visibility)
-            entry.layer_datasets[key] = dataset
             return False
         ctx.save()
 
@@ -348,6 +378,11 @@ def _import_layer(
             previewed = _send(ctx, row, probe.url, preview.sync_detailed, body=request)
     except GeoLensError as exc:
         existing = _existing_dataset(exc)
+        refusal = _permanent_refusal(exc)
+        if refusal is not None:
+            raise _LayerRefused(
+                f"{_layer_label(layer)}: {refusal}; layer not imported"
+            ) from None
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
         if existing not in entry.reused:
@@ -364,6 +399,146 @@ def _import_layer(
     entry.layer_datasets[key] = _wait_for_dataset(ctx, previewed.job_id, title)
     del entry.layer_jobs[key]
     return False
+
+
+def _planned(
+    ctx: MigrationContext, item: Mapping[str, Any], row: Mapping[str, Any]
+) -> tuple[Any, list[Any], list[str], list[str], list[str]]:
+    """Probe the item's service: the probe, the layers to import, the notes
+    and data-loss notes of those left out, and each layer's dataset title.
+    ``ItemFailed`` before any write when a title or layer name holds a
+    credential the run was given."""
+    from geolens.api.datasets import probe_service_url_services_probe_post as probe_api
+    from geolens.models.probe_request import ProbeRequest
+
+    probe = ctx.probes.get((item["id"], row["url"]))
+    if probe is None:
+        try:
+            with long_request_timeout(ctx.geolens.client):
+                probe = _send(
+                    ctx,
+                    row,
+                    row["url"],
+                    probe_api.sync_detailed,
+                    body=ProbeRequest(url=row["url"]),
+                )
+        except GeoLensError as exc:
+            raise ItemFailed(f"probe failed, {exc}") from None
+        ctx.probes[(item["id"], row["url"])] = probe
+    base = item["target"]["title"] or item["title"]
+    wanted, notes, left_behind = importable_layers(probe)
+    titles = _titles(
+        base, [(_layer_label(layer), _layer_id(layer)) for layer in wanted]
+    )
+    refuse_credentials(
+        ctx,
+        {
+            "title": [base, *titles],
+            "layer_name": [
+                [str(layer.name), _layer_label(layer), _layer_key(layer)]
+                for layer in wanted
+            ],
+        },
+    )
+    return probe, wanted, notes, left_behind, titles
+
+
+def settle_jobs(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> None:
+    """Wait for each import job an earlier run of *item* left pending and
+    record its dataset, so items over the same service see what it holds
+    before they borrow. A job that ended without a dataset is dropped and the
+    item's own run imports that layer again. *item* carries the sharing
+    target its owner resolves to; a commit that never landed is sent with it
+    and the layer's title, as the import sends them."""
+    row = _row(ctx, item)
+    if not entry.layer_jobs or entry.service_url not in (None, row["url"]):
+        return
+    probe, wanted, _notes, _left, titles = _planned(ctx, item, row)
+    title_of = {_layer_key(layer): t for layer, t in zip(wanted, titles)}
+    base = item["target"]["title"] or item["title"]
+    for key, job in list(entry.layer_jobs.items()):
+        body = _commit_body(title_of.get(key, base), item["target"]["visibility"])
+        dataset = _finish_job(ctx, row, probe, UUID(job), body)
+        del entry.layer_jobs[key]
+        if dataset is not None:
+            entry.layer_datasets[key] = dataset
+            entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
+        ctx.save()
+
+
+def _borrow(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState, key: str
+) -> str | None:
+    """Record *key* as borrowed when another item owns that layer of the
+    service: one whose state records its dataset, else the item the plan
+    picks. None when this item owns it; else why the layer isn't imported
+    yet, or "" once it is borrowed; ``_LayerRefused`` when its owner's preview
+    refused it for good. Nothing is previewed for a borrowed layer, so GeoLens
+    never holds a second copy of it."""
+    layers = ctx.shared_layers
+    service = layers.service_of(item["id"], entry) if layers else None
+    if service is None:
+        return None
+    held = dict(
+        (other, dataset)
+        for other, dataset in layers.holders(ctx.items, service, key)
+        if other != item["id"]
+    )
+    gone = {o: d for o, d in held.items() if not migrated(layers.items.get(o))}
+    if gone and len(gone) == len(held):
+        # Only items the plan no longer migrates hold it: none is promoted.
+        owner_id, dataset = next(iter(gone.items()))
+        return gone_note(owner_id, f"dataset {dataset}" if dataset else f"layer {key}")
+    owner_id = layers.owner(ctx.items, item["id"], key)
+    if owner_id == item["id"]:
+        return None
+    dataset = held.get(owner_id)
+    owner_state = ctx.items.get(owner_id)
+    owner_url = (ctx.inventory.get(owner_id) or {}).get("url")
+    refused = owner_state.refusals(owner_url).get(key) if owner_state else None
+    if dataset is None and refused:
+        # The owner's preview refused the layer for good; waiting can't help.
+        raise _LayerRefused(refused["reason"])
+    if dataset is None:
+        return (
+            f"layer {key} belongs to item {owner_id} over the same service, which "
+            "hasn't imported it yet; a run after that item imports it reuses its "
+            "dataset"
+        )
+    entry.shared[key] = dataset
+    return ""
+
+
+def _shared_notes(
+    ctx: MigrationContext, item: Mapping[str, Any], entry: ItemState
+) -> tuple[list[str], list[str]]:
+    """The report notes of the layers *item* borrows, and why any of them is
+    no longer kept up to date by its owner."""
+    notes: list[str] = []
+    problems: list[str] = []
+    layers = ctx.shared_layers
+    owners: dict[str, Mapping[str, Any] | None] = {}
+    for key, dataset in entry.shared.items():
+        service = layers.service_of(item["id"], entry) if layers else None
+        held = (
+            [o for o, d in layers.holders(ctx.items, service, key) if d == dataset]
+            if layers and service
+            else []
+        )
+        owner_id = layers.preferred(held) if held else None
+        owner = layers.items.get(owner_id) if layers and owner_id else None
+        if owner_id is not None and not migrated(owner):
+            problems.append(gone_note(owner_id, f"dataset {dataset}"))
+            continue
+        owners[dataset] = owner
+    for dataset, owner in owners.items():
+        notes.append(reuse_note(owner, dataset))
+    for owner in {o["id"]: o for o in owners.values() if o}.values():
+        if wider := wider_note(item, owner):
+            notes.append(wider)
+    return notes, problems
 
 
 # GeoLens's refusal to narrow a dataset that its owner's shared maps show.
@@ -392,7 +567,7 @@ def _apply_target(
     this write doesn't make their edit the operator's. A reused dataset
     predates the migration, and its owner's edits are taken as they are.
     """
-    if dataset in entry.last_update:
+    if dataset in entry.last_update or not writable(ctx, entry, [dataset]):
         return
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
@@ -517,14 +692,80 @@ def _resume_import(
     visibility = item["target"]["visibility"]
     if not recorded:
         return ItemResult(notes=[*entry.import_pass["notes"], _NO_LAYER_NOTE])
-    titles = _titles(
-        base, [(rec["label"], rec["layer_id"]) for rec in recorded.values()]
+    # A pass saved before layer notes existed never recorded whether the layer's
+    # properties were read, so each of its layers gets the unknown note.
+    for key, rec in recorded.items():
+        if key not in entry.layer_notes and key not in entry.shared:
+            label = label_for(rec["label"], rec["layer_id"], ctx.redact)
+            note = _redacted(ctx, [unread_note_for(label)])[0][:MAX_ERROR_CHARS]
+            entry.layer_notes[key] = []
+            entry.layers_unread[key] = [note]
+            entry.import_pass["notes"] = [*entry.import_pass["notes"], note]
+    for key, title in recorded_titles(base, entry, entry.service_url).items():
+        if key in entry.layer_datasets:
+            _apply_target(
+                ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
+            )
+    shared_notes, gone = _shared_notes(ctx, item, entry)
+    if gone:
+        raise ItemFailed("; ".join(gone))
+    return ItemResult(
+        status=DONE if entry.layer_datasets else EXISTS,
+        notes=[*entry.import_pass["notes"], *shared_notes],
     )
-    for (key, _rec), title in zip(recorded.items(), titles):
-        _apply_target(
-            ctx, entry, entry.layer_datasets[key], _commit_body(title, visibility)
-        )
-    return ItemResult(notes=entry.import_pass["notes"])
+
+
+def forget_other_service(entry: ItemState, url: str | None) -> None:
+    """Drop the refusals recorded for another service once the item's URL
+    names a new one: layer keys are per service, so they'd hide its layers."""
+    if entry.service_url in (None, url) or not entry.refused_layers:
+        return
+    reasons = {refused["reason"] for refused in entry.refused_layers.values()}
+    entry.left_behind = [r for r in entry.left_behind if r not in reasons]
+    entry.refused_layers = {}
+
+
+def backfill_named_beside(entry: ItemState, url: str | None) -> None:
+    """Fill in ``named_beside`` for a pass saved without it, from the refusals
+    still held, so it must run before a refresh prunes any of them."""
+    if entry.import_pass is not None and "named_beside" not in entry.import_pass:
+        entry.import_pass["named_beside"] = {
+            key: {"label": r["label"], "layer_id": r["layer_id"]}
+            for key, r in entry.refusals(url).items()
+        }
+
+
+def recorded_titles(base: str, entry: ItemState, url: str | None) -> dict[str, str]:
+    """Layer key -> dataset title for each layer of the recorded import pass,
+    named beside the refused layers the import pass recorded, so a refusal
+    dropped later leaves the titles alone. A pass saved before that record
+    existed uses the layers refused on the service at *url*."""
+    pass_ = entry.import_pass or {}
+    recorded = pass_.get("layers") or {}
+    named = {**recorded}
+    beside = pass_["named_beside"] if "named_beside" in pass_ else entry.refusals(url)
+    for key, refused in beside.items():
+        named.setdefault(key, refused)
+    titles = _titles(base, [(r["label"], r["layer_id"]) for r in named.values()])
+    return {key: title for key, title in zip(named, titles) if key in recorded}
+
+
+def layer_report(ctx: MigrationContext, entry: ItemState, layer: Any) -> list[str]:
+    """Record and return the layer's property notes: the losses recorded when it
+    was imported plus what this probe states, or one note saying they weren't
+    read when nothing was ever read."""
+    key = _layer_key(layer)
+    real = list(entry.layer_notes.get(key, []))
+    if not unread(layer):
+        real += _redacted(ctx, property_notes([layer], ctx.redact))
+        entry.layers_unread.pop(key, None)
+    real = [n[:MAX_ERROR_CHARS] for n in dict.fromkeys(real)]
+    entry.layer_notes[key] = real
+    if unread(layer) and not real:
+        entry.layers_unread[key] = [
+            _redacted(ctx, [unread_note(layer, ctx.redact)])[0][:MAX_ERROR_CHARS]
+        ]
+    return [*real, *entry.layers_unread.get(key, [])]
 
 
 def import_layers(
@@ -532,42 +773,37 @@ def import_layers(
 ) -> ItemResult:
     """Import the item's feature layers and tables, one dataset each.
 
-    Layers a previous run imported are not imported again. A layer GeoLens
-    already holds for the operator (409 ``duplicate_source``) is reused. The
-    item is ``exists`` when GeoLens already held every layer. A rerun of an
-    item whose import stage finished resumes from the recorded datasets
-    without probing the service again.
+    Layers a previous run imported are not imported again. A layer another
+    plan item over the same service owns is borrowed: never previewed or
+    written (arcgis_migrate_shared). A layer GeoLens already holds for the
+    operator (409 ``duplicate_source``) is reused. The item is ``exists`` when
+    GeoLens already held every layer. A rerun of an item whose import stage
+    finished resumes from the recorded datasets without probing the service
+    again.
     """
-    from geolens.api.datasets import probe_service_url_services_probe_post as probe_api
-    from geolens.models.probe_request import ProbeRequest
-
     row = _row(ctx, item)
+    forget_other_service(entry, row["url"])
     if _import_recorded(entry, row["url"]):
         return _resume_import(ctx, item, entry)
-    try:
-        with long_request_timeout(ctx.geolens.client):
-            probe = _send(
-                ctx,
-                row,
-                row["url"],
-                probe_api.sync_detailed,
-                body=ProbeRequest(url=row["url"]),
-            )
-    except GeoLensError as exc:
-        raise ItemFailed(f"probe failed, {exc}") from None
+    probe, wanted, notes, left_behind, titles = _planned(ctx, item, row)
     # A fresh pass replaces anything a previous one recorded, so a pass that
     # stops part way leaves nothing to resume from.
     entry.import_pass = None
+    entry.refused_layers = {}
     if entry.service_url not in (None, row["url"]):
         # Only once the new service answered: a typo'd URL must not drop the
         # pins of the service the item still belongs to. A layer id from the
         # old service could match one of the new service's.
         entry.layer_datasets.clear()
+        entry.layer_notes.clear()
+        entry.layers_unread.clear()
         entry.layer_jobs.clear()
         entry.dataset_ids.clear()
+        entry.shared.clear()
     entry.service_url = row["url"]
-    wanted, notes, entry.left_behind = importable_layers(probe)
+    entry.left_behind = _redacted(ctx, left_behind)
     entry.attachments = attachment_flags(wanted)
+    entry.pass_layers = [_layer_key(layer) for layer in wanted]
     entry.relationships = relationship_records(wanted)
     if not wanted:
         entry.import_pass = {"notes": _redacted(ctx, notes), "layers": {}}
@@ -575,31 +811,86 @@ def import_layers(
         # a later run, and that probe reports a layer added later.
         return ItemResult(notes=[*notes, _NO_LAYER_NOTE])
 
-    base = item["target"]["title"] or item["title"]
-    titles = _titles(
-        base, [(_layer_label(layer), _layer_id(layer)) for layer in wanted]
-    )
     found = 0
+    refused = entry.refused_layers
+    waiting: list[str] = []
     for layer, title in zip(wanted, titles):
-        pinned = entry.layer_datasets.get(_layer_key(layer))
+        key = _layer_key(layer)
+        pinned = entry.layer_datasets.get(key)
         if pinned:
+            notes += layer_report(ctx, entry, layer)
             # The plan may have been edited since that layer was imported.
             target = _commit_body(title, item["target"]["visibility"])
             _apply_target(ctx, entry, pinned, target)
             continue
-        found += _import_layer(
-            ctx, row, probe, layer, title, item["target"]["visibility"], entry
-        )
+        # Already borrowed, or this item's own import job is pending.
+        decided = key in entry.shared or key in entry.layer_jobs
+        try:
+            if not decided and (why := _borrow(ctx, item, entry, key)):
+                waiting.append(why)
+                continue
+            if key in entry.shared:
+                # The owning item reports the layer's properties.
+                entry.layer_notes.pop(key, None)
+                entry.layers_unread.pop(key, None)
+                found += 1
+                continue
+            # Saved with the pending job and the pin, so a retry that can't read
+            # the layer's properties again still reports them.
+            notes += layer_report(ctx, entry, layer)
+            found += _import_layer(
+                ctx, row, probe, layer, title, item["target"]["visibility"], entry
+            )
+        except _LayerRefused as exc:
+            # On the entry at once, so a later layer's failure keeps it.
+            reason = ctx.redact(str(exc))
+            refused[key] = {
+                "label": _layer_label(layer),
+                "layer_id": _layer_id(layer),
+                "reason": reason,
+            }
+            entry.left_behind.append(reason)
+            # Nothing of the layer arrives: no property note, read or unread.
+            dropped = {
+                *entry.layer_notes.pop(key, []),
+                *entry.layers_unread.pop(key, []),
+            }
+            notes = [n for n in notes if n not in dropped]
+            ctx.save()
+            continue
         entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
         ctx.save()
+    # A layer pinned by an earlier attempt adds no import above.
+    entry.dataset_ids = list(dict.fromkeys(entry.layer_datasets.values()))
+    shared_notes, gone = _shared_notes(ctx, item, entry)
+    if waiting or gone:
+        ctx.save()
+        raise ItemFailed("; ".join([*waiting, *gone]))
+    # Another item's dataset carries that item's follow-ups, not this one's.
+    entry.attachments = {
+        k: v for k, v in entry.attachments.items() if k not in entry.shared
+    }
+    entry.relationships = {
+        k: v for k, v in entry.relationships.items() if k not in entry.shared
+    }
+    reasons = [r["reason"] for r in refused.values()]
+    imported = [layer for layer in wanted if _layer_key(layer) not in refused]
+    if not imported:
+        # Left without an import pass, so a rerun previews the layers again.
+        return ItemResult(status=SKIPPED, notes=[*notes, *reasons])
     entry.import_pass = {
-        "notes": _redacted(ctx, notes),
+        "notes": [*_redacted(ctx, notes), *reasons],
         "layers": {
             _layer_key(layer): {
                 "label": _layer_label(layer),
                 "layer_id": _layer_id(layer),
             }
-            for layer in wanted
+            for layer in imported
+        },
+        "named_beside": {
+            key: {"label": r["label"], "layer_id": r["layer_id"]}
+            for key, r in refused.items()
         },
     }
-    return ItemResult(status=EXISTS if found == len(wanted) else DONE, notes=notes)
+    status = EXISTS if found == len(imported) and not refused else DONE
+    return ItemResult(status=status, notes=[*notes, *reasons, *shared_notes])

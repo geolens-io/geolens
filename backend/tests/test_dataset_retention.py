@@ -2298,3 +2298,35 @@ def test_cutoffs_by_column_type():
         2026, 9, 17, 12, 0
     )
     assert retention.cutoff_for(NOW, 30, "timestamp with time zone") == CUTOFF
+
+
+async def test_held_table_keeps_the_keyed_detail_and_adds_the_code(
+    client: AsyncClient, admin_auth_header, seed, test_db_session
+):
+    """A retention save waiting on a held table answers the keyed 409 detail and top-level code catalog_lock_conflict."""
+    dataset = await seed(
+        rows=[], created_by=await get_user_id(test_db_session, "admin")
+    )
+    await test_db_session.execute(
+        text(f"LOCK TABLE data.{dataset.table_name} IN SHARE MODE")
+    )
+    try:
+        resp = await client.put(
+            f"/datasets/{dataset.id}/retention/",
+            json={"retention": {"column": "seen_at", "days": 30}},
+            headers=admin_auth_header,
+        )
+    finally:
+        await test_db_session.rollback()
+
+    assert resp.status_code == 409, resp.text
+    assert resp.json() == {
+        "type": "about:blank",
+        "title": "Catalog entry is busy",
+        "status": 409,
+        "detail": {
+            "code": "catalog_lock_conflict",
+            "message": "Another operation is changing this dataset's table.",
+        },
+        "code": "catalog_lock_conflict",
+    }

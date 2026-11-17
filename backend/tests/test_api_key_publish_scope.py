@@ -1225,9 +1225,10 @@ def test_the_preview_image_refusal_is_rechecked_under_the_asset_lock():
     """A preview uploaded while the request waited is still not replaced."""
     import inspect
 
-    from app.modules.catalog.maps.router import upload_og_image
+    from app.modules.catalog.maps.router import store_map_image, upload_og_image
 
-    source = inspect.getsource(upload_og_image)
+    assert '"og_image", user)' in inspect.getsource(upload_og_image)
+    source = inspect.getsource(store_map_image)
     locked = source.index("locked = await lock_map_for_asset_write(db, map_id)")
     refused = source.index("refuse_publish_key(", locked)
     written = source.index("_record_image_capture(", locked)
@@ -1625,9 +1626,10 @@ def test_the_thumbnail_refusal_is_rechecked_under_the_asset_lock():
     """A thumbnail uploaded while the request waited is still not replaced."""
     import inspect
 
-    from app.modules.catalog.maps.router import upload_thumbnail
+    from app.modules.catalog.maps.router import store_map_image, upload_thumbnail
 
-    source = inspect.getsource(upload_thumbnail)
+    assert '"thumbnail", user)' in inspect.getsource(upload_thumbnail)
+    source = inspect.getsource(store_map_image)
     locked = source.index("locked = await lock_map_for_asset_write(db, map_id)")
     refused = source.index("refuse_publish_key(", locked)
     written = source.index("_record_image_capture(", locked)

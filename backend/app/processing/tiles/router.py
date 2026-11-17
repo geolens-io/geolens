@@ -45,7 +45,12 @@ from app.modules.auth.dependencies import (
 )
 from app.core.config import settings
 from app.core.dependencies import get_db
-from app.modules.embed_tokens.service import validate_embed_token_access
+from app.modules.embed_tokens.service import (
+    AcceptedEmbedToken,
+    accepted_embed_token,
+    embed_token_still_admits,
+    validate_embed_token_access,
+)
 from app.platform.binary_response import binary_response
 from app.platform.cache.provider import (
     get_tile_cache,
@@ -857,37 +862,68 @@ async def _resolve_raster_meta(
     )
 
 
-def _tile_signature_authorizes(
-    request: Request, dataset_id: uuid.UUID, publication_version: int
+async def _signed_template_authorizes(
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    resource: str,
+    publication_version: int,
+    *,
+    sig: str | None,
+    exp: int | None,
+    scope: str | None,
 ) -> bool:
-    """Whether the caller presented a valid signed template for this dataset.
+    """Whether ``sig``/``exp``/``scope`` are a live signed template for the dataset.
 
-    Mirrors the vector verify path: the expected scope is recomputed through
-    the same ``tile_signature_scope`` helper the mint site uses, since a
-    divergence is a silent authorization bypass, not a test failure. A raster
-    dataset has no ``table_name``, so the dataset id is the resource string.
+    The expected scope is recomputed through the ``tile_signature_scope`` the
+    mint site uses, since a divergence is a silent authorization bypass, not a
+    test failure. ``publication_version`` is the row's current counter, so a
+    signature minted before an unpublish or a move to private no longer
+    matches. A template minted through an embed token names it and its origin
+    policy in the signed scope and works only while that token is still
+    accepted for the dataset under that policy.
+    """
+    from app.core.tile_scope import split_embed_binding, tile_signature_scope
 
-    ``publication_version`` is the row's current counter, so a signature
-    minted before an unpublish or a move to private no longer matches.
+    if not (sig and exp and scope):
+        return False
+    unbound, binding = split_embed_binding(scope)
+    if unbound != tile_signature_scope(resource, publication_version):
+        return False
+    if not verify_tile_signature(scope, exp, sig):
+        return False
+    return binding is None or await embed_token_still_admits(db, *binding, dataset_id)
+
+
+async def _tile_signature_authorizes(
+    request: Request,
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    publication_version: int,
+) -> bool:
+    """Whether the caller presented a valid signed template for this raster.
+
+    A raster dataset has no ``table_name``, so the dataset id is the resource
+    string.
 
     Returns a bool instead of raising: the signature is an additional way in,
     never a restriction on a client that can send headers, so an absent or
     invalid signature falls through to the other branches rather than 403ing
     a valid session whose 15-minute template has aged out.
     """
-    from app.core.tile_scope import tile_signature_scope
-
     params = request.query_params
-    sig, exp_raw, scope = (params.get(n) for n in ("sig", "exp", "scope"))
-    if not (sig and exp_raw and scope):
-        return False
-    if scope != tile_signature_scope(str(dataset_id), publication_version):
-        return False
     try:
-        exp = int(exp_raw)
+        exp = int(params.get("exp") or 0)
     except ValueError:
         return False
-    return verify_tile_signature(scope, exp, sig)
+    return await _signed_template_authorizes(
+        db,
+        dataset_id,
+        str(dataset_id),
+        publication_version,
+        sig=params.get("sig"),
+        exp=exp,
+        scope=params.get("scope"),
+    )
 
 
 def _raster_embed_token_refused() -> HTTPException:
@@ -951,8 +987,8 @@ async def _refuse_unseen_raster_lookup(
         raise exc
     port = get_processing_port()
     dataset = await port.get_dataset(db, dataset_id)
-    if dataset is not None and _tile_signature_authorizes(
-        request, dataset_id, dataset.publication_version
+    if dataset is not None and await _tile_signature_authorizes(
+        request, db, dataset_id, dataset.publication_version
     ):
         raise exc
     if user is None:
@@ -1004,7 +1040,9 @@ async def _resolve_raster_access(
         )
         if not is_valid:
             capability_declined(request, user, _raster_embed_token_refused())
-    elif _tile_signature_authorizes(request, dataset_id, meta.publication_version):
+    elif await _tile_signature_authorizes(
+        request, db, dataset_id, meta.publication_version
+    ):
         # Auth priority 2: a signed template, as on the vector path, since
         # MapLibre attaches no header. Checked ahead of the visibility split
         # because the mint endpoint issues one for a draft too.
@@ -1534,6 +1572,7 @@ def _build_tile_token_for_dataset(
     raster_asset: RasterAsset | None = None,
     *,
     withhold_bounds: bool = False,
+    embed_token: AcceptedEmbedToken | None = None,
 ) -> VectorTileToken | RasterTileToken | None:
     """Build a tile token response for a single already-authorized dataset.
 
@@ -1541,8 +1580,17 @@ def _build_tile_token_for_dataset(
     caller must ensure the dataset is visible to the current user. Returns None
     for a record type that has no tiles. ``withhold_bounds`` leaves out the
     bounds of a mosaic whose tiles are refused, which would locate a member
-    some readers of the mosaic cannot read.
+    some readers of the mosaic cannot read. ``embed_token`` is the embed token
+    that authorized the mint, binding the template to its liveness.
     """
+    from app.core.tile_scope import bind_scope_to_embed_token, tile_signature_scope
+
+    def signed_scope(resource: str) -> str:
+        scope = tile_signature_scope(resource, dataset.publication_version)
+        if embed_token is None:
+            return scope
+        return bind_scope_to_embed_token(scope, *embed_token)
+
     tile_token = capabilities(dataset.record.record_type).tile_token
     if tile_token == "raster":
         bounds = None
@@ -1565,12 +1613,8 @@ def _build_tile_token_for_dataset(
         # The raster template is signed too. A raster has no table_name, so the
         # dataset id is the resource string, and it is tenant-bound. Mirrored
         # byte for byte at the verify site in `_resolve_raster_access`.
-        from app.core.tile_scope import tile_signature_scope
-
         raster_exp = round_expiry()
-        raster_scope = tile_signature_scope(
-            str(dataset.id), dataset.publication_version
-        )
+        raster_scope = signed_scope(str(dataset.id))
         raster_sig = generate_tile_signature(raster_scope, raster_exp)
         tile_path = f"/raster-tiles/{dataset.id}/tiles/{{z}}/{{x}}/{{y}}.png"
         # `v` and `pv` ride outside the signature (which binds scope+exp only)
@@ -1611,9 +1655,7 @@ def _build_tile_token_for_dataset(
     # minted for tenant A cannot be replayed in tenant B even when both share a
     # table_name.
     exp = round_expiry()
-    from app.core.tile_scope import tile_signature_scope
-
-    scope = tile_signature_scope(dataset.table_name, dataset.publication_version)
+    scope = signed_scope(dataset.table_name)
     sig = generate_tile_signature(scope, exp)
 
     return VectorTileToken(
@@ -1797,6 +1839,8 @@ async def get_tile_tokens_batch(
 
     tokens: dict[str, VectorTileToken | RasterTileToken | dict] = {}
     authorized = []
+    # The datasets only the embed token authorized; their templates name it.
+    minted_through: dict[uuid.UUID, AcceptedEmbedToken] = {}
     for dataset_id in unique_ids:
         dataset = datasets_by_id.get(dataset_id)
         key = str(dataset_id)
@@ -1808,13 +1852,16 @@ async def get_tile_tokens_batch(
             await _enforce_tile_token_access(db, dataset, dataset_id, user, port)
         except HTTPException as exc:
             # Embed-token capability fallback (fail-closed).
-            embed_ok = bool(embed_token) and await validate_embed_token_access(
-                embed_token, dataset_id, db, request
+            accepted = (
+                await accepted_embed_token(embed_token, dataset_id, db, request)
+                if embed_token
+                else None
             )
-            if not embed_ok:
+            if accepted is None:
                 tokens[key] = {"error": exc.detail}
                 continue
             capability_authorized = True
+            minted_through[dataset_id] = accepted
         tokens[key] = {}
         authorized.append(dataset)
 
@@ -1824,6 +1871,7 @@ async def get_tile_tokens_batch(
             dataset,
             raster_assets_by_dataset_id.get(dataset.id),
             withhold_bounds=dataset.id in refused_mosaics,
+            embed_token=minted_through.get(dataset.id),
         )
         tokens[str(dataset.id)] = (
             token if token is not None else {"error": _NO_TILES_DETAIL}
@@ -2296,18 +2344,14 @@ async def _authorize_vector_tile_request(
             capability_declined(request, user, _embed_token_refused())
         return "private"
 
-    # The expected scope mirrors `_build_tile_token_for_dataset` through the
-    # shared helper: tenant-bound against cross-tenant replay, and bound to the
-    # publication counter so an unpublish or a move to private retires
-    # outstanding signatures.
-    from app.core.tile_scope import tile_signature_scope
-
-    if (
-        sig
-        and exp
-        and scope
-        and scope == tile_signature_scope(meta.table_name, meta.publication_version)
-        and verify_tile_signature(scope, exp, sig)
+    if await _signed_template_authorizes(
+        db,
+        meta.dataset_id,
+        meta.table_name,
+        meta.publication_version,
+        sig=sig,
+        exp=exp,
+        scope=scope,
     ):
         # Ahead of the visibility split, as on the raster route. Every minter
         # gates a draft to its owner or an admin, so a signature for one

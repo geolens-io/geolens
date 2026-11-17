@@ -32,7 +32,7 @@ class MapLayerInput:
     Attributes:
         dataset_id (UUID):
         id (None | Unset | UUID): Existing layer id to update in place (full-save reconcile)
-        sort_order (int | Unset): Draw order (lower draws first) Default: 0.
+        sort_order (int | Unset): Draw order; 0 draws on top Default: 0.
         visible (bool | Unset):  Default: True.
         opacity (float | Unset): Layer opacity 0.0-1.0 Default: 1.0.
         paint (MapLayerInputPaintType0 | None | Unset): MapLibre paint properties override

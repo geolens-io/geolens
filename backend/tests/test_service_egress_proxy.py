@@ -59,6 +59,16 @@ from tests.factories import create_dataset, get_user_id
 
 pytestmark = pytest.mark.anyio
 
+
+@pytest.fixture(autouse=True)
+def _wfs_is_not_arcgis(monkeypatch):
+    """These WFS doubles resolve only inside the egress proxy, where the
+    import's own capabilities read can't reach them."""
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr.recognise_arcgis_wfs", AsyncMock(return_value=None)
+    )
+
+
 needs_ogr = pytest.mark.skipif(
     shutil.which("ogrinfo") is None or shutil.which("ogr2ogr") is None,
     reason="needs the GDAL command line tools",

@@ -237,7 +237,8 @@ def _route_universe() -> set[tuple[str, str]]:
     nested, so a plain walk of ``app.routes`` sees almost nothing;
     ``_iter_api_routes`` is the repo's own flattening helper.
     """
-    from app.api.main import _iter_api_routes, app
+    from app.api.main import app
+    from app.api.openapi_contract import _iter_api_routes
 
     pairs = {
         (ctx.path, method)

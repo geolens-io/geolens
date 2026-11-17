@@ -23,7 +23,7 @@ import pytest
 from sqlalchemy import func, select, text
 
 import app.core.db as db_module
-from app.api.main import (
+from app.modules.auth.seeding import (
     DEFAULT_ROLES,
     _SEED_LOCK_KEY,
     seed_initial_admin,

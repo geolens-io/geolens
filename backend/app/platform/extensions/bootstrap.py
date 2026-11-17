@@ -75,6 +75,52 @@ _CLOUD_PORT_CHECKS: list[tuple[str, str]] = [
 _CORE_BUILTIN_SLOT_KEYS: frozenset[str] = frozenset({"notification_sinks"})
 
 
+#: The database password the example configuration shipped before installs
+#: generated one; a later release refuses it at boot.
+PUBLISHED_DEFAULT_POSTGRES_PASSWORD = "geolens"
+
+
+def warn_if_published_default_postgres_password(settings_obj) -> None:
+    """Log one warning when the process signs in with the published default.
+
+    Checks POSTGRES_PASSWORD and every password inside DATABASE_URL_OVERRIDE and
+    TILE_DATABASE_URL_OVERRIDE, in the authority or a `password` query
+    parameter. The message never contains the password value.
+    """
+    from sqlalchemy.engine import make_url
+    from sqlalchemy.exc import ArgumentError
+
+    passwords = [settings_obj.postgres_password.get_secret_value()]
+    for url in (
+        settings_obj.database_url_override,
+        settings_obj.tile_database_url_override,
+    ):
+        if url:
+            try:
+                parsed = make_url(url.strip())
+            except (ArgumentError, ValueError):
+                continue
+            # The asyncpg dialect lets a query `password` override the
+            # authority's while libpq-style readers take the authority's.
+            query_password = parsed.query.get("password", ())
+            if isinstance(query_password, str):
+                query_password = (query_password,)
+            passwords += [parsed.password or "", *query_password]
+    if PUBLISHED_DEFAULT_POSTGRES_PASSWORD not in passwords:
+        return
+    logger.warning(
+        "postgres_password_published_default",
+        message=(
+            "The database password (POSTGRES_PASSWORD or a database URL "
+            "override) is a published default that anyone can look up. Change "
+            "the database role's password with ALTER ROLE ... PASSWORD (or "
+            "\\password in psql), put the new value in .env wherever the old "
+            "one appears and run `docker compose up -d`; UPGRADING.md lists "
+            "the steps. A later release will refuse to start with this value."
+        ),
+    )
+
+
 def _overlay_extension_names() -> list[str]:
     """``list_extensions()`` minus the core-builtin slot keys.
 
@@ -232,6 +278,7 @@ async def bootstrap(*, app: "FastAPI | None" = None) -> EditionInfo:
         edition=edition_info.edition,
         features=list(edition_info.features),
     )
+    warn_if_published_default_postgres_password(settings)
 
     # AFTER edition resolution: the sink writes into the same `_extensions`
     # registry edition detection reads, so registering it earlier would make

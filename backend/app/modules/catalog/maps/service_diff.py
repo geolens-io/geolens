@@ -15,9 +15,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.maps import dashboard_filters
+from app.modules.catalog.maps.author_key import map_author_append_orders
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import (
     _MAX_LAYERS_PER_MAP,
+    check_sort_order,
     split_legacy_builder_paint,
 )
 from app.modules.catalog.maps.service_layers import (
@@ -142,9 +145,16 @@ async def apply_layer_diff(
     user: Identity,
     user_roles: set[str],
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
-    """Apply an incremental layer diff. Flushes but does NOT commit."""
+    """Apply an incremental layer diff. Flushes but does NOT commit.
+
+    Refuses (422) a filter that puts a dashboard widget past the aggregate's limits.
+    """
     await lock_map_layers(session, map_id)
-    result = await session.execute(select(Map).where(Map.id == map_id))
+    # Read the stored dashboard and filters, not the copies the caller loaded.
+    fresh = {"populate_existing": True}
+    result = await session.execute(
+        select(Map).where(Map.id == map_id).execution_options(**fresh)
+    )
     map_obj = result.scalar_one_or_none()
     if map_obj is None:
         raise ValueError(f"Map {map_id} not found")
@@ -153,6 +163,7 @@ async def apply_layer_diff(
         select(MapLayer)
         .where(MapLayer.map_id == map_id)
         .order_by(MapLayer.sort_order, MapLayer.id)  # Deterministic tie-break
+        .execution_options(**fresh)
     )
     existing_layers = list(layers_result.scalars().all())
     existing_by_id = {layer.id: layer for layer in existing_layers}
@@ -208,6 +219,7 @@ async def apply_layer_diff(
             for row in dem_result.all()
         }
 
+    filters_before = {layer.id: layer.filter for layer in existing_layers}
     for layer_data in updated:
         layer = existing_by_id[layer_data["id"]]
         patch = {
@@ -228,6 +240,14 @@ async def apply_layer_diff(
             )
         for key, value in patch.items():
             setattr(layer, key, value)
+    surviving = [layer for layer in existing_layers if layer.id not in removed_ids]
+    # Checking a hidden layer's widgets would name ones this caller can't see.
+    refiltered = dashboard_filters.refiltered(surviving, filters_before)
+    if refiltered and await _unreadable_layer_ids(session, refiltered, user):
+        raise PermissionError("Cannot access one or more layer datasets")
+    await dashboard_filters.refuse_layer_filter_past_limits(
+        session, map_obj.dashboard_config, surviving, filters_before
+    )
 
     if added:
         RasterAsset = get_catalog_port().raster_asset_orm_class()
@@ -247,30 +267,45 @@ async def apply_layer_diff(
             for row in ds_meta_result.all()
         }
 
-        for layer_data in added:
+        appended = map_author_append_orders(
+            session, (layer.sort_order for layer in existing_layers), len(added)
+        )
+        if appended:
+            check_sort_order(appended[-1])
+        # Omitted orders are allocated after the reorder, once the stack is final.
+        unplaced: list[MapLayer] = []
+        explicit_orders: list[int] = []
+        for index, layer_data in enumerate(added):
             prepared = _prepare_layer_storage(layer_data, ds_meta)
-            session.add(
-                MapLayer(
-                    map_id=map_id,
-                    dataset_id=prepared["dataset_id"],
-                    sort_order=prepared.get("sort_order", 0),
-                    visible=prepared.get("visible", True),
-                    opacity=prepared.get("opacity", 1.0),
-                    paint=prepared["paint"],
-                    layout=prepared["layout"],
-                    layer_type=prepared["layer_type"],
-                    display_name=prepared["display_name"],
-                    filter=prepared.get("filter"),
-                    label_config=prepared.get("label_config"),
-                    popup_config=prepared.get("popup_config"),
-                    style_config=prepared["style_config"],
-                    show_in_legend=prepared.get("show_in_legend", True),
-                )
+            if appended is not None:
+                sort_order = appended[index]
+            elif "sort_order" in prepared:
+                sort_order = prepared["sort_order"]
+                explicit_orders.append(sort_order)
+            else:
+                sort_order = 0
+            new_layer = MapLayer(
+                map_id=map_id,
+                dataset_id=prepared["dataset_id"],
+                sort_order=sort_order,
+                visible=prepared.get("visible", True),
+                opacity=prepared.get("opacity", 1.0),
+                paint=prepared["paint"],
+                layout=prepared["layout"],
+                layer_type=prepared["layer_type"],
+                display_name=prepared["display_name"],
+                filter=prepared.get("filter"),
+                label_config=prepared.get("label_config"),
+                popup_config=prepared.get("popup_config"),
+                style_config=prepared["style_config"],
+                show_in_legend=prepared.get("show_in_legend", True),
             )
+            session.add(new_layer)
+            if appended is None and "sort_order" not in prepared:
+                unplaced.append(new_layer)
 
     if order is not None:
         ordered_set = set(order)
-        surviving = [layer for layer in existing_layers if layer.id not in removed_ids]
         hidden_ids = await _unreadable_layer_ids(session, surviving, user)
         listed = [existing_by_id[layer_id] for layer_id in order]
         unlisted = [layer for layer in surviving if layer.id not in ordered_set]
@@ -279,6 +314,19 @@ async def apply_layer_diff(
             hidden_ids,
             [layer for layer in listed + unlisted if layer.id not in hidden_ids],
         )
+
+    if added and unplaced:
+        cursor = (
+            max(
+                (layer.sort_order for layer in surviving),
+                default=-1,
+            )
+            + 1
+        )
+        cursor = max(cursor, *(o + 1 for o in explicit_orders), 0)
+        for layer in unplaced:
+            layer.sort_order = check_sort_order(cursor)
+            cursor += 1
 
     if removed_ids or updated or added or order is not None:
         await touch_map(session, map_id)

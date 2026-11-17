@@ -1,4 +1,4 @@
-import { useId, useRef, useMemo, useState } from 'react';
+import { useEffect, useId, useRef, useMemo, useState } from 'react';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { useTranslation } from 'react-i18next';
 import { useCanSetPublicVisibility } from '@/hooks/use-settings';
@@ -36,6 +36,13 @@ interface ImportMetadataFormProps {
     y_column: string | null;
     wkt_column: string | null;
   } | null;
+  /** Reports the geometry and CRS the form would commit, whenever either changes. */
+  onGeometryDraftChange?: (draft: GeometryDraft) => void;
+}
+
+export interface GeometryDraft {
+  geometry: 'point' | 'wkt' | null;
+  srid: number | null;
 }
 
 // No `restricted`, as in RegisterForm. Import offers private, internal and
@@ -78,6 +85,7 @@ export function ImportMetadataForm({
   previewColumns,
   detectedGeometryType,
   detectedGeometryColumns,
+  onGeometryDraftChange,
 }: ImportMetadataFormProps) {
   const { t } = useTranslation('import');
   const formId = useId();
@@ -154,6 +162,21 @@ export function ImportMetadataForm({
   const [nodataOverride, setNodataOverride] = useState(initialRequest?.nodata_override?.toString() ?? '');
 
   const submittingRef = useRef(false);
+
+  const draftCallbackRef = useRef(onGeometryDraftChange);
+  useEffect(() => {
+    draftCallbackRef.current = onGeometryDraftChange;
+  });
+  let draftGeometry: GeometryDraft['geometry'] = null;
+  if (showGeomSection && geomMode !== 'none') {
+    if (geomType === 'latlng' && xColumn && yColumn) draftGeometry = 'point';
+    else if (geomType === 'wkt' && wktColumn) draftGeometry = 'wkt';
+  }
+  const parsedSrid = parseInt(sridOverride.trim(), 10);
+  const draftSrid = Number.isNaN(parsedSrid) ? null : parsedSrid;
+  useEffect(() => {
+    draftCallbackRef.current?.({ geometry: draftGeometry, srid: draftSrid });
+  }, [draftGeometry, draftSrid]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();

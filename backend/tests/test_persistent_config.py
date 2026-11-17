@@ -2268,3 +2268,47 @@ async def test_the_api_warmer_applies_the_shared_log_level():
     end = source.index("rate_limit_warmer_task = asyncio.create_task", start)
 
     assert "await sync_log_level(session)" in source[start:end]
+
+
+_STORED_FLAG_VALUES = [
+    True, False, 1, 0, 1.0, 0.0, 2, -1, 1.5,
+    "true", "TRUE", "Yes", "oN", "t", "F", "no", "Off", "1", "0",
+    "1.0", " true", "", "x", None, [], {}, {"w": True},
+]  # fmt: skip
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("env_only", [False, True])
+@pytest.mark.parametrize("env_default", [False, True])
+async def test_committed_flag_reads_what_get_uncached_reads(
+    test_db_session, monkeypatch, env_default: bool, env_only: bool
+):
+    """``committed_flag`` agrees with ``get_uncached`` for every stored form."""
+    from sqlalchemy import select
+
+    from app.core.db.models import AppSetting
+    from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY as flag
+
+    monkeypatch.setattr(flag, "_env_default_static", env_default)
+    monkeypatch.setattr(settings, "env_only_config", env_only)
+    stored_forms = [None]
+    for value in _STORED_FLAG_VALUES:
+        stored_forms += [("raw", value), ("wrapped", {"v": value})]
+
+    disagreements = []
+    try:
+        for form in stored_forms:
+            await test_db_session.execute(
+                delete(AppSetting).where(AppSetting.key == flag.key)
+            )
+            if form is not None:
+                test_db_session.add(AppSetting(key=flag.key, value=form[1]))
+            await test_db_session.flush()
+            expected = await flag.get_uncached(test_db_session)
+            got = await test_db_session.scalar(select(flag.committed_flag()))
+            if got is not expected:
+                disagreements.append((form, expected, got))
+    finally:
+        await test_db_session.rollback()
+
+    assert disagreements == []

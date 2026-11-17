@@ -2,9 +2,10 @@
 
 The owner is ``created_by`` on the dataset's record or on the map. Everything
 keyed on that column follows it: the owner-or-admin write guards, private and
-draft visibility, provenance detail and quota usage. Visibility, grants,
-collection membership, embed and share tokens, API keys and job history stay
-as they are.
+draft visibility, provenance detail and quota usage. A map transfer revokes
+the map's embed tokens, which serve with their minter's rights. Visibility,
+grants, collection membership, share tokens, API keys and job history stay as
+they are.
 """
 
 import uuid
@@ -22,6 +23,7 @@ from app.modules.catalog.authorization import (
     check_vrt_audiences_after_change,
     get_user_roles,
 )
+from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
 from app.modules.catalog.maps.service import (
     filter_layer_rows_by_dataset_visibility,
     get_map_with_layers,
@@ -226,7 +228,8 @@ async def transfer_map_owner(
     actor: Identity,
     ip_address: str | None,
 ) -> None:
-    """Make ``owner_id`` the owner of the map and write one audit row.
+    """Make ``owner_id`` the owner of the map, revoke its embed tokens and
+    write one audit row, whose ``embed_tokens_revoked`` counts the tokens.
 
     A transfer to the current owner changes nothing, vets nothing and writes
     no row. Raises 422 for a target that is unknown, inactive, lacks
@@ -242,6 +245,8 @@ async def transfer_map_owner(
     new_owner = await _vet_new_owner(db, owner_id, EDIT_METADATA)
     await _refuse_hidden_datasets(db, map_obj.id, new_owner)
     map_obj.created_by = new_owner.id
+    # After every refusal: the revocation's cache denials outlive a rollback.
+    revoked = await revoke_embed_tokens_by_map(db, map_obj.id)
     await audit_emit(
         db,
         AuditEvent(
@@ -249,7 +254,10 @@ async def transfer_map_owner(
             action="map.transfer_owner",
             resource_type="map",
             resource_id=map_obj.id,
-            details=_transfer_details(previous, new_owner),
+            details={
+                **_transfer_details(previous, new_owner),
+                "embed_tokens_revoked": revoked,
+            },
             ip_address=ip_address,
         ),
     )

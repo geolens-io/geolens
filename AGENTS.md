@@ -17,7 +17,7 @@ These commitments constrain every change:
 
 ## Project Map
 
-Backend: `backend/app/{api,core,modules,platform,processing,standards}/`; migrations: `backend/alembic/`; tests: `backend/tests/`. React/Vite frontend: `frontend/src/` (map builder: `components/builder/`, `builder/` and `lib/builder/`; colocated Vitest tests); Playwright: `e2e/`. CLI: `cli/geolens_cli/`; read-only MCP server: `mcp/geolens_mcp/`; generated SDKs: `sdks/`; operations: `scripts/`, `db/`, `.github/`.
+Backend: `backend/app/{api,core,modules,platform,processing,standards}/`; migrations: `backend/alembic/`; tests: `backend/tests/`. React/Vite frontend: `frontend/src/` (map builder: `components/builder/`, `builder/` and `lib/builder/`; colocated Vitest tests); Playwright: `e2e/`. CLI: `cli/geolens_cli/`; MCP server (catalog reads, and map authoring with a `map_author` key): `mcp/geolens_mcp/`; generated SDKs: `sdks/`; operations: `scripts/`, `db/`, `.github/`.
 
 FastAPI serves catalog, standards and vector tiles; Titiler serves COG tiles. The worker runs Procrastinate jobs using PostgreSQL as its queue. Storage defaults to local files, with S3/MinIO and Azure options; Valkey provides caching. See [.github/ARCHITECTURE.md](.github/ARCHITECTURE.md) for topology and extension seams; manifests/lockfiles own dependency versions.
 
@@ -63,7 +63,7 @@ Commands start at the repository root unless specified. Setup: [.github/CONTRIBU
 
 Run focused tests during development and affected package gates before completion. Documentation-only edits need link/command checks and `git diff --check`, not application suites. Report failed or unrun checks accurately.
 
-Host backend: `make env-test` creates gitignored `.env.test` without overwriting it. DB-backed tests need matching test DB credentials/port (template: 5434). `docker compose up -d --wait db` starts the dev DB; generated dev credentials may differ from the test template.
+Host backend: `make env-test` creates gitignored `.env.test` without overwriting it, copying the database password from the dev stack's `.env` (the main checkout's when run in a worktree). DB-backed tests need matching test DB credentials/port (template: 5434); a `.env.test` made before the dev password changed keeps the old one. `docker compose up -d --wait db` starts the dev DB.
 
 ```bash
 (cd backend && set -a && source ../.env.test && set +a && uv run pytest tests/test_foo.py -v)

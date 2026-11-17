@@ -1,5 +1,6 @@
-"""Per-layer ``hasAttachments`` and ``relationships`` from an ArcGIS service's
-"All Layers and Tables".
+"""Per-layer ``hasAttachments``, ``relationships`` and the layer properties an
+import doesn't carry (time settings, subtypes, M values, time-only and
+timestamp-offset fields) from an ArcGIS service's "All Layers and Tables".
 
 The service root lists layers without them; ``<base>/layers`` carries them for
 every layer and table in one request. They are optional facts like a feature
@@ -55,6 +56,50 @@ def _relationships(entry: dict) -> list[dict]:
     return out
 
 
+def _field_names(entry: dict, esri_type: str) -> list[str]:
+    fields = entry.get("fields")
+    return [
+        f["name"]
+        for f in (fields if isinstance(fields, list) else [])
+        if isinstance(f, dict)
+        and f.get("type") == esri_type
+        and isinstance(f.get("name"), str)
+        and f["name"]
+    ]
+
+
+def _uncarried(entry: dict) -> dict:
+    """The layer properties an import doesn't carry that *entry* states."""
+    found: dict = {}
+    time_info = entry.get("timeInfo")
+    if isinstance(time_info, dict):
+        found["time_fields"] = [
+            name
+            for key in ("startTimeField", "endTimeField")
+            if isinstance(name := time_info.get(key), str) and name
+        ]
+    # Subtypes appear as subtypeField + subtypes, or as typeIdField + types
+    # (feature types); a field with an empty list declares none.
+    for field_key, list_key in (("subtypeField", "subtypes"), ("typeIdField", "types")):
+        subtype_field, subtypes = entry.get(field_key), entry.get(list_key)
+        if (
+            isinstance(subtype_field, str)
+            and subtype_field
+            and (isinstance(subtypes, list) and subtypes)
+        ):
+            found["subtype_field"] = subtype_field
+            break
+    if isinstance(entry.get("hasM"), bool):
+        found["has_m"] = entry["hasM"]
+    for key, esri_type in (
+        ("time_only_fields", "esriFieldTypeTimeOnly"),
+        ("timestamp_offset_fields", "esriFieldTypeTimestampOffset"),
+    ):
+        if names := _field_names(entry, esri_type):
+            found[key] = names
+    return found
+
+
 async def fetch_arcgis_layer_details(
     base_url: str,
     client: httpx.AsyncClient,
@@ -62,8 +107,9 @@ async def fetch_arcgis_layer_details(
     *,
     current_version: object = None,
 ) -> dict[str, dict]:
-    """``{layer id: {"has_attachments": bool, "relationships": [...]}}``, each
-    key present only where the entry states it."""
+    """``{layer id: {"has_attachments": bool, "relationships": [...], ...}}``
+    with the properties ``_uncarried`` reads, each key present only where the
+    entry states it; ``properties_read`` is true for every layer definition read."""
     try:
         async with asyncio.timeout(DEFAULT_CHECK_TIMEOUT):
             data = await read_arcgis_json(
@@ -89,21 +135,23 @@ async def fetch_arcgis_layer_details(
             layer_id = entry.get("id") if isinstance(entry, dict) else None
             if isinstance(layer_id, bool) or not isinstance(layer_id, int | str):
                 continue
-            found: dict = {}
+            found: dict = {"properties_read": True}
             if isinstance(entry.get("hasAttachments"), bool):
                 found["has_attachments"] = entry["hasAttachments"]
             if relationships := _relationships(entry):
                 found["relationships"] = relationships
+            found.update(_uncarried(entry))
             if found:
                 details[str(layer_id)] = found
     return details
 
 
 def apply_layer_details(layers: list[dict], details: dict[str, dict]) -> list[dict]:
-    """Layers with the attachment flag and relationships *details* states."""
+    """Layers with the attachment flag, relationships and properties *details*
+    states."""
     return [
         {**layer, **details[str(layer.get("id"))]}
         if str(layer.get("id")) in details
-        else layer
+        else {**layer, "properties_read": False}
         for layer in layers
     ]

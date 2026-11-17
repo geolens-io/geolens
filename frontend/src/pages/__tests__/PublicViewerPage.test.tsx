@@ -26,6 +26,10 @@ vi.mock('@/components/viewer/hooks/use-viewer-layers', () => ({
   useViewerLayers: vi.fn(),
 }));
 
+vi.mock('@/hooks/use-new-version', () => ({
+  useNewServerVersion: () => '9.9.9',
+}));
+
 vi.mock('@/hooks/use-document-title', () => ({
   useDocumentTitle: vi.fn(),
 }));
@@ -219,6 +223,14 @@ describe('PublicViewerPage', () => {
 
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /^github$/i })).not.toBeInTheDocument();
+  });
+
+  it('shows the new-version banner on a shared map but not in an embed', () => {
+    const { unmount } = renderPage('/m/share-token');
+    expect(screen.getByText(/new version/i)).toBeInTheDocument();
+    unmount();
+    renderPage('/m/share-token?embed=true');
+    expect(screen.queryByText(/new version/i)).not.toBeInTheDocument();
   });
 
   it('renders no app footer on embedded shared-map pages', () => {

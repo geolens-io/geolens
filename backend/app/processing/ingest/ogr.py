@@ -24,8 +24,7 @@ from app.processing.ingest.shapefile_source import (
     declares_dbf_encoding,
     zip_dataset_root,
 )
-from app.platform.esri_services import esri_service_kind
-from app.platform.service_items import materialise_oapif_items
+from app.platform.service_items import materialise_oapif_items, recognise_esri_oapif
 from app.platform.service_endpoints import (
     assert_endpoints_stay_on_origin,
     fire_once,
@@ -49,9 +48,10 @@ from app.core.service_tokens import (
 from app.core.upload_errors import IngestCeilingError
 from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.arcgis_wfs import (
+    CapabilitiesUnreadableError,
     arcgis_wfs_pages_by_count,
-    arcgis_wfs_version,
     fetch_arcgis_wfs_hits,
+    recognise_arcgis_wfs,
 )
 from app.platform.egress_proxy import (
     gdal_source_url,
@@ -459,6 +459,7 @@ class OgrinfoResult(TypedDict, total=False):
     sample_rows: list[dict]
     all_layers: list[dict] | None
     attachments_omitted: bool
+    driver: str | None
 
 
 class IngestionError(Exception):
@@ -489,8 +490,8 @@ class IngestBudgetExceededError(IngestionError, IngestCeilingError):
     too large leaves them with nothing to act on. Raised from the parquet
     path.
 
-    Also an ``IngestCeilingError``, the core marker the re-upload preview
-    catches, since that door may not import this module at all.
+    Also an ``IngestCeilingError``, the core marker ``preview_vector_file``
+    catches, since the re-upload door may not import this module at all.
     """
 
 
@@ -835,7 +836,17 @@ def _extract_common_layer_metadata(
         "columns": columns,
         "all_layers": all_layers,
         "attachments_omitted": len(layers) < len(all_found),
+        "driver": data.get("driverShortName"),
     }
+
+
+# A field line of ``ogrinfo -so``: ``name: Type (width.precision)``, with an
+# optional ``(Subtype)`` after the type.
+_TEXT_FIELD_RE = re.compile(
+    r"^(?P<name>.+?): (?P<type>[A-Za-z0-9]+)(?:\((?P<subtype>[A-Za-z0-9]+)\))? "
+    r"\(\d+(?:\.\d+)?\)$"
+)
+_TEXT_DRIVER_RE = re.compile(r"using driver `(?P<driver>[^']+)' successful")
 
 
 def _parse_text_ogrinfo(output: str) -> dict:
@@ -844,11 +855,23 @@ def _parse_text_ogrinfo(output: str) -> dict:
     geometry_type = None
     layer_name = ""
     feature_count = None
+    driver = None
+    columns: list[dict[str, str]] = []
 
     for line in output.splitlines():
         line = line.strip()
 
-        if line.startswith("Layer name:"):
+        if driver is None and (found := _TEXT_DRIVER_RE.search(line)):
+            driver = found.group("driver")
+        elif field := _TEXT_FIELD_RE.match(line):
+            columns.append(
+                {
+                    "name": field.group("name"),
+                    "type": field.group("type"),
+                    **({"subtype": sub} if (sub := field.group("subtype")) else {}),
+                }
+            )
+        elif line.startswith("Layer name:"):
             layer_name = line.split(":", 1)[1].strip()
         elif line.startswith("Geometry:"):
             value = line.split(":", 1)[1].strip()
@@ -872,6 +895,8 @@ def _parse_text_ogrinfo(output: str) -> dict:
         "geometry_type": geometry_type,
         "layer_name": layer_name,
         "feature_count": feature_count,
+        "columns": columns,
+        "driver": driver,
     }
 
 
@@ -971,10 +996,6 @@ async def run_ogrinfo(
         )
 
     result = _parse_text_ogrinfo(stdout.decode(errors="replace"))
-    # Text-fallback parse doesn't extract field definitions, so the DBF
-    # collision detector will still have to fall back to ogrinfo_preview
-    # on GDAL < 3.7. Keep the key present so callers can rely on it.
-    result["columns"] = []
     result["all_layers"] = None
     return result
 
@@ -1081,14 +1102,19 @@ def _coordinates_z(coordinates: object) -> bool | None:
 
 
 async def _csv_geometry_is_3d(
-    file_path: str, source: str, layer_name: str | None
+    file_path: str,
+    source: str,
+    layer_name: str | None,
+    types: set[str] | None = None,
 ) -> bool:
     """Whether every geometry in a CSV's geometry column has Z.
 
     The CSV driver reports a WKT column as an untyped 2D layer, so the loaded
     column would drop Z that the text carries. A mix of 2D and 3D rows counts
     as 2D, since forcing three dimensions would invent an elevation of 0. The
-    read stops at the first 2D geometry.
+    read stops at the first 2D geometry, or, when ``types`` is given, at the
+    first 2D geometry once a non-Point type has been seen; ``types`` collects
+    the GeoJSON type of every geometry read.
     """
     await run_in_thread_draining(validate_content_directives, file_path)
     # ogr2ogr rather than ogrinfo: the GeoJSON writer exists on every GDAL
@@ -1114,7 +1140,7 @@ async def _csv_geometry_is_3d(
         limit=_CSV_PROBE_LINE_LIMIT,
     )
     assert proc.stdout is not None
-    seen = False
+    seen = flat = False
     try:
         async with asyncio.timeout(OGR2OGR_FILE_TIMEOUT_SECONDS):
             async for line in proc.stdout:
@@ -1128,8 +1154,12 @@ async def _csv_geometry_is_3d(
                     continue
                 geometry = feature.get("geometry")
                 z = _geometry_z(geometry) if geometry else None
+                if types is not None and geometry:
+                    types.add(str(geometry.get("type")))
                 if z is False:
-                    return False
+                    if types is None or types - {"Point"}:
+                        return False
+                    flat = True
                 seen = seen or z is True
     except ValueError:
         raise IngestionError(
@@ -1144,13 +1174,88 @@ async def _csv_geometry_is_3d(
         if proc.returncode is None:
             proc.kill()
         await proc.wait()
-    return seen
+    return seen and not flat
+
+
+async def _csv_dimension_and_point_type(
+    file_path: str, source: str, layer_name: str | None, geometry_type: str | None
+) -> tuple[bool, str | None]:
+    """A CSV's Z flag, and the ``-nlt`` for a WKT column holding only points.
+
+    The CSV driver reports a WKT column as an untyped layer, so a column of
+    plain points would otherwise be promoted to MultiPoint.
+    """
+    types: set[str] = set()
+    has_z = await _csv_geometry_is_3d(file_path, source, layer_name, types)
+    if point_nlt(geometry_type) or types != {"Point"}:
+        return has_z, None
+    return has_z, "POINTZ" if has_z else "POINT"
 
 
 def declares_linear_geometry(geometry_type: str) -> bool:
     """Whether an ogrinfo geometry type names no curved type, in either spelling."""
     lowered = geometry_type.lower()
     return not any(word in lowered for word in ("circular", "curve", "surface"))
+
+
+def point_nlt(geometry_type: str | None) -> str | None:
+    """The ``-nlt`` value keeping a plain Point layer's dimensions, else ``None``.
+
+    Reads the JSON spelling (``PointZ``) and the text one (``3D Measured Point``).
+    """
+    if not geometry_type:
+        return None
+    lowered = geometry_type.lower().strip()
+    dims = ""
+    if lowered.startswith("3d "):
+        dims, lowered = "Z", lowered[3:]
+    if lowered.startswith("measured "):
+        dims, lowered = dims + "M", lowered[9:]
+    if lowered in ("point", "pointz", "pointm", "pointzm"):
+        return ("POINT" + dims + lowered[5:]).upper()
+    return None
+
+
+async def _run_file_ogr2ogr(
+    cmd: list[str], env: dict[str, str] | None, fallback_from: str | None
+) -> tuple[int, bytes]:
+    """Run the file import command; return its exit code and stderr.
+
+    A GeoPackage or FlatGeobuf header can say Point over rows that hold
+    MultiPoint, which PostGIS refuses in a Point column. That one failure is
+    retried with the multi form.
+    """
+    # The value after `-nlt`, never a search for the value: a layer can carry
+    # the same name.
+    swap = next(
+        (
+            i + 1
+            for i, arg in enumerate(cmd[:-1])
+            if arg == "-nlt" and cmd[i + 1] == fallback_from
+        ),
+        None,
+    )
+    while True:
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=env,
+        )
+        _, stderr = await _communicate_with_timeout(
+            proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
+        )
+        if (
+            proc.returncode == 0
+            or swap is None
+            or cmd[swap] != fallback_from
+            or b"does not match column type" not in stderr
+        ):
+            return proc.returncode, stderr
+        structlog.get_logger().info(
+            "point layer holds multi-part points; storing as multi"
+        )
+        cmd[swap] = "PROMOTE_TO_MULTI"
 
 
 async def run_ogr2ogr(
@@ -1253,6 +1358,13 @@ async def run_ogr2ogr(
         # declared encoding would store the original bytes unconverted.
         cmd.extend(["--config", "SHAPE_ENCODING", "UTF-8"])
 
+    csv_has_z, csv_point_nlt = False, None
+    if is_csv and not is_non_spatial:
+        csv_has_z, csv_point_nlt = await _csv_dimension_and_point_type(
+            file_path, source, layer_name, geometry_type
+        )
+    point_type = point_nlt(geometry_type) or csv_point_nlt
+
     if not is_non_spatial:
         if declares_linear_geometry(geometry_type):
             # A geodatabase polygon or polyline layer reports a linear type yet
@@ -1262,7 +1374,9 @@ async def run_ogr2ogr(
         cmd.extend(
             [
                 "-nlt",
-                "PROMOTE_TO_MULTI",
+                # A layer declared Point stays Point so downstream clients can
+                # cluster it; every other type is stored in its multi form.
+                point_type or "PROMOTE_TO_MULTI",
                 # Use a non-colliding target name so that source attributes
                 # named `geom` or `geometry` (valid GeoJSON/Shapefile/GeoPackage
                 # property names) do not clash with the pipeline geometry
@@ -1277,10 +1391,18 @@ async def run_ogr2ogr(
         )
 
     if is_csv:
-        # The CSV driver otherwise stores every column as text. The default
-        # scan stops after 1 MB and empties later values that don't fit the
-        # inferred type, so scan the whole file.
-        cmd.extend(["-oo", "AUTODETECT_TYPE=YES", "-oo", "AUTODETECT_SIZE_LIMIT=0"])
+        # The type scan otherwise stops after 1 MB and empties later values that
+        # don't fit. A non-spatial load drops the geometry the driver reads from
+        # a column named WKT, so it can't compete with chosen columns.
+        cmd.extend(
+            [
+                "-oo",
+                "AUTODETECT_TYPE=YES",
+                "-oo",
+                "AUTODETECT_SIZE_LIMIT=0",
+                *(("-nlt", "NONE") if is_non_spatial else ()),
+            ]
+        )
 
     if is_csv and not is_non_spatial:
         cmd.extend(
@@ -1294,11 +1416,7 @@ async def run_ogr2ogr(
             ]
         )
 
-    if (
-        is_csv
-        and not is_non_spatial
-        and await _csv_geometry_is_3d(file_path, source, layer_name)
-    ):
+    if csv_has_z:
         cmd.extend(["-dim", "XYZ"])
 
     if not is_non_spatial:
@@ -1317,22 +1435,15 @@ async def run_ogr2ogr(
     # fetches — `run_ogr2ogr_service` below is the one with an HTTP surface
     # (see its egress-proxy note). In multi-tenant mode PGOPTIONS also selects
     # the active tenant's writer role for this independent libpq connection.
-    proc = await asyncio.create_subprocess_exec(
-        *cmd,
-        stdout=asyncio.subprocess.PIPE,
-        stderr=asyncio.subprocess.PIPE,
-        # The clamp is the base the tenant role is layered onto, so both
-        # single- and multi-tenant carry it.
-        env=_tenant_writer_subprocess_env(schema, base_env=gdal_vector_safe_env()),
-    )
-    stdout, stderr = await _communicate_with_timeout(
-        proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
-    )
+    # The clamp is the base the tenant role is layered onto, so both
+    # single- and multi-tenant carry it.
+    env = _tenant_writer_subprocess_env(schema, base_env=gdal_vector_safe_env())
+    returncode, stderr = await _run_file_ogr2ogr(cmd, env, point_type)
 
-    if proc.returncode != 0:
+    if returncode != 0:
         _raise_gdal_failure(
             "ogr2ogr",
-            proc.returncode,
+            returncode,
             stderr.decode(errors="replace").strip(),
             original_filename,
         )
@@ -1402,7 +1513,13 @@ async def run_ogr2ogr_service(
     # that returns early or is stubbed cannot lose the contact date.
     arm_origin_contact = fire_once(on_spawn)
     if service_type == "ogcapi_features" and (
-        token or esri_service_kind(gdal_source_url(gdal_source)) == "oapif"
+        token
+        or await recognise_esri_oapif(
+            gdal_source.split(":", 1)[1],
+            layer_name,
+            deadline=deadline,
+            on_first_request=arm_origin_contact,
+        )
     ):
         items_path = (
             await materialise_oapif_items(
@@ -1663,14 +1780,27 @@ async def _arcgis_wfs_expected_features(
     when the total can't be read: without it a capped read would pass for
     the whole layer."""
     url = gdal_source_url(gdal_source)
-    if url is None or esri_service_kind(url) != "wfs":
+    if url is None:
         return None
     credential_line = (
         _sanitize_authorization_token(token, service_format="wfs") if token else None
     )
     # The contact is armed by the first read to pass SSRF validation.
     reads = {"credential_line": credential_line, "on_first_request": arm_origin_contact}
-    version = await arcgis_wfs_version(url, **reads)
+    try:
+        arcgis = await recognise_arcgis_wfs(url, **reads)
+    except CapabilitiesUnreadableError:
+        raise IngestionError(
+            FixedReason(
+                "Couldn't read this WFS's capabilities to tell whether ArcGIS "
+                "serves it, so its feature count can't be checked. Retry in a "
+                "few minutes.",
+                code="arcgis_wfs_count_unavailable",
+            )
+        ) from None
+    if arcgis is None:
+        return None
+    version = arcgis.version
     expected = await fetch_arcgis_wfs_hits(url, layer_name, version=version, **reads)
     if expected is None:
         raise IngestionError(

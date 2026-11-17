@@ -100,7 +100,9 @@ function OverlayLayers({
           stopLoad = loadPointCloud(url, sizeBytes, datasetFetch, {
             onLayer: (layer) => {
               if (layers.length === 0) tilt();
-              layers.push(layer);
+              const at = layers.findIndex((existing) => existing.id === layer.id);
+              if (at >= 0) layers[at] = layer;
+              else layers.push(layer);
               overlay.setProps({ layers: [...layers] });
             },
             onError: () => setFailed(true),

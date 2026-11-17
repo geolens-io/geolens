@@ -161,9 +161,9 @@ export type AdminApiKeyCreateRequest = {
     /**
      * Scope
      *
-     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route.
+     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers' style and popups on the maps it created.
      */
-    scope?: 'full' | 'read_only' | 'publish';
+    scope?: 'full' | 'read_only' | 'publish' | 'map_author';
 };
 
 /**
@@ -209,7 +209,7 @@ export type AdminApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
      */
     scope: string;
     /**
@@ -821,9 +821,9 @@ export type ApiKeyCreateRequest = {
     /**
      * Scope
      *
-     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route.
+     * Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers' style and popups on the maps it created.
      */
-    scope?: 'full' | 'read_only' | 'publish';
+    scope?: 'full' | 'read_only' | 'publish' | 'map_author';
 };
 
 /**
@@ -859,7 +859,7 @@ export type ApiKeyCreateResponse = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**
@@ -905,7 +905,7 @@ export type ApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**
@@ -1180,6 +1180,12 @@ export type ArcgisWebmapImportRequest = {
      * Return the translation without creating a map.
      */
     dry_run?: boolean;
+    /**
+     * Description
+     *
+     * Description of the new map.
+     */
+    description?: string | null;
 };
 
 /**
@@ -1690,13 +1696,19 @@ export type BarChartWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'bar_chart';
     /**
      * V
      */
-    v: 1 | 2;
+    v: 1 | 2 | 3;
     config: BarChartConfig;
 };
 
@@ -2521,13 +2533,19 @@ export type CategorySelectorWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'category_selector';
     /**
      * V
      */
-    v: 1;
+    v: 1 | 2;
     config: CategorySelectorConfig;
 };
 
@@ -4152,7 +4170,7 @@ export type DatasetApiKeyListItem = {
     /**
      * Scope
      *
-     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+     * Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
      */
     scope: string;
     /**
@@ -6321,13 +6339,19 @@ export type FeatureListWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'feature_list';
     /**
      * V
      */
-    v: 1;
+    v: 1 | 2;
     config: FeatureListConfig;
 };
 
@@ -6979,13 +7003,19 @@ export type HistogramWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'histogram';
     /**
      * V
      */
-    v: 1;
+    v: 1 | 2;
     config: HistogramConfig;
 };
 
@@ -7157,15 +7187,21 @@ export type IndicatorWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'indicator';
     /**
      * V
      *
-     * `2` when the config sets any reference option, else `1`. A `1` that sets one is refused.
+     * `3` with a `filter`, else `2` when the config sets any reference option, else `1`. An older `v` that sets one is refused.
      */
-    v: 1 | 2;
+    v: 1 | 2 | 3;
     config: IndicatorConfig;
 };
 
@@ -7648,6 +7684,42 @@ export type LayerInfo = {
      * Relationship classes the ArcGIS layer takes part in. Empty when the service declares none or does not say, and for other service types.
      */
     relationships?: Array<LayerRelationship>;
+    /**
+     * Time Fields
+     *
+     * Start and end fields of the ArcGIS layer's time settings (timeInfo), which an import does not carry; empty when the settings name none. Null when the layer has no time settings or the service does not say, and for other service types.
+     */
+    time_fields?: Array<string> | null;
+    /**
+     * Subtype Field
+     *
+     * Field the ArcGIS layer's subtypes are keyed on, set only when the layer declares subtypes. An import keeps the field as a plain column without the subtype names. Null otherwise and for other service types.
+     */
+    subtype_field?: string | null;
+    /**
+     * Has M
+     *
+     * Whether the ArcGIS layer's geometries carry M values, which an import drops. Null when the service does not say, and for other service types.
+     */
+    has_m?: boolean | null;
+    /**
+     * Time Only Fields
+     *
+     * ArcGIS time-only fields (esriFieldTypeTimeOnly) of the layer, which an import usually stores as text. Empty when there are none or the service does not say.
+     */
+    time_only_fields?: Array<string>;
+    /**
+     * Timestamp Offset Fields
+     *
+     * ArcGIS timestamp-offset fields (esriFieldTypeTimestampOffset) of the layer, which an import stores as the instant without its UTC offset. Empty when there are none or the service does not say.
+     */
+    timestamp_offset_fields?: Array<string>;
+    /**
+     * Properties Read
+     *
+     * Whether the ArcGIS layer's own definition was read, so that the time, subtype, M-value and time-field properties above are the layer's. False when that read failed or left the layer out. Null for other service types.
+     */
+    properties_read?: boolean | null;
     /**
      * Layer Id
      *
@@ -8342,7 +8414,7 @@ export type MapLayerInput = {
     /**
      * Sort Order
      *
-     * Draw order (lower draws first)
+     * Draw order; 0 draws on top
      */
     sort_order?: number;
     /**
@@ -10382,13 +10454,19 @@ export type PieChartWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'pie_chart';
     /**
      * V
      */
-    v: 1;
+    v: 1 | 2;
     config: PieChartConfig;
 };
 
@@ -10793,6 +10871,12 @@ export type ProblemDetail = {
     detail: string | {
         [key: string]: unknown;
     } | Array<unknown>;
+    /**
+     * Code
+     *
+     * A machine-readable code for the problem, on the errors that carry one, such as `catalog_lock_conflict` on a 409 for a row another request holds. Absent otherwise.
+     */
+    code?: string;
 };
 
 /**
@@ -14687,13 +14771,19 @@ export type TableWidget = {
      */
     scope?: 'layer' | 'view';
     /**
+     * Filter
+     *
+     * Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+     */
+    filter?: Array<unknown> | null;
+    /**
      * Type
      */
     type: 'table';
     /**
      * V
      */
-    v: 1;
+    v: 1 | 2;
     config: TableConfig;
 };
 
@@ -20875,7 +20965,7 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetData = {
         /**
          * Limit
          *
-         * Page size for bulk GeoJSON export. The maximum is an admin-configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`) rather than the 200 used by offset-paged list endpoints, because this route pages via the constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-response-1(C) a value above the ceiling is clamped to it, not rejected. A page whose geometries are large may hold fewer features than `limit`; its `next` link continues from the last feature returned.
+         * Page size for bulk GeoJSON export. The maximum is an admin-configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`) rather than the 200 used by offset-paged list endpoints, because this route pages via the constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-response-1(C) a value above the ceiling is clamped to it, not rejected.
          */
         limit?: number;
         /**
@@ -20884,6 +20974,12 @@ export type GetCollectionItemsCollectionsDatasetIdItemsGetData = {
          * Legacy offset-based pagination. Prefer `after_gid` keyset cursor (via the `next` link) — offset is retained for backward compatibility but is O(N) at high values.
          */
         offset?: number;
+        /**
+         * Startindex
+         *
+         * Alias of `offset`, the name ArcGIS clients send. When both are given, a non-zero `offset` must equal it.
+         */
+        startindex?: number | null;
         /**
          * After Gid
          *
@@ -23452,6 +23548,12 @@ export type ExportDatasetEndpointDatasetsDatasetIdExportGetData = {
          * Attribute filter expression, e.g. pop > 1000
          */
         where?: string | null;
+        /**
+         * Xy
+         *
+         * CSV only: add WGS 84 longitude and latitude columns after the geometry, filled for a point or a one-point multipoint and empty otherwise. Ignored for other formats, for layers that are not point or multipoint, and for a dataset that already has a longitude or latitude column.
+         */
+        xy?: boolean;
     };
     url: '/datasets/{dataset_id}/export';
 };
@@ -30071,7 +30173,7 @@ export type SetMapGroupsEndpointMapsMapIdGroupsPutErrors = {
      */
     404: ProblemDetail;
     /**
-     * Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`); branch on `detail.code`.
+     * Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`; top-level `code` `catalog_lock_conflict`); branch on the codes.
      */
     409: ProblemDetail;
     /**
@@ -33025,6 +33127,10 @@ export type PreviewServiceLayerServicesPreviewPostErrors = {
      * Internal server error
      */
     500: ProblemDetail;
+    /**
+     * Bad gateway — an upstream provider failed
+     */
+    502: ProblemDetail;
     /**
      * Service unavailable — the database could not serve the request
      */

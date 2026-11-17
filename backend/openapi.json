@@ -221,11 +221,12 @@
           },
           "scope": {
             "default": "full",
-            "description": "Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route.",
+            "description": "Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers' style and popups on the maps it created.",
             "enum": [
               "full",
               "read_only",
-              "publish"
+              "publish",
+              "map_author"
             ],
             "title": "Scope",
             "type": "string"
@@ -288,7 +289,7 @@
             "title": "Expires At"
           },
           "scope": {
-            "description": "Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).",
+            "description": "Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).",
             "title": "Scope",
             "type": "string"
           },
@@ -1389,11 +1390,12 @@
           },
           "scope": {
             "default": "full",
-            "description": "Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route.",
+            "description": "Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers' style and popups on the maps it created.",
             "enum": [
               "full",
               "read_only",
-              "publish"
+              "publish",
+              "map_author"
             ],
             "title": "Scope",
             "type": "string"
@@ -1440,7 +1442,7 @@
             "title": "Expires At"
           },
           "scope": {
-            "description": "Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)",
+            "description": "Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)",
             "title": "Scope",
             "type": "string"
           },
@@ -1515,7 +1517,7 @@
             "title": "Expires At"
           },
           "scope": {
-            "description": "Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)",
+            "description": "Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)",
             "title": "Scope",
             "type": "string"
           },
@@ -1904,6 +1906,19 @@
             "description": "Return the translation without creating a map.",
             "title": "Dry Run",
             "type": "boolean"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Description of the new map.",
+            "title": "Description"
           }
         },
         "required": [
@@ -2826,6 +2841,19 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "bar_chart",
             "title": "Type",
@@ -2834,7 +2862,8 @@
           "v": {
             "enum": [
               1,
-              2
+              2,
+              3
             ],
             "title": "V",
             "type": "integer"
@@ -4078,13 +4107,29 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "category_selector",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },
@@ -6905,7 +6950,7 @@
             "title": "Expires At"
           },
           "scope": {
-            "description": "Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)",
+            "description": "Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)",
             "title": "Scope",
             "type": "string"
           },
@@ -10788,13 +10833,29 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "feature_list",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },
@@ -11854,13 +11915,29 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "histogram",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },
@@ -12154,16 +12231,30 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "indicator",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "description": "`2` when the config sets any reference option, else `1`. A `1` that sets one is refused.",
+            "description": "`3` with a `filter`, else `2` when the config sets any reference option, else `1`. An older `v` that sets one is refused.",
             "enum": [
               1,
-              2
+              2,
+              3
             ],
             "title": "V",
             "type": "integer"
@@ -13022,6 +13113,73 @@
             },
             "title": "Relationships",
             "type": "array"
+          },
+          "time_fields": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Start and end fields of the ArcGIS layer's time settings (timeInfo), which an import does not carry; empty when the settings name none. Null when the layer has no time settings or the service does not say, and for other service types.",
+            "title": "Time Fields"
+          },
+          "subtype_field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Field the ArcGIS layer's subtypes are keyed on, set only when the layer declares subtypes. An import keeps the field as a plain column without the subtype names. Null otherwise and for other service types.",
+            "title": "Subtype Field"
+          },
+          "has_m": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the ArcGIS layer's geometries carry M values, which an import drops. Null when the service does not say, and for other service types.",
+            "title": "Has M"
+          },
+          "time_only_fields": {
+            "description": "ArcGIS time-only fields (esriFieldTypeTimeOnly) of the layer, which an import usually stores as text. Empty when there are none or the service does not say.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Time Only Fields",
+            "type": "array"
+          },
+          "timestamp_offset_fields": {
+            "description": "ArcGIS timestamp-offset fields (esriFieldTypeTimestampOffset) of the layer, which an import stores as the instant without its UTC offset. Empty when there are none or the service does not say.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Timestamp Offset Fields",
+            "type": "array"
+          },
+          "properties_read": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whether the ArcGIS layer's own definition was read, so that the time, subtype, M-value and time-field properties above are the layer's. False when that read failed or left the layer out. Null for other service types.",
+            "title": "Properties Read"
           },
           "layer_id": {
             "anyOf": [
@@ -14283,7 +14441,7 @@
           },
           "sort_order": {
             "default": 0,
-            "description": "Draw order (lower draws first)",
+            "description": "Draw order; 0 draws on top",
             "maximum": 32767.0,
             "minimum": 0.0,
             "title": "Sort Order",
@@ -17960,13 +18118,29 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "pie_chart",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },
@@ -18617,6 +18791,11 @@
               }
             ],
             "title": "Detail"
+          },
+          "code": {
+            "description": "A machine-readable code for the problem, on the errors that carry one, such as `catalog_lock_conflict` on a 409 for a row another request holds. Absent otherwise.",
+            "title": "Code",
+            "type": "string"
           }
         },
         "required": [
@@ -25370,13 +25549,29 @@
             "title": "Scope",
             "type": "string"
           },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.",
+            "title": "Filter"
+          },
           "type": {
             "const": "table",
             "title": "Type",
             "type": "string"
           },
           "v": {
-            "const": 1,
+            "enum": [
+              1,
+              2
+            ],
             "title": "V",
             "type": "integer"
           },
@@ -27117,7 +27312,7 @@
       "name": "GeoLens",
       "url": "https://github.com/geolens-io/geolens"
     },
-    "description": "## Overview\n\nGeoLens is a self-hosted spatial data catalog that ingests vector files\n(GeoPackage, Shapefile, GeoJSON, CSV), stores them in PostGIS, and exposes\nthem through OGC API endpoints.\n\n## OGC Conformance Classes\n\n`GET /api/conformance` is the machine-readable list and the one a client\nshould read. This is the same set in prose:\n\n* OGC API Common 1.0 -- Core, Landing Page, JSON\n* OGC API Features Part 1 -- Core, GeoJSON\n* OGC API Features Part 3 -- Queryables, Filter, Features Filter\n* CQL2 1.0 -- CQL2-Text, CQL2-JSON, Basic CQL2, advanced comparison\n  operators, basic spatial functions\n* OGC API Records Part 1 -- Record Core, core query parameters, sorting, JSON\n\nThe OAS 3.0 classes of Common and Features Part 1 are NOT claimed: this\nserver publishes its API document as OpenAPI 3.1.\n\n## QGIS Quick-start\n\n1. **Layer > Add Layer > WFS / OGC API Features**\n2. URL: `{your-server}/api/`\n3. GeoLens advertises collections automatically.\n\n## GDAL / ogr2ogr Quick-start\n\n```bash\n# List collections\nogrinfo OAPIF:{your-server}/api/\n\n# Download a collection to GeoPackage\nogr2ogr -f GPKG output.gpkg OAPIF:{your-server}/api/ {collection-id}\n```\n\n## Authentication\n\nGeoLens supports four authentication methods. Public datasets are accessible\nwithout credentials; private/restricted datasets require one of:\n\n| Method | Usage |\n|--------|-------|\n| **API Key header** | `X-Api-Key: <key>` |\n| **JWT Bearer token** | `Authorization: Bearer <token>` |\n| **API Key as a Basic password** | `Authorization: Basic base64(<any username>:<key>)` |\n| **API Key query param** (deprecated) | `?api_key=<key>` |\n\nPriority: header API key > Basic API key > query param API key > JWT > anonymous.\n\n**HTTP Basic carries an API key, never an account password**, and like the\nquery parameter it authenticates `GET`, `HEAD` and `OPTIONS` only, since a\nbrowser that saved the login replays it on cross-site requests. On any other\nmethod, or when the header is malformed, the login is a credential that cannot\nbe resolved (see below). It is meant for desktop GIS clients that send a saved\nlogin only after a Basic challenge: point them at `{your-server}/api/desktop`,\nwhich answers `401` with `WWW-Authenticate: Basic` until the key is sent and\nthen redirects to the OGC API landing page at `/api/`.\n\n**The `?api_key=` query parameter is deprecated, and it authenticates reads\nonly.** A key sent in the URL is recorded by server access logs and by any\nproxy or CDN that terminates TLS in front of GeoLens, so it authenticates\n`GET`, `HEAD` and `OPTIONS` and nothing else. On any other method the key is\nignored and the request is answered as if no credential had been sent. Prefer the `X-Api-Key` header, which carries reads\nand writes alike; keep the query parameter only for clients that cannot send\nheaders (e.g. XYZ tile URLs in desktop GIS tools).\n\nAPI keys may carry an optional expiry (`expires_at` at mint time). Expired\nkeys stop authenticating, and keys are also invalidated by security events\non the owner's account (password change or role change). Logging out of the\nweb UI does not affect API keys.\n\n### What a rejected credential looks like\n\nSend no credential and you are served anonymously: public datasets come\nback, private ones do not.\n\nSend a credential that cannot be resolved (expired, revoked, or mistyped)\nand every endpoint that reads credentials answers `401`, including the ones\nthat also serve anonymous callers. It is never quietly ignored. A `200`\ncarrying only the public subset would look exactly like a catalog holding\nnothing more, so a client whose key died overnight would go on working\nagainst a smaller view of the data and never be told. The `401` is also the\nsignal a client needs to refresh and retry.\n\nThree cases sit outside that rule.\n\n`POST /auth/logout` accepts a dead access token so a stale session can still\nbe cleared, and falls back to the refresh credential. It still answers `401`\nwhen nothing you present resolves.\n\nA request that something other than your identity already authorized is\nserved, and the dead credential is ignored: a valid `X-Embed-Token`, or a\nvalid signed tile template (`sig`, `exp`, `scope`). Each authorizes one\nspecific resource on its own, so an embed viewer carrying a stale browser\nsession still renders. An invalid or absent capability puts the request back\nunder the rule above, so a junk `X-Embed-Token` cannot be used to suppress\nthe `401`.\n\n`GET /maps/shared/{token}` answers `404` for an unknown share link and `410`\nfor a revoked one whatever you send. No credential could have made that link\nwork, and reporting the credential instead would hide the answer you can act\non.\n\nA few endpoints read no credential at all, such as the landing page and the\nconformance declaration, and answer `200` either way.\n\n### GDAL / ogr2ogr with API Key\n\n```bash\n# List collections (including private ones accessible to your key)\nogrinfo --config GDAL_HTTP_HEADERS \"X-Api-Key: YOUR_KEY\" \"OAPIF:{your-server}/api/\"\n\n# Download a private collection\nogr2ogr -f GPKG out.gpkg --config GDAL_HTTP_HEADERS \"X-Api-Key: YOUR_KEY\" \"OAPIF:{your-server}/api/\" {collection-id}\n```\n\n### QGIS with API Key\n\nIn the WFS / OGC API Features connection dialog, append `?api_key=YOUR_KEY`\nto the server URL (the connection dialog cannot send custom headers; this is\nthe main remaining use of the deprecated query parameter).\n",
+    "description": "## Overview\n\nGeoLens is a self-hosted spatial data catalog that ingests vector files\n(GeoPackage, Shapefile, GeoJSON, CSV), stores them in PostGIS, and exposes\nthem through OGC API endpoints.\n\n## OGC Conformance Classes\n\n`GET /api/conformance` is the machine-readable list and the one a client\nshould read. This is the same set in prose:\n\n* OGC API Common 1.0 -- Core, Landing Page, JSON\n* OGC API Features Part 1 -- Core, GeoJSON\n* OGC API Features Part 3 -- Queryables, Filter, Features Filter\n* CQL2 1.0 -- CQL2-Text, CQL2-JSON, Basic CQL2, advanced comparison\n  operators, basic spatial functions\n* OGC API Records Part 1 -- Record Core, core query parameters, sorting, JSON\n\nThe OAS 3.0 classes of Common and Features Part 1 are NOT claimed: this\nserver publishes its API document as OpenAPI 3.1.\n\n## QGIS Quick-start\n\n1. **Layer > Add Layer > WFS / OGC API Features**\n2. URL: `{your-server}/api/`\n3. GeoLens advertises collections automatically.\n\n## GDAL / ogr2ogr Quick-start\n\n```bash\n# List collections\nogrinfo OAPIF:{your-server}/api/\n\n# Download a collection to GeoPackage\nogr2ogr -f GPKG output.gpkg OAPIF:{your-server}/api/ {collection-id}\n```\n\n## Authentication\n\nGeoLens supports four authentication methods. Public datasets are accessible\nwithout credentials; private/restricted datasets require one of:\n\n| Method | Usage |\n|--------|-------|\n| **API Key header** | `X-Api-Key: <key>` |\n| **JWT Bearer token** | `Authorization: Bearer <token>` |\n| **API Key as a Basic password** | `Authorization: Basic base64(<any username>:<key>)` |\n| **API Key query param** (deprecated) | `?api_key=<key>` |\n\nPriority: header API key > Basic API key > query param API key > JWT > anonymous.\n\n**HTTP Basic carries an API key, never an account password**, and like the\nquery parameter it authenticates `GET`, `HEAD` and `OPTIONS` only, since a\nbrowser that saved the login replays it on cross-site requests. On any other\nmethod, or when the header is malformed, the login is a credential that cannot\nbe resolved (see below). It is meant for desktop GIS clients that send a saved\nlogin only after a Basic challenge: point them at `{your-server}/api/desktop`.\nIt serves the OGC API again (the landing page, conformance, the collections\nand their items, and an OpenAPI document of those routes) to signed-in callers\nonly, answering `401` with `WWW-Authenticate: Basic` to any request without a\nworking credential, public collections included. Its links stay under\n`/api/desktop`, so a client that saves the address keeps being challenged.\n\n**The `?api_key=` query parameter is deprecated, and it authenticates reads\nonly.** A key sent in the URL is recorded by server access logs and by any\nproxy or CDN that terminates TLS in front of GeoLens, so it authenticates\n`GET`, `HEAD` and `OPTIONS` and nothing else. On any other method the key is\nignored and the request is answered as if no credential had been sent. Prefer the `X-Api-Key` header, which carries reads\nand writes alike; keep the query parameter only for clients that cannot send\nheaders (e.g. XYZ tile URLs in desktop GIS tools).\n\nAPI keys may carry an optional expiry (`expires_at` at mint time). Expired\nkeys stop authenticating, and keys are also invalidated by security events\non the owner's account (password change or role change). Logging out of the\nweb UI does not affect API keys.\n\n### What a rejected credential looks like\n\nSend no credential and you are served anonymously: public datasets come\nback, private ones do not.\n\nSend a credential that cannot be resolved (expired, revoked, or mistyped)\nand every endpoint that reads credentials answers `401`, including the ones\nthat also serve anonymous callers. It is never quietly ignored. A `200`\ncarrying only the public subset would look exactly like a catalog holding\nnothing more, so a client whose key died overnight would go on working\nagainst a smaller view of the data and never be told. The `401` is also the\nsignal a client needs to refresh and retry.\n\nThree cases sit outside that rule.\n\n`POST /auth/logout` accepts a dead access token so a stale session can still\nbe cleared, and falls back to the refresh credential. It still answers `401`\nwhen nothing you present resolves.\n\nA request that something other than your identity already authorized is\nserved, and the dead credential is ignored: a valid `X-Embed-Token`, or a\nvalid signed tile template (`sig`, `exp`, `scope`). Each authorizes one\nspecific resource on its own, so an embed viewer carrying a stale browser\nsession still renders. An invalid or absent capability puts the request back\nunder the rule above, so a junk `X-Embed-Token` cannot be used to suppress\nthe `401`.\n\n`GET /maps/shared/{token}` answers `404` for an unknown share link and `410`\nfor a revoked one whatever you send. No credential could have made that link\nwork, and reporting the credential instead would hide the answer you can act\non.\n\nA few endpoints read no credential at all, such as the landing page and the\nconformance declaration, and answer `200` either way.\n\n### GDAL / ogr2ogr with API Key\n\n```bash\n# List collections (including private ones accessible to your key)\nogrinfo --config GDAL_HTTP_HEADERS \"X-Api-Key: YOUR_KEY\" \"OAPIF:{your-server}/api/\"\n\n# Download a private collection\nogr2ogr -f GPKG out.gpkg --config GDAL_HTTP_HEADERS \"X-Api-Key: YOUR_KEY\" \"OAPIF:{your-server}/api/\" {collection-id}\n```\n\n### QGIS with API Key\n\nIn the WFS / OGC API Features connection dialog, append `?api_key=YOUR_KEY`\nto the server URL (the connection dialog cannot send custom headers; this is\nthe main remaining use of the deprecated query parameter).\n",
     "license": {
       "name": "Apache 2.0",
       "url": "https://www.apache.org/licenses/LICENSE-2.0"
@@ -27125,7 +27320,7 @@
     "summary": "PostGIS-native geospatial data catalog with OGC API Features and Records support",
     "termsOfService": "https://github.com/geolens-io/geolens/blob/main/LICENSE",
     "title": "GeoLens API",
-    "version": "1.31.0"
+    "version": "1.32.0"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -36664,7 +36859,7 @@
     },
     "/auth/resend-verification/": {
       "post": {
-        "description": "Re-issue and re-send a verification email.\n\nSends nothing unless self-registration is on and requires email\nverification, since only then can the link activate an account.\n\nEnumeration-safe: ALWAYS returns the same 200 body\nregardless of whether the email exists, is unknown, or is already verified.\nSend errors are logged server-side only and never branch the HTTP response.",
+        "description": "Re-issue and re-send a verification email.\n\nSends nothing unless self-registration is on and requires email\nverification, since only then can the link activate an account. A\npending account that signed up under admin approval gets no link.\n\nEnumeration-safe: ALWAYS returns the same 200 body\nregardless of whether the email exists, is unknown, or is already verified.\nSend errors are logged server-side only and never branch the HTTP response.",
         "operationId": "resend_verification_auth_resend_verification__post",
         "requestBody": {
           "content": {
@@ -39462,13 +39657,13 @@
             }
           },
           {
-            "description": "Page size for bulk GeoJSON export. The maximum is an admin-configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`) rather than the 200 used by offset-paged list endpoints, because this route pages via the constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-response-1(C) a value above the ceiling is clamped to it, not rejected. A page whose geometries are large may hold fewer features than `limit`; its `next` link continues from the last feature returned.",
+            "description": "Page size for bulk GeoJSON export. The maximum is an admin-configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`) rather than the 200 used by offset-paged list endpoints, because this route pages via the constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-response-1(C) a value above the ceiling is clamped to it, not rejected.",
             "in": "query",
             "name": "limit",
             "required": false,
             "schema": {
               "default": 10,
-              "description": "Page size for bulk GeoJSON export. The maximum is an admin-configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`) rather than the 200 used by offset-paged list endpoints, because this route pages via the constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-response-1(C) a value above the ceiling is clamped to it, not rejected. A page whose geometries are large may hold fewer features than `limit`; its `next` link continues from the last feature returned.",
+              "description": "Page size for bulk GeoJSON export. The maximum is an admin-configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`) rather than the 200 used by offset-paged list endpoints, because this route pages via the constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-response-1(C) a value above the ceiling is clamped to it, not rejected.",
               "minimum": 1,
               "title": "Limit",
               "type": "integer"
@@ -39485,6 +39680,25 @@
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
+            }
+          },
+          {
+            "description": "Alias of `offset`, the name ArcGIS clients send. When both are given, a non-zero `offset` must equal it.",
+            "in": "query",
+            "name": "startindex",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Alias of `offset`, the name ArcGIS clients send. When both are given, a non-zero `offset` must equal it.",
+              "title": "Startindex"
             }
           },
           {
@@ -45499,6 +45713,18 @@
               ],
               "description": "Attribute filter expression, e.g. pop > 1000",
               "title": "Where"
+            }
+          },
+          {
+            "description": "CSV only: add WGS 84 longitude and latitude columns after the geometry, filled for a point or a one-point multipoint and empty otherwise. Ignored for other formats, for layers that are not point or multipoint, and for a dataset that already has a longitude or latitude column.",
+            "in": "query",
+            "name": "xy",
+            "required": false,
+            "schema": {
+              "default": false,
+              "description": "CSV only: add WGS 84 longitude and latitude columns after the geometry, filled for a point or a one-point multipoint and empty otherwise. Ignored for other formats, for layers that are not point or multipoint, and for a dataset that already has a longitude or latitude column.",
+              "title": "Xy",
+              "type": "boolean"
             }
           }
         ],
@@ -61290,7 +61516,7 @@
     },
     "/maps/{map_id}/groups/": {
       "put": {
-        "description": "Share a map with exactly these sharing groups (owner or admin).\n\nAn owner may add only groups they belong to (403); an admin may add any.\nA private map shared with a group becomes restricted and its members can\nread it; a restricted one left with no group becomes private. Internal\nand public maps keep their audience. Becoming restricted revokes the\nmap's share link and embed tokens. 404 for an unknown group.\n\n409 (`detail.code` `layers_hidden_from_groups`, the layers under\n`detail.layers`) when new groups can't read some layers; see `confirm`.\nA lock wait that times out also answers 409, without `detail.code`.\nWith `expected_updated_at`, a map changed since that value answers 409\nwith `detail.code` `stale_write` and nothing is written.",
+        "description": "Share a map with exactly these sharing groups (owner or admin).\n\nAn owner may add only groups they belong to (403); an admin may add any.\nA private map shared with a group becomes restricted and its members can\nread it; a restricted one left with no group becomes private. Internal\nand public maps keep their audience. Becoming restricted revokes the\nmap's share link and embed tokens. 404 for an unknown group.\n\n409 (`detail.code` `layers_hidden_from_groups`, the layers under\n`detail.layers`) when new groups can't read some layers; see `confirm`.\nA lock wait that times out also answers 409, without `detail.code` and\nwith the top-level `code` `catalog_lock_conflict`.\nWith `expected_updated_at`, a map changed since that value answers 409\nwith `detail.code` `stale_write` and nothing is written.",
         "operationId": "set_map_groups_endpoint_maps__map_id__groups__put",
         "parameters": [
           {
@@ -61373,7 +61599,7 @@
                 }
               }
             },
-            "description": "Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`); branch on `detail.code`."
+            "description": "Layers some new groups can't read (`detail.code` `layers_hidden_from_groups`), or another change to the map holding its lock (no `detail.code`; top-level `code` `catalog_lock_conflict`); branch on the codes."
           },
           "422": {
             "content": {
@@ -68493,6 +68719,16 @@
               }
             },
             "description": "Internal server error"
+          },
+          "502": {
+            "content": {
+              "application/problem+json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProblemDetail"
+                }
+              }
+            },
+            "description": "Bad gateway \u2014 an upstream provider failed"
           },
           "503": {
             "content": {

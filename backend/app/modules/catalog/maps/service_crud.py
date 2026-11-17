@@ -8,12 +8,10 @@ from typing import cast
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import Row, Select, func, or_, select, text
-from sqlalchemy.exc import DBAPIError
+from sqlalchemy import Row, Select, func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
-from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
 from app.modules.auth.models import User
 from app.modules.catalog.authorization import (
@@ -29,6 +27,10 @@ from app.modules.catalog.maps.dashboard import (
     fork_dashboard,
     merge_dashboard,
     shows_widgets,
+)
+from app.modules.catalog.maps.dashboard_filters import (
+    refuse_layer_filter_past_limits,
+    widget_filter_refusals,
 )
 from app.modules.catalog.maps.service_diff import (
     _coerce_uuid,
@@ -52,11 +54,15 @@ from app.modules.catalog.maps.service_shared import (
     _fetch_layer_rows_ordered,
     _resolve_save_response_metadata,
 )
+from app.platform.catalog_locks import bounded_row_lock
 
 logger = structlog.stdlib.get_logger(__name__)
 
 _COPY_SUFFIX_RE = re.compile(r"\s*\(copy(?:\s+(\d+))?\)\s*$")
 _UNSET = object()
+
+
+_ASSETS_BUSY = "Another write to this map's assets is in progress. Retry shortly."
 
 
 def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
@@ -75,11 +81,6 @@ def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
     return f"{prefix}/{map_id}-{uuid.uuid4().hex}.{ext}"
 
 
-def _is_lock_timeout_error(exc: BaseException) -> bool:
-    """True for the shared lock-conflict states (55P03, 40P01), in either shape."""
-    return is_lock_conflict(exc)
-
-
 async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Row:
     """Take the row lock that serializes one map's asset replacements.
 
@@ -94,28 +95,18 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
     Raises 404 centrally so all three callers agree, and selects columns (not
     ``Map``) so a stale identity-mapped instance can't shadow a fresh commit.
 
-    ``SET LOCAL lock_timeout = '2s'`` bounds the wait, since a degraded
-    storage backend could otherwise queue every writer behind this lock (a
-    lost wait, 55P03, maps to 409).
+    The wait is bounded, since a degraded storage backend could otherwise
+    queue every writer behind this lock; a lost wait answers 409.
     """
-    await session.execute(text("SET LOCAL lock_timeout = '2s'"))
-    try:
-        result = await session.execute(
-            select(Map.thumbnail_uri, Map.og_image_uri)
-            .where(Map.id == map_id)
-            .with_for_update()
-        )
-    except DBAPIError as exc:
-        if not _is_lock_timeout_error(exc):
-            raise
-        await session.rollback()
-        raise HTTPException(
-            status_code=status.HTTP_409_CONFLICT,
-            detail={
-                "code": "map_asset_write_locked",
-                "message": "Another write to this map's assets is in progress. Retry shortly.",
-            },
-        ) from exc
+    result = await bounded_row_lock(
+        session,
+        select(Map.thumbnail_uri, Map.og_image_uri)
+        .where(Map.id == map_id)
+        .with_for_update(),
+        message=_ASSETS_BUSY,
+        detail={"code": "map_asset_write_locked", "message": _ASSETS_BUSY},
+        reset=False,
+    )
     row = result.one_or_none()
     if row is None:
         raise HTTPException(
@@ -205,6 +196,7 @@ async def create_map(
     notes: str | None = None,
     terrain_config: dict | None = None,
     basemap_config: dict | None = None,
+    created_by_api_key_id: uuid.UUID | None = None,
 ) -> Map:
     """Create a map. Does NOT commit."""
     map_obj = Map(
@@ -214,6 +206,7 @@ async def create_map(
         terrain_config=terrain_config,
         basemap_config=basemap_config,
         created_by=created_by,
+        created_by_api_key_id=created_by_api_key_id,
     )
     session.add(map_obj)
     await session.flush()
@@ -474,7 +467,8 @@ async def update_map(
     whose dataset map reads hide from it survive a replacement, and a stored
     terrain binding to a DEM hidden from it survives a request naming no DEM.
     A ``dashboard_config`` is checked against the layers the map has after the
-    save (``merge_dashboard``).
+    save (``merge_dashboard``), and a layer filter the save changes against the
+    widgets on its layer (``refuse_layer_filter_past_limits``).
 
     A ``visibility`` goes through ``prepare_map_visibility``, which may make it
     restricted, revoke the map's links, or raise ``RestrictedWithoutGroupsError``.
@@ -545,16 +539,17 @@ async def update_map(
         map_obj.legend_title = title.strip() if title and title.strip() else None
 
     # Replace layers if provided
-    datasets_before: dict[uuid.UUID, uuid.UUID] = {}
+    before: dict[uuid.UUID, tuple[uuid.UUID, object]] | None = None
     if layers is not None:
-        if map_obj.dashboard_config is not None:
-            datasets_before = await _layer_datasets(session, map_id)
+        before = {}
+        if map_obj.dashboard_config is not None or isinstance(dashboard_config, dict):
+            before = await _stored_layers(session, map_id)
         created_ids = await _replace_layers(session, map_id, layers, user)
         await touch_map(session, map_id)
         dashboard_config = _with_created_layer_ids(dashboard_config, created_ids)
-    if dashboard_config is not _UNSET or datasets_before:
+    if dashboard_config is not _UNSET or before:
         map_obj.dashboard_config = await _saved_dashboard(
-            session, map_obj, dashboard_config, user, datasets_before
+            session, map_obj, dashboard_config, user, before
         )
 
     await session.flush()
@@ -592,13 +587,16 @@ def _with_created_layer_ids(
     return {**dashboard, "widgets": remapped}
 
 
-async def _layer_datasets(
+async def _stored_layers(
     session: AsyncSession, map_id: uuid.UUID
-) -> dict[uuid.UUID, uuid.UUID]:
+) -> dict[uuid.UUID, tuple[uuid.UUID, object]]:
+    """Each stored layer's dataset and filter, by layer id."""
     rows = await session.execute(
-        select(MapLayer.id, MapLayer.dataset_id).where(MapLayer.map_id == map_id)
+        select(MapLayer.id, MapLayer.dataset_id, MapLayer.filter).where(
+            MapLayer.map_id == map_id
+        )
     )
-    return {layer_id: dataset_id for layer_id, dataset_id in rows.all()}
+    return {layer_id: (dataset_id, flt) for layer_id, dataset_id, flt in rows.all()}
 
 
 async def _saved_dashboard(
@@ -606,29 +604,42 @@ async def _saved_dashboard(
     map_obj: Map,
     sent: object,
     user: Identity | None,
-    datasets_before: dict[uuid.UUID, uuid.UUID],
+    before: dict[uuid.UUID, tuple[uuid.UUID, object]] | None,
 ) -> dict | None:
     """The dashboard after a save that sent one (``sent`` is a dict or None),
-    or that replaced the layers (``sent`` is ``_UNSET``)."""
+    or that replaced the layers (``sent`` is ``_UNSET``).
+
+    ``before`` holds each layer's dataset and filter before a replacement, and
+    is None when the save left the layers alone.
+    """
     layers = list(
         (
             await session.scalars(select(MapLayer).where(MapLayer.map_id == map_obj.id))
         ).all()
     )
+    stored_layers = before or {}
     repointed = {
         layer.id
         for layer in layers
-        if datasets_before.get(layer.id, layer.dataset_id) != layer.dataset_id
+        if stored_layers.get(layer.id, (layer.dataset_id,))[0] != layer.dataset_id
     }
-    stored = drop_repointed(map_obj.dashboard_config, repointed)
-    if sent is _UNSET:
-        return stored
-    return merge_dashboard(
-        None if sent is None else DashboardConfigInput.model_validate(sent),
-        stored,
-        layer_ids={layer.id for layer in layers},
-        hidden_layer_ids=await _unreadable_layer_ids(session, layers, user),
-    )
+    saved = drop_repointed(map_obj.dashboard_config, repointed)
+    if sent is not _UNSET:
+        config = None if sent is None else DashboardConfigInput.model_validate(sent)
+        hidden = await _unreadable_layer_ids(session, layers, user)
+        saved = merge_dashboard(
+            config,
+            saved,
+            layer_ids={layer.id for layer in layers},
+            hidden_layer_ids=hidden,
+            filter_refusals=await widget_filter_refusals(
+                session, config, layers, hidden
+            ),
+        )
+    if before is not None:
+        filters = {layer_id: flt for layer_id, (_, flt) in before.items()}
+        await refuse_layer_filter_past_limits(session, saved, layers, filters)
+    return saved
 
 
 async def delete_map(

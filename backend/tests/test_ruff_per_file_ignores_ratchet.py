@@ -30,7 +30,6 @@ _BASELINE: dict[str, frozenset[str]] = {
         "app/processing/ai/chat_actions.py",
         "app/processing/ai/metadata_service.py",
         "app/processing/ai/streaming.py",
-        "app/processing/export/router.py",
         "app/processing/ingest/tasks_raster.py",
         "app/processing/ingest/tasks_vector.py",
         "app/processing/ingest/tasks_vrt.py",

@@ -3,6 +3,8 @@
 Both answer with a strong ETag over the stored bytes, and ``GZipMiddleware``
 would compress a 200 under that same tag, so one validator would name two
 representations. Dropping gzip from ``Accept-Encoding`` is the opt-out it reads.
+The offer the client made is kept under ``ORIGINAL_ACCEPT_ENCODING_KEY`` for a
+route that compresses its own text responses under a separate validator.
 """
 
 import re
@@ -11,6 +13,8 @@ from starlette.types import ASGIApp, Receive, Scope, Send
 
 # With or without the ``/api`` prefix an edge may not have stripped, and anchored
 # at both ends so no other route matches.
+ORIGINAL_ACCEPT_ENCODING_KEY = "geolens.accept_encoding"
+
 _UNCOMPRESSED_PATH_RE = re.compile(
     r"^(?:/api)?/datasets/[^/]+/(?:export/?|tiles3d/.*)\Z", re.DOTALL
 )
@@ -36,6 +40,7 @@ class NoCompressionByPathMiddleware:
             if name.lower() != b"accept-encoding":
                 rewritten.append((name, value))
                 continue
+            scope[ORIGINAL_ACCEPT_ENCODING_KEY] = value.decode("latin-1")
             # GZipMiddleware engages on a substring test, "gzip" in the header,
             # so every member containing it goes, x-gzip included.
             remaining = b", ".join(

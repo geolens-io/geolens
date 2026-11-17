@@ -3,6 +3,7 @@ import { Outlet, useMatch, useLocation, useNavigationType } from 'react-router';
 import { Navbar } from './Navbar';
 import { AppFooter } from './AppFooter';
 import { SiteBanner } from './SiteBanner';
+import { NewVersionBanner } from './NewVersionBanner';
 import { useEdition } from '@/hooks/use-edition';
 import { useBranding } from '@/hooks/use-settings';
 import { SkipToContent } from './SkipToContent';
@@ -42,6 +43,7 @@ export function AppLayout() {
       {/* Inside the flex shell so h-dvh map routes lose height to the banner
           instead of overflowing the viewport */}
       <SiteBanner />
+      <NewVersionBanner />
       <Navbar />
       <main
         id="main-content"

@@ -22,10 +22,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.permissions import EDIT_METADATA
 from app.core.failure_reason import redact_failure_reason
 from app.core.geo import unknown_srid_refusal
+from app.core.geometry_build_errors import columns_missing
 from app.core.upload_errors import (
     CodedRefusal,
-    IngestCeilingError,
-    UnsafeUploadError,
     geometry_loss_refusal,
     refusal_detail,
 )
@@ -53,6 +52,12 @@ from app.modules.catalog.datasets.domain.service import (
     get_dataset,
 )
 from app.core.dependencies import get_db
+from app.platform.source_geometry_columns import (
+    build_srid,
+    columns_to_build,
+    declared_build_type,
+    recorded_geometry_selection,
+)
 from app.platform.jobs.defer_guard import (
     defer_with_orphan_guard,
     make_ingest_job_failed_rollback,
@@ -87,6 +92,7 @@ from app.modules.catalog.sources.adapters.arcgis import (
     normalize_arcgis_url,
 )
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
+from app.modules.catalog.sources.preview import ServicePreviewTimeoutError
 from app.modules.catalog.sources.schemas import service_credential_from_request
 from app.platform.service_auth import (
     credential_or_422,
@@ -107,6 +113,7 @@ from app.platform.upload_filenames import (
     refuse_control_characters,
     safe_upload_basename,
 )
+from app.platform.vector_preview import preview_vector_file
 from app.standards.ogc.errors import (
     BAD_GATEWAY_RESPONSE,
     ERROR_RESPONSES_WRITE,
@@ -667,6 +674,8 @@ async def reupload_service_preview(
             layer_arg,
             credential=credential,
         )
+    except ServicePreviewTimeoutError as exc:
+        raise exc.http_error() from None
     except IngestionError:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -833,6 +842,12 @@ async def reupload_preview(
     prior_geometry_type = dataset.geometry_type
     prior_table_name = dataset.table_name
     prior_geometry = (dataset.srid, dataset.is_3d, dataset.n_dims)
+    recorded = await recorded_geometry_selection(
+        db,
+        dataset_id=dataset_id,
+        current_version=dataset.current_version,
+        ref=dataset.origin_ref,
+    )
     await db.rollback()
 
     # Resolve S3 key to local file for ogrinfo
@@ -848,39 +863,13 @@ async def reupload_preview(
     # Thread layer_name from the request body to the ogrinfo helper.
     layer_name = request.layer_name if request else None
 
-    try:
-        info = await get_catalog_port().run_ogrinfo_preview(
-            file_path, layer_name=layer_name
-        )
-    except IngestCeilingError as exc:
-        # The ceiling message the import preview already answers.
-        # The broad handler below reports "malformed or unsupported", which is
-        # wrong for a file that is merely too large, and hides the way out.
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=refusal_detail(exc),
-        ) from exc
-    except UnsafeUploadError as exc:
-        # The same mapping `preview_file` gives it: a content refusal is a
-        # deliberate 4xx with a message that names the fix, not a 500.
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail=refusal_detail(exc),
-        ) from exc
-    except Exception as exc:  # broad: GDAL subprocess can raise various errors on unsupported/malformed files
-        # The 422 the import preview answers for the same failure, rather than
-        # a 500 for a malformed file's IngestionError.
-        logger.exception("ogrinfo_preview failed", job_id=str(job_id), error=str(exc))
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
-            detail={
-                "code": "preview_failed",
-                "message": "Unable to preview file. The file may be malformed or unsupported.",
-            },
-        ) from exc
-    finally:
-        if downloaded_preview_path is not None:
-            downloaded_preview_path.unlink(missing_ok=True)
+    info = await preview_vector_file(
+        get_catalog_port().run_ogrinfo_preview,
+        file_path,
+        layer_name,
+        job_id=job_id,
+        downloaded=downloaded_preview_path,
+    )
 
     # Validate that the user-supplied layer_name appears in the file.
     # Also check against info["layer_name"] for single-layer files where
@@ -905,13 +894,44 @@ async def reupload_preview(
                 ),
             )
 
+    # The file builds its geometry from the columns the dataset's was built
+    # from, in their CRS unless overridden, as the worker does.
+    srid_override = request.srid_override if request else None
+    build, missing_columns = columns_to_build(
+        recorded,
+        source_geometry_type=info.get("geometry_type"),
+        source_columns=info["columns"],
+        driver=info.get("driver"),
+    )
+    if build is not None:
+        info = {
+            **info,
+            "geometry_type": declared_build_type(build, info.get("sample_rows") or ()),
+        }
+        srid_override = build_srid(
+            build, srid_override=srid_override, detected=info.get("srid")
+        )
+
     # The diff below reads attribute columns only, so a geometry
     # loss would otherwise look like an unremarkable schema diff.
     geometry_loss = geometry_loss_refusal(
         record_type=prior_record_type,
         dataset_geometry_type=prior_geometry_type,
-        source_has_geometry=info.get("geometry_type") is not None,
+        source_has_geometry=info.get("geometry_type") is not None or build is not None,
     )
+    # A workbook's sheet is chosen from this preview, so the sheet it reads
+    # by default is not the one to hold to the recorded columns.
+    if recorded is not None and all_layers is not None and layer_name is None:
+        missing_columns, geometry_loss = [], None
+    if missing_columns:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+            detail={
+                "code": "geometry_columns_missing",
+                "message": str(columns_missing(missing_columns)),
+                "columns": ", ".join(missing_columns),
+            },
+        )
     if geometry_loss:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
@@ -929,7 +949,7 @@ async def reupload_preview(
         db,
         diff=diff,
         info=info,
-        srid_override=request.srid_override if request else None,
+        srid_override=srid_override,
         live_table=prior_table_name,
         live_geometry=prior_geometry,
     )

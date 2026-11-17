@@ -17,6 +17,7 @@ from sqlalchemy.sql.elements import ColumnElement, Label
 from sqlalchemy.sql.selectable import Select
 
 from app.core.db import release_connection
+from app.core.db.sqlstate import is_query_canceled
 from app.core.persistent_config import SEMANTIC_SEARCH_ENABLED
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -359,7 +360,9 @@ async def resolve_query_embedding(
     except EmbeddingUnavailableError:
         logger.warning("Embedding unavailable for semantic search, falling back to FTS")
         return None
-    except Exception:  # broad: third-party embedding SDK can throw provider-specific errors; fall back to FTS
+    except Exception as exc:  # broad: third-party embedding SDK can throw provider-specific errors; fall back to FTS
+        if is_query_canceled(exc):
+            raise
         logger.warning(
             "Failed to generate query embedding, falling back to FTS", exc_info=True
         )
@@ -422,7 +425,9 @@ async def resolve_semantic_arm(
             if not exact:
                 vector_stmt = vector_stmt.limit(window)
             rows = (await session.execute(vector_stmt)).all()
-    except Exception:  # broad: pgvector/HNSW failures are diverse; degrade to FTS rather than 500 the search
+    except Exception as exc:  # broad: pgvector/HNSW failures are diverse; degrade to FTS rather than 500 the search
+        if is_query_canceled(exc):
+            raise
         logger.warning(
             "Vector similarity query failed, falling back to FTS", exc_info=True
         )

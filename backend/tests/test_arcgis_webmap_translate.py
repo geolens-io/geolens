@@ -694,7 +694,7 @@ class TestLayerProperties:
         )
         assert result.layers[0].layout == {"_minzoom": 8.0, "_maxzoom": 14.0}
 
-    def test_layers_are_ordered_bottom_to_top(self) -> None:
+    def test_the_last_operational_layer_draws_on_top(self) -> None:
         webmap = {
             "operationalLayers": [
                 {"id": f"L{i}", "layerType": "ArcGISFeatureLayer", "title": str(i)}
@@ -704,10 +704,41 @@ class TestLayerProperties:
         matches = {f"L{i}": uuid.uuid4() for i in range(3)}
         result = _translate(webmap, matches)
         assert [(x.display_name, x.sort_order) for x in result.layers] == [
-            ("0", 0),
+            ("2", 0),
             ("1", 1),
-            ("2", 2),
+            ("0", 2),
         ]
+        assert result.layer_sources == ["L2", "L1", "L0"]
+
+    def test_group_members_keep_their_stacking_inside_the_group(self) -> None:
+        def feature(layer_id: str) -> dict:
+            return {
+                "id": layer_id,
+                "layerType": "ArcGISFeatureLayer",
+                "title": layer_id,
+            }
+
+        webmap = {
+            "operationalLayers": [
+                feature("below"),
+                {
+                    "id": "G",
+                    "layerType": "GroupLayer",
+                    "title": "Group",
+                    "layers": [feature("g0"), feature("g1")],
+                },
+                feature("above"),
+            ]
+        }
+        matches = {name: uuid.uuid4() for name in ("below", "g0", "g1", "above")}
+        result = _translate(webmap, matches)
+        assert [(x.display_name, x.sort_order) for x in result.layers] == [
+            ("above", 0),
+            ("g1", 1),
+            ("g0", 2),
+            ("below", 3),
+        ]
+        assert result.layer_sources == ["above", "g1", "g0", "below"]
 
     def test_group_members_share_a_folder(self) -> None:
         webmap = {
@@ -737,7 +768,7 @@ class TestLayerProperties:
             ]
         }
         result = _translate(webmap, {"L1": uuid.uuid4(), "L2": uuid.uuid4()})
-        assert [x.display_name for x in result.layers] == ["a", "b"]
+        assert [x.display_name for x in result.layers] == ["b", "a"]
         for layer in result.layers:
             assert layer.style_config["builder"]["folder_group_id"] == "G"
             assert layer.style_config["builder"]["folder_group_name"] == "Water"
@@ -781,6 +812,79 @@ class TestLayerProperties:
         result = _translate(webmap, matches)
         assert len(result.layers) == 200
         assert result.loss.summary["layer_cap"] == 5
+
+    def test_the_cap_keeps_the_top_layers_and_reports_the_bottom_ones(self) -> None:
+        count = 205
+        webmap = {
+            "operationalLayers": [
+                {"id": f"L{i}", "layerType": "ArcGISFeatureLayer", "title": f"t{i}"}
+                for i in range(count)
+            ]
+        }
+        matches = {f"L{i}": uuid.uuid4() for i in range(count)}
+        result = _translate(webmap, matches)
+        assert result.layer_sources == [f"L{i}" for i in range(count - 1, 4, -1)]
+        assert [x.sort_order for x in result.layers] == list(range(200))
+        assert [
+            (item.path, item.detail)
+            for item in result.loss.items
+            if item.kind == "layer_cap"
+        ] == [
+            (
+                f"operationalLayers[{i}]",
+                f"t{i}: left out with the map's bottom layers past 200",
+            )
+            for i in range(5)
+        ]
+
+    def test_a_long_title_keeps_the_cap_reason_in_the_loss_detail(self) -> None:
+        webmap = {
+            "operationalLayers": [
+                {"id": f"L{i}", "layerType": "ArcGISFeatureLayer", "title": "x" * 255}
+                for i in range(201)
+            ]
+        }
+        result = _translate(webmap, {f"L{i}": uuid.uuid4() for i in range(201)})
+        (detail,) = [i.detail for i in result.loss.items if i.kind == "layer_cap"]
+        assert len(detail) <= 255
+        assert detail.endswith(": left out with the map's bottom layers past 200")
+
+    def test_a_group_cut_by_the_cap_keeps_its_upper_members(self) -> None:
+        def feature(layer_id: str) -> dict:
+            return {
+                "id": layer_id,
+                "layerType": "ArcGISFeatureLayer",
+                "title": layer_id,
+            }
+
+        webmap = {
+            "operationalLayers": [
+                *(feature(f"below{i}") for i in range(3)),
+                {
+                    "id": "G",
+                    "layerType": "GroupLayer",
+                    "title": "Group",
+                    "layers": [feature(f"g{i}") for i in range(4)],
+                },
+                *(feature(f"above{i}") for i in range(198)),
+            ]
+        }
+        ids = [
+            *(f"below{i}" for i in range(3)),
+            *(f"g{i}" for i in range(4)),
+            *(f"above{i}" for i in range(198)),
+        ]
+        result = _translate(webmap, {layer_id: uuid.uuid4() for layer_id in ids})
+        assert result.layer_sources[-2:] == ["g3", "g2"]
+        for layer in result.layers[-2:]:
+            assert layer.style_config["builder"]["folder_group_id"] == "G"
+        assert [i.path for i in result.loss.items if i.kind == "layer_cap"] == [
+            "operationalLayers[0]",
+            "operationalLayers[1]",
+            "operationalLayers[2]",
+            "operationalLayers[3].layers[0]",
+            "operationalLayers[3].layers[1]",
+        ]
 
 
 class TestDefinitionExpression:
@@ -1089,11 +1193,11 @@ class TestFixtures:
         result = _translate(webmap, matches)
 
         assert len(result.layers) == 4
-        assert [x.visible for x in result.layers] == [False, False, True, True]
-        first = result.layers[0]
-        assert first.label_config["column"] == "APP_NAME"
-        assert first.popup_config.visible_fields[0] == "OBJECTID"
-        assert first.paint["fill-color"] == "#828282"
+        assert [x.visible for x in result.layers] == [True, True, False, False]
+        bottom = result.layers[-1]
+        assert bottom.label_config["column"] == "APP_NAME"
+        assert bottom.popup_config.visible_fields[0] == "OBJECTID"
+        assert bottom.paint["fill-color"] == "#828282"
         assert not result.unmatched
         for layer in result.layers:
             MapLayerInput.model_validate(layer.model_dump())

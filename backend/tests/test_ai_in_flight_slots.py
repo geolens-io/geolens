@@ -153,3 +153,25 @@ async def test_uncapped_requests_take_no_slot(
         held.release.set()
         for task in tasks:
             assert (await task).status_code == 200
+
+
+@pytest.mark.anyio
+async def test_capped_request_is_refused_while_the_shared_cache_is_unreachable(
+    client: AsyncClient, admin_auth_header: dict, monkeypatch
+):
+    """An open Valkey circuit refuses a capped request instead of granting a per-worker slot."""
+    from app.platform.cache.redis import RedisCacheProvider
+
+    _patch_cap(monkeypatch, 10**12)
+    unreachable = RedisCacheProvider(url="redis://127.0.0.1:1/0", max_failures=1)
+    unreachable._record_failure()
+    monkeypatch.setattr(ai_router, "get_cache", lambda: unreachable)
+    held = _HeldStreams()
+    held.release.set()
+    a, b, c = _stub_chat(held)
+    with a, b, c:
+        resp = await client.post(
+            "/ai/chat/stream/", json=CHAT_BODY, headers=admin_auth_header
+        )
+    assert resp.status_code == 429
+    assert held.entered == 0

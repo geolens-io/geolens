@@ -141,3 +141,41 @@ def test_the_map_embed_shell_keeps_its_own_policy():
     selected = _select(_tree(), "/m/sharetoken")
     assert selected is not None and selected.pattern == "^/m/"
     assert "story_frame_src" not in selected.own
+
+
+def test_the_frame_src_answer_is_shared_for_five_seconds_per_host():
+    """The shell's frame-src request is cached for 5 s, keyed on scheme and Host,
+    with only a 200 stored and nothing upstream able to lengthen or stretch it."""
+    text = _without_comments(NGINX_CONF.read_text())
+    zone = re.search(
+        r"^proxy_cache_path (\S+) (.*keys_zone=story_frame_src:\S+.*);$", text, re.M
+    )
+    assert zone is not None, "the story_frame_src cache zone is gone"
+    assert zone.group(1) == "/var/cache/nginx/story_frame_src_cache"
+    assert "inactive=10s" in zone.group(2).split()
+
+    own = _select(_tree(), "/_story_frame_src_policy").own
+    assert "proxy_cache story_frame_src;" in own
+    assert (
+        'proxy_cache_key "$geolens_fwd_proto://$http_host/stories/frame-src-policy";'
+        in own
+    )
+    assert re.findall(r"proxy_cache_valid [^;]*;", own) == ["proxy_cache_valid 200 5s;"]
+    ignored = re.search(r"proxy_ignore_headers ([^;]*);", own)
+    assert ignored is not None
+    assert set(ignored.group(1).split()) == {
+        "Cache-Control",
+        "Expires",
+        "X-Accel-Expires",
+        "Vary",
+    }
+    for loosening in ("proxy_cache_use_stale", "proxy_cache_background_update"):
+        assert loosening not in own
+    assert 'proxy_set_header Authorization "";' in own
+
+
+def test_no_other_location_reads_the_frame_src_cache():
+    shared = [
+        loc.pattern for loc in _tree() if "proxy_cache story_frame_src;" in loc.own
+    ]
+    assert shared == ["/_story_frame_src_policy"]

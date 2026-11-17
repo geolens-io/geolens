@@ -281,7 +281,7 @@ async def test_a_bearer_read_keeps_the_allowlist_policy(
 
 @pytest.mark.parametrize("credential", ["api_key", "cookie"])
 @pytest.mark.parametrize("target", _TARGETS)
-async def test_other_credentials_get_no_wildcard(
+async def test_a_cookie_gets_no_wildcard_and_a_url_key_the_keyed_answer(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
@@ -289,7 +289,7 @@ async def test_other_credentials_get_no_wildcard(
     target,
     credential,
 ) -> None:
-    """A read the route still serves gets no wildcard once it carries a credential."""
+    """A cookie gets no wildcard; a URL key the route resolved gets the keyed answer."""
     url = await publish(target)
     headers = {"Origin": _FOREIGN_ORIGIN}
     params = {}
@@ -310,7 +310,12 @@ async def test_other_credentials_get_no_wildcard(
     resp = await client.get(url, headers=headers, params=params)
 
     assert resp.status_code == 200
-    assert "access-control-allow-origin" not in resp.headers
+    if credential == "cookie":
+        assert "access-control-allow-origin" not in resp.headers
+    else:
+        assert resp.headers["access-control-allow-origin"] == "*"
+        assert "access-control-allow-credentials" not in resp.headers
+        assert "x-api-key" in resp.headers["vary"].lower()
 
 
 @pytest.mark.parametrize("target", _TARGETS)

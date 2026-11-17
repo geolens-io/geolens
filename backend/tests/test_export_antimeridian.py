@@ -393,7 +393,9 @@ class TestNonSpatialBboxIsDropped:
             path.write_text("name\n")
             return str(path), path.name, "text/csv"
 
-        monkeypatch.setattr("app.processing.export.router.export_dataset", _fake_export)
+        monkeypatch.setattr(
+            "app.processing.export.selection.export_dataset", _fake_export
+        )
         return seen
 
     @pytest.mark.anyio

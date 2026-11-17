@@ -2027,7 +2027,8 @@ def arcgis_inventory(
         str,
         typer.Option(
             "--portal-url",
-            help="ArcGIS Online organization URL, or https://<host>/portal for a self-hosted portal",
+            help="ArcGIS Online organization URL, or https://<host>/portal for a self-hosted portal. "
+            "Members with a SAML or OpenID Connect login pass their organization's URL.",
         ),
     ] = _arcgis_inventory.DEFAULT_PORTAL_URL,
     token: Annotated[
@@ -2310,6 +2311,15 @@ def arcgis_migrate(
             help="With --cutover, accept that migrated layers' attachments stay behind",
         ),
     ] = False,
+    accept_layer_property_loss: Annotated[
+        bool,
+        typer.Option(
+            "--accept-layer-property-loss",
+            help="With --cutover, accept that migrated layers' time settings, "
+            "subtype names, M values, time-only types and timestamp offsets "
+            "stay behind",
+        ),
+    ] = False,
     accept_unresolved_users: Annotated[
         bool,
         typer.Option(
@@ -2346,6 +2356,7 @@ def arcgis_migrate(
         _arcgis_cutover.UNFINISHED: accept_unfinished_items,
         _arcgis_cutover.INVENTORY: accept_incomplete_inventory,
         _arcgis_cutover.ATTACHMENTS: accept_attachment_loss,
+        _arcgis_cutover.LAYER_PROPERTIES: accept_layer_property_loss,
         _arcgis_cutover.USERS: accept_unresolved_users,
         _arcgis_cutover.SHARING: accept_under_sharing,
     }
@@ -2363,6 +2374,7 @@ def arcgis_migrate(
         password_stdin=password_stdin,
         client_id=client_id,
         redirect_port=redirect_port,
+        quiet=state.quiet,
         allow_insecure_http=allow_insecure_http,
         trusted_hosts=trust_service_host or [],
         export_cap_mb=export_cap_mb,

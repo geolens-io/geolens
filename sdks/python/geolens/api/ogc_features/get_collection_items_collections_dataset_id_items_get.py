@@ -24,6 +24,7 @@ def _get_kwargs(
     *,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    startindex: int | None | Unset = UNSET,
     after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
@@ -41,6 +42,13 @@ def _get_kwargs(
     params["limit"] = limit
 
     params["offset"] = offset
+
+    json_startindex: int | None | Unset
+    if isinstance(startindex, Unset):
+        json_startindex = UNSET
+    else:
+        json_startindex = startindex
+    params["startindex"] = json_startindex
 
     json_after_gid: int | None | Unset
     if isinstance(after_gid, Unset):
@@ -196,6 +204,7 @@ def sync_detailed(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    startindex: int | None | Unset = UNSET,
     after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
@@ -227,12 +236,12 @@ def sync_detailed(
             configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`)
             rather than the 200 used by offset-paged list endpoints, because this route pages via the
             constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-
-            response-1(C) a value above the ceiling is clamped to it, not rejected. A page whose
-            geometries are large may hold fewer features than `limit`; its `next` link continues from
-            the last feature returned. Default: 10.
+            response-1(C) a value above the ceiling is clamped to it, not rejected. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
+        startindex (int | None | Unset): Alias of `offset`, the name ArcGIS clients send. When
+            both are given, a non-zero `offset` must equal it.
         after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
             preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
@@ -265,6 +274,7 @@ def sync_detailed(
         dataset_id=dataset_id,
         limit=limit,
         offset=offset,
+        startindex=startindex,
         after_gid=after_gid,
         bbox=bbox,
         datetime_=datetime_,
@@ -290,6 +300,7 @@ def sync(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    startindex: int | None | Unset = UNSET,
     after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
@@ -322,12 +333,12 @@ def sync(
             configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`)
             rather than the 200 used by offset-paged list endpoints, because this route pages via the
             constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-
-            response-1(C) a value above the ceiling is clamped to it, not rejected. A page whose
-            geometries are large may hold fewer features than `limit`; its `next` link continues from
-            the last feature returned. Default: 10.
+            response-1(C) a value above the ceiling is clamped to it, not rejected. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
+        startindex (int | None | Unset): Alias of `offset`, the name ArcGIS clients send. When
+            both are given, a non-zero `offset` must equal it.
         after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
             preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
@@ -361,6 +372,7 @@ def sync(
         client=client,
         limit=limit,
         offset=offset,
+        startindex=startindex,
         after_gid=after_gid,
         bbox=bbox,
         datetime_=datetime_,
@@ -380,6 +392,7 @@ async def asyncio_detailed(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    startindex: int | None | Unset = UNSET,
     after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
@@ -411,12 +424,12 @@ async def asyncio_detailed(
             configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`)
             rather than the 200 used by offset-paged list endpoints, because this route pages via the
             constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-
-            response-1(C) a value above the ceiling is clamped to it, not rejected. A page whose
-            geometries are large may hold fewer features than `limit`; its `next` link continues from
-            the last feature returned. Default: 10.
+            response-1(C) a value above the ceiling is clamped to it, not rejected. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
+        startindex (int | None | Unset): Alias of `offset`, the name ArcGIS clients send. When
+            both are given, a non-zero `offset` must equal it.
         after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
             preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
@@ -449,6 +462,7 @@ async def asyncio_detailed(
         dataset_id=dataset_id,
         limit=limit,
         offset=offset,
+        startindex=startindex,
         after_gid=after_gid,
         bbox=bbox,
         datetime_=datetime_,
@@ -472,6 +486,7 @@ async def asyncio(
     client: AuthenticatedClient | Client,
     limit: int | Unset = 10,
     offset: int | Unset = 0,
+    startindex: int | None | Unset = UNSET,
     after_gid: int | None | Unset = UNSET,
     bbox: None | str | Unset = UNSET,
     datetime_: None | str | Unset = UNSET,
@@ -504,12 +519,12 @@ async def asyncio(
             configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`)
             rather than the 200 used by offset-paged list endpoints, because this route pages via the
             constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-
-            response-1(C) a value above the ceiling is clamped to it, not rejected. A page whose
-            geometries are large may hold fewer features than `limit`; its `next` link continues from
-            the last feature returned. Default: 10.
+            response-1(C) a value above the ceiling is clamped to it, not rejected. Default: 10.
         offset (int | Unset): Legacy offset-based pagination. Prefer `after_gid` keyset cursor
             (via the `next` link) — offset is retained for backward compatibility but is O(N) at high
             values. Default: 0.
+        startindex (int | None | Unset): Alias of `offset`, the name ArcGIS clients send. When
+            both are given, a non-zero `offset` must equal it.
         after_gid (int | None | Unset): Keyset cursor: returns features with gid > after_gid. The
             preferred pagination path; use the rel=next link for follow-up pages.
         bbox (None | str | Unset): Bounding box: minx,miny,maxx,maxy
@@ -544,6 +559,7 @@ async def asyncio(
             client=client,
             limit=limit,
             offset=offset,
+            startindex=startindex,
             after_gid=after_gid,
             bbox=bbox,
             datetime_=datetime_,

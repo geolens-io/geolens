@@ -167,6 +167,82 @@ drop_bundled_cache_url() {
   warn "The source build does not run the bundled cache; cleared REDIS_URL. Imports from token-protected services need a cache, so set REDIS_URL to your own Valkey/Redis."
 }
 
+# Prints KEY plus an `x` as Compose resolves it, via the checkout's .env reader in
+# a child shell. rc 3: no line sets KEY; rc 4: the checkout predates that
+# reader; any other failure: a line Compose would refuse.
+compose_env_value() {
+  [ -f scripts/lib/common.sh ] || return 4
+  sh -c '. scripts/lib/common.sh || exit 4
+command -v effective_env_value_into >/dev/null 2>&1 || exit 4
+effective_env_value_into cev_value "$1" .env
+case $? in
+  0) printf "%sx" "$cev_value" ;;
+  1) exit 3 ;;
+  *) exit 2 ;;
+esac' sh "$1"
+}
+
+# POSTGRES_PASSWORD is written only into a .env this run created from the
+# template; an existing .env may belong to a live database, so it is never
+# rewritten. A value exported in this shell wins over .env, as in Compose.
+ensure_postgres_password() {
+  if [ -n "${POSTGRES_PASSWORD+x}" ]; then
+    [ -n "$POSTGRES_PASSWORD" ] \
+      || fail "POSTGRES_PASSWORD is set but empty in this shell, and Compose would use that over .env. Unset it or give it a value."
+    return 0
+  fi
+  if [ "$ENV_CREATED" = "true" ]; then
+    existing_pg_pw="$(get_env_value_decoded POSTGRES_PASSWORD)"
+    if [ -z "$existing_pg_pw" ] || [ "$existing_pg_pw" = "geolens" ]; then
+      warn_if_database_volume_exists
+      update_env_value POSTGRES_PASSWORD "$(generate_password)"
+      say "Generated POSTGRES_PASSWORD."
+    fi
+    return 0
+  fi
+  if existing_pg_pw="$(compose_env_value POSTGRES_PASSWORD)"; then
+    existing_pg_pw="${existing_pg_pw%x}"
+  else
+    case $? in
+      3) existing_pg_pw="" ;;
+      4)
+        if [ -z "$(get_env_value_decoded POSTGRES_PASSWORD)" ]; then
+          warn "POSTGRES_PASSWORD looks empty in .env. Set it to the existing database's password, or to a new value such as \`openssl rand -hex 24\` for a first install."
+        fi
+        return 0
+        ;;
+      *) fail "Could not read the POSTGRES_PASSWORD line in .env. Fix that line and run the installer again." ;;
+    esac
+  fi
+  if [ -z "$existing_pg_pw" ]; then
+    fail "POSTGRES_PASSWORD is empty in .env. Set it to the existing database's password, or to a new value such as \`openssl rand -hex 24\` for a first install, and run the installer again."
+  elif [ "$existing_pg_pw" = "geolens" ]; then
+    warn "POSTGRES_PASSWORD is still the public default 'geolens'. A later release refuses to start with it; UPGRADING.md shows how to change it on a running install."
+  fi
+}
+
+# TILE_SIGNING_SECRET and SESSION_SECRET_KEY are written only into a .env this
+# run created: changing either on a live install breaks signed tile URLs and
+# sign-ins in progress.
+ensure_dedicated_signing_keys() {
+  [ "$ENV_CREATED" = "true" ] || return 0
+  for dsk_name in TILE_SIGNING_SECRET SESSION_SECRET_KEY; do
+    if [ -z "$(get_env_value "$dsk_name")" ]; then
+      update_env_value "$dsk_name" "$(generate_jwt_secret)"
+      say "Generated $dsk_name."
+    fi
+  done
+}
+
+# A new .env beside an old database volume (a deleted .env, a rerun) gets a
+# password that database doesn't know. Warn only: Docker may not answer, and
+# the volume may belong to another install on this host.
+warn_if_database_volume_exists() {
+  pg_volumes="$(docker volume ls -q --filter label=com.docker.compose.volume=pgdata 2>/dev/null || true)"
+  [ -z "$pg_volumes" ] \
+    || warn "Docker already has a database volume ($(printf '%s' "$pg_volumes" | tr '\n' ' ')). If it belongs to this install, set POSTGRES_PASSWORD in .env to its password before starting."
+}
+
 check_port() {
   port="$1"
   if command -v lsof >/dev/null 2>&1 && lsof -iTCP:"$port" -sTCP:LISTEN >/dev/null 2>&1; then
@@ -196,7 +272,13 @@ get_env_value() {
 update_env_value() {
   key="$1"
   value="$2"
-  tmp=".env.tmp.$$"
+
+  # mktemp creates the file exclusively, so a pre-planted link is never
+  # followed. It starts private and writable; the mode of the existing .env
+  # (read from ls -lL, as stat flags differ between GNU and BSD) is applied last
+  # so a read-only .env stays updatable.
+  tmp="$(umask 077; mktemp .env.tmp.XXXXXX)" || return 1
+  chmod 600 "$tmp" || { rm -f "$tmp"; return 1; }
 
   __VAL="$value" awk -v key="$key" '
     BEGIN { val = ENVIRON["__VAL"]; updated = 0 }
@@ -211,8 +293,18 @@ update_env_value() {
         print key "=" val
       }
     }
-  ' .env > "$tmp"
-  mv "$tmp" .env
+  ' .env > "$tmp" || { rm -f "$tmp"; return 1; }
+  _mode="$(ls -lL .env | awk '{
+    m = substr($1, 2, 9); o = 0
+    for (i = 1; i <= 9; i++) if (index("rwxst", substr(m, i, 1))) o += 2 ^ (9 - i)
+    printf "%03o", o
+  }')" || _mode=600
+  case "$_mode" in
+    [0-7][0-7][0-7]) ;;
+    *) _mode=600 ;;
+  esac
+  chmod "$_mode" "$tmp" || { rm -f "$tmp"; return 1; }
+  mv "$tmp" .env || { rm -f "$tmp"; return 1; }
 }
 
 # Ask for a value: env-var override > tty prompt > default.
@@ -449,7 +541,9 @@ main() {
 
   ENV_CREATED=false
   if [ ! -f .env ]; then
-    cp .env.example .env
+    (umask 077 && cp .env.example .env) || fail "Could not create .env."
+    # A default ACL on the directory overrides the umask; narrow it explicitly.
+    chmod 600 .env || fail "Could not set .env to mode 600."
     ENV_CREATED=true
   fi
 
@@ -476,18 +570,9 @@ main() {
     fi
   fi
 
-  # POSTGRES_PASSWORD: .env.example ships the publicly-known default
-  # `geolens`. On a FRESH install replace it with a strong value so the database
-  # is initialized with a real password. On a re-run we must NOT rotate it — the
-  # pgdata volume is already initialized with the existing value and changing it
-  # would lock the app out.
-  existing_pg_pw="$(get_env_value POSTGRES_PASSWORD)"
-  if [ "$ENV_CREATED" = "true" ] && { [ -z "$existing_pg_pw" ] || [ "$existing_pg_pw" = "geolens" ]; }; then
-    update_env_value POSTGRES_PASSWORD "$(generate_password)"
-    say "Generated POSTGRES_PASSWORD."
-  elif [ "$existing_pg_pw" = "geolens" ]; then
-    warn "POSTGRES_PASSWORD is still the public default 'geolens'. If the database has not been initialized yet, set a strong value in .env before first start."
-  fi
+  ensure_dedicated_signing_keys
+
+  ensure_postgres_password
 
   # Admin credentials: set only if either is empty. Honors GEOLENS_ADMIN_USERNAME /
   # GEOLENS_ADMIN_PASSWORD env vars for non-interactive installs.

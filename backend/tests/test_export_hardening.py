@@ -356,7 +356,7 @@ _VIEWER_EXPORT_REVOKED_MATRIX = {
 
 @pytest.fixture
 def mock_export_service_for_known05(monkeypatch):
-    """Mock app.processing.export.router.export_dataset to avoid ogr2ogr.
+    """Mock app.processing.export.selection.export_dataset to avoid ogr2ogr.
 
     Mirrors the autouse fixture in tests/test_export.py so this file's live
     integration tests can exercise the router without a real PostGIS table.
@@ -391,7 +391,7 @@ def mock_export_service_for_known05(monkeypatch):
             f.write(b"mock export data")
         return file_path, filename, media
 
-    monkeypatch.setattr("app.processing.export.router.export_dataset", _fake_export)
+    monkeypatch.setattr("app.processing.export.selection.export_dataset", _fake_export)
 
     yield _fake_export
 

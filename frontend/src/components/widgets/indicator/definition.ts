@@ -61,8 +61,9 @@ function parseIndicatorConfig(config: unknown, v: number): IndicatorConfig | nul
 
 export const indicatorWidget = defineWidget<IndicatorConfig>({
   type: 'indicator',
-  v: 2,
+  v: 3,
   storedVersion,
+  filterVersion: 3,
   surfaces: ['dashboard'],
   labelKey: 'types.indicator.label',
   i18nKeys: [

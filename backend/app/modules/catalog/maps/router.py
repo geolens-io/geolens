@@ -2,11 +2,11 @@
 
 import base64
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
-from io import BytesIO
 from typing import Literal
 
-from PIL import Image, UnidentifiedImageError
+from PIL import UnidentifiedImageError
 
 import structlog
 from fastapi import (
@@ -56,6 +56,10 @@ from app.modules.catalog.maps.schemas import (
     OgImageUploadRequest,
     ThumbnailUploadRequest,
 )
+from app.modules.catalog.maps.author_key import (
+    map_author_key_id,
+    refuse_map_author_key,
+)
 from app.modules.catalog.maps.router_assets import router as assets_router
 from app.modules.catalog.maps.router_groups import router as groups_router
 from app.modules.catalog.maps.router_sharing import router as sharing_router
@@ -89,7 +93,7 @@ from app.modules.catalog.maps.service import (
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service import remove_layers_bulk
 from app.modules.embed_tokens.service import revoke_embed_tokens_for_dropped_datasets
-from app.platform.request_credential import refuse_publish_key
+from app.platform.request_credential import api_key_audit_details, refuse_publish_key
 from app.platform.binary_response import binary_response
 from app.platform.storage.titiler_url import (
     resolve_current_storage_key as _map_asset_storage_key,
@@ -157,6 +161,7 @@ async def create_map_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Create a new map."""
+    refuse_map_author_key(db, user.id, body)
     terrain_config = (
         body.terrain_config.model_dump(mode="json")
         if body.terrain_config is not None
@@ -176,6 +181,7 @@ async def create_map_endpoint(
         notes=body.notes,
         terrain_config=terrain_config,
         basemap_config=basemap_config,
+        created_by_api_key_id=map_author_key_id(db),
     )
     await audit_emit(
         db,
@@ -184,7 +190,7 @@ async def create_map_endpoint(
             action="map.create",
             resource_type="map",
             resource_id=map_obj.id,
-            details={"name": body.name},
+            details={"name": body.name, **api_key_audit_details(db)},
             ip_address=request.client.host if request.client else None,
         ),
     )
@@ -500,6 +506,7 @@ async def update_map_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+    refuse_map_author_key(db, user.id, body, map_obj)
     await _readable_terrain(db, user, body.terrain_config, map_obj.terrain_config)
 
     # A non-admin may not move a map to public when restrict_public_visibility
@@ -577,7 +584,7 @@ async def update_map_endpoint(
             action="map.update",
             resource_type="map",
             resource_id=map_id,
-            details={"changed_fields": changed_fields},
+            details={"changed_fields": changed_fields, **api_key_audit_details(db)},
             ip_address=request.client.host if request.client else None,
         ),
     )
@@ -715,6 +722,7 @@ async def patch_map_layers_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+    refuse_map_author_key(db, user.id, body, map_obj)
 
     _, before_layer_tuples, _, _ = await get_map_with_layers(db, map_id)
     before_rows_by_id = _layer_rows_by_id(before_layer_tuples)
@@ -724,7 +732,14 @@ async def patch_map_layers_endpoint(
         map_obj, layer_tuples, forked_name, owner_username = await apply_layer_diff(
             db,
             map_id,
-            added=[layer.model_dump() for layer in body.added],
+            added=[
+                layer.model_dump(
+                    exclude=None
+                    if "sort_order" in layer.model_fields_set
+                    else {"sort_order"}
+                )
+                for layer in body.added
+            ],
             updated=[layer.model_dump(exclude_unset=True) for layer in body.updated],
             removed=body.removed,
             order=body.order,
@@ -765,6 +780,7 @@ async def patch_map_layers_endpoint(
                 if body.order is not None
                 else None,
                 "fallback_full_replace": body.fallback_full_replace,
+                **api_key_audit_details(db),
             },
             ip_address=request.client.host if request.client else None,
         ),
@@ -991,6 +1007,143 @@ async def _record_image_capture(
     )
 
 
+@dataclass(frozen=True)
+class _MapImageKind:
+    """What differs between the thumbnail and social-card uploads."""
+
+    storage_prefix: str
+    uri_field: str
+    label: str
+    publish_key_target: str
+
+
+_MAP_IMAGE_KINDS = {
+    "thumbnail": _MapImageKind(
+        storage_prefix="maps/thumbnails",
+        uri_field="thumbnail_uri",
+        label="Thumbnail",
+        publish_key_target="thumbnail",
+    ),
+    "og_image": _MapImageKind(
+        storage_prefix="maps/og-images",
+        uri_field="og_image_uri",
+        label="OG image",
+        publish_key_target="preview image",
+    ),
+}
+
+
+async def store_map_image(
+    db: AsyncSession,
+    map_id: uuid.UUID,
+    data_uri: str,
+    kind: Literal["thumbnail", "og_image"],
+    user: Identity,
+) -> None:
+    """Decode, verify and store one map image, then point the map at it.
+
+    Shared by the thumbnail and social-card uploads: data-URI parse, base64,
+    image verification, storage write and publication all behave the same;
+    only the key prefix, the map column and the wording differ per kind.
+    """
+    from app.modules.catalog.stories.images import verify_image_bytes
+    from app.platform.storage.provider import get_storage
+
+    spec = _MAP_IMAGE_KINDS[kind]
+
+    map_obj = await get_map(db, map_id)
+    if map_obj is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Map not found",
+        )
+    await check_map_ownership(map_obj, user, db)
+    if getattr(map_obj, spec.uri_field):
+        refuse_publish_key(
+            db, f"A publish key can't replace a map's {spec.publish_key_target}"
+        )
+
+    if not data_uri.startswith("data:image/"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Body must be a data:image/ URI",
+        )
+    # Format: data:image/jpeg;base64,<payload>
+    if ";base64," not in data_uri:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Body must be a base64-encoded data URI",
+        )
+    try:
+        header, encoded = data_uri.split(",", 1)
+        image_bytes = base64.b64decode(encoded)
+    except (ValueError, UnicodeDecodeError):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid data URI or base64 encoding",
+        )
+
+    # Image.verify() rejects random bytes, truncated images and mismatched
+    # MIME before anything is stored. It runs on the story decode threads,
+    # never on the event loop.
+    try:
+        await verify_image_bytes(image_bytes)
+    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
+        logger.warning(
+            f"{kind}_upload_invalid_image",
+            map_id=str(map_id),
+            byte_length=len(image_bytes),
+            error=str(exc),
+        )
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"{spec.label} payload is not a valid image",
+        )
+
+    ext = "jpg" if "jpeg" in header else "png"
+    # A fresh key per write, never one of two names per map.
+    storage_key = new_map_asset_key(spec.storage_prefix, map_id, ext)
+
+    storage = get_storage()
+    # Object and row publish together: a failure in the update/commit would
+    # leave the image with nothing pointing at it, and since keys are never
+    # reused, every retry would add another.
+    async with map_asset_publication() as publication:
+        physical_key = _map_asset_storage_key(storage_key)
+        # Recorded before the write, since a PUT can land and still fail the
+        # client. Rollback removes what this request wrote or no-ops.
+        publication.record(physical_key)
+        try:
+            await storage.put(physical_key, image_bytes)
+        except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 502
+            logger.exception(f"{kind}_upload_failed", map_id=str(map_id))
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"{spec.label} storage unavailable",
+            )
+
+        # The previous-key read and new-key write happen under the row lock,
+        # so two overlapping uploads can't each delete the object the other is
+        # about to point at. Taken after the storage write: holding it across
+        # the PUT would let a stalled backend block every other writer.
+        locked = await lock_map_for_asset_write(db, map_id)
+        previous_key = getattr(locked, spec.uri_field)
+        if previous_key:
+            refuse_publish_key(
+                db, f"A publish key can't replace a map's {spec.publish_key_target}"
+            )
+
+        await _record_image_capture(db, map_id, **{spec.uri_field: storage_key})
+        # Commit is the boundary, marked before it —
+        # an outcome that never comes back deletes nothing.
+        publication.committing()
+        await db.commit()
+        publication.settled()
+
+    if previous_key and previous_key != storage_key:
+        await discard_map_asset_objects(db, map_id, [previous_key])
+
+
 @router.put(
     "/{map_id}/thumbnail/",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -1008,100 +1161,7 @@ async def upload_thumbnail(
     Accepts a data:image/ URI, decodes the base64 payload, writes the image
     bytes to the configured storage provider, and stores the storage key.
     """
-    from app.platform.storage.provider import get_storage
-
-    data_uri = request.data_uri
-
-    map_obj = await get_map(db, map_id)
-    if map_obj is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Map not found",
-        )
-    await check_map_ownership(map_obj, user, db)
-    if map_obj.thumbnail_uri:
-        refuse_publish_key(db, "A publish key can't replace a map's thumbnail")
-
-    if not data_uri.startswith("data:image/"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Body must be a data:image/ URI",
-        )
-    # The 100KB bound is ThumbnailUploadRequest.data_uri's max_length, enforced
-    # by Pydantic before this handler runs.
-
-    # Format: data:image/jpeg;base64,<payload>
-    if ";base64," not in data_uri:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Body must be a base64-encoded data URI",
-        )
-    try:
-        header, encoded = data_uri.split(",", 1)
-        image_bytes = base64.b64decode(encoded)
-    except (ValueError, UnicodeDecodeError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid data URI or base64 encoding",
-        )
-
-    # Image.verify() rejects random bytes, truncated images and mismatched
-    # MIME before anything is stored.
-    try:
-        with Image.open(BytesIO(image_bytes)) as img:
-            img.verify()
-    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
-        logger.warning(
-            "thumbnail_upload_invalid_image",
-            map_id=str(map_id),
-            byte_length=len(image_bytes),
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Thumbnail payload is not a valid image",
-        )
-
-    ext = "jpg" if "jpeg" in header else "png"
-    # A fresh key per write, never one of two names per map.
-    storage_key = new_map_asset_key("maps/thumbnails", map_id, ext)
-
-    storage = get_storage()
-    # Object and row publish together: a failure in the update/commit would
-    # leave the image with nothing pointing at it, and since keys are never
-    # reused, every retry would add another.
-    async with map_asset_publication() as publication:
-        physical_key = _map_asset_storage_key(storage_key)
-        # Recorded before the write, since a PUT can land and still fail the
-        # client. Rollback removes what this request wrote or no-ops.
-        publication.record(physical_key)
-        try:
-            await storage.put(physical_key, image_bytes)
-        except Exception:  # broad: storage backend (S3/MinIO/local) can throw varied SDK/I/O errors; map to 502
-            logger.exception("thumbnail_upload_failed", map_id=str(map_id))
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="Thumbnail storage unavailable",
-            )
-
-        # The previous-key read and new-key write happen under the row lock,
-        # so two overlapping uploads can't each delete the object the other is
-        # about to point at. Taken after the storage write: holding it across
-        # the PUT would let a stalled backend block every other writer.
-        locked = await lock_map_for_asset_write(db, map_id)
-        previous_key = locked.thumbnail_uri
-        if previous_key:
-            refuse_publish_key(db, "A publish key can't replace a map's thumbnail")
-
-        await _record_image_capture(db, map_id, thumbnail_uri=storage_key)
-        # Commit is the boundary, marked before it —
-        # an outcome that never comes back deletes nothing.
-        publication.committing()
-        await db.commit()
-        publication.settled()
-
-    if previous_key and previous_key != storage_key:
-        await discard_map_asset_objects(db, map_id, [previous_key])
+    await store_map_image(db, map_id, request.data_uri, "thumbnail", user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1166,91 +1226,7 @@ async def upload_og_image(
     vs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail
     contract. Auth and PIL-verify rules are identical to upload_thumbnail.
     """
-    from app.platform.storage.provider import get_storage
-
-    data_uri = request.data_uri
-
-    map_obj = await get_map(db, map_id)
-    if map_obj is None:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Map not found",
-        )
-    await check_map_ownership(map_obj, user, db)
-    if map_obj.og_image_uri:
-        refuse_publish_key(db, "A publish key can't replace a map's preview image")
-
-    if not data_uri.startswith("data:image/"):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Body must be a data:image/ URI",
-        )
-
-    if ";base64," not in data_uri:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Body must be a base64-encoded data URI",
-        )
-    try:
-        header, encoded = data_uri.split(",", 1)
-        image_bytes = base64.b64decode(encoded)
-    except (ValueError, UnicodeDecodeError):
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid data URI or base64 encoding",
-        )
-
-    # Validate the decoded bytes are a real image (mirrors thumbnail PUT).
-    try:
-        with Image.open(BytesIO(image_bytes)) as img:
-            img.verify()
-    except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
-        logger.warning(
-            "og_image_upload_invalid_image",
-            map_id=str(map_id),
-            byte_length=len(image_bytes),
-            error=str(exc),
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="OG image payload is not a valid image",
-        )
-
-    ext = "jpg" if "jpeg" in header else "png"
-    storage_key = new_map_asset_key("maps/og-images", map_id, ext)
-
-    storage = get_storage()
-    # Same publication guard as the thumbnail PUT above.
-    async with map_asset_publication() as publication:
-        physical_key = _map_asset_storage_key(storage_key)
-        # Recorded before the write, as in the thumbnail PUT above.
-        publication.record(physical_key)
-        try:
-            await storage.put(physical_key, image_bytes)
-        except (
-            Exception
-        ):  # broad: S3/MinIO/local storage can throw varied errors -> 502
-            logger.exception("og_image_upload_failed", map_id=str(map_id))
-            raise HTTPException(
-                status_code=status.HTTP_502_BAD_GATEWAY,
-                detail="OG image storage unavailable",
-            )
-
-        # Same row lock and ordering as the thumbnail PUT above.
-        locked = await lock_map_for_asset_write(db, map_id)
-        previous_key = locked.og_image_uri
-        if previous_key:
-            refuse_publish_key(db, "A publish key can't replace a map's preview image")
-
-        await _record_image_capture(db, map_id, og_image_uri=storage_key)
-        # Commit is the boundary, marked before it —
-        # an outcome that never comes back deletes nothing.
-        publication.committing()
-        await db.commit()
-        publication.settled()
-
-    if previous_key and previous_key != storage_key:
-        await discard_map_asset_objects(db, map_id, [previous_key])
+    await store_map_image(db, map_id, request.data_uri, "og_image", user)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1332,6 +1308,7 @@ async def add_layer_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
+    refuse_map_author_key(db, user.id, body, map_obj)
 
     # Verify the user can access the target dataset
     user_roles = await get_user_roles(db, user)
@@ -1356,7 +1333,7 @@ async def add_layer_endpoint(
             action="map.add_layer",
             resource_type="map",
             resource_id=map_id,
-            details={"dataset_id": str(body.dataset_id)},
+            details={"dataset_id": str(body.dataset_id), **api_key_audit_details(db)},
             ip_address=request.client.host if request.client else None,
         ),
     )

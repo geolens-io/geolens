@@ -20,6 +20,7 @@ from pathlib import Path
 from typing import Any
 
 from . import arcgis_report as _report
+from .arcgis_layer_properties import NOT_CARRIED, recorded_notes
 from .arcgis_migrate_collections import DENIED
 from .arcgis_migrate_cutover import (
     attachment_losses,
@@ -46,6 +47,49 @@ REPORT_JSON = "arcgis-migration-report.json"
 REPORT_MD = "arcgis-migration-report.md"
 _SETTLED = frozenset({DONE, EXISTS, SKIPPED})
 _SKIPPED_LAYER = ("layer, not imported", "layer not imported")
+_WAIT_REASON_CHARS = 200
+
+
+def unmet_dependencies(
+    item: Mapping[str, Any],
+    items: Mapping[str, Mapping[str, Any]],
+    state: MigrationState,
+    after: Mapping[str, list[str]] | None = None,
+) -> list[str]:
+    """The plan items *item* still waits on: its ``depends_on`` and the items
+    *after* says own service layers it shares, whose action makes datasets or
+    a map and that haven't settled. An export_only or skip dependency makes
+    nothing to wait for, and a removed one never runs."""
+    return [
+        dep
+        for dep in [*item["depends_on"], *(after or {}).get(item["id"], [])]
+        if dep in items
+        and dep != item["id"]
+        and not items[dep].get("removed")
+        and items[dep]["action"] in _plan.IMPORTING
+        and state.status(dep) not in _SETTLED
+    ]
+
+
+def waits_on(
+    unmet: Sequence[str],
+    items: Mapping[str, Mapping[str, Any]],
+    state: MigrationState,
+) -> str:
+    """``waits on`` each of *unmet* with its status and, when it failed, why."""
+    shown = []
+    for dep in unmet:
+        status = state.status(dep)
+        error = state.items[dep].error if dep in state.items else None
+        if items.get(dep, {}).get("unlisted"):
+            why = f"{status}, missing from the inventory"
+        elif status == FAILED and error:
+            cut = error[:_WAIT_REASON_CHARS]
+            why = f"{status}: {cut}{'...' if len(error) > len(cut) else ''}"
+        else:
+            why = status
+        shown.append(f"{dep} ({why})")
+    return "waits on " + ", ".join(shown)
 
 
 def _follow_ups(
@@ -55,6 +99,7 @@ def _follow_ups(
     owner_changes: Sequence[Mapping[str, str]],
     owner_unresolved: Sequence[Mapping[str, str]] = (),
     owner_conflicts: Sequence[Mapping[str, str]] = (),
+    after: Mapping[str, list[str]] | None = None,
 ) -> list[dict[str, str]]:
     """What the operator still has to do, one entry per item and reason."""
     items = {item["id"]: item for item in plan["items"]}
@@ -70,9 +115,20 @@ def _follow_ups(
         if status == FAILED and entry is not None:
             kind = "quota" if "refused the upload" in (entry.error or "") else "failed"
             add(item["id"], kind, entry.error or "failed")
+        if item.get("kept_import"):
+            add(
+                item["id"],
+                "import_kept",
+                "the plan exports it because the portal shows it was added by "
+                "URL, but an earlier run's import of it is recorded, so it stays "
+                "an import_file item: reruns finish that import and keep its "
+                "datasets up to date",
+            )
         for note in notes:
             if any(marker in note for marker in _SKIPPED_LAYER):
                 add(item["id"], "skipped_layer", note)
+            elif note.startswith("layer ") and NOT_CARRIED in note:
+                add(item["id"], "layer_properties", note)
             elif note.startswith("skipped"):
                 add(item["id"], "skipped", note)
             elif note == PUBLIC_BLOCKED:
@@ -93,6 +149,9 @@ def _follow_ups(
                     "collections",
                     note + "; file its datasets into the target collections by hand",
                 )
+        for note in recorded_notes(entry) if entry else []:
+            if note not in notes:
+                add(item["id"], "layer_properties", note)
         if entry is not None and entry.loss_report_path:
             add(
                 item["id"],
@@ -100,7 +159,7 @@ def _follow_ups(
                 "parts of the web map were not carried over; see "
                 + entry.loss_report_path,
             )
-        made = entry is not None and (entry.dataset_ids or entry.map_id)
+        made = entry is not None and (entry.dataset_ids or entry.shared or entry.map_id)
         if item.get("removed"):
             add(
                 item["id"],
@@ -190,7 +249,12 @@ def _follow_ups(
             change["item"],
             "owner_changed",
             f"migrated before its owner changed to {change['owner']}; "
-            "it was not imported again, so transfer it by hand",
+            "it was not imported again, so "
+            + (
+                "rerun with it selected to hand it over, or transfer it by hand"
+                if change.get("unattempted")
+                else "transfer it by hand"
+            ),
         )
     for conflict in owner_conflicts:
         add(
@@ -213,15 +277,9 @@ def _follow_ups(
                 "not_available",
                 f"the {item['action']} action can't run yet",
             )
-        unmet = [
-            dep
-            for dep in item["depends_on"]
-            if dep in items
-            and not items[dep].get("removed")
-            and state.status(dep) not in _SETTLED
-        ]
+        unmet = unmet_dependencies(item, items, state, after)
         if unmet:
-            add(item["id"], "unresolved_dependency", "waits on " + ", ".join(unmet))
+            add(item["id"], "unresolved_dependency", waits_on(unmet, items, state))
     for item in plan["items"]:
         if (
             item["action"] == _plan.SKIP
@@ -337,10 +395,12 @@ def build_run_report(
     generated_at: str | None = None,
     members_removed: Mapping[str, Sequence[str]] | None = None,
     sharing_changes: Sequence[Mapping[str, Any]] | None = None,
+    after: Mapping[str, list[str]] | None = None,
 ) -> dict[str, Any]:
     """The report of the whole plan as of *state*; *members_removed* holds the
-    users this run removed from each ArcGIS group's GeoLens group, and
-    *sharing_changes* the GeoLens groups it shared items with or took off."""
+    users this run removed from each ArcGIS group's GeoLens group,
+    *sharing_changes* the GeoLens groups it shared items with or took off, and
+    *after* the items owning service layers an item shares, which it waits on."""
     rows = []
     for item in plan["items"]:
         entry = state.items.get(item["id"])
@@ -388,7 +448,13 @@ def build_run_report(
         ],
         "sharing_changes": [dict(row) for row in sharing_changes or []],
         "follow_ups": _follow_ups(
-            plan, state, runnable, owner_changes, owner_unresolved, owner_conflicts
+            plan,
+            state,
+            runnable,
+            owner_changes,
+            owner_unresolved,
+            owner_conflicts,
+            after,
         ),
         "loss_reports": sorted(
             {row["loss_report"] for row in rows if row["loss_report"]}

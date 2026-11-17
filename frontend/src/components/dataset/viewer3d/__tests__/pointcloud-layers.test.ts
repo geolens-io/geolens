@@ -49,7 +49,6 @@ describe('loadPointCloud', () => {
         onerror: unknown = null;
         postMessage(request: Posted) {
           posted.push(request);
-          // The first node (no shift given) detects 8-bit colour.
           queueMicrotask(() =>
             this.onmessage?.({
               data: { id: request.id, count: 1, positions: new Float32Array(3), colors: new Uint8Array(4), colorShift: request.colorShift ?? 0 },
@@ -76,11 +75,45 @@ describe('loadPointCloud', () => {
       });
     });
 
-  it('decodes the coarsest node alone first, and the rest with the colour depth it found', async () => {
+  it('decodes the coarsest node alone first', async () => {
     const ids = await run();
     expect(ids[0]).toBe('copc-0-0-0-0');
-    expect(posted[0].colorShift).toBeUndefined();
-    expect(posted.slice(1).map((p) => p.colorShift)).toEqual([0, 0]);
+    expect(posted.map((p) => p.colorShift)).toEqual([0, 0, 0]);
+  });
+
+  it('redraws earlier low-value nodes dark once a later node shows 16-bit colour', async () => {
+    const worker = class {
+      onmessage: ((event: { data: unknown }) => void) | null = null;
+      onerror: unknown = null;
+      postMessage(request: Posted & { node: { pointDataOffset: number } }) {
+        const bright = request.node.pointDataOffset === 300;
+        const colors = new Uint8Array([bright ? 200 : 40, 40, 40, 255]);
+        queueMicrotask(() =>
+          this.onmessage?.({
+            data: { id: request.id, count: 1, positions: new Float32Array(3), colors, colorShift: bright ? 8 : (request.colorShift ?? 0) },
+          }),
+        );
+      }
+      terminate() {}
+    };
+    vi.stubGlobal('Worker', worker);
+    const final = new Map<string, number[]>();
+    await new Promise<void>((resolve) => {
+      let n = 0;
+      loadPointCloud('/api/datasets/d1/copc/a/data.copc.laz', null, async () => new Response(), {
+        onLayer: (layer) => {
+          const props = (layer as unknown as { props: { id: string; data: { attributes: { getColor: { value: Uint8Array } } } } }).props;
+          final.set(props.id, [...props.data.attributes.getColor.value]);
+          if (++n === 5) resolve();
+        },
+        onError: (message) => {
+          throw new Error(message);
+        },
+      });
+    });
+    expect(final.get('copc-0-0-0-0')).toEqual([0, 0, 0, 255]);
+    expect(final.get('copc-1-0-0-0')).toEqual([0, 0, 0, 255]);
+    expect(final.get('copc-1-1-0-0')).toEqual([200, 40, 40, 255]);
   });
 
   it('posts the COPC object to the workers without its untrusted extra-bytes table', async () => {

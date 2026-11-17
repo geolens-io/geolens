@@ -392,6 +392,40 @@ describe('DashboardPanel', () => {
     expect(requestedBodies()).toEqual([{ op: 'count' }]);
   });
 
+  it("sends a widget's own filter after the layer's, and asks for nothing when it cannot be sent", async () => {
+    const own = { ...countWidget, v: 3, filter: ['==', ['get', 'land_use'], 'Residential'] };
+    const { unmount } = render(
+      <DashboardPanel
+        config={dashboard([own])}
+        layers={[layer({ filter: ['has', 'land_use'] as never })]}
+        map={null}
+        mapId="map-1"
+      />,
+    );
+    await waitFor(() => expect(fetchMock).toHaveBeenCalled());
+    expect(requestedBodies()).toEqual([
+      {
+        op: 'count',
+        filter: {
+          op: 'and',
+          args: [
+            { op: 'not', args: [{ op: 'isNull', args: [{ property: 'land_use' }] }] },
+            { op: '=', args: [{ property: 'land_use' }, 'Residential'] },
+          ],
+        },
+      },
+    ]);
+    unmount();
+    fetchMock.mockClear();
+
+    // An embed's narrowed columns leave out the one the filter reads.
+    render(<DashboardPanel config={dashboard([own])} layers={[layer({ column_info: [] })]} map={null} mapId="map-1" />);
+    expect(
+      await screen.findByText("This widget's own filter can't be applied here, so it shows no numbers."),
+    ).toBeInTheDocument();
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
   it('asks the reader to zoom in when the view holds too many rows, with no retry or empty value', async () => {
     const { ApiError } = await import('@/api/client');
     fetchMock.mockRejectedValue(

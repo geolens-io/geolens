@@ -124,7 +124,8 @@ def sync_detailed(
 
     409 (`detail.code` `layers_hidden_from_groups`, the layers under
     `detail.layers`) when new groups can't read some layers; see `confirm`.
-    A lock wait that times out also answers 409, without `detail.code`.
+    A lock wait that times out also answers 409, without `detail.code` and
+    with the top-level `code` `catalog_lock_conflict`.
     With `expected_updated_at`, a map changed since that value answers 409
     with `detail.code` `stale_write` and nothing is written.
 
@@ -170,7 +171,8 @@ def sync(
 
     409 (`detail.code` `layers_hidden_from_groups`, the layers under
     `detail.layers`) when new groups can't read some layers; see `confirm`.
-    A lock wait that times out also answers 409, without `detail.code`.
+    A lock wait that times out also answers 409, without `detail.code` and
+    with the top-level `code` `catalog_lock_conflict`.
     With `expected_updated_at`, a map changed since that value answers 409
     with `detail.code` `stale_write` and nothing is written.
 
@@ -211,7 +213,8 @@ async def asyncio_detailed(
 
     409 (`detail.code` `layers_hidden_from_groups`, the layers under
     `detail.layers`) when new groups can't read some layers; see `confirm`.
-    A lock wait that times out also answers 409, without `detail.code`.
+    A lock wait that times out also answers 409, without `detail.code` and
+    with the top-level `code` `catalog_lock_conflict`.
     With `expected_updated_at`, a map changed since that value answers 409
     with `detail.code` `stale_write` and nothing is written.
 
@@ -255,7 +258,8 @@ async def asyncio(
 
     409 (`detail.code` `layers_hidden_from_groups`, the layers under
     `detail.layers`) when new groups can't read some layers; see `confirm`.
-    A lock wait that times out also answers 409, without `detail.code`.
+    A lock wait that times out also answers 409, without `detail.code` and
+    with the top-level `code` `catalog_lock_conflict`.
     With `expected_updated_at`, a map changed since that value answers 409
     with `detail.code` `stale_write` and nothing is written.
 

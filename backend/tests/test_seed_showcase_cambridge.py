@@ -206,6 +206,11 @@ class FakeApi:
         layer = next(x for x in self.maps[map_id]["layers"] if x["id"] == body["id"])
         layer.update(body)
 
+    def delete_layer(self, map_id, layer_id):
+        self.writes.append("delete_layer")
+        layers = self.maps[map_id]["layers"]
+        layers[:] = [x for x in layers if x["id"] != layer_id]
+
     def set_view(self, map_id, **fields):
         self.writes.append("set_view")
         dashboard = fields.pop("dashboard_config", None)
@@ -359,30 +364,26 @@ def test_webmap_popups_leave_staff_columns_out():
         assert not fields & cam.STAFF_COLUMNS
 
 
-def test_tree_dashboard_takes_its_reference_from_the_aggregate(built):
+def test_tree_indicator_counts_only_and_the_text_names_the_earlier_count(built):
     api, h = built
     map_id = cam.seed_tree_dashboard(h, api)
 
     sent = api.maps[map_id]["dashboard_sent"]
     indicator = next(w for w in sent["widgets"] if w["type"] == "indicator")
-    assert indicator["config"]["reference"] == 3151
-    assert indicator["config"]["reference_label"] == "2016-2020"
-    assert indicator["config"]["higher_is_better"] is True
-    assert indicator["config"]["comparison"] == "both"
-    assert indicator["v"] == 2
+    assert indicator["config"] == {"stat": "count"}
+    assert indicator["v"] == 3
+    about = next(w for w in sent["widgets"] if w["type"] == "markdown")
+    assert "3,151 trees were planted in 2016-2020" in about["config"]["text"]
     assert {
         a["filter"]["args"][0]["args"][1]["timestamp"][:4] for a in api.aggregates
-    } == {
-        "2016",
-        "2021",
-    }
-    layer = next(
+    } == {"2016"}
+    trees = next(
         x
         for x in api.maps[map_id]["layers"]
-        if x["display_name"] == "Trees planted 2021-2025"
+        if x["display_name"] == "Street trees by site type"
     )
-    assert layer["filter"][1][2].startswith("2021-01-01")
-    assert indicator["layer_id"] == layer["id"]
+    assert indicator["filter"][1][2].startswith("2021-01-01")
+    assert indicator["layer_id"] == trees["id"]
 
     before = len(api.writes)
     cam.seed_tree_dashboard(h, api)
@@ -399,9 +400,8 @@ def test_planting_chart_starts_at_2008(built):
         if w["type"] == "bar_chart"
     )
     assert "since 2008" in chart["title"]
-    layer = layers["Trees planted since 2008"]
-    assert chart["layer_id"] == layer["id"]
-    assert layer["filter"][2].startswith("2008-01-01")
+    assert chart["layer_id"] == layers["Street trees by site type"]["id"]
+    assert chart["filter"][2].startswith("2008-01-01")
 
 
 def test_every_dashboard_save_carries_the_readable_list(built):
@@ -635,11 +635,11 @@ def test_the_neighborhood_picker_says_what_it_filters(built):
     api, h = built
     sent = api.maps[cam.seed_tree_dashboard(h, api)]["dashboard_sent"]
     picker = next(w for w in sent["widgets"] if w["type"] == "category_selector")
-    assert "site-type chart and the trees layer" in picker["title"]
+    assert "every tree count" in picker["title"]
     about = next(w for w in sent["widgets"] if w["type"] == "markdown")
     text = about["config"]["text"]
-    assert "site-type chart and the trees layer only" in text
-    assert "follow the map view, not the neighborhood" in text
+    assert "narrows every tree widget" in text
+    assert "keep counting the whole city" not in text
 
 
 def test_derived_datasets_do_not_name_the_city_as_publisher():
@@ -992,19 +992,79 @@ def test_seeder_dispatches_refresh_services_to_the_cambridge_module(monkeypatch)
     ]
 
 
-def test_hidden_tree_layers_sit_in_one_collapsed_group():
+def test_tree_dashboard_has_one_layer_per_source_and_no_hidden_layer():
     layers = cam._tree_layers("ds")
-    hidden = [x for x in layers if x.get("visible") is False]
-    assert len(hidden) == 3
-    groups = {json.dumps(x["style_config"]["builder"], sort_keys=True) for x in hidden}
-    assert len(groups) == 1
-    builder = hidden[0]["style_config"]["builder"]
-    assert builder["folder_group_expanded"] is False
-    drawn = [x for x in layers if x.get("visible") is not False]
-    assert all(
-        "folder_group_id" not in (x.get("style_config") or {}).get("builder", {})
-        for x in drawn
+    assert all(x.get("visible") is not False for x in layers)
+    assert not {x["display_name"] for x in layers} & set(cam._RETIRED_TREE_LAYERS)
+
+
+def _legacy(api, map_id, names=None, **over):
+    ds = next(x["dataset_id"] for x in api.maps[map_id]["layers"])
+    for name in names or cam._RETIRED_TREE_LAYERS:
+        api.add_layer(
+            map_id,
+            {"display_name": name, "dataset_id": ds, "visible": False, **over},
+        )
+    return ds
+
+
+def _names(api, map_id):
+    return {x["display_name"] for x in api.maps[map_id]["layers"]}
+
+
+def test_reseed_removes_the_retired_layers_once(built):
+    api, h = built
+    map_id = cam.seed_tree_dashboard(h, api)
+    _legacy(api, map_id)
+    cam.seed_tree_dashboard(h, api)
+    assert not _names(api, map_id) & set(cam._RETIRED_TREE_LAYERS)
+    ids = {x["id"] for x in api.maps[map_id]["layers"]}
+    sent = api.maps[map_id]["dashboard_sent"]
+    assert all(w["layer_id"] in ids for w in sent["widgets"] if "layer_id" in w)
+    before = len(api.writes)
+    cam.seed_tree_dashboard(h, api)
+    assert api.writes[before:] == []
+
+
+def test_reseed_keeps_a_visible_retired_name(built):
+    api, h = built
+    map_id = cam.seed_tree_dashboard(h, api)
+    _legacy(api, map_id, visible=True)
+    cam.seed_tree_dashboard(h, api)
+    assert set(cam._RETIRED_TREE_LAYERS) <= _names(api, map_id)
+
+
+def test_reseed_keeps_a_retired_name_on_another_dataset(built):
+    api, h = built
+    map_id = cam.seed_tree_dashboard(h, api)
+    _legacy(api, map_id, dataset_id="another")
+    cam.seed_tree_dashboard(h, api)
+    assert set(cam._RETIRED_TREE_LAYERS) <= _names(api, map_id)
+
+
+def test_reseed_keeps_a_retired_layer_a_shown_widget_reads(built):
+    """A readable widget someone added on a retired layer keeps that layer."""
+    api, h = built
+    map_id = cam.seed_tree_dashboard(h, api)
+    _legacy(api, map_id)
+    kept = next(
+        x
+        for x in api.maps[map_id]["layers"]
+        if x["display_name"] == "Trees planted since 2008"
     )
+    future = {"type": "table", "v": 1, "layer_id": kept["id"]}
+    real = api.set_view
+
+    def preserving(map_id, **fields):
+        real(map_id, **fields)
+        api.maps[map_id]["dashboard_config"]["widgets"].append(future)
+
+    api.set_view = preserving
+    api.maps[map_id]["dashboard_config"]["widgets"].append(future)
+    cam.seed_tree_dashboard(h, api)
+    names = _names(api, map_id)
+    assert "Trees planted since 2008" in names
+    assert "Trees planted 2021-2025" not in names
 
 
 # --- polish --------------------------------------------------------------------

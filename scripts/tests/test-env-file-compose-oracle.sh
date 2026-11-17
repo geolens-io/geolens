@@ -1416,6 +1416,22 @@ _assert_matches_compose POSTGRES_DB "$FWDREF_ENV" \
   "the same forward reference resolves via a genuinely exported value regardless of the file's own later redefinition"
 unset POSTGRES_USER
 
+# Spellings an installer must resolve exactly before deciding a value is empty.
+PW_COMMENT_EMPTY_ENV="$WORK/.env.pw_comment_empty"
+printf 'USES= # set me\n' > "$PW_COMMENT_EMPTY_ENV"
+_assert_matches_compose USES "$PW_COMMENT_EMPTY_ENV" \
+  "an empty unquoted value followed by a space and a comment"
+PW_CRLF_EMPTY_ENV="$WORK/.env.pw_crlf_empty"
+printf 'USES=\r\n' > "$PW_CRLF_EMPTY_ENV"
+_assert_matches_compose USES "$PW_CRLF_EMPTY_ENV" "an empty value on a CRLF line"
+PW_DUP_ENV="$WORK/.env.pw_dup"
+printf 'USES=\nUSES=later\n' > "$PW_DUP_ENV"
+_assert_matches_compose USES "$PW_DUP_ENV" "the last of two lines for a key wins"
+PW_PROJECT_COMMENT_ENV="$WORK/.env.pw_project_comment"
+printf 'COMPOSE_PROJECT_NAME=stable # production\n' > "$PW_PROJECT_COMMENT_ENV"
+_assert_matches_compose COMPOSE_PROJECT_NAME "$PW_PROJECT_COMMENT_ENV" \
+  "a project name followed by an inline comment"
+
 echo "1..$((PASS + FAIL))"
 echo "# ${PASS} passed, ${FAIL} failed"
 [ "$FAIL" -eq 0 ]

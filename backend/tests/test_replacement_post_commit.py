@@ -696,7 +696,7 @@ def storage(tmp_path, monkeypatch) -> LocalStorageProvider:
     provider = LocalStorageProvider(str(tmp_path / "objects"))
     for target in (
         "app.platform.storage.get_storage",
-        "app.processing.ingest.tasks_common.get_storage",
+        "app.processing.ingest.tasks_quicklook.get_storage",
         "app.processing.ingest.tasks_staging.get_storage",
     ):
         monkeypatch.setattr(target, lambda: provider, raising=True)

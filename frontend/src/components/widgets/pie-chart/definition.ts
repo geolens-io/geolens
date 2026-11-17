@@ -35,7 +35,9 @@ function parsePieChartConfig(config: unknown): PieChartConfig | null {
 
 export const pieChartWidget = defineWidget<PieChartConfig>({
   type: 'pie_chart',
-  v: 1,
+  v: 2,
+  storedVersion: () => 1,
+  filterVersion: 2,
   surfaces: ['dashboard'],
   labelKey: 'types.pie_chart.label',
   i18nKeys: [

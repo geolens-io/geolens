@@ -84,30 +84,33 @@ test-sequential:
 test-cov:
 	docker compose exec api env UV_CACHE_DIR=/app/staging/uv-cache UV_PROJECT_ENVIRONMENT=/app/staging/geolens-api-test-venv COVERAGE_FILE=/app/staging/.coverage uv run pytest -o cache_dir=/app/staging/.pytest_cache -v --tb=short --cov=app --cov-report=term-missing
 
-# Bootstrap the host-side test env file. `.env.test` is gitignored, so a fresh
-# clone starts without it and so does every new worktree. The documented host
-# pytest recipe then dies on missing env vars before collecting anything, with
-# a non-zero exit that reads exactly like a gate failure and is not one.
-# Idempotent: an existing .env.test is left alone, never overwritten.
+# Creates the gitignored .env.test once and never overwrites it. Host tests sign
+# in to the dev database, so POSTGRES_PASSWORD comes from the dev stack's .env:
+# this checkout's, or the main checkout's when run in a linked worktree.
 env-test:
 	@if [ -f .env.test ]; then \
 		echo ".env.test already exists, leaving it alone"; \
 	else \
-		cp .env.test.example .env.test; \
-		echo "created .env.test from .env.test.example"; \
+		. scripts/lib/common.sh; \
+		dev_env=.env; \
+		[ -f "$$dev_env" ] || dev_env="$$(dirname "$$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null)")/.env"; \
+		pg_pw=; effective_env_value_into pg_pw POSTGRES_PASSWORD "$$dev_env" || :; \
+		(umask 077 && cp .env.test.example .env.test) || exit 1; \
+		if [ -n "$$pg_pw" ]; then \
+			PG_PW="$$pg_pw" python3 -c 'import os, re, shlex; p = ".env.test"; t = open(p).read(); v = "POSTGRES_PASSWORD=" + shlex.quote(os.environ["PG_PW"]); open(p, "w").write(re.sub(r"(?m)^POSTGRES_PASSWORD=.*$$", lambda m: v, t, count=1))' || exit 1; \
+			echo "created .env.test from .env.test.example, POSTGRES_PASSWORD from $$dev_env"; \
+		else \
+			echo "created .env.test from .env.test.example; no dev .env found, so set POSTGRES_PASSWORD in .env.test to the dev database's password" >&2; \
+		fi; \
 	fi
 
 # Live-provider AI evals (assertion-based NL->SQL regression suite). Skipped
 # in normal test runs; costs real provider tokens. Needs the dev DB up and
 # ANTHROPIC_API_KEY (or the configured provider's key) in the environment.
 #
-# The `if [ -f ... ]` guard below is load-bearing. Do NOT make this
-# target depend on env-test, and do not source the file unconditionally.
-# .env.test.example ships POSTGRES_PASSWORD=geolens, while `make dev-init`
-# generates a RANDOM one into .env. Sourcing the template under
-# `set -a` exports the public default over the real password, and the evals can
-# no longer authenticate against the dev DB. With no .env.test present,
-# Settings loads .env directly and the credentials match.
+# With no .env.test, Settings reads .env directly. A .env.test is sourced over
+# it, so its POSTGRES_PASSWORD must match the dev database's (`make env-test`
+# copies it from .env).
 ai-evals:
 	cd backend && set -a && if [ -f ../.env.test ]; then . ../.env.test; fi && set +a && RUN_AI_EVALS=1 uv run pytest tests/evals/ -v
 
@@ -320,10 +323,19 @@ publish-sdks-ts:
 cli-build: ## Build the geolens CLI wheel + sdist
 	cd cli && uv build
 
+# Sets pg_pw to the test database password: from .env.test, sourced as host
+# pytest sources it (`make env-test` writes it in shell quoting), else from .env
+# as Compose reads it.
+READ_TEST_DB_PASSWORD = . scripts/lib/common.sh; pg_pw=; \
+	if [ -f .env.test ]; then pg_pw="$$(. ./.env.test && printf '%sx' "$${POSTGRES_PASSWORD-}")"; pg_pw="$${pg_pw%x}"; fi; \
+	[ -n "$$pg_pw" ] || effective_env_value_into pg_pw POSTGRES_PASSWORD .env || :
+
 # `make cli-test` runs CLI unit tests + the round-trip integration test.
 cli-test: ## Run CLI unit tests + round-trip integration test
 	cd cli && uv run --extra dev python -m pytest -v
-	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" POSTGRES_USER=geolens POSTGRES_PASSWORD=geolens POSTGRES_DB=geolens JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password uv run --with-editable ../sdks/python --with-editable '../cli[dev]' pytest tests/test_cli_round_trip.py -v
+	@$(READ_TEST_DB_PASSWORD); \
+	[ -n "$$pg_pw" ] || { echo "cli-test: no POSTGRES_PASSWORD in .env.test or .env; run make env-test" >&2; exit 1; }; \
+	cd backend && PYTHONPATH=. POSTGRES_HOST=localhost POSTGRES_PORT="$${DB_PORT:-5434}" POSTGRES_USER=geolens POSTGRES_PASSWORD="$$pg_pw" POSTGRES_DB=geolens JWT_SECRET_KEY=test-secret-key-for-ci-padding-32chars GEOLENS_ADMIN_USERNAME=admin GEOLENS_ADMIN_PASSWORD=geolens-ci-admin-password uv run --with-editable ../sdks/python --with-editable '../cli[dev]' pytest tests/test_cli_round_trip.py -v
 
 # `make cli-check` — version drift in cli/pyproject.toml is caught by sdks-check.
 cli-check: sdks-check ## Alias — version drift in cli/pyproject.toml is caught by sdks-check

@@ -23,7 +23,9 @@ function parseHistogramConfig(config: unknown): HistogramConfig | null {
 
 export const histogramWidget = defineWidget<HistogramConfig>({
   type: 'histogram',
-  v: 1,
+  v: 2,
+  storedVersion: () => 1,
+  filterVersion: 2,
   surfaces: ['dashboard'],
   labelKey: 'types.histogram.label',
   i18nKeys: [

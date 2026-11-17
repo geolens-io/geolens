@@ -1414,6 +1414,175 @@ class TestMapHistory:
         )
         assert summaries["Save Diff Layer"] == "Added Save Diff Layer layer"
 
+    async def test_post_layer_append_stops_at_the_order_ceiling(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """An append past 32767 is refused and writes nothing; 32767 itself is allowed."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = [
+            await create_dataset(test_db_session, created_by=admin_id, name=f"Cap {i}")
+            for i in range(3)
+        ]
+        created = await _create_map(client, admin_auth_header, "Ceiling Map")
+        url = f"/maps/{created['id']}/layers"
+        seed = await client.post(
+            url,
+            json={"dataset_id": str(ds[0].id), "sort_order": 32766},
+            headers=admin_auth_header,
+        )
+        assert seed.status_code == 201, seed.text
+
+        last = await client.post(
+            url, json={"dataset_id": str(ds[1].id)}, headers=admin_auth_header
+        )
+        assert last.status_code == 201, last.text
+        assert last.json()["sort_order"] == 32767
+
+        refused = await client.post(
+            url, json={"dataset_id": str(ds[2].id)}, headers=admin_auth_header
+        )
+        assert refused.status_code == 400, refused.text
+        assert refused.json()["detail"] == "Layer order exceeds maximum 32767"
+        fetched = await client.get(f"/maps/{created['id']}", headers=admin_auth_header)
+        assert len(fetched.json()["layers"]) == 2
+
+    async def test_patch_added_layers_without_sort_order_append(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+    ):
+        """PATCH additions without sort_order take the next draw orders; explicit ones stay."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = [
+            await create_dataset(test_db_session, created_by=admin_id, name=f"Ord {i}")
+            for i in range(6)
+        ]
+        created = await _create_map(client, admin_auth_header, "Patch Order Map")
+        seed = await client.patch(
+            f"/maps/{created['id']}/layers",
+            json={
+                "added": [
+                    {"dataset_id": str(ds[i].id), "sort_order": i} for i in range(3)
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert seed.status_code == 200, seed.text
+
+        resp = await client.patch(
+            f"/maps/{created['id']}/layers",
+            json={
+                "added": [
+                    {"dataset_id": str(ds[3].id)},
+                    {"dataset_id": str(ds[4].id)},
+                    {"dataset_id": str(ds[5].id), "sort_order": 0},
+                ]
+            },
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        by_dataset = {
+            layer["dataset_id"]: layer["sort_order"] for layer in resp.json()["layers"]
+        }
+        assert [by_dataset[str(ds[i].id)] for i in (3, 4, 5)] == [3, 4, 0]
+
+    async def _patch_orders(
+        self, client, header, test_db_session, seed_orders, added, **extra
+    ):
+        """Seed layers at ``seed_orders``, PATCH ``added`` (order values or None), return responses."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        created = await _create_map(client, header, "Patch Order Cases")
+        mk = lambda n: create_dataset(test_db_session, created_by=admin_id, name=n)  # noqa: E731
+        seeds = [await mk(f"S{i}") for i in range(len(seed_orders))]
+        news = [await mk(f"N{i}") for i in range(len(added))]
+        if seeds:
+            r = await client.patch(
+                f"/maps/{created['id']}/layers",
+                json={
+                    "added": [
+                        {"dataset_id": str(d.id), "sort_order": o}
+                        for d, o in zip(seeds, seed_orders)
+                    ]
+                },
+                headers=header,
+            )
+            assert r.status_code == 200, r.text
+        seed_ids = [layer["id"] for layer in r.json()["layers"]] if seeds else []
+        body = {
+            "added": [
+                {"dataset_id": str(d.id)}
+                if o is None
+                else {"dataset_id": str(d.id), "sort_order": o}
+                for d, o in zip(news, added)
+            ]
+        }
+        for key, val in extra.items():
+            body[key] = val(seed_ids) if callable(val) else val
+        resp = await client.patch(
+            f"/maps/{created['id']}/layers", json=body, headers=header
+        )
+        by_ds = (
+            {x["dataset_id"]: x["sort_order"] for x in resp.json()["layers"]}
+            if resp.status_code == 200
+            else {}
+        )
+        return resp, [by_ds.get(str(d.id)) for d in news], seed_ids
+
+    async def test_patch_explicit_orders_advance_the_cursor(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """An omitted order after an explicit one never ties with it."""
+        _, got, _ = await self._patch_orders(
+            client, admin_auth_header, test_db_session, [0, 1, 2], [3, None]
+        )
+        assert got == [3, 4]
+        _, got, _ = await self._patch_orders(
+            client, admin_auth_header, test_db_session, [0, 1, 2], [9, None]
+        )
+        assert got == [9, 10]
+        _, got, _ = await self._patch_orders(
+            client, admin_auth_header, test_db_session, [], [0, None]
+        )
+        assert got == [0, 1]
+
+    async def test_patch_omitted_order_follows_reorder_and_removal(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """Omitted orders are allocated from the stack left by reorder and removal."""
+        for order in (lambda ids: ids, lambda ids: ids[:1], lambda ids: []):
+            resp, got, _ = await self._patch_orders(
+                client,
+                admin_auth_header,
+                test_db_session,
+                [0, 0, 0],
+                [None],
+                order=order,
+            )
+            assert resp.status_code == 200, resp.text
+            assert got == [3]
+        resp, got, ids = await self._patch_orders(
+            client,
+            admin_auth_header,
+            test_db_session,
+            [0, 1, 2],
+            [None],
+            removed=lambda ids: ids[2:],
+        )
+        assert got == [2]
+
+    async def test_patch_omitted_order_past_ceiling_is_refused(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        """An omitted order that would pass 32767 refuses the whole PATCH."""
+        resp, _, _ = await self._patch_orders(
+            client, admin_auth_header, test_db_session, [32767], [None]
+        )
+        assert resp.status_code == 400, resp.text
+
     async def test_history_requires_builder_access(
         self,
         client: AsyncClient,

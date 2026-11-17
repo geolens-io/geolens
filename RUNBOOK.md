@@ -1258,6 +1258,13 @@ bespoke deployment that runs the api image outside these compose files with
 container-local directory, or every scrape reverts to seeing one arbitrary
 worker.
 
+`/metrics` has no authentication, and the header check only refuses requests
+that come through a proxy: anyone who reaches the API port directly reads
+`/metrics` without those headers. Keep the API port reachable only by your
+proxy and your scrapers, by bind address or firewall (the bundled Compose
+files bind it to `127.0.0.1`), and have a proxy of your own set one of those
+headers on every request it passes to the API.
+
 `infra/monitoring/prometheus.yml` already defines both scrape jobs
 (`geolens-api`, `geolens-worker`) and loads `alerts.yml` as a rule file. Run
 Prometheus on the Compose network so the `api` / `worker` hostnames resolve:
@@ -2776,7 +2783,9 @@ completely different things, so start from what happened.
 
 | What happened | Rotate | Cost |
 | --- | --- | --- |
-| A JWT, a session cookie, or `JWT_SECRET_KEY` itself leaked | `JWT_SECRET_KEY` | Every signed-in user is signed out. See "Rotating JWT_SECRET_KEY" for the rest. |
+| A JWT or `JWT_SECRET_KEY` itself leaked | `JWT_SECRET_KEY` | Every signed-in user is signed out. See "Rotating JWT_SECRET_KEY" for the rest. |
+| The session cookie signing key leaked | `SESSION_SECRET_KEY` when set, otherwise `JWT_SECRET_KEY` | OAuth sign-ins in progress restart. Set the same new value on every API replica. Rotating `JWT_SECRET_KEY` instead also carries the costs in the first row. |
+| The tile signing key leaked | `TILE_SIGNING_SECRET` when set, otherwise `JWT_SECRET_KEY` | Signed tile URLs fail until the page reloads them. Set the same new value on every API replica. Rotating `JWT_SECRET_KEY` instead also carries the costs in the first row. |
 | A database dump or backup leaked, and the encryption key did not | `SECRET_ENCRYPTION_KEY`, if you cannot rule the key out | Nothing, once `rotate_secrets.py` has run. |
 | `SECRET_ENCRYPTION_KEY` leaked, alone or with a dump | `SECRET_ENCRYPTION_KEY`, **and** every stored SSO secret at its identity provider | The key rotation costs nothing. Re-entering the provider secrets is the work. |
 | An identity provider's client secret leaked | Neither. Rotate it at the identity provider and re-enter it in the admin UI. | Nothing. |
@@ -2843,6 +2852,15 @@ predate step 3 above and `JWT_SECRET_KEY` has changed since. Add the missing
 key, or re-enter those providers' credentials in the admin UI under Settings >
 Auth & Security, which rewrites them under the current key.
 
+### Dedicated TILE_SIGNING_SECRET and SESSION_SECRET_KEY
+
+Both are optional and fall back to `JWT_SECRET_KEY`. Setting either on a
+running install changes the key it signs with: signed tile URLs minted before
+the change stop verifying until the page reloads them, and OAuth sign-ins in
+progress restart. `SESSION_SECRET_KEY` under 32 characters or equal to another key refuses to boot; a short or known-public `TILE_SIGNING_SECRET` still boots and warns in production until at least 2027-02-10, and GeoLens 1.33.0 refuses it; one equal to `JWT_SECRET_KEY` keeps warning. Use at least 32 characters (`openssl rand -hex 32`), a
+different value for each, and the same value on every API replica. The
+installer generates both only for a `.env` it creates.
+
 ### Rotating JWT_SECRET_KEY
 
 ```bash
@@ -2850,7 +2868,8 @@ Auth & Security, which rewrites them under the current key.
 docker compose up -d api worker
 ```
 
-Every access token, refresh token and session cookie stops verifying at once,
+Every access token and refresh token stops verifying at once, and so does the
+session cookie unless `SESSION_SECRET_KEY` is set,
 so every signed-in user is signed out and has to sign in again. That is the
 point of the rotation, and it is immediate: there is no dual-key grace period.
 

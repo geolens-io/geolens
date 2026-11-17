@@ -279,7 +279,8 @@ class TestAllTrailingSlashRoutesAcceptBothShapes:
         rather than a silent no-op (same shape as
         test_rule1_structural.py::test_route_walk_sees_the_full_route_table).
         """
-        from app.api.main import _iter_api_routes, app
+        from app.api.main import app
+        from app.api.openapi_contract import _iter_api_routes
 
         contexts = _iter_api_routes(app)
 

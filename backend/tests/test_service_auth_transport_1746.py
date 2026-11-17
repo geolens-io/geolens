@@ -78,6 +78,15 @@ pytestmark = pytest.mark.anyio
 
 
 @pytest.fixture(autouse=True)
+def _wfs_is_not_arcgis(monkeypatch):
+    """These WFS doubles serve no GetCapabilities, which an import reads to
+    tell an ArcGIS WFS behind another URL."""
+    monkeypatch.setattr(
+        "app.processing.ingest.ogr.recognise_arcgis_wfs", AsyncMock(return_value=None)
+    )
+
+
+@pytest.fixture(autouse=True)
 def _staging_dir(tmp_path, monkeypatch):
     """Keep the materialised-items extract out of the real staging volume.
 
@@ -6485,8 +6494,11 @@ class TestAPreviewReportsTheCollectionNotTheScratchFile:
     async def test_an_unprotected_preview_still_reports_ogrinfos_answer(
         self, monkeypatch
     ) -> None:
-        """Nothing is localised without a credential, so nothing changes."""
+        """Nothing is localised without a credential; a WFS count comes from hits."""
         self._ogrinfo(monkeypatch)
+        monkeypatch.setattr(
+            preview_mod, "fetch_arcgis_wfs_hits", AsyncMock(return_value=5)
+        )
 
         result = await preview_mod.run_service_preview(
             f"WFS:{_SVC_WFS}", "topp:parcels", sample_limit=5
@@ -9117,10 +9129,12 @@ class TestAdapterProbeReadsAreBounded:
       from #1758 (byte cap and deadline both native to that module, not
       borrowed from `probe_bounds.py`).
     - `catalog/sources/cog_info.py`'s `fetch_cog_info` (3 sites) and
-      `fetch_cog_nodata` (1 site): both talk to GeoLens's OWN internal,
+      `fetch_cog_header` (1 site): both talk to GeoLens's OWN internal,
       trusted Titiler service (`build_titiler_cog_url`), carrying no
       external credential at all -- see each function's own Gate 1/Gate 2
       docstring.
+    - `platform/storage/remote_quicklook.py`'s `_draw`: the same internal
+      Titiler, asked for a preview no larger than 512 px, with no credential.
     - `catalog/sources/origin_probe.py`'s `probe_remote_uri`/
       `fetch_json_document`: neither attaches a credential header; both
       already run under their own doubled hard deadline and (for the JSON
@@ -9233,7 +9247,8 @@ class TestAdapterProbeReadsAreBounded:
             ("app.modules.auth.oauth.service", "_resolve_github_identity", "get"),
             ("app.modules.catalog.sources.arcgis_signin", "_fetch_json", "stream"),
             ("app.modules.catalog.sources.cog_info", "fetch_cog_info", "get"),
-            ("app.modules.catalog.sources.cog_info", "fetch_cog_nodata", "get"),
+            ("app.modules.catalog.sources.cog_info", "fetch_cog_header", "get"),
+            ("app.platform.storage.remote_quicklook", "_draw", "get"),
             ("app.modules.catalog.sources.origin_probe", "probe_remote_uri", "stream"),
             (
                 "app.modules.catalog.sources.origin_probe",
@@ -9373,16 +9388,13 @@ class TestAdapterProbeReadsAreBounded:
         assert result is None
         assert chunks_yielded <= (MAX_DOCUMENT_BYTES // chunk_size) + 2, chunks_yielded
 
-    async def test_a_compressed_body_is_refused_before_decompression(
-        self, monkeypatch
-    ) -> None:
-        """Pin: a compressed body -- large or small -- never reaches the
-        decoded-size check at all. `read_bounded_body` refuses any
-        `Content-Encoding` other than identity outright, the same
-        compression-bomb defense `service_endpoints.py`'s door reads already
-        use, extended here rather than reinvented.
+    async def test_a_gzipped_body_is_inflated_under_the_cap(self, monkeypatch) -> None:
+        """Pin: a gzip body is inflated under the same byte cap the walk's
+        pages get, wire and decoded, instead of refused. A service that
+        answers a repeated identity request with an empty 200 answers a
+        gzip one with the document, so the probe reads it.
 
-        SSRF is mocked and `recorded` is asserted to length 1 so this cannot
+        SSRF is mocked and `recorded` is asserted to length 2 so this cannot
         pass for the wrong reason: a real httpx client transparently
         decompresses a gzip body on `.json()`, so the counterfactual (a plain
         `client.get`) would otherwise reach `/collections` too and only fail
@@ -9402,10 +9414,45 @@ class TestAdapterProbeReadsAreBounded:
         compressed = gzip.compress(payload)
         recorded: list[httpx.Request] = []
 
+        async def _chunks():
+            yield compressed
+
         def handle(request: httpx.Request) -> httpx.Response:
             recorded.append(request)
             return httpx.Response(
-                200, content=compressed, headers={"Content-Encoding": "gzip"}
+                200, headers={"Content-Encoding": "gzip"}, content=_chunks()
+            )
+
+        monkeypatch.setattr(
+            "app.modules.catalog.sources.adapters.ogcapi.validate_url_for_ssrf",
+            AsyncMock(),
+        )
+        async with httpx.AsyncClient(transport=httpx.MockTransport(handle)) as client:
+            result = await probe_ogcapi(f"{_SERVICE_ORIGIN}/oapif", client)
+
+        assert result == {"service_type": "OGC API Features", "layers": []}
+        assert len(recorded) == 2
+
+    async def test_a_gzip_bomb_is_refused_before_it_fully_inflates(
+        self, monkeypatch
+    ) -> None:
+        """Pin: the inflation above still refuses a body that would inflate
+        past the decoded cap, before the probe ever reaches `/collections`."""
+        import gzip
+
+        from app.modules.catalog.sources.adapters.ogcapi import probe_ogcapi
+        from app.platform import service_endpoints
+
+        bomb = gzip.compress(b" " * (service_endpoints.MAX_DOCUMENT_BYTES + 1))
+        recorded: list[httpx.Request] = []
+
+        async def _chunks():
+            yield bomb
+
+        def handle(request: httpx.Request) -> httpx.Response:
+            recorded.append(request)
+            return httpx.Response(
+                200, headers={"Content-Encoding": "gzip"}, content=_chunks()
             )
 
         monkeypatch.setattr(

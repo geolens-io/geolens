@@ -229,7 +229,9 @@ def _create(geolens: GeoLens, row: Row, password: str) -> Any:
     body = AdminUserCreate(username=row.username, password=password, role=row.role)
     if row.email:
         body.email = row.email
-    return geolens.call(create.sync_detailed, body=body, expected=201)
+    return geolens.call(
+        create.sync_detailed, body=body, expected=201, sends=("body.password",)
+    )
 
 
 def _load_rows(opts: ImportOptions) -> list[Row]:

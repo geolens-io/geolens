@@ -10,6 +10,7 @@ import structlog
 from sqlalchemy import Select, select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.sqlstate import is_query_canceled
 from app.core.db.tenant_session import defer_async_with_tenant
 from app.platform.cache import tenant_cache_context_available, tenant_cache_key
 from app.processing.embeddings.models import RecordEmbedding
@@ -81,8 +82,8 @@ async def resolve_embedding_model_name(
     backfill.py for why the pre-delete snapshot can't use the cache).
 
     Partitions the has_embeddings cache so a model swap forces a fresh lookup.
-    Resolution errors fall back to ``"__model_unknown__"`` for a correct
-    EXISTS result instead of a crash.
+    Resolution errors other than a cancelled statement fall back to
+    ``"__model_unknown__"`` for a correct EXISTS result instead of a crash.
 
     The sentinel's "matches no row" property cuts OPPOSITE ways per caller: a
     coverage COUNT under-reports (safe), but a "which records still need work"
@@ -99,7 +100,9 @@ async def resolve_embedding_model_name(
             else EMBEDDING_MODEL.get(session)
         )
         return value or UNKNOWN_EMBEDDING_MODEL
-    except Exception:  # broad: persistent_config resolution can fail for any DB/cache reason; fall back to sentinel
+    except Exception as exc:  # broad: persistent_config resolution can fail for any DB/cache reason; fall back to sentinel
+        if is_query_canceled(exc):
+            raise
         logger.warning("has_embeddings_model_resolution_failed", exc_info=True)
         return UNKNOWN_EMBEDDING_MODEL
 
@@ -219,7 +222,8 @@ async def _resolve_live_embedding_config(
     model_name: str | None = None,
     uncached: bool = False,
 ) -> tuple[str, int | None, str | None, str] | None:
-    """Read the live configuration once, or answer None. Never raises."""
+    """Read the live configuration once, or answer None; raises only a cancelled
+    statement, after which the transaction is unusable."""
     from app.core.persistent_config import EMBEDDING_DIMS
 
     try:
@@ -237,7 +241,9 @@ async def _resolve_live_embedding_config(
         from app.processing.embeddings.service import resolve_embedding_base_url
 
         base_url = await resolve_embedding_base_url(session)
-    except Exception:  # broad: config/provider resolution fails for many reasons; a reader must degrade, not raise
+    except Exception as exc:  # broad: config/provider resolution fails for many reasons; a reader must degrade, not raise
+        if is_query_canceled(exc):
+            raise
         logger.warning("embedding_config_unresolved", exc_info=True)
         return None
     return (

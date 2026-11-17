@@ -64,8 +64,9 @@ class IngestCeilingError(CodedRefusal):
 
     A marker base, mixed into ``processing.ingest.ogr.
     IngestBudgetExceededError`` so that class stays an ``IngestionError`` for
-    the worker while the re-upload preview, which may not import
-    ``app.processing.*``, can still catch it and pass its text through.
+    the worker while ``platform.vector_preview``, which both previews share
+    and which may not import ``app.processing.*``, catches it and passes its
+    text through.
     """
 
 

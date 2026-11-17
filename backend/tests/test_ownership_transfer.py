@@ -20,6 +20,7 @@ from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map
+from app.modules.embed_tokens.service import validate_embed_token_access
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.raster.models import VrtGeneration
 from tests.factories import create_dataset, create_map_via_api, create_user
@@ -306,6 +307,7 @@ async def test_admin_transfers_a_map_and_back(
     assert rows[0].details == {
         "previous_owner_id": owner_id,
         "new_owner_id": target_id,
+        "embed_tokens_revoked": 0,
     }
 
     old = await client.put(f"/maps/{map_id}", json={"name": "x"}, headers=owner_headers)
@@ -543,3 +545,39 @@ async def test_a_combined_visibility_change_is_judged_with_the_new_owner(
     )
     assert resp.status_code == 200, resp.text
     assert judged_owners == [uuid.UUID(target_id)]
+
+
+async def test_map_transfer_revokes_the_previous_owners_embed_token(
+    client: AsyncClient,
+    test_db_session: AsyncSession,
+    admin_auth_header: dict,
+    people: dict,
+) -> None:
+    owner_headers, owner_id = people["owner"]
+    _, target_id = people["target"]
+    dataset = await create_dataset(
+        test_db_session, created_by=uuid.UUID(owner_id), visibility="internal"
+    )
+    await test_db_session.commit()
+    map_id = uuid.UUID((await create_map_via_api(client, owner_headers))["id"])
+    added = await client.post(
+        f"/maps/{map_id}/layers",
+        json={"dataset_id": str(dataset.id)},
+        headers=owner_headers,
+    )
+    assert added.status_code == 201, added.text
+    minted = await client.post(
+        f"/maps/{map_id}/embed-tokens/", json={}, headers=owner_headers
+    )
+    assert minted.status_code == 201, minted.text
+    raw_token = minted.json()["raw_token"]
+    assert await validate_embed_token_access(raw_token, dataset.id, test_db_session)
+
+    resp = await client.patch(
+        f"/maps/{map_id}", json={"owner_id": target_id}, headers=admin_auth_header
+    )
+    assert resp.status_code == 200, resp.text
+
+    assert not await validate_embed_token_access(raw_token, dataset.id, test_db_session)
+    rows = await _transfer_rows(test_db_session, "map.transfer_owner", map_id)
+    assert rows[0].details["embed_tokens_revoked"] == 1

@@ -530,7 +530,7 @@ def main() -> None:
         default=None,
         help=(
             "Postgres DSN string (default: built from POSTGRES_* env vars). "
-            "Example: 'host=localhost port=5432 user=geolens password=geolens dbname=geolens'"
+            "Example: 'host=localhost port=5432 user=geolens password=<password> dbname=geolens'"
         ),
     )
     parser.add_argument(

@@ -334,8 +334,9 @@ export async function probeService(
 }
 
 // A WFS namespace mismatch makes run_service_preview run twice server-side at
-// 30s each, past apiFetch's 30s default.
-const SERVICE_PREVIEW_TIMEOUT_MS = 90_000;
+// 30s each, and its 30s budget starts after auth and URL checks, both past
+// apiFetch's 30s default. Shared with the reupload service preview.
+export const SERVICE_PREVIEW_TIMEOUT_MS = 90_000;
 
 export async function previewServiceLayer(
   request: ServicePreviewRequest,

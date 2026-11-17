@@ -65,10 +65,10 @@ from app.platform.jobs.models import (
 )
 from app.processing.ingest.tasks_common import (
     _emit_billing_event,
-    _generate_quicklook,
     cleanup_step,
     invalidate_tile_cache_for_table,
 )
+from app.processing.ingest.tasks_quicklook import _generate_quicklook
 from app.processing.ingest.tasks_staging import (
     _archive_original_file,
     original_archive_key,

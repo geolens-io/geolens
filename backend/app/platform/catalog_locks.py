@@ -14,7 +14,7 @@ from contextlib import asynccontextmanager
 from contextvars import ContextVar
 from typing import Any
 
-from sqlalchemy import event, func, select, text, update
+from sqlalchemy import Executable, Result, event, func, select, text, update
 from sqlalchemy.exc import DBAPIError, InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -84,14 +84,22 @@ _MARKER_LISTENER_KEY = "catalog_timeout_marker_listener"
 
 
 class CatalogLockConflict(Exception):
-    """Another transaction holds the catalog rows this one needs.
+    """Another transaction holds the catalog rows this one needs, or the
+    story, map, collection or table row a bounded lock waited for.
 
     One handler (``app/api/main.py``) answers 409 for it, wherever the
-    acquisition was reached from. A worker lets it propagate and fails its job
-    with ``error_code``.
+    acquisition was reached from, with ``detail`` as the body's ``detail``
+    when set and the keyed ``{code, message}`` otherwise. A worker lets it
+    propagate and fails its job with ``error_code``.
     """
 
     error_code = CATALOG_LOCK_CONFLICT_CODE
+
+    def __init__(
+        self, message: str, *, detail: str | dict[str, str] | None = None
+    ) -> None:
+        super().__init__(message)
+        self.detail = detail
 
 
 async def lock_catalog_rows(
@@ -146,6 +154,37 @@ async def lock_catalog_rows(
         if not is_lock_conflict(exc):
             raise
         await _raise_rolled_back_conflict(session, exc)
+
+
+async def bounded_row_lock(
+    session: AsyncSession,
+    stmt: Executable,
+    *,
+    message: str,
+    detail: str | dict[str, str] | None = None,
+    lock_timeout: str = REQUEST_LOCK_TIMEOUT,
+    reset: bool = True,
+) -> Result[Any]:
+    """Run a locking statement under a transaction-local wait bound.
+
+    When the wait expires or deadlocks, the whole transaction is rolled back
+    and ``CatalogLockConflict(message, detail=detail)`` is raised; ``detail``
+    is the 409 ``detail`` a route has always answered, if it is not the keyed
+    one. ``SET LOCAL`` ends with the transaction on every path.
+    ``reset`` also lifts the bound once the lock is held, so later waits in the
+    transaction are not cut short; pass False to keep it.
+    """
+    await _set_lock_timeout(session, lock_timeout)
+    try:
+        result = await session.execute(stmt)
+    except DBAPIError as exc:
+        if not is_lock_conflict(exc):
+            raise
+        await session.rollback()
+        raise CatalogLockConflict(message, detail=detail) from exc
+    if reset:
+        await session.execute(text("RESET lock_timeout"))
+    return result
 
 
 async def lock_request_key(
