@@ -1029,9 +1029,9 @@ class _RegenPlan:
     vrt_ql512_uri: str | None
     vrt_type: str
     resolution_strategy: str
-    # The VRT's own DEM flag, as stored: a regeneration rebuilds a DEM
-    # mosaic with bilinear, so a mosaic built before this fix picks the
-    # smooth resampling up on its next rebuild.
+    # Derived from the members being rebuilt, the same rule as creation:
+    # only an all-DEM member set gets bilinear, so a mixed mosaic keeps
+    # nearest and a DEM mosaic keeps its smoothing across rebuilds.
     is_dem: bool
 
 
@@ -1283,7 +1283,7 @@ def _plan_from_snapshot(
         vrt_ql512_uri=vrt_asset_row.quicklook_512_uri,
         vrt_type=vrt_asset_row.vrt_type or "mosaic",
         resolution_strategy=vrt_asset_row.resolution_strategy or "finest",
-        is_dem=bool(getattr(vrt_asset_row, "is_dem", False)),
+        is_dem=_vrt_members_are_dem(ordered_assets),
     )
 
 
