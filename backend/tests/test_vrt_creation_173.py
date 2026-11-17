@@ -244,9 +244,9 @@ class TestVrtBuildFunctions:
         assert cmd[r_idx + 1] == "bilinear"
 
     def test_non_dem_mosaic_uses_nearest_by_default(self):
-        """Categorical rasters keep nearest: the default is explicit, not
-        GDAL's implicit one, so a later change cannot silently blend
-        categorical values."""
+        """Categorical rasters keep nearest: no ``-r`` flag is passed, so
+        the build uses gdalbuildvrt's own nearest default and the output
+        stays byte-identical to a plain build."""
         mock_result = _make_subprocess_result(returncode=0)
 
         with patch(
@@ -255,8 +255,7 @@ class TestVrtBuildFunctions:
             build_vrt("mosaic", ["/a.tif", "/b.tif"], "/out.vrt", "finest")
 
         cmd = mock_run.call_args[0][0]
-        r_idx = cmd.index("-r")
-        assert cmd[r_idx + 1] == "nearest"
+        assert "-r" not in cmd
 
     def test_explicit_non_dem_mosaic_uses_nearest(self):
         mock_result = _make_subprocess_result(returncode=0)
@@ -269,8 +268,7 @@ class TestVrtBuildFunctions:
             )
 
         cmd = mock_run.call_args[0][0]
-        r_idx = cmd.index("-r")
-        assert cmd[r_idx + 1] == "nearest"
+        assert "-r" not in cmd
 
     def test_dem_band_stack_uses_bilinear_and_separate(self):
         mock_result = _make_subprocess_result(returncode=0)
@@ -289,7 +287,7 @@ class TestVrtBuildFunctions:
         from app.processing.raster.vrt import vrt_resampling
 
         assert vrt_resampling(is_dem=True) == "bilinear"
-        assert vrt_resampling(is_dem=False) == "nearest"
+        assert vrt_resampling(is_dem=False) is None
 
 
 class TestVrtMembersAreDem:

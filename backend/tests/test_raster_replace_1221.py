@@ -4595,11 +4595,15 @@ class TestVrtStampNamesTheStateItWasBuiltFrom:
         build_finished: list[datetime] = []
         real_build = tasks_vrt.build_vrt
 
-        def _slow_build(vrt_type, source_paths, vrt_path, resolution_strategy):
+        def _slow_build(
+            vrt_type, source_paths, vrt_path, resolution_strategy, *, is_dem=False
+        ):
             import time
 
             time.sleep(0.35)
-            result = real_build(vrt_type, source_paths, vrt_path, resolution_strategy)
+            result = real_build(
+                vrt_type, source_paths, vrt_path, resolution_strategy, is_dem=is_dem
+            )
             build_finished.append(datetime.now(timezone.utc))
             return result
 
@@ -4667,13 +4671,17 @@ class TestVrtStampNamesTheStateItWasBuiltFrom:
         mid_build: list[datetime] = []
         real_build = tasks_vrt.build_vrt
 
-        def _slow_build(vrt_type, source_paths, vrt_path, resolution_strategy):
+        def _slow_build(
+            vrt_type, source_paths, vrt_path, resolution_strategy, *, is_dem=False
+        ):
             import time
 
             time.sleep(0.2)
             mid_build.append(datetime.now(timezone.utc))
             time.sleep(0.2)
-            return real_build(vrt_type, source_paths, vrt_path, resolution_strategy)
+            return real_build(
+                vrt_type, source_paths, vrt_path, resolution_strategy, is_dem=is_dem
+            )
 
         monkeypatch.setattr(tasks_vrt, "build_vrt", _slow_build, raising=True)
 
@@ -4808,13 +4816,17 @@ class TestSnapshotPrecedesTheReadInBothTails:
         mid_build: list[datetime] = []
         real_build = tasks_vrt.build_vrt
 
-        def _slow_build(vrt_type, source_paths, vrt_path, resolution_strategy):
+        def _slow_build(
+            vrt_type, source_paths, vrt_path, resolution_strategy, *, is_dem=False
+        ):
             import time
 
             time.sleep(0.2)
             mid_build.append(datetime.now(timezone.utc))
             time.sleep(0.2)
-            return real_build(vrt_type, source_paths, vrt_path, resolution_strategy)
+            return real_build(
+                vrt_type, source_paths, vrt_path, resolution_strategy, is_dem=is_dem
+            )
 
         monkeypatch.setattr(tasks_vrt, "build_vrt", _slow_build, raising=True)
 

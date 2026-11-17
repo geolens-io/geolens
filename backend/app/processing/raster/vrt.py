@@ -379,15 +379,16 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
 
 
-def vrt_resampling(*, is_dem: bool) -> str:
-    """The ``gdalbuildvrt -r`` value for a mosaic.
+def vrt_resampling(*, is_dem: bool) -> str | None:
+    """The ``gdalbuildvrt -r`` value for a mosaic, or None to leave it out.
 
     Continuous elevation data resamples with bilinear, so a coarse member
     does not repeat its pixels as blocks at the mosaic's resolution. Any
     other raster keeps nearest, so categorical values are never blended
-    into values no source holds.
+    into values no source holds. Nearest is gdalbuildvrt's default, so it
+    is omitted: a non-DEM mosaic stays byte-identical to a plain build.
     """
-    return "bilinear" if is_dem else "nearest"
+    return "bilinear" if is_dem else None
 
 
 def _build_vrt(
@@ -417,16 +418,11 @@ def _build_vrt(
     cmd = ["gdalbuildvrt"]
     if separate:
         cmd.append("-separate")
-    cmd.extend(
-        [
-            "-resolution",
-            gdal_res,
-            "-r",
-            vrt_resampling(is_dem=is_dem),
-            output_path,
-            *source_paths,
-        ]
-    )
+    cmd.extend(["-resolution", gdal_res])
+    resampling = vrt_resampling(is_dem=is_dem)
+    if resampling is not None:
+        cmd.extend(["-r", resampling])
+    cmd.extend([output_path, *source_paths])
     result = run_gdal(cmd, env=gdal_safe_env(), tool="gdalbuildvrt")
     if result.returncode != 0:
         raise RuntimeError(f"gdalbuildvrt failed: {result.stderr}")
