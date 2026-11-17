@@ -230,6 +230,98 @@ class TestVrtBuildFunctions:
         res_idx = cmd.index("-resolution")
         assert cmd[res_idx + 1] == "average"
 
+    def test_dem_mosaic_uses_bilinear_resampling(self):
+        """A DEM mosaic resamples with bilinear, not nearest (#3896)."""
+        mock_result = _make_subprocess_result(returncode=0)
+
+        with patch(
+            "app.processing.raster.vrt.subprocess.run", return_value=mock_result
+        ) as mock_run:
+            build_vrt("mosaic", ["/a.tif", "/b.tif"], "/out.vrt", "finest", is_dem=True)
+
+        cmd = mock_run.call_args[0][0]
+        r_idx = cmd.index("-r")
+        assert cmd[r_idx + 1] == "bilinear"
+
+    def test_non_dem_mosaic_uses_nearest_by_default(self):
+        """Categorical rasters keep nearest: the default is explicit, not
+        GDAL's implicit one, so a later change cannot silently blend
+        categorical values."""
+        mock_result = _make_subprocess_result(returncode=0)
+
+        with patch(
+            "app.processing.raster.vrt.subprocess.run", return_value=mock_result
+        ) as mock_run:
+            build_vrt("mosaic", ["/a.tif", "/b.tif"], "/out.vrt", "finest")
+
+        cmd = mock_run.call_args[0][0]
+        r_idx = cmd.index("-r")
+        assert cmd[r_idx + 1] == "nearest"
+
+    def test_explicit_non_dem_mosaic_uses_nearest(self):
+        mock_result = _make_subprocess_result(returncode=0)
+
+        with patch(
+            "app.processing.raster.vrt.subprocess.run", return_value=mock_result
+        ) as mock_run:
+            build_vrt(
+                "mosaic", ["/a.tif", "/b.tif"], "/out.vrt", "finest", is_dem=False
+            )
+
+        cmd = mock_run.call_args[0][0]
+        r_idx = cmd.index("-r")
+        assert cmd[r_idx + 1] == "nearest"
+
+    def test_dem_band_stack_uses_bilinear_and_separate(self):
+        mock_result = _make_subprocess_result(returncode=0)
+
+        with patch(
+            "app.processing.raster.vrt.subprocess.run", return_value=mock_result
+        ) as mock_run:
+            build_vrt("band_stack", ["/a.tif"], "/out.vrt", "finest", is_dem=True)
+
+        cmd = mock_run.call_args[0][0]
+        assert "-separate" in cmd
+        r_idx = cmd.index("-r")
+        assert cmd[r_idx + 1] == "bilinear"
+
+    def test_vrt_resampling_helper(self):
+        from app.processing.raster.vrt import vrt_resampling
+
+        assert vrt_resampling(is_dem=True) == "bilinear"
+        assert vrt_resampling(is_dem=False) == "nearest"
+
+
+class TestVrtMembersAreDem:
+    """``_vrt_members_are_dem`` gates the bilinear choice on the members."""
+
+    def _asset(self, is_dem):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(is_dem=is_dem)
+
+    def test_all_dem_members_is_dem(self):
+        from app.processing.ingest.tasks_vrt import _vrt_members_are_dem
+
+        assert _vrt_members_are_dem([self._asset(True), self._asset(True)]) is True
+
+    def test_mixed_members_are_not_dem(self):
+        """One categorical member keeps the whole mosaic on nearest, so its
+        values are never blended."""
+        from app.processing.ingest.tasks_vrt import _vrt_members_are_dem
+
+        assert _vrt_members_are_dem([self._asset(True), self._asset(False)]) is False
+
+    def test_no_dem_members_is_not_dem(self):
+        from app.processing.ingest.tasks_vrt import _vrt_members_are_dem
+
+        assert _vrt_members_are_dem([self._asset(False), self._asset(False)]) is False
+
+    def test_no_members_is_not_dem(self):
+        from app.processing.ingest.tasks_vrt import _vrt_members_are_dem
+
+        assert _vrt_members_are_dem([]) is False
+
     def test_build_vrt_needs_the_gdal_cli(self, tmp_path):
         """No in-process writer stands in for gdalbuildvrt, since it would open
         every source, and parse its CRS, in this process."""

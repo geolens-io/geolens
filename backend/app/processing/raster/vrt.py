@@ -379,12 +379,24 @@ def shift_vrt_longitude_frame(vrt_path: str) -> None:
     tree.write(vrt_path, encoding="utf-8", xml_declaration=True)
 
 
+def vrt_resampling(*, is_dem: bool) -> str:
+    """The ``gdalbuildvrt -r`` value for a mosaic.
+
+    Continuous elevation data resamples with bilinear, so a coarse member
+    does not repeat its pixels as blocks at the mosaic's resolution. Any
+    other raster keeps nearest, so categorical values are never blended
+    into values no source holds.
+    """
+    return "bilinear" if is_dem else "nearest"
+
+
 def _build_vrt(
     source_paths: list[str],
     output_path: str,
     resolution_strategy: str,
     *,
     separate: bool = False,
+    is_dem: bool = False,
 ) -> str:
     """Core VRT builder wrapping gdalbuildvrt.
 
@@ -393,6 +405,9 @@ def _build_vrt(
         output_path: Destination .vrt file path (must be writable).
         resolution_strategy: One of "finest", "coarsest", or "average".
         separate: If True, pass ``-separate`` to produce a band-stack VRT.
+        is_dem: If True, the members are elevation data and the mosaic
+            resamples with bilinear; otherwise it resamples with nearest
+            so categorical rasters keep their exact values.
 
     Raises:
         RuntimeError: If gdalbuildvrt exits with a non-zero return code.
@@ -402,7 +417,16 @@ def _build_vrt(
     cmd = ["gdalbuildvrt"]
     if separate:
         cmd.append("-separate")
-    cmd.extend(["-resolution", gdal_res, output_path, *source_paths])
+    cmd.extend(
+        [
+            "-resolution",
+            gdal_res,
+            "-r",
+            vrt_resampling(is_dem=is_dem),
+            output_path,
+            *source_paths,
+        ]
+    )
     result = run_gdal(cmd, env=gdal_safe_env(), tool="gdalbuildvrt")
     if result.returncode != 0:
         raise RuntimeError(f"gdalbuildvrt failed: {result.stderr}")
@@ -417,13 +441,20 @@ def build_vrt(
     source_paths: list[str],
     output_path: str,
     resolution_strategy: str,
+    *,
+    is_dem: bool = False,
 ) -> str:
-    """Build a VRT file. Dispatches to mosaic or band-stack based on vrt_type."""
+    """Build a VRT file. Dispatches to mosaic or band-stack based on vrt_type.
+
+    ``is_dem`` selects the resampling: bilinear for elevation mosaics,
+    nearest for everything else (see :func:`vrt_resampling`).
+    """
     return _build_vrt(
         source_paths,
         output_path,
         resolution_strategy,
         separate=(vrt_type == "band_stack"),
+        is_dem=is_dem,
     )
 
 
