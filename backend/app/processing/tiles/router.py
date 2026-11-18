@@ -31,6 +31,7 @@ from sqlalchemy.orm import joinedload
 from app.core.url_redaction import redact_exception_text
 from app.core.geo import extent_lon_span, extent_to_span_bbox, raster_crs_facts
 from app.core.identity import Identity
+from app.core.raster_bands import is_palette_raster
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.tile_scope import (
     TILE_PUBLICATION_VERSION_PARAM,
@@ -359,6 +360,10 @@ _SIGNED_INT_DTYPES = frozenset({"int8", "int16", "int32"})
 # statistics so that work sits behind the tile rate limit and is skipped when
 # another stretch replaces it.
 _DATA_RANGE_HEADER = "X-GeoLens-Data-Range-Default"
+
+# Set when the raster carries a colour table. Its values are class ids, so the
+# proxy sends them to the table unscaled unless a named colormap replaces it.
+_PALETTE_HEADER = "X-GeoLens-Palette"
 
 _WEB_MERCATOR_EQUATOR_RESOLUTION_M = 156543.03392804097
 _DEFAULT_RASTER_MAXZOOM = 18
@@ -1140,7 +1145,9 @@ async def raster_auth_check(
         nodata_param = _dem_nodata_param(meta.nodata)
         if nodata_param is not None:
             render_params = f"{render_params}&nodata={nodata_param}"
-    elif storage_backend == "remote" and meta.band_info:
+    elif storage_backend == "remote" and any(
+        band.get("min") is not None for band in meta.band_info or []
+    ):
         # A remote STAC import with statistics rescales to the actual data
         # min/max instead of the fixed dtype max.
         bi = meta.band_info
@@ -1167,6 +1174,11 @@ async def raster_auth_check(
             "X-GeoLens-Render-Params": render_params,
             "X-GeoLens-Band-Count": str(meta.band_count or 1),
             **({_DATA_RANGE_HEADER: "1"} if float_default_range else {}),
+            **(
+                {_PALETTE_HEADER: "1"}
+                if not meta.is_dem and is_palette_raster(meta.band_info)
+                else {}
+            ),
         },
     )
 
@@ -1402,8 +1414,10 @@ async def raster_tile_proxy(
     # float or single-band signed integer raster, whose data range replaces the
     # dtype rescale. percentile/stddev override it from Titiler band
     # statistics, one fragment per band up to three, falling back to minmax
-    # when stats are missing.
-    if stretch and stretch != "minmax" and not render_params.startswith("algorithm="):
+    # when stats are missing. An embedded colour table takes no rescale at all.
+    if auth_resp.headers.get(_PALETTE_HEADER) and "colormap_name=" not in render_params:
+        render_params = _apply_stretch_rescale(render_params, [])
+    elif stretch and stretch != "minmax" and not render_params.startswith("algorithm="):
         bands = await _fetch_band_statistics(open_path, eff_pmin, eff_pmax)
         n_bands = min(band_count or 1, 3)
         rescale_parts = (

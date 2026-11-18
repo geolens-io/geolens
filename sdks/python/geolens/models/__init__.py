@@ -68,6 +68,15 @@ from .arc_gis_sign_in_response import ArcGISSignInResponse
 from .arcgis_loss_item import ArcgisLossItem
 from .arcgis_loss_report import ArcgisLossReport
 from .arcgis_loss_report_summary import ArcgisLossReportSummary
+from .arcgis_translated_layer import ArcgisTranslatedLayer
+from .arcgis_translated_layer_label_config_type_0 import (
+    ArcgisTranslatedLayerLabelConfigType0,
+)
+from .arcgis_translated_layer_layout_type_0 import ArcgisTranslatedLayerLayoutType0
+from .arcgis_translated_layer_paint_type_0 import ArcgisTranslatedLayerPaintType0
+from .arcgis_translated_layer_style_config_type_0 import (
+    ArcgisTranslatedLayerStyleConfigType0,
+)
 from .arcgis_translated_view import ArcgisTranslatedView
 from .arcgis_unmatched_layer import ArcgisUnmatchedLayer
 from .arcgis_webmap_import_request import ArcgisWebmapImportRequest
@@ -1207,6 +1216,11 @@ __all__ = (
     "ArcgisLossReportSummary",
     "ArcGISSignInRequest",
     "ArcGISSignInResponse",
+    "ArcgisTranslatedLayer",
+    "ArcgisTranslatedLayerLabelConfigType0",
+    "ArcgisTranslatedLayerLayoutType0",
+    "ArcgisTranslatedLayerPaintType0",
+    "ArcgisTranslatedLayerStyleConfigType0",
     "ArcgisTranslatedView",
     "ArcgisUnmatchedLayer",
     "ArcgisWebmapImportRequest",

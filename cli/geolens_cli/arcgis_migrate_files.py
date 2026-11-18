@@ -27,6 +27,7 @@ from .arcgis_migrate_layers import (
     _apply_target,
     _commit_body,
     _item_link,
+    _record_title,
     _title,
     _wait_for_dataset,
 )
@@ -259,7 +260,7 @@ def _fan_out(
                 f"layer not imported, {layer.layer_name}: {layer.error or layer.status}"
             )
     ctx.save()
-    unknown = _wait_for_layers(ctx, entry, base)
+    unknown = _wait_for_layers(ctx, entry, base, titles)
     if not entry.layer_datasets:
         if not unknown:
             # Every outcome is known and none imported, so a rerun uploads
@@ -347,9 +348,15 @@ def _layer_name(key: str) -> str:
     return key.removeprefix(LAYER_PREFIX)
 
 
-def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> int:
+def _wait_for_layers(
+    ctx: MigrationContext,
+    entry: ItemState,
+    base: str,
+    sent: Mapping[str, str] | None = None,
+) -> int:
     """Wait for the fan-out jobs an earlier call queued and pin their datasets.
-    A job that ended without a dataset becomes a note on the item.
+    A job that ended without a dataset becomes a note on the item. A dataset's
+    title is recorded from *sent*, the titles this process sent, else unknown.
 
     Returns how many jobs GeoLens no longer had, whose outcome is unknown, and
     remembers that in the fan-out record. When the last job ends and every
@@ -360,9 +367,15 @@ def _wait_for_layers(ctx: MigrationContext, entry: ItemState, base: str) -> int:
     names = [n for n in entry.layer_jobs if n.startswith(LAYER_PREFIX)]
     for position, name in enumerate(names):
         try:
-            entry.layer_datasets[name] = _wait_for_dataset(
+            dataset = _wait_for_dataset(
                 ctx, UUID(entry.layer_jobs[name]), _title(base, _layer_name(name))
             )
+            entry.layer_datasets[name] = dataset
+            # Titles sent by this process only: the stored ones may be masked.
+            if sent and _layer_name(name) in sent:
+                _record_title(entry, dataset, sent[_layer_name(name)])
+            else:
+                entry.title_baseline[dataset] = {}
         except _JobEnded as exc:
             entry.notes.append(f"layer not imported, {exc}")
         except GeoLensError as exc:
@@ -540,6 +553,7 @@ def import_file(
         notes.append("no geometry column found; imported as a table")
     _commit(ctx, job_id, base, visibility, {**columns, **link})
     dataset = _wait_for_dataset(ctx, job_id, base)
+    _record_title(entry, dataset, base)
     del entry.layer_jobs[JOB_KEY]
     return _pinned(entry, dataset, notes)
 

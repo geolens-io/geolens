@@ -311,9 +311,12 @@ async def test_map_list_checks_thumbnails_for_the_page_at_once(
     async def list_statements() -> int:
         count = 0
 
-        def tick(*_args) -> None:
+        def tick(_conn, _cursor, statement, *_args) -> None:
             nonlocal count
-            count += 1
+            # The test session factory probes each connection with SELECT 1 and
+            # repeats the probe when the server is out of connections.
+            if statement != "SELECT 1":
+                count += 1
 
         event.listen(Engine, "before_cursor_execute", tick)
         try:

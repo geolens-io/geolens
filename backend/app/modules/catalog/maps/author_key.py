@@ -89,8 +89,12 @@ def map_author_append_orders(
 def _sent_at_default(body: BaseModel, name: str) -> bool:
     if not isinstance(body, MAP_AUTHOR_DEFAULTS_ACCEPTED):
         return False
+    value = getattr(body, name)
+    if name == "sort_order" and isinstance(body, MapLayerInput):
+        # SDKs generated before the order became optional send 0 for an unset one.
+        return value in (None, 0)
     default = type(body).model_fields[name].get_default(call_default_factory=True)
-    return getattr(body, name) == default
+    return value == default
 
 
 def _unsettable_fields(body: BaseModel) -> set[str]:

@@ -1,0 +1,426 @@
+from __future__ import annotations
+
+from collections.abc import Mapping
+from typing import Any, TypeVar, TYPE_CHECKING
+
+from attrs import define as _attrs_define
+from attrs import field as _attrs_field
+
+from ..types import UNSET, Unset
+
+from typing import cast
+from uuid import UUID
+
+if TYPE_CHECKING:
+    from ..models.arcgis_translated_layer_label_config_type_0 import (
+        ArcgisTranslatedLayerLabelConfigType0,
+    )
+    from ..models.arcgis_translated_layer_layout_type_0 import (
+        ArcgisTranslatedLayerLayoutType0,
+    )
+    from ..models.arcgis_translated_layer_paint_type_0 import (
+        ArcgisTranslatedLayerPaintType0,
+    )
+    from ..models.arcgis_translated_layer_style_config_type_0 import (
+        ArcgisTranslatedLayerStyleConfigType0,
+    )
+    from ..models.popup_config import PopupConfig
+
+
+T = TypeVar("T", bound="ArcgisTranslatedLayer")
+
+
+@_attrs_define
+class ArcgisTranslatedLayer:
+    """A translated layer as the import returns it: its draw order is always set.
+
+    Attributes:
+        dataset_id (UUID):
+        sort_order (int): Draw order; 0 draws on top
+        id (None | Unset | UUID): Existing layer id to update in place (full-save reconcile)
+        visible (bool | Unset):  Default: True.
+        opacity (float | Unset): Layer opacity 0.0-1.0 Default: 1.0.
+        paint (ArcgisTranslatedLayerPaintType0 | None | Unset): MapLibre paint properties override
+        layout (ArcgisTranslatedLayerLayoutType0 | None | Unset): MapLibre layout properties override. `_minzoom` and
+            `_maxzoom` set the zoom range where the layer is visible; the exported style writes them as `minzoom` and
+            `maxzoom`.
+        display_name (None | str | Unset): Label shown in the layer list
+        filter_ (list[Any] | None | Unset): MapLibre filter expression
+        label_config (ArcgisTranslatedLayerLabelConfigType0 | None | Unset): Text label configuration. Accepted keys:
+            allowOverlap, column, fontSize, haloColor, haloWidth, maxZoom, minZoom, placement, textAnchor, textColor,
+            textOffset, textOpacity. Unknown keys are dropped when the map is exported as a MapLibre style. See
+            https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
+        popup_config (None | PopupConfig | Unset): Popup configuration: {enabled, expression, visible_fields}
+        style_config (ArcgisTranslatedLayerStyleConfigType0 | None | Unset): Data-driven and builder UI style
+            configuration. Accepted top-level keys: breaks, builder, categories, classCount, colorLabel, colors, column,
+            heatmapPaint, legendLabel, method, mode, ramp, render_mode, reversed, savedCirclePaint, sizeLabel, sizeRange,
+            sizes, symbol, target; other top-level keys are dropped when the map is exported as a MapLibre style. Builder-
+            only state lives under builder, whose interpreted keys are arrow_color, arrow_size, arrow_spacing,
+            cluster_color, cluster_color_ramp, cluster_max_zoom, cluster_radius, cluster_show_counts, cluster_text_color,
+            cluster_text_size, colormap, extrusion_min_zoom, extrusion_opacity, fill_color_saved, fill_disabled,
+            fill_opacity_saved, folder_group_expanded, folder_group_id, folder_group_name, heatmap_ramp, heatmap_reversed,
+            heatmap_weight_column, height_column, height_scale, hypso_enabled, hypso_ramp, hypso_reversed, lineGradient,
+            outline_color, outline_width, outline_width_saved, pmax, pmin, sigma, stretch, stroke_disabled, symbol. Other
+            builder keys are stored and exported unchanged but have no effect. legendLabel replaces the layer's name in the
+            legend and layer list; colorLabel and sizeLabel replace the column name in the title of the color and size
+            legend sections. See https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
+        layer_type (None | str | Unset): Auto-detected from record_type if omitted
+        show_in_legend (bool | Unset): Whether to include in the map legend Default: True.
+    """
+
+    dataset_id: UUID
+    sort_order: int
+    id: None | Unset | UUID = UNSET
+    visible: bool | Unset = True
+    opacity: float | Unset = 1.0
+    paint: ArcgisTranslatedLayerPaintType0 | None | Unset = UNSET
+    layout: ArcgisTranslatedLayerLayoutType0 | None | Unset = UNSET
+    display_name: None | str | Unset = UNSET
+    filter_: list[Any] | None | Unset = UNSET
+    label_config: ArcgisTranslatedLayerLabelConfigType0 | None | Unset = UNSET
+    popup_config: None | PopupConfig | Unset = UNSET
+    style_config: ArcgisTranslatedLayerStyleConfigType0 | None | Unset = UNSET
+    layer_type: None | str | Unset = UNSET
+    show_in_legend: bool | Unset = True
+    additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
+
+    def to_dict(self) -> dict[str, Any]:
+        from ..models.arcgis_translated_layer_label_config_type_0 import (
+            ArcgisTranslatedLayerLabelConfigType0,
+        )
+        from ..models.arcgis_translated_layer_layout_type_0 import (
+            ArcgisTranslatedLayerLayoutType0,
+        )
+        from ..models.arcgis_translated_layer_paint_type_0 import (
+            ArcgisTranslatedLayerPaintType0,
+        )
+        from ..models.arcgis_translated_layer_style_config_type_0 import (
+            ArcgisTranslatedLayerStyleConfigType0,
+        )
+        from ..models.popup_config import PopupConfig
+
+        dataset_id = str(self.dataset_id)
+
+        sort_order = self.sort_order
+
+        id: None | str | Unset
+        if isinstance(self.id, Unset):
+            id = UNSET
+        elif isinstance(self.id, UUID):
+            id = str(self.id)
+        else:
+            id = self.id
+
+        visible = self.visible
+
+        opacity = self.opacity
+
+        paint: dict[str, Any] | None | Unset
+        if isinstance(self.paint, Unset):
+            paint = UNSET
+        elif isinstance(self.paint, ArcgisTranslatedLayerPaintType0):
+            paint = self.paint.to_dict()
+        else:
+            paint = self.paint
+
+        layout: dict[str, Any] | None | Unset
+        if isinstance(self.layout, Unset):
+            layout = UNSET
+        elif isinstance(self.layout, ArcgisTranslatedLayerLayoutType0):
+            layout = self.layout.to_dict()
+        else:
+            layout = self.layout
+
+        display_name: None | str | Unset
+        if isinstance(self.display_name, Unset):
+            display_name = UNSET
+        else:
+            display_name = self.display_name
+
+        filter_: list[Any] | None | Unset
+        if isinstance(self.filter_, Unset):
+            filter_ = UNSET
+        elif isinstance(self.filter_, list):
+            filter_ = self.filter_
+
+        else:
+            filter_ = self.filter_
+
+        label_config: dict[str, Any] | None | Unset
+        if isinstance(self.label_config, Unset):
+            label_config = UNSET
+        elif isinstance(self.label_config, ArcgisTranslatedLayerLabelConfigType0):
+            label_config = self.label_config.to_dict()
+        else:
+            label_config = self.label_config
+
+        popup_config: dict[str, Any] | None | Unset
+        if isinstance(self.popup_config, Unset):
+            popup_config = UNSET
+        elif isinstance(self.popup_config, PopupConfig):
+            popup_config = self.popup_config.to_dict()
+        else:
+            popup_config = self.popup_config
+
+        style_config: dict[str, Any] | None | Unset
+        if isinstance(self.style_config, Unset):
+            style_config = UNSET
+        elif isinstance(self.style_config, ArcgisTranslatedLayerStyleConfigType0):
+            style_config = self.style_config.to_dict()
+        else:
+            style_config = self.style_config
+
+        layer_type: None | str | Unset
+        if isinstance(self.layer_type, Unset):
+            layer_type = UNSET
+        else:
+            layer_type = self.layer_type
+
+        show_in_legend = self.show_in_legend
+
+        field_dict: dict[str, Any] = {}
+        field_dict.update(self.additional_properties)
+        field_dict.update(
+            {
+                "dataset_id": dataset_id,
+                "sort_order": sort_order,
+            }
+        )
+        if id is not UNSET:
+            field_dict["id"] = id
+        if visible is not UNSET:
+            field_dict["visible"] = visible
+        if opacity is not UNSET:
+            field_dict["opacity"] = opacity
+        if paint is not UNSET:
+            field_dict["paint"] = paint
+        if layout is not UNSET:
+            field_dict["layout"] = layout
+        if display_name is not UNSET:
+            field_dict["display_name"] = display_name
+        if filter_ is not UNSET:
+            field_dict["filter"] = filter_
+        if label_config is not UNSET:
+            field_dict["label_config"] = label_config
+        if popup_config is not UNSET:
+            field_dict["popup_config"] = popup_config
+        if style_config is not UNSET:
+            field_dict["style_config"] = style_config
+        if layer_type is not UNSET:
+            field_dict["layer_type"] = layer_type
+        if show_in_legend is not UNSET:
+            field_dict["show_in_legend"] = show_in_legend
+
+        return field_dict
+
+    @classmethod
+    def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.arcgis_translated_layer_label_config_type_0 import (
+            ArcgisTranslatedLayerLabelConfigType0,
+        )
+        from ..models.arcgis_translated_layer_layout_type_0 import (
+            ArcgisTranslatedLayerLayoutType0,
+        )
+        from ..models.arcgis_translated_layer_paint_type_0 import (
+            ArcgisTranslatedLayerPaintType0,
+        )
+        from ..models.arcgis_translated_layer_style_config_type_0 import (
+            ArcgisTranslatedLayerStyleConfigType0,
+        )
+        from ..models.popup_config import PopupConfig
+
+        d = dict(src_dict)
+        dataset_id = UUID(d.pop("dataset_id"))
+
+        sort_order = d.pop("sort_order")
+
+        def _parse_id(data: object) -> None | Unset | UUID:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                id_type_0 = UUID(data)
+
+                return id_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | Unset | UUID, data)
+
+        id = _parse_id(d.pop("id", UNSET))
+
+        visible = d.pop("visible", UNSET)
+
+        opacity = d.pop("opacity", UNSET)
+
+        def _parse_paint(
+            data: object,
+        ) -> ArcgisTranslatedLayerPaintType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                paint_type_0 = ArcgisTranslatedLayerPaintType0.from_dict(data)
+
+                return paint_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ArcgisTranslatedLayerPaintType0 | None | Unset, data)
+
+        paint = _parse_paint(d.pop("paint", UNSET))
+
+        def _parse_layout(
+            data: object,
+        ) -> ArcgisTranslatedLayerLayoutType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                layout_type_0 = ArcgisTranslatedLayerLayoutType0.from_dict(data)
+
+                return layout_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ArcgisTranslatedLayerLayoutType0 | None | Unset, data)
+
+        layout = _parse_layout(d.pop("layout", UNSET))
+
+        def _parse_display_name(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        display_name = _parse_display_name(d.pop("display_name", UNSET))
+
+        def _parse_filter_(data: object) -> list[Any] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                filter_type_0 = cast(list[Any], data)
+
+                return filter_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[Any] | None | Unset, data)
+
+        filter_ = _parse_filter_(d.pop("filter", UNSET))
+
+        def _parse_label_config(
+            data: object,
+        ) -> ArcgisTranslatedLayerLabelConfigType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                label_config_type_0 = ArcgisTranslatedLayerLabelConfigType0.from_dict(
+                    data
+                )
+
+                return label_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ArcgisTranslatedLayerLabelConfigType0 | None | Unset, data)
+
+        label_config = _parse_label_config(d.pop("label_config", UNSET))
+
+        def _parse_popup_config(data: object) -> None | PopupConfig | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                popup_config_type_0 = PopupConfig.from_dict(data)
+
+                return popup_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(None | PopupConfig | Unset, data)
+
+        popup_config = _parse_popup_config(d.pop("popup_config", UNSET))
+
+        def _parse_style_config(
+            data: object,
+        ) -> ArcgisTranslatedLayerStyleConfigType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                style_config_type_0 = ArcgisTranslatedLayerStyleConfigType0.from_dict(
+                    data
+                )
+
+                return style_config_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ArcgisTranslatedLayerStyleConfigType0 | None | Unset, data)
+
+        style_config = _parse_style_config(d.pop("style_config", UNSET))
+
+        def _parse_layer_type(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        layer_type = _parse_layer_type(d.pop("layer_type", UNSET))
+
+        show_in_legend = d.pop("show_in_legend", UNSET)
+
+        arcgis_translated_layer = cls(
+            dataset_id=dataset_id,
+            sort_order=sort_order,
+            id=id,
+            visible=visible,
+            opacity=opacity,
+            paint=paint,
+            layout=layout,
+            display_name=display_name,
+            filter_=filter_,
+            label_config=label_config,
+            popup_config=popup_config,
+            style_config=style_config,
+            layer_type=layer_type,
+            show_in_legend=show_in_legend,
+        )
+
+        arcgis_translated_layer.additional_properties = d
+        return arcgis_translated_layer
+
+    @property
+    def additional_keys(self) -> list[str]:
+        return list(self.additional_properties.keys())
+
+    def __getitem__(self, key: str) -> Any:
+        return self.additional_properties[key]
+
+    def __setitem__(self, key: str, value: Any) -> None:
+        self.additional_properties[key] = value
+
+    def __delitem__(self, key: str) -> None:
+        del self.additional_properties[key]
+
+    def __contains__(self, key: str) -> bool:
+        return key in self.additional_properties

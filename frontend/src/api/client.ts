@@ -61,6 +61,12 @@ let inflightRefreshAbort: AbortController | null = null;
 // it an auth outage — or a shared egress IP over the endpoint's per-IP limit —
 // turns every 401'd surface in every tab into an unbounded refresh loop.
 export const TRANSIENT_COOLDOWN_MS = 30_000;
+// A rate-limited refresh is resent this many more times before the attempt
+// counts as transient. The refresh limit's Retry-After is its whole window, so
+// each wait is capped to keep a page load from stalling on it.
+const RATE_LIMIT_RETRIES = 2;
+const RATE_LIMIT_DEFAULT_WAIT_MS = 2_000;
+const RATE_LIMIT_MAX_WAIT_MS = 10_000;
 let transientUntil = 0;
 let transientToken: string | null = null;
 
@@ -176,16 +182,30 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
   inflightRefreshAbort = controller;
   let retryAfterMs: number | undefined;
 
+  const send = async () => {
+    for (let retries = 0; ; retries++) {
+      try {
+        return await refreshAccessToken(refreshToken, controller.signal);
+      } catch (err) {
+        if (!(err instanceof ApiError && err.status === 429) || retries >= RATE_LIMIT_RETRIES) throw err;
+        const wait = Math.min(err.retryAfterMs ?? RATE_LIMIT_DEFAULT_WAIT_MS, RATE_LIMIT_MAX_WAIT_MS);
+        await new Promise((r) => setTimeout(r, wait));
+        // A logout, a sign-in or a peer tab's rotation settles this attempt.
+        if (controller.signal.aborted || useAuthStore.getState().token !== token) throw err;
+      }
+    }
+  };
+
   // Report whether a NEW token actually got stored, not whether some token
   // (possibly the stale one being replaced) still sits in the store; otherwise
   // a failed refresh would retry the request with a dead token.
   //
   // `token`, from the destructure above, is captured before the attempt so a
   // failure below can tell "nothing changed" from "something else installed a
-  // token while this attempt waited", most easily during the 429 back-off.
+  // token while this attempt waited", most easily during a rate-limit wait.
   const promise = (async (): Promise<RefreshOutcome> => {
     try {
-      const tokens = await refreshAccessToken(refreshToken, controller.signal);
+      const tokens = await send();
       // The rotation landed, we just refuse to store it — the
       // credential is alive, so this is not session death.
       if (useAuthStore.getState().sessionEpoch !== epochAtStart) {
@@ -202,11 +222,7 @@ export async function attemptRefresh(): Promise<RefreshOutcome> {
       );
       return 'refreshed';
     } catch (err) {
-      // If rate-limited, wait before giving up so the next attempt isn't also blocked
-      if (err instanceof ApiError && err.status === 429) {
-        retryAfterMs = err.retryAfterMs;
-        await new Promise((r) => setTimeout(r, 2000));
-      }
+      if (err instanceof ApiError && err.status === 429) retryAfterMs = err.retryAfterMs;
       // Our own attempt failed, but a different token installed while we
       // waited means the session IS live. Reporting failure here would make
       // the caller treat that valid replacement as a terminal session death

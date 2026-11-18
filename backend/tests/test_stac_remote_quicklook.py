@@ -164,6 +164,16 @@ def test_bands_and_stretch_follow_the_probe() -> None:
     ]
 
 
+def test_a_palette_raster_is_drawn_without_a_stretch() -> None:
+    described = {
+        "band_count": 1,
+        "dtype": "uint16",
+        "band_info": [{"min": 1, "max": 3, "mean": 2, "color_interp": "palette"}],
+    }
+    assert remote_quicklook._render_query(described) == [("bidx", "1")]
+    assert remote_quicklook.stretch_is_known(described)
+
+
 class TestImport:
     async def test_an_imported_remote_cog_has_a_thumbnail_that_returns_a_png(
         self, client, admin_auth_header, monkeypatch
