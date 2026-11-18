@@ -272,6 +272,8 @@ class MigrationContext:
     shared_layers: Any = None
     portal_root: str = ""
     redact: Callable[[str], str] = str
+    # Notes on titles the current item's import kept as GeoLens holds them.
+    kept_titles: list[str] = field(default_factory=list)
     # The GeoLens operator's user id, whose writes a rerun recognises as its own.
     operator_id: str | None = None
     # An editor migrating their own content: items stay with the operator.

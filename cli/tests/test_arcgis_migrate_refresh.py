@@ -2621,6 +2621,85 @@ def test_a_pass_saved_before_titles_were_recorded_keeps_titles_when_the_sibling_
     assert service.fields[PARCELS]["title"] == "Parcels (public view) - Parcels"
 
 
+def _refresh_after_a_resume(runner, tmp_path, geolens, **edits):
+    plan_file, service = layers._fail_after_the_import(runner, tmp_path, geolens)
+    if edits:
+        layers._edit_in_geolens(service, **edits)
+    result, _ = layers._resume(runner, plan_file, service, geolens)
+    assert result.exit_code == 0, result.output
+    geolens.routes[layers.PROBE] = service.probe
+    return plan_file, service, FakeRefresh(geolens, service).allow(PARCELS)
+
+
+def test_a_title_kept_on_resume_stays_kept_on_every_later_refresh(
+    runner, tmp_path, geolens
+):
+    """The refresh takes the title the import set as this command's, not the operator's edit a resume kept."""
+    plan_file, service, refresh = _refresh_after_a_resume(
+        runner, tmp_path, geolens, title="Parcels, edited"
+    )
+    assert service.fields[PARCELS]["title"] == "Parcels, edited"
+
+    for run in (1, 2):
+        result, payload = _migrate(runner, plan_file, "--only", A2)
+
+        assert result.exit_code == 0, result.output
+        assert payload["refreshed"] == [A2]
+        assert len(refresh.bodies) == run
+        assert service.fields[PARCELS]["title"] == "Parcels, edited"
+
+
+def test_a_plan_title_edit_reaches_an_unedited_dataset_on_refresh_after_a_resume(
+    runner, tmp_path, geolens
+):
+    plan_file, service, refresh = _refresh_after_a_resume(runner, tmp_path, geolens)
+    layers._set_plan_title(plan_file, "Renamed")
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(refresh.bodies) == 1
+    assert service.fields[PARCELS]["title"] == "Renamed"
+
+
+def test_a_title_the_plan_came_to_match_stays_the_operators(runner, tmp_path, geolens):
+    """An edit the plan later matches isn't claimed as this command's, so a further plan change leaves it on a resume and on a refresh."""
+    plan_file, service = layers._fail_after_the_import(runner, tmp_path, geolens)
+    layers._edit_in_geolens(service, title="Edited")
+    layers._set_plan_title(plan_file, "Edited")
+    result, _ = layers._resume(runner, plan_file, service, geolens, fixed=False)
+    assert result.exit_code == 1
+    layers._set_plan_title(plan_file, "Renamed")
+
+    result, _ = layers._resume(runner, plan_file, service, geolens)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[PARCELS]["title"] == "Edited"
+    geolens.routes[layers.PROBE] = service.probe
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(refresh.bodies) == 1
+    assert service.fields[PARCELS]["title"] == "Edited"
+
+
+def test_a_decomposed_title_is_renamed_on_the_first_refresh(runner, plan_file, geolens):
+    """GeoLens keeps a committed title as sent, so a decomposed one reads unchanged against the NFC title this command recorded."""
+    layers._set_plan_title(plan_file, "Cafe\u0301")
+    service = _migrated(runner, plan_file, geolens)
+    assert service.fields[PARCELS]["title"] == "Cafe\u0301"
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+    layers._set_plan_title(plan_file, "Renamed")
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(refresh.bodies) == 1
+    assert service.fields[PARCELS]["title"] == "Renamed"
+
+
 def test_a_kept_refusal_keeps_its_note_when_a_twin_leaves_the_portal(
     runner, plan_file, geolens
 ):

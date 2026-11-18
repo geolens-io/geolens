@@ -228,6 +228,27 @@ def test_a_resumed_service_import_checks_the_title_before_its_patch(
     _assert_kept_out(geolens, plan_file)
 
 
+def test_a_title_record_holding_the_token_is_dropped_so_a_resume_keeps_the_edit(
+    runner, tmp_path, geolens
+):
+    """A masked record could match text this command never wrote; dropped, the resume keeps a title that differs from the plan's."""
+    plan_file, service = layers._fail_after_the_import(
+        runner, tmp_path, geolens, title=f"Old {TOKEN}"
+    )
+    layers._edit_in_geolens(service, title="Old [REDACTED]")
+    layers._set_plan_title(plan_file, "New title")
+    geolens.seen.clear()
+
+    result, _ = layers._resume(
+        runner, plan_file, service, geolens, args=(f"--token={TOKEN}",)
+    )
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[PARCELS]["title"] == "Old [REDACTED]"
+    assert _state(plan_file)["items"][A2]["title_baseline"] == {PARCELS: {}}
+    _assert_kept_out(geolens, plan_file)
+
+
 def test_a_refresh_probes_no_service_url_holding_the_token(runner, plan_file, geolens):
     service = refresh._migrated(runner, plan_file, geolens)
     refresh.FakeRefresh(geolens, service).allow(PARCELS)

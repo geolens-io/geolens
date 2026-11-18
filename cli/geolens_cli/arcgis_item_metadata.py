@@ -169,7 +169,10 @@ _DATASET_ATTRS = {"license": "license_"}
 
 def _current(dataset: Any, name: str) -> str:
     value = getattr(dataset, _DATASET_ATTRS.get(name, name), None)
-    return value if isinstance(value, str) else ""
+    if not isinstance(value, str):
+        return ""
+    # GeoLens keeps a committed title as sent and stores a written one NFC.
+    return unicodedata.normalize("NFC", value) if name == "title" else value
 
 
 def _decide(
@@ -272,6 +275,8 @@ def apply_item_metadata(
         for dataset_id in ids:
             current = ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset_id))
             base = entry.metadata_baseline.get(dataset_id)
+            if base and isinstance(base.get("title"), str):
+                base["title"] = unicodedata.normalize("NFC", base["title"])
             meta: dict[str, Any] = {}
             baseline = dict(base or {})
             # A field this command wrote that the portal has since emptied is

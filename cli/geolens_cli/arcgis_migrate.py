@@ -1200,9 +1200,11 @@ def _migrate_one(
 ) -> None:
     entry = state.start(item["id"])
     item, sharing_notes = _targeted(ctx, item, owner)
+    ctx.kept_titles.clear()
     try:
         result = handler(ctx, item, entry)
-        entry.notes = [state.clean(note) for note in [*result.notes, *sharing_notes]]
+        notes = [*result.notes, *ctx.kept_titles, *sharing_notes]
+        entry.notes = [state.clean(note) for note in dict.fromkeys(notes)]
         state.save()
         if owner is not None:
             # Datasets an earlier attempt handed over are no longer written.
