@@ -1,8 +1,9 @@
-import { apiFetch } from './client';
+import { ApiError, apiFetch } from './client';
 import type {
   VrtSourceListResponse,
   VrtStatusResponse,
   VrtGenerationListResponse,
+  VrtMutationResponse,
 } from '@/types/api';
 
 export async function listVrtSources(datasetId: string): Promise<VrtSourceListResponse> {
@@ -24,4 +25,17 @@ export async function getVrtGenerations(
   return apiFetch<VrtGenerationListResponse>(
     `/datasets/${encodeURIComponent(datasetId)}/vrt/generations/${query ? `?${query}` : ''}`,
   );
+}
+
+export async function regenerateVrt(datasetId: string): Promise<VrtMutationResponse> {
+  return apiFetch<VrtMutationResponse>(
+    `/datasets/${encodeURIComponent(datasetId)}/vrt/regenerate/`,
+    { method: 'POST' },
+  );
+}
+
+/** True for the 409 the route sends when another rebuild holds the VRT. */
+export function isDatasetBusy(err: unknown): boolean {
+  const body = err instanceof ApiError ? (err.body as { code?: unknown } | null | undefined) : null;
+  return err instanceof ApiError && err.status === 409 && body?.code === 'dataset_busy';
 }

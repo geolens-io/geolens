@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Added
+- The dataset page's Source tab has a Regenerate button on VRT mosaics and band stacks for owners and admins. It rebuilds the VRT and is disabled while a rebuild is running.
+
 ### Changed
 
 - The CLI installs with typer 0.25 through 0.29. A bare `--token` on

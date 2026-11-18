@@ -848,6 +848,7 @@ export type VrtSourceHealth = components['schemas']['VrtSourceHealth'];
 export type VrtStatusResponse = components['schemas']['VrtStatusResponse'];
 
 export type VrtGenerationListResponse = components['schemas']['VrtGenerationListResponse'];
+export type VrtMutationResponse = components['schemas']['VrtMutationResponse'];
 
 // STAC import types
 export type StacConnectResponse = components['schemas']['StacConnectResponse'];

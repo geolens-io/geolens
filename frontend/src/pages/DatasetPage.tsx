@@ -260,6 +260,7 @@ export function DatasetPage() {
     datasetId: id,
     recordType: dataset?.record_type,
     hasTileUrl: !!dataset?.raster?.tile_url,
+    tileUrl: dataset?.raster?.tile_url,
   });
 
   // A DEM whose extent is withheld still gets the mosaic bounds in its tile
