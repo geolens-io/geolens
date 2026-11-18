@@ -10880,7 +10880,7 @@ export type ProblemDetail = {
     /**
      * Action
      *
-     * The refused change, on a `dataset_in_shared_maps` 422: `unpublish` or `restrict_visibility`. Absent otherwise.
+     * The refused change, on a `dataset_in_shared_maps` 422: `unpublish`, `restrict_visibility` or `delete`. Absent otherwise.
      */
     action?: string;
     /**

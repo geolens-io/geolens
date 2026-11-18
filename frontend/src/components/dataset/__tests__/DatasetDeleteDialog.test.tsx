@@ -1,3 +1,4 @@
+import userEvent from '@testing-library/user-event';
 import { render, screen } from '@/test/test-utils';
 import type { DatasetResponse } from '@/types/api';
 import {
@@ -183,5 +184,47 @@ describe('DatasetDeleteDialog copy', () => {
     expect(
       screen.queryByText(/will not drop the postgresql table/i),
     ).not.toBeInTheDocument();
+  });
+});
+
+describe('DatasetDeleteDialog refusal', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('names the shared maps that refuse the delete', async () => {
+    vi.stubGlobal(
+      'fetch',
+      vi.fn().mockResolvedValue({
+        ok: false,
+        status: 422,
+        statusText: 'Unprocessable Content',
+        headers: new Headers(),
+        json: () =>
+          Promise.resolve({
+            type: 'about:blank',
+            title: 'Validation Error',
+            status: 422,
+            detail: 'This dataset cannot be deleted right now.',
+            code: 'dataset_in_shared_maps',
+            action: 'delete',
+            shared_maps: [
+              { id: '00000000-0000-0000-0000-0000000000b1', name: 'Flood Risk' },
+              { id: '00000000-0000-0000-0000-0000000000b2', name: 'Parcels 2026' },
+            ],
+          }),
+      }),
+    );
+    const user = userEvent.setup();
+    render(<DatasetDeleteDialog dataset={makeDataset()} open onOpenChange={() => {}} />);
+
+    await user.type(screen.getByRole('textbox'), 'Parcels');
+    await user.click(screen.getByRole('button', { name: /delete dataset/i }));
+
+    expect(
+      await screen.findByText(
+        /would lose it if it were deleted: Flood Risk, Parcels 2026\./,
+      ),
+    ).toBeInTheDocument();
   });
 });

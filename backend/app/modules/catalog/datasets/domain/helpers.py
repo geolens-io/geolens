@@ -391,10 +391,10 @@ class WorkflowTransitionDenied(ValueError):
 
 
 class DatasetInSharedMapsError(ValueError):
-    """A visibility narrowing refused because the owner's shared maps show it.
+    """A narrowing or delete refused because the owner's shared maps show it.
 
     ``str(exc)`` is the sentence clients already show, ``action`` names the
-    refused change (``unpublish`` or ``restrict_visibility``) and
+    refused change (``unpublish``, ``restrict_visibility`` or ``delete``) and
     ``shared_maps`` carries the blocking maps as ``{"id", "name"}`` pairs, so
     no reader has to split them back out of the sentence. The API answers
     422 with the sentence as ``detail`` and ``code``, ``action`` and
@@ -406,6 +406,7 @@ class DatasetInSharedMapsError(ValueError):
     _ACTION_WORDS = {
         "unpublish": "unpublish",
         "restrict_visibility": "restrict visibility",
+        "delete": "delete",
     }
 
     def __init__(self, *, action: str, shared_maps: list[dict[str, str]]) -> None:

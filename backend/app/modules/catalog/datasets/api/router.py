@@ -709,7 +709,10 @@ async def bulk_delete_datasets_endpoint(
                     )
                 )
                 continue
-            if isinstance(exc, (DependentVrtError, DatasetTitleMismatchError)):
+            code = None
+            if isinstance(exc, DatasetInSharedMapsError):
+                detail, code = str(exc), exc.code
+            elif isinstance(exc, (DependentVrtError, DatasetTitleMismatchError)):
                 detail = str(exc)
             else:
                 logger.exception(
@@ -722,6 +725,7 @@ async def bulk_delete_datasets_endpoint(
                     dataset_id=item.dataset_id,
                     status="error",
                     detail=detail,
+                    code=code,
                 )
             )
 
@@ -747,7 +751,11 @@ async def delete_dataset_endpoint(
     user: Identity = Depends(require_permission("edit_metadata")),
     db: AsyncSession = Depends(get_db),
 ) -> Response:
-    """Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title."""
+    """Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
+
+    Refused with a 422 `dataset_in_shared_maps` (action `delete`) while one of
+    the owner's shared maps shows it to an audience that would lose it.
+    """
     # Owner-or-admin: destructive op restricted to the dataset's creator or admin.
     dataset = await get_dataset(db, dataset_id)
     if dataset is None:
@@ -778,6 +786,9 @@ async def delete_dataset_endpoint(
             status_code=exc.status_code,
             detail={"code": exc.code, "message": exc.message},
         )
+    except DatasetInSharedMapsError:
+        # The app handler answers it with code, action and shared_maps.
+        raise
     except ValueError as exc:
         if str(exc) == "Dataset not found":
             raise HTTPException(

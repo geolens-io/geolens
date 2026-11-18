@@ -2044,6 +2044,9 @@ export interface paths {
         /**
          * Delete a dataset
          * @description Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
+         *
+         *     Refused with a 422 `dataset_in_shared_maps` (action `delete`) while one of
+         *     the owner's shared maps shows it to an audience that would lose it.
          */
         delete: operations["delete_dataset_endpoint_datasets__dataset_id__delete"];
         options?: never;
@@ -14896,7 +14899,7 @@ export interface components {
             code?: string;
             /**
              * Action
-             * @description The refused change, on a `dataset_in_shared_maps` 422: `unpublish` or `restrict_visibility`. Absent otherwise.
+             * @description The refused change, on a `dataset_in_shared_maps` 422: `unpublish`, `restrict_visibility` or `delete`. Absent otherwise.
              */
             action?: string;
             /**

@@ -159,14 +159,16 @@ test.describe('Accessibility - WCAG 2AA', () => {
         /* teardown is best-effort; the CI stack is torn down anyway */
       });
     }
+    // The public map goes first: its owner can't delete a dataset it shares.
+    if (builderMapId) {
+      await fetch(`${BASE_URL}/api/maps/${builderMapId}`, {
+        method: 'DELETE',
+        headers: {
+          Authorization: `Bearer ${getAuthToken()}`,
+        },
+      });
+    }
     if (datasetId) await deleteDataset(datasetId, datasetTitle);
-    if (!builderMapId) return;
-    await fetch(`${BASE_URL}/api/maps/${builderMapId}`, {
-      method: 'DELETE',
-      headers: {
-        Authorization: `Bearer ${getAuthToken()}`,
-      },
-    });
   });
 
   // Every gating axe scan below runs in both color schemes.
