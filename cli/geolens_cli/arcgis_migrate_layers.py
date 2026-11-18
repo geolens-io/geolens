@@ -13,6 +13,7 @@ requests: it resumes from the state file's recorded pass.
 
 from __future__ import annotations
 
+import unicodedata
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import unquote, urlsplit
@@ -396,7 +397,9 @@ def _import_layer(
     entry.layer_jobs[key] = str(previewed.job_id)
     ctx.save()
     _commit(ctx, row, probe, previewed.job_id, title_visibility)
-    entry.layer_datasets[key] = _wait_for_dataset(ctx, previewed.job_id, title)
+    dataset = _wait_for_dataset(ctx, previewed.job_id, title)
+    _record_title(entry, dataset, title)
+    entry.layer_datasets[key] = dataset
     del entry.layer_jobs[key]
     return False
 
@@ -583,6 +586,17 @@ def _item_link(ctx: MigrationContext, item_id: str) -> dict[str, str]:
     return {"item_id": item_id, "portal_url": ctx.portal_root}
 
 
+def _record_title(entry: ItemState, dataset: str, title: str) -> None:
+    """Record *title* as the one this command gave *dataset*; a reused
+    dataset's title is left to ``_apply_target`` as before."""
+    if dataset not in entry.reused:
+        entry.title_baseline[dataset] = {"title": _nfc(title)}
+
+
+def _nfc(text: str) -> str:
+    return unicodedata.normalize("NFC", text)
+
+
 def _apply_target(
     ctx: MigrationContext, entry: ItemState, dataset: str, target: Any
 ) -> None:
@@ -593,6 +607,10 @@ def _apply_target(
     One this command imported is refused when somebody else wrote it last, so
     this write doesn't make their edit the operator's. A reused dataset
     predates the migration, and its owner's edits are taken as they are.
+
+    Otherwise the plan's title is written only over the one
+    ``entry.title_baseline`` records: any other title was set in GeoLens,
+    whoever by, and is kept, and noted when it differs from the plan's.
     """
     if dataset in entry.last_update or not writable(ctx, entry, [dataset]):
         return
@@ -604,18 +622,31 @@ def _apply_target(
 
     try:
         read = ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset))
-        if dataset not in entry.reused and not operator_or_nobody_wrote_last(ctx, read):
+        reused = dataset in entry.reused
+        if not reused and not operator_or_nobody_wrote_last(ctx, read):
             raise changed_before_handover(dataset)
+        held = _nfc(read.title)
+        ours = reused or held == entry.title_baseline.get(dataset, {}).get("title")
         ctx.geolens.write(
             patch_dataset.sync_detailed,
             during=f"the plan's title and visibility were written to dataset {dataset}",
             dataset_id=UUID(dataset),
             body=DatasetMeta(
-                title=target.title,
+                **({"title": target.title} if ours else {}),
                 visibility=target.visibility,
                 expected_updated_at=read.updated_at,
             ),
         )
+        if ours:
+            _record_title(entry, dataset, target.title)
+        elif held != _nfc(target.title):
+            entry.title_baseline.setdefault(dataset, {})
+            note = f"kept the title dataset {dataset} has in GeoLens, not the plan's"
+            ctx.kept_titles.append(note)
+            # Saved with the item even when a later step fails.
+            if note not in entry.notes:
+                entry.notes.append(note)
+        ctx.save()
     except GeoLensError as exc:
         maps = _shared_map_names(exc.detail) if exc.status == 422 else None
         if maps is not None:

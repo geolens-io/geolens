@@ -193,6 +193,10 @@ class ItemState:
     # summary, attribution, license, source_organization, keywords), so a rerun
     # can tell a field it wrote from one someone edited in GeoLens.
     metadata_baseline: dict[str, dict[str, Any]] = field(default_factory=dict)
+    # Dataset -> {"title": the title, NFC, its import or this command's last
+    # write of the plan's title gave it}; {} when that isn't known, so a rerun
+    # keeps a title that differs from the plan's. Recorded as each is confirmed.
+    title_baseline: dict[str, dict[str, str]] = field(default_factory=dict)
     # Dataset -> its GeoLens updated_at, feature count and data revision when
     # this command last left it, so a rerun can tell a change made since.
     last_update: dict[str, dict[str, Any]] = field(default_factory=dict)
@@ -355,6 +359,7 @@ class _Masker:
             return self.text(value)
         if isinstance(value, ItemState):
             self.forget_baselines(value.metadata_baseline)
+            self.forget_baselines(value.title_baseline)
             for f in fields(ItemState):
                 inner = (*path, f.name)
                 setattr(value, f.name, self(getattr(value, f.name), inner))
