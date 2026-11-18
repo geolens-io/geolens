@@ -53,6 +53,9 @@ RESTRICTED_NEEDS_GROUPS = "Share the map with a group before making it restricte
 
 _DATASET_BUSY = "A dataset on this map is being changed. Retry shortly."
 
+# Each visibility reaches every reader of the ones ranked below it.
+_MAP_REACH = {"private": 0, RESTRICTED_MAP_VISIBILITY: 1, "internal": 2, "public": 3}
+
 
 class RestrictedWithoutGroupsError(ValueError):
     """A write asked for ``restricted`` on a map shared with no group."""
@@ -166,7 +169,7 @@ async def prepare_map_visibility(
             visibility = RESTRICTED_MAP_VISIBILITY
         elif requested == RESTRICTED_MAP_VISIBILITY:
             raise RestrictedWithoutGroupsError(RESTRICTED_NEEDS_GROUPS)
-    if visibility not in (current, "private"):
+    if _MAP_REACH[visibility] > _MAP_REACH.get(str(current), 0):
         await lock_layer_datasets(session, map_id)
     await _retire_links(session, map_id, str(current), visibility)
     return visibility

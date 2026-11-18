@@ -244,6 +244,9 @@ async def transfer_map_owner(
     previous = await _locked_owner(db, map_obj)
     if previous == owner_id:
         return
+    # The row lock holds terrain edits off, so the check and the dataset lock
+    # both see this value rather than the one loaded before it.
+    await db.refresh(map_obj, ["terrain_config"])
     await lock_layer_datasets(db, map_obj.id, with_terrain=True)
     new_owner = await _vet_new_owner(db, owner_id, EDIT_METADATA)
     await _refuse_hidden_datasets(db, map_obj.id, new_owner)

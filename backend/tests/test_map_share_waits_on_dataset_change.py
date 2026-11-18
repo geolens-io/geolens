@@ -10,6 +10,7 @@ the rows first and the change sees the shared map.
 from __future__ import annotations
 
 import asyncio
+import time
 import uuid
 
 import pytest
@@ -17,6 +18,7 @@ import sqlalchemy as sa
 from httpx import AsyncClient
 
 import app.core.db as db_module
+import app.modules.catalog.ownership as ownership
 import app.modules.catalog.maps.service_groups as service_groups
 from app.modules.catalog.datasets.domain import service as dataset_service
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -32,7 +34,6 @@ from tests.test_dataset_delete_shared_maps import (
 from tests.test_dataset_group_grants import _new_group
 from tests.test_dataset_narrowing_shared_maps import _map_using
 from tests.test_embed_tokens import _cleanup_data_table
-from tests.test_map_group_sharing import _blocked_or_done
 
 pytestmark = pytest.mark.usefixtures("_init_tile_pool_for_tests")
 
@@ -51,6 +52,45 @@ async def _stored(session, map_id) -> tuple[str, uuid.UUID, int]:
         .where(MapLayer.map_id == map_id)
     )
     return visibility, owner, layers
+
+
+async def _until_blocked(holder, task: asyncio.Task) -> None:
+    """Return once ``task`` waits on a lock ``holder`` holds; fail if it
+    finishes first or never waits."""
+    deadline = time.monotonic() + 30
+    while time.monotonic() < deadline:
+        if task.done():
+            pytest.fail("the request finished without waiting on the held rows")
+        # The activity view is snapshotted once per transaction.
+        await holder.execute(sa.text("SELECT pg_stat_clear_snapshot()"))
+        if await holder.scalar(
+            sa.text(
+                "SELECT count(*) FROM pg_stat_activity"
+                " WHERE pg_backend_pid() = ANY(pg_blocking_pids(pid))"
+            )
+        ):
+            return
+        await asyncio.sleep(0.05)
+    pytest.fail("the request never waited on the held rows")
+
+
+async def _drain(tasks: list[asyncio.Task]) -> None:
+    """Let started requests finish, cancelling any that outlast the wait, so
+    a failed test leaves none running against its fixtures."""
+    pending = [task for task in tasks if not task.done()]
+    if pending:
+        _, late = await asyncio.wait(pending, timeout=10)
+        for task in late:
+            task.cancel()
+    await asyncio.gather(*tasks, return_exceptions=True)
+
+
+@pytest.fixture
+async def children():
+    """Requests a test starts beside its own, drained at teardown."""
+    tasks: list[asyncio.Task] = []
+    yield tasks
+    await _drain(tasks)
 
 
 async def _hold_dataset_change(holder, dataset, change: str) -> None:
@@ -139,7 +179,7 @@ _REFUSED = {
 @pytest.mark.parametrize("write", list(_REFUSED))
 @pytest.mark.parametrize("change", ["narrowed", "deleted"])
 async def test_a_map_write_waits_for_the_dataset_change_and_sees_it(
-    client: AsyncClient, setup, test_db_session, write: str, change: str
+    client: AsyncClient, setup, test_db_session, children, write: str, change: str
 ):
     map_id, owner_id = setup["map"].id, setup["map"].created_by
     if write == "public":
@@ -147,9 +187,8 @@ async def test_a_map_write_waits_for_the_dataset_change_and_sees_it(
     async with db_module.async_session() as holder:
         await _hold_dataset_change(holder, setup["dataset"], change)
         widening = asyncio.create_task(_widen(client, setup, write))
-        await _blocked_or_done(holder, widening)
-
-        assert not widening.done(), "the map write did not wait for the dataset"
+        children.append(widening)
+        await _until_blocked(holder, widening)
         await holder.commit()
         resp = await widening
 
@@ -165,20 +204,18 @@ async def test_a_map_write_waits_for_the_dataset_change_and_sees_it(
         assert await _stored(test_db_session, map_id) == ("private", owner_id, 1)
 
 
-def _hook_the_dataset_lock(monkeypatch, change):
+def _hook_the_dataset_lock(monkeypatch, change, started: list[asyncio.Task]):
     """Once the map write holds its layers' datasets, start ``change`` and
     let the map write go on only when ``change`` waits on it."""
     real = service_groups.lock_layer_datasets
-    started: list[asyncio.Task] = []
 
     async def locking(session, map_id):
         await real(session, map_id)
         if not started:
             started.append(asyncio.create_task(change()))
-            await _blocked_or_done(session, started[0])
+            await _until_blocked(session, started[0])
 
     monkeypatch.setattr(service_groups, "lock_layer_datasets", locking)
-    return started
 
 
 @pytest.mark.parametrize("change", ["delete", "restrict"])
@@ -187,6 +224,7 @@ async def test_a_dataset_change_behind_a_map_write_sees_the_shared_map(
     admin_auth_header: dict,
     test_db_session,
     monkeypatch,
+    children,
     change: str,
 ):
     owner, owner_id = await create_user(client, admin_auth_header, "editor")
@@ -203,13 +241,13 @@ async def test_a_dataset_change_behind_a_map_write_sees_the_shared_map(
             headers=owner,
         )
 
-    started = _hook_the_dataset_lock(monkeypatch, change_dataset)
+    _hook_the_dataset_lock(monkeypatch, change_dataset, children)
     try:
         shared = await client.put(
             f"/maps/{map_obj.id}", json={"visibility": "public"}, headers=owner
         )
         assert shared.status_code == 200, shared.text
-        refused = await started[0]
+        refused = await children[0]
 
         assert refused.status_code == 422, refused.text
         assert refused.json()["shared_maps"] == [expected]
@@ -219,22 +257,23 @@ async def test_a_dataset_change_behind_a_map_write_sees_the_shared_map(
             1,
         )
     finally:
+        await _drain(children)
         await _cleanup_data_table(test_db_session, table)
 
 
 async def test_a_map_write_that_widens_nothing_takes_no_dataset_lock(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
-    """Saving a map's visibility unchanged, or making it private, goes on
-    while its dataset is being changed."""
+    """Narrowing a public map to internal, saving its visibility unchanged or
+    making it private goes on while its dataset is being changed."""
     owner, owner_id = await create_user(client, admin_auth_header, "editor")
     dataset = await create_dataset(
         test_db_session, created_by=uuid.UUID(str(owner_id)), visibility="internal"
     )
-    map_obj = await _map_using(test_db_session, dataset.id, owner_id, "internal")
+    map_obj = await _map_using(test_db_session, dataset.id, owner_id, "public")
     async with db_module.async_session() as holder:
         await _hold_dataset_change(holder, dataset, "narrowed")
-        for visibility in ("internal", "private"):
+        for visibility in ("internal", "internal", "private"):
             resp = await client.put(
                 f"/maps/{map_obj.id}", json={"visibility": visibility}, headers=owner
             )
@@ -250,6 +289,7 @@ async def test_an_unpublish_behind_a_map_going_public_sees_it(
     admin_auth_header: dict,
     test_db_session,
     monkeypatch,
+    children,
     path: str,
     target: str,
 ):
@@ -268,12 +308,12 @@ async def test_an_unpublish_behind_a_map_going_public_sees_it(
             f"/datasets/{dataset_id}/{path}/", json={"status": target}, headers=owner
         )
 
-    started = _hook_the_dataset_lock(monkeypatch, unpublish)
+    _hook_the_dataset_lock(monkeypatch, unpublish, children)
     shared = await client.put(
         f"/maps/{map_obj.id}", json={"visibility": "public"}, headers=owner
     )
     assert shared.status_code == 200, shared.text
-    refused = await started[0]
+    refused = await children[0]
 
     assert refused.status_code == 422, refused.text
     assert refused.json()["action"] == "unpublish"
@@ -320,6 +360,7 @@ async def test_an_embed_token_mint_waits_for_a_delete_and_leaves_its_dataset_out
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
+    children,
     prior: str | None,
 ):
     owner, owner_id = await create_user(client, admin_auth_header, "editor")
@@ -351,9 +392,8 @@ async def test_an_embed_token_mint_waits_for_a_delete_and_leaves_its_dataset_out
     async with db_module.async_session() as holder:
         await _hold_dataset_change(holder, deleted, "deleted")
         minting = asyncio.create_task(client.post(mint_url, json={}, headers=owner))
-        await _blocked_or_done(holder, minting)
-
-        assert not minting.done(), "the mint did not wait for the dataset"
+        children.append(minting)
+        await _until_blocked(holder, minting)
         await holder.commit()
         minted = await minting
 
@@ -369,6 +409,7 @@ async def test_an_unpublish_behind_a_dataset_share_judges_the_shared_dataset(
     admin_auth_header: dict,
     test_db_session,
     monkeypatch,
+    children,
     path: str,
     target: str,
 ):
@@ -383,7 +424,6 @@ async def test_an_unpublish_behind_a_dataset_share_judges_the_shared_dataset(
     map_obj = await _map_using(test_db_session, dataset.id, owner_id, "private")
     dataset_id, expected = dataset.id, {"id": str(map_obj.id), "name": map_obj.name}
     real = dataset_service.set_dataset_groups
-    started: list[asyncio.Task] = []
 
     async def unpublish():
         return await client.patch(
@@ -392,8 +432,8 @@ async def test_an_unpublish_behind_a_dataset_share_judges_the_shared_dataset(
 
     async def sharing(session, dataset, *args, **kwargs):
         result = await real(session, dataset, *args, **kwargs)
-        started.append(asyncio.create_task(unpublish()))
-        await _blocked_or_done(session, started[0])
+        children.append(asyncio.create_task(unpublish()))
+        await _until_blocked(session, children[0])
         return result
 
     monkeypatch.setattr(dataset_service, "set_dataset_groups", sharing)
@@ -404,14 +444,14 @@ async def test_an_unpublish_behind_a_dataset_share_judges_the_shared_dataset(
     )
     assert shared.status_code == 200, shared.text
     assert shared.json()["shared_dataset_ids"] == [str(dataset_id)]
-    refused = await started[0]
+    refused = await children[0]
 
     assert refused.status_code == 422, refused.text
     assert refused.json()["shared_maps"] == [expected]
 
 
 async def test_a_transfer_waits_for_a_change_to_its_terrain_source(
-    client: AsyncClient, admin_auth_header: dict, test_db_session
+    client: AsyncClient, admin_auth_header: dict, test_db_session, children
 ):
     """A DEM bound only as terrain is read by the transfer's check, so the
     transfer waits for it too."""
@@ -442,9 +482,8 @@ async def test_a_transfer_waits_for_a_change_to_its_terrain_source(
                 headers=admin_auth_header,
             )
         )
-        await _blocked_or_done(holder, transfer)
-
-        assert not transfer.done(), "the transfer did not wait for the DEM"
+        children.append(transfer)
+        await _until_blocked(holder, transfer)
         await holder.commit()
         resp = await transfer
 
@@ -457,6 +496,7 @@ async def test_a_delete_behind_an_embed_token_mint_sees_the_token(
     admin_auth_header: dict,
     test_db_session,
     monkeypatch,
+    children,
 ):
     """A delete that waited on a mint holding the map's datasets is refused
     by the token the mint committed."""
@@ -465,11 +505,10 @@ async def test_a_delete_behind_an_embed_token_mint_sees_the_token(
     map_obj = await _map_using(test_db_session, dataset.id, owner_id, "private")
     table, expected = dataset.table_name, {"id": str(map_obj.id), "name": map_obj.name}
     real = embed_router.create_embed_token
-    started: list[asyncio.Task] = []
 
     async def minting(session, *args, **kwargs):
-        started.append(asyncio.create_task(_delete(client, dataset, owner)))
-        await _blocked_or_done(session, started[0])
+        children.append(asyncio.create_task(_delete(client, dataset, owner)))
+        await _until_blocked(session, children[0])
         return await real(session, *args, **kwargs)
 
     monkeypatch.setattr(embed_router, "create_embed_token", minting)
@@ -478,11 +517,54 @@ async def test_a_delete_behind_an_embed_token_mint_sees_the_token(
             f"/maps/{map_obj.id}/embed-tokens/", json={}, headers=owner
         )
         assert minted.status_code == 201, minted.text
-        refused = await started[0]
+        refused = await children[0]
 
         assert refused.status_code == 422, refused.text
         assert refused.json()["code"] == "dataset_in_shared_maps"
         assert refused.json()["shared_maps"] == [expected]
         assert await _still_there(test_db_session, dataset) == (True, 1, True)
     finally:
+        await _drain(children)
         await _cleanup_data_table(test_db_session, table)
+
+
+async def test_a_transfer_checks_the_terrain_source_committed_before_its_lock(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """A terrain edit that commits after the transfer loaded the map but
+    before it locked the row is what the new-owner check reads."""
+    _, owner_id = await create_user(client, admin_auth_header, "editor")
+    _, heir_id = await create_user(client, admin_auth_header, "editor")
+    dem = await create_dataset(
+        test_db_session,
+        created_by=uuid.UUID(str(owner_id)),
+        visibility="private",
+        record_type="raster_dataset",
+    )
+    map_obj = Map(
+        name=f"Map {uuid.uuid4().hex[:6]}",
+        visibility="private",
+        created_by=uuid.UUID(str(owner_id)),
+    )
+    test_db_session.add(map_obj)
+    await test_db_session.commit()
+    map_id, dem_id = map_obj.id, dem.id
+    real = ownership.lock_map_layers
+
+    async def bind_terrain_first(session, locked_map_id):
+        async with db_module.async_session() as other:
+            await other.execute(
+                sa.update(Map)
+                .where(Map.id == locked_map_id)
+                .values(terrain_config={"source_dataset_id": str(dem_id)})
+            )
+            await other.commit()
+        await real(session, locked_map_id)
+
+    monkeypatch.setattr(ownership, "lock_map_layers", bind_terrain_first)
+    resp = await client.patch(
+        f"/maps/{map_id}", json={"owner_id": str(heir_id)}, headers=admin_auth_header
+    )
+
+    assert resp.status_code == 422, resp.text
+    assert str(dem_id) in resp.text
