@@ -131,13 +131,15 @@ async def _refuse_stranding_shared_maps(session: AsyncSession, dataset: Any) -> 
     A delete strands the maps that making the dataset private would: private
     keeps only the owner and admins, and the owner's own view of their map is
     not the audience the map is shared with. Other users' maps aren't asked;
-    their layers go with the cascade.
+    their layers go with the cascade. Call it with the dataset's rows locked.
     """
     from app.modules.catalog.maps.service import (
         find_maps_broken_by_dataset_visibility,
     )
 
     record = dataset.record
+    # Loaded before the lock: judge the row as committed.
+    await session.refresh(record, ["visibility", "record_status", "created_by"])
     broken_maps = await find_maps_broken_by_dataset_visibility(
         session,
         dataset.id,

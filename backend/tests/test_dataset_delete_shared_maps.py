@@ -13,7 +13,7 @@ from httpx import AsyncClient
 
 import app.core.db as db_module
 import app.modules.catalog.features.service as features_service
-from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.processing.raster.models import VrtGeneration
 from tests.factories import create_dataset, create_user, get_user_id
@@ -356,5 +356,69 @@ async def test_a_layer_added_while_the_delete_holds_its_lock_waits(
             assert resp.status_code == 204, resp.text
         assert blocked == [True]
         assert await _still_there(test_db_session, dataset) == (False, 0, False)
+    finally:
+        await _cleanup_data_table(test_db_session, dataset.table_name)
+
+
+@pytest.mark.parametrize("bulk", [False, True])
+@pytest.mark.parametrize("change", ["made_public", "published", "transferred"])
+async def test_a_record_change_committed_before_the_lock_is_judged(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    change,
+    bulk,
+):
+    """The refusal reads the record as committed once the rows are locked,
+    not as the request loaded it."""
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    _, map_owner_id = await create_user(client, admin_auth_header, "editor")
+    if change == "transferred":
+        # The admin deletes a dataset whose ownership moves to the map's owner.
+        dataset = await _vector_dataset(test_db_session, owner_id)
+        headers, map_owner = admin_auth_header, map_owner_id
+        values = {"created_by": uuid.UUID(str(map_owner_id))}
+    else:
+        dataset = await _vector_dataset(
+            test_db_session,
+            owner_id,
+            visibility="private" if change == "made_public" else "public",
+        )
+        if change == "published":
+            await test_db_session.execute(
+                sa.update(Record)
+                .where(Record.id == dataset.record_id)
+                .values(record_status="draft")
+            )
+            await test_db_session.commit()
+        headers, map_owner = owner_headers, owner_id
+        values = (
+            {"visibility": "public"}
+            if change == "made_public"
+            else {"record_status": "published"}
+        )
+    own_map = await _map_using(test_db_session, dataset.id, map_owner)
+
+    async def commit_change(dataset_id):
+        async with db_module.async_session() as other:
+            await other.execute(
+                sa.update(Record).where(Record.id == dataset.record_id).values(**values)
+            )
+            await other.commit()
+
+    _hook_the_catalog_lock(monkeypatch, before=commit_change)
+    try:
+        if bulk:
+            resp = await _bulk_delete(client, dataset, headers)
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["results"][0]["code"] == "dataset_in_shared_maps"
+        else:
+            resp = await _delete(client, dataset, headers)
+            assert resp.status_code == 422, resp.text
+            assert resp.json()["shared_maps"] == [
+                {"id": str(own_map.id), "name": own_map.name}
+            ]
+        assert await _still_there(test_db_session, dataset) == (True, 1, True)
     finally:
         await _cleanup_data_table(test_db_session, dataset.table_name)
