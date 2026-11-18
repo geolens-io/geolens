@@ -15,6 +15,7 @@ import {
   DEFAULT_HEATMAP_PAINT,
   DEFAULT_HILLSHADE_PAINT,
 } from './layer-adapters/builder-defaults';
+import type { Translator } from '@/i18n/translator';
 
 export type RenderAsId =
   | 'point'
@@ -58,9 +59,9 @@ interface RendererCapabilityDefinition extends Omit<RendererCapability, 'label'>
   labelKey: string;
 }
 
-type BuilderTranslator = (key: string, options?: Record<string, unknown>) => string;
+type BuilderTranslator = Translator;
 
-const defaultBuilderTranslator: BuilderTranslator = (key, options) =>
+const defaultBuilderTranslator: BuilderTranslator = (key: string, options?: Record<string, unknown>) =>
   i18n.t(key, { ns: 'builder', ...options }) as string;
 
 export type RenderAsAdapterType = 'circle' | 'symbol' | 'heatmap' | 'line' | 'fill' | 'raster' | 'hillshade';

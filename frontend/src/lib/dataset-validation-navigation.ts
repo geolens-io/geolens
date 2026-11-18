@@ -1,3 +1,5 @@
+import type { Translator } from '@/i18n/translator';
+
 type DatasetTabValue =
   | 'overview'
   | 'metadata'
@@ -169,7 +171,7 @@ function titleCaseField(field: string): string {
 /** Localized label for a validation issue's field key; unknown keys fall back to a title-cased form. */
 export function getValidationFieldLabel(
   field: string,
-  t: (key: string, opts?: Record<string, unknown>) => string,
+  t: Translator,
 ): string {
   const normalized = normalizeField(field);
   if (!normalized) return t('validation.fields.metadata', { defaultValue: 'Metadata' });

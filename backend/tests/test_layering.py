@@ -1397,7 +1397,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup; regeneration's claim, build and store phases are functions here.
-    "backend/app/processing/ingest/tasks_vrt.py": 1960,
+    "backend/app/processing/ingest/tasks_vrt.py": 1992,
     # Raster replacement owns conversion, read-back and published-object cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases

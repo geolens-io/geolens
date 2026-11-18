@@ -914,7 +914,6 @@
   },
   "toasts": {
     "mapSaved": "地图已保存",
-    "mapSavedFullResync": "地图已保存，但执行了一次完整的重新同步。请仔细检查图层样式。",
     "mapSavedAfterRemoteChange": "已保存。部分图层已在其他会话中更改，因此这些编辑被跳过。",
     "saveConflictReload": "此地图已在其他会话中更改。请重新加载地图以获取最新版本，然后再次保存。",
     "saveFailed": "保存地图失败",

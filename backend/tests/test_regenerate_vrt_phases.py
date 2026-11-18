@@ -13,13 +13,14 @@ from app.processing.ingest import tasks_vrt
 _SNAPSHOT_AT = datetime(2026, 1, 1, tzinfo=timezone.utc)
 
 
-def _claim(source_ids, *, vrt_type=None, resolution_strategy=None):
+def _claim(source_ids, *, vrt_type=None, resolution_strategy=None, is_dem=False):
     row = SimpleNamespace(
         asset_uri="rasters/v/source.vrt",
         quicklook_256_uri="rasters/v/q256.png",
         quicklook_512_uri=None,
         vrt_type=vrt_type,
         resolution_strategy=resolution_strategy,
+        is_dem=is_dem,
     )
     return tasks_vrt._ClaimedRegeneration(
         vrt_asset_row=row,
@@ -61,6 +62,91 @@ def test_plan_carries_the_served_keys_and_build_defaults(monkeypatch):
     )
     assert (plan.vrt_type, plan.resolution_strategy) == ("mosaic", "finest")
     assert plan.vrt_owner_id == "owner"
+
+
+def test_plan_derives_dem_from_current_members(monkeypatch):
+    """A regeneration rebuilds a DEM mosaic with bilinear when its current
+    members are all DEMs, whatever the stored flag says."""
+    member = uuid.uuid4()
+    assets = [
+        SimpleNamespace(dataset_id=member, asset_uri="rasters/a/cog.tif", is_dem=True)
+    ]
+    monkeypatch.setattr(
+        tasks_vrt,
+        "resolve_vrt_source_path",
+        lambda uri, tenant_id: f"/vsi/{uri}",
+    )
+    plan = tasks_vrt._plan_from_snapshot(
+        _claim([member], is_dem=True),
+        _SNAPSHOT_AT,
+        assets,
+        vrt_dataset_id="vrt-1",
+    )
+    assert plan.is_dem is True
+
+
+def test_plan_picks_up_bilinear_for_a_pre_fix_dem_mosaic(monkeypatch):
+    """A mosaic built before the fix stores no DEM flag, but a rebuild
+    still gets bilinear when every current member is a DEM."""
+    member = uuid.uuid4()
+    assets = [
+        SimpleNamespace(dataset_id=member, asset_uri="rasters/a/cog.tif", is_dem=True)
+    ]
+    monkeypatch.setattr(
+        tasks_vrt,
+        "resolve_vrt_source_path",
+        lambda uri, tenant_id: f"/vsi/{uri}",
+    )
+    plan = tasks_vrt._plan_from_snapshot(
+        _claim([member]),
+        _SNAPSHOT_AT,
+        assets,
+        vrt_dataset_id="vrt-1",
+    )
+    assert plan.is_dem is True
+
+
+def test_plan_keeps_nearest_when_a_member_is_not_dem(monkeypatch):
+    """A stored DEM flag does not survive a rebuild once a non-DEM member
+    joins the mosaic, so the mixed mosaic keeps nearest."""
+    dem_member, other_member = uuid.uuid4(), uuid.uuid4()
+    assets = [
+        SimpleNamespace(
+            dataset_id=dem_member, asset_uri="rasters/a/cog.tif", is_dem=True
+        ),
+        SimpleNamespace(
+            dataset_id=other_member, asset_uri="rasters/b/cog.tif", is_dem=False
+        ),
+    ]
+    monkeypatch.setattr(
+        tasks_vrt,
+        "resolve_vrt_source_path",
+        lambda uri, tenant_id: f"/vsi/{uri}",
+    )
+    plan = tasks_vrt._plan_from_snapshot(
+        _claim([dem_member, other_member], is_dem=True),
+        _SNAPSHOT_AT,
+        assets,
+        vrt_dataset_id="vrt-1",
+    )
+    assert plan.is_dem is False
+
+
+def test_plan_defaults_a_non_dem_vrt_to_nearest(monkeypatch):
+    member = uuid.uuid4()
+    assets = [SimpleNamespace(dataset_id=member, asset_uri="rasters/a/cog.tif")]
+    monkeypatch.setattr(
+        tasks_vrt,
+        "resolve_vrt_source_path",
+        lambda uri, tenant_id: f"/vsi/{uri}",
+    )
+    plan = tasks_vrt._plan_from_snapshot(
+        _claim([member]),
+        _SNAPSHOT_AT,
+        assets,
+        vrt_dataset_id="vrt-1",
+    )
+    assert plan.is_dem is False
 
 
 def test_metadata_copy_keeps_quicklooks_that_were_not_rerendered():

@@ -2,6 +2,7 @@ import { Slider } from '@/components/ui/slider';
 import { getNumberPaint } from './paint-accessors';
 import { RASTER_PAINT_DEFAULTS } from './layer-adapters/raster-adapter';
 import { formatNumber } from '@/lib/format';
+import type { Translator } from '@/i18n/translator';
 
 /**
  * The brightness/contrast/saturation/hue appearance slider surface.
@@ -11,7 +12,7 @@ import { formatNumber } from '@/lib/format';
  * truth), so the editor display and the rendered default can't diverge.
  */
 
-type TFn = (key: string, opts?: Record<string, unknown>) => string;
+type TFn = Translator;
 
 type RasterValueFormat = 'decimal2' | 'degrees' | 'ms' | 'percent';
 

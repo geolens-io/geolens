@@ -1,4 +1,5 @@
 import type { MapLayerResponse } from '@/types/api';
+import type { Translator } from '@/i18n/translator';
 
 /**
  * Generate geometry-aware suggestions for the chat empty state: simple fixed
@@ -34,7 +35,7 @@ function formatLayerNameForMention(name: string): string {
   return name.includes(' ') ? `@[${name}]` : `@${name}`;
 }
 
-type AnyTFunction = (key: string, options?: Record<string, unknown>) => string;
+type AnyTFunction = Translator;
 
 function hasVectorGeometry(layers: MapLayerResponse[]): boolean {
   for (const layer of layers) {
