@@ -221,6 +221,21 @@ def test_names_masking_would_merge_leave_one_out_and_keep_the_rest(tmp_path):
     assert all(SECRET not in note for note in state.left_out)
 
 
+def test_a_recorded_title_holding_the_secret_is_dropped_not_masked(tmp_path):
+    state = _state(tmp_path, _redactor())
+    state.items[ITEM].title_baseline = {
+        "d": {"title": f"Old {SECRET}"},
+        "e": {"title": "Parcels"},
+    }
+
+    state.save()
+
+    expected = {"d": {}, "e": {"title": "Parcels"}}
+    assert state.items[ITEM].title_baseline == expected
+    saved = json.loads(state.path.read_text())["items"][ITEM]["title_baseline"]
+    assert saved == expected
+
+
 def test_baseline_values_and_keywords_holding_the_secret_are_dropped(tmp_path):
     state = _state(tmp_path, _redactor())
     state.items[ITEM].metadata_baseline = {

@@ -100,11 +100,11 @@ class FakeImport:
         self.previews += 1
         job = _uuid("0b", f"{name}{self.previews:02d}")
         error = self.job_errors.get(name)
-        self.fake.routes[f"POST /ingest/commit/{job}"] = (
-            lambda seen, n=name: self.commit(seen, n)
+        self.fake.routes[f"POST /ingest/commit/{job}"] = lambda seen, n=name: (
+            self.commit(seen, n)
         )
-        self.fake.routes[f"GET /jobs/{job}"] = (
-            lambda _seen, n=name, j=job, e=error: self.job(j, n, e)
+        self.fake.routes[f"GET /jobs/{job}"] = lambda _seen, n=name, j=job, e=error: (
+            self.job(j, n, e)
         )
         return {
             "job_id": job,
@@ -1242,11 +1242,12 @@ def test_a_commit_whose_answer_was_lost_is_not_repeated(runner, plan_file, geole
     entry = _state(plan_file)["items"][A2]
     assert entry["layer_datasets"] == {"0": dataset_id("Parcels")}
     assert entry["layer_jobs"] == {}
+    # The lost commit's title isn't recorded, so it is left, already the plan's.
     assert {
-        "title": "Parcels (public view)",
         "visibility": "public",
         "expected_updated_at": "2026-10-01T00:00:00+00:00",
     } in [s.json() for s in geolens.seen if s.method == "PATCH"]
+    assert service.fields[dataset_id("Parcels")]["title"] == "Parcels (public view)"
 
 
 @pytest.mark.parametrize("edited", [True, False])
@@ -1621,6 +1622,183 @@ def test_a_plan_edit_reaches_the_recorded_datasets_without_a_probe(
     entry = _state(plan_file)["items"][A2]
     assert entry["status"] == "done"
     assert list(entry["last_update"]) == [dataset_id("Parcels"), dataset_id("Owners")]
+
+
+def _fail_after_the_import(runner, tmp_path, geolens, title: str | None = None):
+    """An import whose layer commits and whose item metadata then fails."""
+    plan_file = _write_plan(tmp_path, rows={A2: ITEM_TEXT})
+    if title is not None:
+        _set_plan_title(plan_file, title)
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    keyword = f"POST /records/{dataset_id('Parcels')}/keywords/"
+    preview = service.preview
+
+    def preview_then_break_keywords(seen):
+        reply = preview(seen)
+        geolens.routes[keyword] = (500, _problem(500, "database unavailable"))
+        return reply
+
+    geolens.routes[PREVIEW] = preview_then_break_keywords
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][A2]["status"] == "failed"
+    return plan_file, service
+
+
+def _edit_in_geolens(service, dataset: str | None = None, **fields) -> None:
+    service.fields[dataset or dataset_id("Parcels")].update(
+        fields, updated_at="2026-10-02T00:00:00Z", updated_by=OPERATOR
+    )
+
+
+def _set_plan_title(plan_file: Path, title: str) -> None:
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] == A2:
+            item["target"]["title"] = title
+    plan_file.write_text(json.dumps(plan))
+
+
+def _resume(runner, plan_file, service, geolens, *, fixed=True, args=()):
+    if fixed:
+        service._serve_dataset(dataset_id("Parcels"))
+    geolens.routes[PROBE] = (503, _problem(503, "the service is unavailable"))
+    return _migrate(runner, plan_file, "--only", A2, *args)
+
+
+def _kept_note(dataset: str) -> str:
+    return f"kept the title dataset {dataset} has in GeoLens, not the plan's"
+
+
+def test_a_resume_keeps_a_title_the_operator_edited_after_a_failed_pass(
+    runner, tmp_path, geolens
+):
+    """A title edited in GeoLens after the pass imported the layer is kept when the failed item resumes; the visibility still takes the plan's."""
+    plan_file, service = _fail_after_the_import(runner, tmp_path, geolens)
+    _edit_in_geolens(service, title="Parcels, edited", visibility="internal")
+
+    result, _ = _resume(runner, plan_file, service, geolens)
+
+    assert result.exit_code == 0, result.output
+    fields = service.fields[dataset_id("Parcels")]
+    assert fields["title"] == "Parcels, edited"
+    assert fields["visibility"] == "public"
+    entry = _state(plan_file)["items"][A2]
+    assert entry["status"] == "done"
+    assert _kept_note(dataset_id("Parcels")) in entry["notes"]
+
+
+def test_a_kept_title_is_noted_once_when_a_sibling_layer_then_fails(
+    runner, plan_file, geolens
+):
+    """The note is saved with the item a later layer fails, once however often the pass is retried."""
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners")])
+    service.job_errors["Owners"] = "boom"
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+    _edit_in_geolens(service, title="Parcels, edited")
+    note = _kept_note(dataset_id("Parcels"))
+
+    for _ in range(2):
+        assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+        entry = _state(plan_file)["items"][A2]
+        assert entry["status"] == "failed"
+        assert entry["notes"].count(note) == 1
+    del service.job_errors["Owners"]
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][A2]["notes"].count(note) == 1
+
+
+def test_each_resume_gives_an_unedited_dataset_the_plan_title_of_the_day(
+    runner, tmp_path, geolens
+):
+    """The record follows each title a resume writes, so a later plan edit still lands."""
+    plan_file, service = _fail_after_the_import(runner, tmp_path, geolens)
+    _set_plan_title(plan_file, "Renamed")
+    result, _ = _resume(runner, plan_file, service, geolens, fixed=False)
+    assert result.exit_code == 1
+    assert service.fields[dataset_id("Parcels")]["title"] == "Renamed"
+    _set_plan_title(plan_file, "Renamed again")
+
+    result, _ = _resume(runner, plan_file, service, geolens)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[dataset_id("Parcels")]["title"] == "Renamed again"
+
+
+@pytest.mark.parametrize("record", ["missing", "dropped"])
+def test_a_resume_without_a_title_record_keeps_a_title_that_differs_from_the_plan(
+    runner, tmp_path, geolens, record
+):
+    """With no record of the title this command gave the dataset, from an older CLI's state or one the masker dropped, an edit can't be told from the import's title, so any title that differs from the plan's is kept."""
+    plan_file, service = _fail_after_the_import(runner, tmp_path, geolens)
+    path = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(path.read_text())
+    if record == "missing":
+        del state["items"][A2]["title_baseline"]
+    else:
+        state["items"][A2]["title_baseline"] = {dataset_id("Parcels"): {}}
+    path.write_text(json.dumps(state))
+    _edit_in_geolens(service, title="Parcels, edited")
+
+    result, _ = _resume(runner, plan_file, service, geolens)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[dataset_id("Parcels")]["title"] == "Parcels, edited"
+    assert _kept_note(dataset_id("Parcels")) in _state(plan_file)["items"][A2]["notes"]
+
+
+@pytest.mark.parametrize("change", ["edit", "rename"])
+def test_a_rerun_after_a_sibling_layer_failed_keeps_an_edit_and_takes_a_rename(
+    runner, plan_file, geolens, change
+):
+    """A pass that stops on one layer records the title of each layer it imported, so the rerun's fresh pass keeps an edit to it and still gives an unedited one the plan's new title."""
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners")])
+    service.job_errors["Owners"] = "boom"
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+    assert _state(plan_file)["items"][A2]["import_pass"] is None
+    if change == "edit":
+        _edit_in_geolens(service, title="Parcels, edited")
+    else:
+        _set_plan_title(plan_file, "Renamed")
+    del service.job_errors["Owners"]
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    title = service.fields[dataset_id("Parcels")]["title"]
+    assert title == ("Parcels, edited" if change == "edit" else "Renamed - Parcels")
+
+
+def test_a_recovered_job_committed_by_an_earlier_run_keeps_an_edited_title(
+    runner, plan_file, geolens
+):
+    """A job whose commit an earlier run landed gives no record of the title it got, so the rerun keeps a title that differs from the plan's."""
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    preview = service.preview
+    finished: dict[str, Any] = {}
+
+    def crash(_seen):
+        raise KeyboardInterrupt
+
+    def preview_then_crash_on_poll(seen):
+        reply = preview(seen)
+        route = f"GET /jobs/{reply['job_id']}"
+        finished[route] = geolens.routes[route]
+        geolens.routes[route] = crash
+        return reply
+
+    geolens.routes[PREVIEW] = preview_then_crash_on_poll
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 130
+    _edit_in_geolens(service, title="Parcels, edited")
+    geolens.routes.update(finished)
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[dataset_id("Parcels")]["title"] == "Parcels, edited"
+    assert _kept_note(dataset_id("Parcels")) in _state(plan_file)["items"][A2]["notes"]
 
 
 def test_a_rerun_after_a_partly_failed_import_probes_again(runner, plan_file, geolens):

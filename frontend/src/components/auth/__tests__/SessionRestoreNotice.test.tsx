@@ -36,16 +36,9 @@ function reloaded() {
   useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user, sessionId: 'session-1' });
 }
 
-async function restoreRateLimited() {
-  vi.mocked(refreshAccessToken).mockRejectedValueOnce(new ApiError('rate limited', 429));
-  vi.useFakeTimers();
-  try {
-    const pending = restoreSession();
-    await vi.advanceTimersByTimeAsync(2_000);
-    await act(() => pending);
-  } finally {
-    vi.useRealTimers();
-  }
+async function restoreUnavailable() {
+  vi.mocked(refreshAccessToken).mockRejectedValueOnce(new ApiError('unavailable', 503));
+  await act(() => restoreSession());
 }
 
 describe('SessionRestoreNotice', () => {
@@ -56,7 +49,7 @@ describe('SessionRestoreNotice', () => {
 
   afterEach(() => {
     abortInflightRefresh();
-    useSessionRestore.setState({ failures: 0 });
+    useSessionRestore.setState({ failures: 0, restoring: false });
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null, sessionId: null });
   });
 
@@ -71,10 +64,28 @@ describe('SessionRestoreNotice', () => {
     expect(toast.warning).not.toHaveBeenCalled();
   });
 
+  it('refetches when a restore that never failed lands after the page rendered', async () => {
+    vi.mocked(refreshAccessToken).mockResolvedValueOnce({
+      access_token: 'recovered', refresh_token: null, token_type: 'bearer', expires_in: 900,
+    });
+    const invalidate = renderNotice();
+
+    await act(() => restoreSession());
+
+    expect(useSessionRestore.getState().failures).toBe(0);
+    expect(invalidate).toHaveBeenCalledTimes(1);
+  });
+
+  it('refetches nothing on a page that rendered with its token', () => {
+    useAuthStore.setState({ token: 'held' });
+
+    expect(renderNotice()).not.toHaveBeenCalled();
+  });
+
   it('offers a retry when a reload could not restore the session, and refetches once it does', async () => {
     const invalidate = renderNotice();
 
-    await restoreRateLimited();
+    await restoreUnavailable();
 
     expect(useAuthStore.getState()).toMatchObject({ token: null, user });
     expect(toast.warning).toHaveBeenCalledWith(
@@ -101,7 +112,7 @@ describe('SessionRestoreNotice', () => {
 
   it('withdraws the offer when the session ends instead', async () => {
     const invalidate = renderNotice();
-    await restoreRateLimited();
+    await restoreUnavailable();
     expect(toast.warning).toHaveBeenCalledTimes(1);
 
     act(() => useAuthStore.getState().logout());

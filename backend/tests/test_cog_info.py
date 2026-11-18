@@ -487,6 +487,33 @@ class TestBandStatistics:
         assert [entry["min"] for entry in result["band_info"]] == [1.0, 2.0, 3.0]
 
 
+class TestColorInterpretation:
+    async def test_each_band_records_the_colour_interpretation_titiler_reports(
+        self, monkeypatch
+    ) -> None:
+        stats = {"b1": {"min": 1.0, "max": 3.0, "mean": 2.0}}
+        _install(
+            monkeypatch,
+            {**_TITILER_INFO, "colorinterp": ["palette"]},
+            stats=stats,
+        )
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["band_info"][0]["color_interp"] == "palette"
+
+    async def test_a_palette_is_recorded_when_statistics_are_unavailable(
+        self, monkeypatch
+    ) -> None:
+        _install(
+            monkeypatch,
+            {**_TITILER_INFO, "colorinterp": ["palette"]},
+            stats_status=500,
+        )
+        result = await fetch_cog_info("https://origin.test/scene.tif")
+        assert result is not None
+        assert result["band_info"] == [{"color_interp": "palette"}]
+
+
 class TestNodata:
     async def test_a_nodata_type_stores_its_value(self, monkeypatch) -> None:
         info = {**_TITILER_INFO, "nodata_type": "Nodata", "nodata_value": 0.0}

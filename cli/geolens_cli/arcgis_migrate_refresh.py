@@ -16,6 +16,7 @@ GeoLens stops the publication for review if the data changes after that.
 from __future__ import annotations
 
 import tempfile
+import unicodedata
 from contextlib import suppress
 from collections.abc import Callable, Mapping
 from functools import partial
@@ -767,12 +768,15 @@ def _bring_one(
         )
     record(entry, dataset_id, published)
     base = entry.metadata_baseline.get(dataset_id)
+    given = entry.title_baseline.get(dataset_id)
     if base is not None and not base.get("title") and isinstance(dataset.title, str):
-        # Unchanged in GeoLens since this command last left it, so the title is
-        # this command's. A state from before titles were recorded has none,
-        # and an older CLI's metadata pass records "" while GeoLens keeps the
-        # title.
-        base["title"] = dataset.title
+        # The title this command gave it; with no record (a reused dataset, an
+        # older CLI's state) the current one, unchanged since this command left
+        # it. An older CLI's metadata pass records "" while GeoLens keeps it.
+        if given is None:
+            base["title"] = unicodedata.normalize("NFC", dataset.title)
+        elif given.get("title"):
+            base["title"] = given["title"]
     ctx.save()
     try:
         apply_item_metadata(

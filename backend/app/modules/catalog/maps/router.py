@@ -548,7 +548,13 @@ async def update_map_endpoint(
     if "basemap_config" in kwargs and body.basemap_config is not None:
         kwargs["basemap_config"] = body.basemap_config.model_dump(mode="json")
     if "layers" in kwargs and body.layers is not None:
-        kwargs["layers"] = [layer.model_dump() for layer in body.layers]
+        kwargs["layers"] = [
+            {
+                **layer.model_dump(),
+                "sort_order": index if layer.sort_order is None else layer.sort_order,
+            }
+            for index, layer in enumerate(body.layers)
+        ]
     kwargs["expected_updated_at"] = body.expected_updated_at
 
     try:
@@ -733,9 +739,7 @@ async def patch_map_layers_endpoint(
             map_id,
             added=[
                 layer.model_dump(
-                    exclude=None
-                    if "sort_order" in layer.model_fields_set
-                    else {"sort_order"}
+                    exclude=None if layer.sort_order is not None else {"sort_order"}
                 )
                 for layer in body.added
             ],

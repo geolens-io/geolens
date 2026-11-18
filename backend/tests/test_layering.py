@@ -1343,7 +1343,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/api/main.py": 1268,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
-    "backend/app/modules/catalog/maps/schemas.py": 1602,
+    "backend/app/modules/catalog/maps/schemas.py": 1606,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
@@ -1434,7 +1434,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/dependencies.py": 1008,
     # Map endpoints share response assembly, visibility and ownership checks,
     # and the map_author key's limits on the routes it may write.
-    "backend/app/modules/catalog/maps/router.py": 1515,
+    "backend/app/modules/catalog/maps/router.py": 1519,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
@@ -1446,7 +1446,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/standards/stac/router.py": 1942,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 2998,
+    "backend/app/processing/tiles/router.py": 3012,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1766,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection

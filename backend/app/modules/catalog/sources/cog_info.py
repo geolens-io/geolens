@@ -211,6 +211,7 @@ async def fetch_cog_info(
             dtype = info.get("dtype")
             nodata = _nodata_of(info)
 
+            colorinterp = info.get("colorinterp")
             band_info = []
             try:
                 stats_resp = await client.get(
@@ -222,16 +223,23 @@ async def fetch_cog_info(
                         (k for k in stats if k[:1] == "b" and k[1:].isdigit()),
                         key=lambda k: int(k[1:]),
                     )
-                    for key in band_keys:
-                        band_info.append(
-                            {
-                                "min": stats[key].get("min"),
-                                "max": stats[key].get("max"),
-                                "mean": stats[key].get("mean"),
-                            }
-                        )
+                    for pos, key in enumerate(band_keys):
+                        entry = {
+                            "min": stats[key].get("min"),
+                            "max": stats[key].get("max"),
+                            "mean": stats[key].get("mean"),
+                        }
+                        if isinstance(colorinterp, list) and pos < len(colorinterp):
+                            entry["color_interp"] = str(colorinterp[pos]).lower()
+                        band_info.append(entry)
             except Exception:  # broad: stats optional, Titiler payload shape varies
                 pass
+            if not band_info and isinstance(colorinterp, list) and colorinterp:
+                # Statistics are optional, but a colour table has to be known
+                # for its class ids to be drawn unscaled.
+                first = str(colorinterp[0]).lower()
+                if first == "palette":
+                    band_info = [{"color_interp": first}]
 
             # with_raster/with_eo are OFF: their defaults make this a PIXEL
             # read (rio-stac downsamples to compute per-band stats, which

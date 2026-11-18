@@ -67,8 +67,8 @@ class FakeFiles:
         self.fake.routes[f"POST /ingest/commit/{job}"] = lambda s, j=job: self.commit(
             j, s
         )
-        self.fake.routes[f"POST /ingest/commit-fan-out/{job}"] = (
-            lambda s, j=job: self.fan_out(j, s)
+        self.fake.routes[f"POST /ingest/commit-fan-out/{job}"] = lambda s, j=job: (
+            self.fan_out(j, s)
         )
         self.fake.routes[f"GET /jobs/{job}"] = lambda s, j=job: self.job(j)
         return (201, {"job_id": job, "message": "ok", "status": "pending"})
@@ -93,9 +93,10 @@ class FakeFiles:
             return (400, _problem(400, "Job already processed"))
         self.commits[job] = seen.json()
         self.helper._serve_dataset(dataset_id(job))
-        self.helper.fields.setdefault(dataset_id(job), {})["visibility"] = seen.json()[
-            "visibility"
-        ]
+        # The dataset takes the commit's title and visibility, as on the server.
+        self.helper.fields.setdefault(dataset_id(job), {}).update(
+            title=seen.json()["title"], visibility=seen.json()["visibility"]
+        )
         return (202, {"job_id": job, "status": "pending", "message": "queued"})
 
     def fan_out(self, job: str, seen):
@@ -105,10 +106,13 @@ class FakeFiles:
         for layer in seen.json()["layers"]:
             name = layer["layer_name"]
             self.helper._serve_dataset(dataset_id(name))
+            self.helper.fields.setdefault(dataset_id(name), {})["title"] = layer[
+                "title"
+            ]
             child = _uuid("0e", name)
             # The dataset appears when the queued job runs, as on the server.
-            self.fake.routes[f"GET /jobs/{child}"] = (
-                lambda s, c=child, n=name: self.helper.job(c, n, None)
+            self.fake.routes[f"GET /jobs/{child}"] = lambda s, c=child, n=name: (
+                self.helper.job(c, n, None)
             )
             results.append(
                 {
@@ -638,6 +642,35 @@ def test_a_fan_out_interrupted_while_waiting_does_not_upload_again(
     assert _state(plan_file)["items"][D3]["dataset_ids"] == [dataset_id("Parcels")]
 
 
+def test_a_fan_out_child_recovered_from_the_state_has_no_title_record(
+    runner, tmp_path, geolens, portal
+):
+    """The fan-out's stored titles may be masked, so a child pinned on a rerun is recorded as unknown and its title kept rather than renamed."""
+    files = FakeFiles(geolens, layer_names=["Roads", "Parcels"])
+    plan_file = _plan(tmp_path)
+    _migrate(runner, plan_file, "--only", D3)
+    state = _state(plan_file)
+    entry = state["items"][D3]
+    entry.update(
+        status="failed",
+        layer_datasets={},
+        layer_jobs={"layer:Parcels": _uuid("0e", "Parcels")},
+        title_baseline={},
+        last_update={},
+    )
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    plan = json.loads(plan_file.read_text())
+    next(i for i in plan["items"] if i["id"] == D3)["target"]["title"] = "Renamed"
+    plan_file.write_text(json.dumps(plan))
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    parcels = dataset_id("Parcels")
+    assert files.helper.fields[parcels]["title"] == "Inspections - Parcels"
+    assert _state(plan_file)["items"][D3]["title_baseline"][parcels] == {}
+
+
 def test_a_public_file_is_downloaded_with_a_supplied_token(
     runner, tmp_path, geolens, portal
 ):
@@ -786,6 +819,76 @@ def test_a_failed_target_update_on_resume_does_not_lose_the_dataset(
 
     assert result.exit_code == 0, result.output
     assert len(files.uploads) == 1
+
+
+def _edit_title(files: FakeFiles, dataset: str) -> None:
+    files.helper.fields[dataset].update(
+        title="Edited in GeoLens",
+        updated_at="2026-10-02T00:00:00Z",
+        updated_by=layers.OPERATOR,
+    )
+
+
+@pytest.mark.parametrize("change", ["edit", "rename"])
+@pytest.mark.parametrize("layer_names", [None, ["Roads", "Rivers"]])
+def test_a_file_resume_keeps_an_edited_title_and_takes_a_rename(
+    runner, tmp_path, geolens, portal, layer_names, change
+):
+    """The title a file's commit or fan-out gave each dataset is recorded, so a resume keeps an edit made after the pass failed and still gives an unedited dataset the plan's new title."""
+    files = FakeFiles(geolens, layer_names=layer_names)
+    serve = files.helper._serve_dataset
+
+    def serve_then_break_keywords(dataset):
+        serve(dataset)
+        broken = (500, _problem(500, "database unavailable"))
+        geolens.routes[f"POST /records/{dataset}/keywords/"] = broken
+
+    files.helper._serve_dataset = serve_then_break_keywords
+    plan_file = _plan(tmp_path, tags=["inspections"])
+    assert _migrate(runner, plan_file, "--only", D3)[0].exit_code == 1
+    datasets = _state(plan_file)["items"][D3]["dataset_ids"]
+    if change == "edit":
+        _edit_title(files, datasets[0])
+    else:
+        plan = json.loads(plan_file.read_text())
+        next(i for i in plan["items"] if i["id"] == D3)["target"]["title"] = "Renamed"
+        plan_file.write_text(json.dumps(plan))
+    files.helper._serve_dataset = serve
+    for dataset in datasets:
+        serve(dataset)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    title = files.helper.fields[datasets[0]]["title"]
+    if change == "edit":
+        assert title == "Edited in GeoLens"
+        note = f"kept the title dataset {datasets[0]} has in GeoLens, not the plan's"
+        assert _state(plan_file)["items"][D3]["notes"].count(note) == 1
+    else:
+        assert title.startswith("Renamed")
+
+
+def test_a_recovered_file_job_keeps_a_title_edited_after_its_lost_commit(
+    runner, tmp_path, geolens, portal
+):
+    """A commit whose answer was lost records no title, so the rerun keeps one that differs from the plan's."""
+    files = FakeFiles(geolens)
+    commit = files.commit
+    files.commit = lambda job, seen: (commit(job, seen), (500, _problem(500, "lost")))[
+        1
+    ]
+    plan_file = _plan(tmp_path)
+    assert _migrate(runner, plan_file, "--only", D3)[0].exit_code == 1
+    files.commit = commit
+    [job] = files.commits
+    _edit_title(files, dataset_id(job))
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    assert len(files.uploads) == 1
+    assert files.helper.fields[dataset_id(job)]["title"] == "Edited in GeoLens"
 
 
 def test_an_error_envelope_arriving_in_small_reads_is_still_detected(
