@@ -20,6 +20,7 @@ import app.core.db as db_module
 import app.modules.catalog.maps.service_groups as service_groups
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.embed_tokens.models import EmbedToken
 from tests.factories import create_dataset, create_user
 from tests.test_dataset_delete_shared_maps import _delete, _vector_dataset
 from tests.test_dataset_group_grants import _new_group
@@ -174,7 +175,7 @@ def _hook_the_dataset_lock(monkeypatch, change):
     return started
 
 
-@pytest.mark.parametrize("change", ["delete", "restrict", "unpublish"])
+@pytest.mark.parametrize("change", ["delete", "restrict"])
 async def test_a_dataset_change_behind_a_map_write_sees_the_shared_map(
     client: AsyncClient,
     admin_auth_header: dict,
@@ -190,15 +191,9 @@ async def test_a_dataset_change_behind_a_map_write_sees_the_shared_map(
     async def change_dataset():
         if change == "delete":
             return await _delete(client, dataset, owner)
-        if change == "restrict":
-            return await client.patch(
-                f"/datasets/{dataset.id}",
-                json={"visibility": "private"},
-                headers=owner,
-            )
         return await client.patch(
-            f"/datasets/{dataset.id}/status/",
-            json={"status": "internal"},
+            f"/datasets/{dataset.id}",
+            json={"visibility": "private"},
             headers=owner,
         )
 
@@ -239,3 +234,118 @@ async def test_a_map_write_that_widens_nothing_takes_no_dataset_lock(
             )
             assert resp.status_code == 200, resp.text
         await holder.rollback()
+
+
+@pytest.mark.parametrize(
+    ("path", "target"), [("status", "internal"), ("target-status", "draft")]
+)
+async def test_an_unpublish_behind_a_map_going_public_sees_it(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    path: str,
+    target: str,
+):
+    """The publication-status routes ask about shared maps holding the
+    dataset's rows, so an unpublish that waited on a map going public is
+    refused once that map is public."""
+    owner, owner_id = await create_user(client, admin_auth_header, "editor")
+    dataset = await create_dataset(
+        test_db_session, created_by=uuid.UUID(str(owner_id)), visibility="public"
+    )
+    map_obj = await _map_using(test_db_session, dataset.id, owner_id, "private")
+    dataset_id, expected = dataset.id, {"id": str(map_obj.id), "name": map_obj.name}
+
+    async def unpublish():
+        return await client.patch(
+            f"/datasets/{dataset_id}/{path}/", json={"status": target}, headers=owner
+        )
+
+    started = _hook_the_dataset_lock(monkeypatch, unpublish)
+    shared = await client.put(
+        f"/maps/{map_obj.id}", json={"visibility": "public"}, headers=owner
+    )
+    assert shared.status_code == 200, shared.text
+    refused = await started[0]
+
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["action"] == "unpublish"
+    assert refused.json()["shared_maps"] == [expected]
+    test_db_session.expire_all()
+    assert (
+        await test_db_session.scalar(
+            sa.select(Record.record_status)
+            .join(Dataset, Dataset.record_id == Record.id)
+            .where(Dataset.id == dataset_id)
+        )
+        == "published"
+    )
+
+
+async def test_a_map_made_internal_after_a_narrowing_keeps_the_hidden_layer(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """With no race at all, a map may go internal while a layer's dataset is
+    private to its owner; the layer is hidden from the map's other readers."""
+    owner, owner_id = await create_user(client, admin_auth_header, "editor")
+    reader, _ = await create_user(client, admin_auth_header, "viewer")
+    dataset = await create_dataset(
+        test_db_session, created_by=uuid.UUID(str(owner_id)), visibility="internal"
+    )
+    map_obj = await _map_using(test_db_session, dataset.id, owner_id, "private")
+    narrowed = await client.patch(
+        f"/datasets/{dataset.id}", json={"visibility": "private"}, headers=owner
+    )
+    assert narrowed.status_code == 200, narrowed.text
+
+    shared = await client.put(
+        f"/maps/{map_obj.id}", json={"visibility": "internal"}, headers=owner
+    )
+
+    assert shared.status_code == 200, shared.text
+    read = await client.get(f"/maps/{map_obj.id}", headers=reader)
+    assert read.status_code == 200, read.text
+    assert read.json()["layers"] == []
+
+
+@pytest.mark.parametrize("prior", [None, "expired"])
+async def test_an_embed_token_mint_waits_for_a_delete_and_leaves_its_dataset_out(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    prior: str | None,
+):
+    owner, owner_id = await create_user(client, admin_auth_header, "editor")
+    deleted, kept = [
+        await create_dataset(
+            test_db_session, created_by=uuid.UUID(str(owner_id)), visibility="public"
+        )
+        for _ in range(2)
+    ]
+    map_obj = await _map_using(test_db_session, deleted.id, owner_id, "public")
+    map_id, kept_id = map_obj.id, kept.id
+    test_db_session.add(MapLayer(map_id=map_id, dataset_id=kept_id, sort_order=1))
+    await test_db_session.commit()
+    mint_url = f"/maps/{map_id}/embed-tokens/"
+    if prior is not None:
+        first = await client.post(mint_url, json={}, headers=owner)
+        assert first.status_code == 201, first.text
+        await test_db_session.execute(
+            sa.update(EmbedToken)
+            .where(EmbedToken.map_id == map_id)
+            .values(expires_at=sa.func.now() - sa.text("interval '1 day'"))
+        )
+        await test_db_session.commit()
+
+    async with db_module.async_session() as holder:
+        await _hold_dataset_change(holder, deleted, "deleted")
+        minting = asyncio.create_task(client.post(mint_url, json={}, headers=owner))
+        await _blocked_or_done(holder, minting)
+
+        assert not minting.done(), "the mint did not wait for the dataset"
+        await holder.commit()
+        minted = await minting
+
+    assert minted.status_code == 201, minted.text
+    assert minted.json()["scoped_dataset_ids"] == [str(kept_id)]

@@ -505,7 +505,6 @@ async def _refuse_stranding(
     from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
     await lock_catalog_rows_for_write(db, dataset)
-    await db.refresh(dataset.record, ["visibility", "record_status", "created_by"])
     try:
         await refuse_stranding_shared_maps(
             db, dataset.record, dataset.id, record_status=target
