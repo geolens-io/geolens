@@ -222,7 +222,9 @@ _SERVICE_FAILURE_CLASSES = (
     (
         re.compile(
             r"(?i)\b(?:unauthori[sz]ed|forbidden|access denied|"
-            r"authentication (?:failed|required)|invalid (?:token|credentials?)|"
+            # An XML parser's "not well-formed (invalid token)" is not a credential.
+            r"authentication (?:failed|required)|"
+            r"(?<!not well-formed \()invalid (?:token|credentials?)|"
             r"token required)\b"
         ),
         "the source service reported an authentication failure",
