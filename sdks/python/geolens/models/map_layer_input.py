@@ -32,7 +32,8 @@ class MapLayerInput:
     Attributes:
         dataset_id (UUID):
         id (None | Unset | UUID): Existing layer id to update in place (full-save reconcile)
-        sort_order (int | Unset): Draw order; 0 draws on top Default: 0.
+        sort_order (int | None | Unset): Draw order; 0 draws on top. When omitted, a new layer is added after the map's
+            other layers and a full save uses the layer's position in the submitted list.
         visible (bool | Unset):  Default: True.
         opacity (float | Unset): Layer opacity 0.0-1.0 Default: 1.0.
         paint (MapLayerInputPaintType0 | None | Unset): MapLibre paint properties override
@@ -64,7 +65,7 @@ class MapLayerInput:
 
     dataset_id: UUID
     id: None | Unset | UUID = UNSET
-    sort_order: int | Unset = 0
+    sort_order: int | None | Unset = UNSET
     visible: bool | Unset = True
     opacity: float | Unset = 1.0
     paint: MapLayerInputPaintType0 | None | Unset = UNSET
@@ -99,7 +100,11 @@ class MapLayerInput:
         else:
             id = self.id
 
-        sort_order = self.sort_order
+        sort_order: int | None | Unset
+        if isinstance(self.sort_order, Unset):
+            sort_order = UNSET
+        else:
+            sort_order = self.sort_order
 
         visible = self.visible
 
@@ -236,7 +241,14 @@ class MapLayerInput:
 
         id = _parse_id(d.pop("id", UNSET))
 
-        sort_order = d.pop("sort_order", UNSET)
+        def _parse_sort_order(data: object) -> int | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(int | None | Unset, data)
+
+        sort_order = _parse_sort_order(d.pop("sort_order", UNSET))
 
         visible = d.pop("visible", UNSET)
 

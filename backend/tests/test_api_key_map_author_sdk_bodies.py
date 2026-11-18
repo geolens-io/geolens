@@ -56,7 +56,8 @@ def _style_update(layer_id) -> MapLayerPatch:
 
 def test_the_sdk_sends_defaults_nobody_asked_for():
     sent = _new_layer(uuid.uuid4()).to_dict()
-    assert {"sort_order", "visible", "opacity", "show_in_legend"} <= set(sent)
+    assert {"visible", "opacity", "show_in_legend"} <= set(sent)
+    assert "sort_order" not in sent
     assert "fallback_full_replace" in MapLayerDiffRequest().to_dict()
     assert set(_style_update(str(uuid.uuid4())).to_dict()) == {"id", "paint"}
 
@@ -89,7 +90,7 @@ async def test_sdk_layer_bodies_pass_and_a_non_default_field_is_refused(
                 for layer in resp.json()["layers"]
                 if layer["id"] not in stacked
             ]
-    # The SDK's default sort_order of 0 still stacks each new layer on top.
+    # A map_author key appends each new layer whatever the body sends.
     shown = (await client.get(f"/maps/{map_id}", headers=headers)).json()["layers"]
     assert [layer["id"] for layer in shown] == stacked
     assert [layer["sort_order"] for layer in shown] == [0, 1, 2]
@@ -113,3 +114,15 @@ async def test_sdk_layer_bodies_pass_and_a_non_default_field_is_refused(
         resp = await client.request(method, layers_url, json=body, headers=author)
         assert resp.status_code == 403, (method, body, resp.text)
         assert resp.json()["detail"]["message"] == f"A map_author key can't set {field}"
+
+
+def test_an_order_of_zero_or_null_still_passes_the_author_gate():
+    from app.modules.catalog.maps.author_key import _unsettable_fields
+    from app.modules.catalog.maps.schemas import MapLayerInput as Body
+
+    for order in (0, None):
+        body = Body(dataset_id=uuid.uuid4(), sort_order=order)
+        assert _unsettable_fields(body) == set()
+    assert _unsettable_fields(Body(dataset_id=uuid.uuid4(), sort_order=3)) == {
+        "sort_order"
+    }

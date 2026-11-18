@@ -15,6 +15,15 @@ and releases use semantic versioning.
 
 - The CLI installs with typer 0.25 through 0.29. A bare `--token` on
   `geolens refresh` still prompts for the token.
+- REST contract: `MapLayerInput.sort_order` no longer defaults to 0 in the
+  OpenAPI schema; it is optional and nullable. A layer sent without it is added
+  after the map's other layers on `POST /maps/{id}/layers` and in `added` on
+  `PATCH /maps/{id}/layers` (as before), and a full-save `PUT /maps/{id}` now
+  uses the layer's position in the submitted list instead of storing 0. The
+  generated Python SDK no longer sends 0 for an unset order. Callers that send a
+  value are unaffected. The ArcGIS web map import response names its `layers`
+  schema `ArcgisTranslatedLayer`; its fields are unchanged and `sort_order` stays a
+  required integer there.
 
 ### Fixed
 - DEM mosaics now build with bilinear resampling instead of nearest-neighbour, so a coarse fill member no longer repeats its pixels as blocks in the hillshade at close zoom. Categorical rasters still build with nearest, so their values stay exact. A mosaic built from elevation members gets bilinear at creation time, and an existing DEM mosaic picks it up when it is next rebuilt, so run Regenerate on it. A rebuild derives the choice from the current members, so a mixed mosaic keeps nearest.
