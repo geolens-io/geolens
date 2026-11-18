@@ -35,7 +35,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import click
 import typer
 
 from . import arcgis_plan as _plan
@@ -442,7 +441,7 @@ def run_cli(
         # The failed request was reported where it failed.
         result["stopped"] = "stopped by a failed request"
         code = exc.exit_code or EXIT_GENERIC
-    except click.ClickException as exc:
+    except typer.BadParameter as exc:
         result["stopped"], code = redact(exc.format_message()), exc.exit_code
     except GeoLensError as exc:
         result["stopped"] = redact(

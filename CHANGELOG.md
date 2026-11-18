@@ -7,6 +7,11 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- The CLI installs with typer 0.25 through 0.29. A bare `--token` on
+  `geolens refresh` still prompts for the token.
+
 ## [1.32.0] - 2026-11-16
 
 1.32.0 adds two migrations. 0104 adds the `map_author` API key scope and a
