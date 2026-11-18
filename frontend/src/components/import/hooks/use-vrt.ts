@@ -60,7 +60,7 @@ export function useVrtGenerations(datasetId: string, params?: { limit?: number; 
     if (inProgress || changed) {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
     }
-    if (wasInProgress.current && !inProgress) {
+    if (!inProgress && (wasInProgress.current || changed)) {
       qc.invalidateQueries({ queryKey: queryKeys.vrt.sources(datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.vrt.status(datasetId) });
     }
@@ -71,8 +71,10 @@ export function useVrtGenerations(datasetId: string, params?: { limit?: number; 
   return query;
 }
 
-function invalidateVrt(qc: ReturnType<typeof useQueryClient>, datasetId: string) {
-  return Promise.all([
+async function invalidateVrt(qc: ReturnType<typeof useQueryClient>, datasetId: string) {
+  // A history read already in flight predates the rebuild; restart it.
+  await qc.cancelQueries({ queryKey: queryKeys.vrt.generationsAll(datasetId) });
+  await Promise.all([
     qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) }),
     qc.invalidateQueries({ queryKey: queryKeys.vrt.sources(datasetId) }),
     qc.invalidateQueries({ queryKey: queryKeys.vrt.status(datasetId) }),
@@ -86,8 +88,6 @@ export function useRegenerateVrt(datasetId: string) {
     mutationFn: () => regenerateVrt(datasetId),
     // Returning the promise keeps the mutation pending, and the button disabled, until the refetches land.
     onSuccess: async () => {
-      // A history read already in flight predates the rebuild; restart it.
-      await qc.cancelQueries({ queryKey: queryKeys.vrt.generationsAll(datasetId) });
       await invalidateVrt(qc, datasetId);
     },
     // Someone else started the rebuild: pick it up so the page shows it.

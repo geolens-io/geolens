@@ -223,4 +223,44 @@ describe('VRT rebuild refresh', () => {
     resolveRefetch(gens('completed'));
     await waitFor(() => expect(result.current.regenerate.isPending).toBe(false));
   });
+
+  it('refreshes sources and status when a rebuild finished between history reads', async () => {
+    vi.mocked(getVrtGenerations)
+      .mockResolvedValueOnce({ generations: [{ id: 'g1', status: 'completed' }], total: 1 } as never)
+      .mockResolvedValue({ generations: [{ id: 'g2', status: 'completed' }], total: 2 } as never);
+    mockListVrtSources.mockResolvedValue({ sources: [], total: 0 } as never);
+    mockGetVrtStatus.mockResolvedValue({} as never);
+    const { client, result } = renderWithClient(() => ({
+      generations: useVrtGenerations('ds-1', { limit: 1 }),
+      sources: useVrtSources('ds-1'),
+      status: useVrtStatus('ds-1', false),
+    }));
+    await waitFor(() => expect(result.current.sources.isSuccess).toBe(true));
+    await waitFor(() => expect(result.current.status.isSuccess).toBe(true));
+    expect(mockListVrtSources).toHaveBeenCalledTimes(1);
+
+    await client.invalidateQueries({ queryKey: queryKeys.vrt.generationsAll('ds-1') });
+
+    await waitFor(() => expect(mockListVrtSources).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockGetVrtStatus).toHaveBeenCalledTimes(2));
+  });
+
+  it('restarts an in-flight history read on a dataset_busy answer', async () => {
+    let resolveOld!: (v: never) => void;
+    vi.mocked(getVrtGenerations)
+      .mockImplementationOnce(() => new Promise((r) => { resolveOld = r as never; }))
+      .mockResolvedValue({ generations: [{ id: 'g2', status: 'running' }], total: 2 } as never);
+    vi.mocked(regenerateVrt).mockRejectedValue(new ApiError('busy', 409, { code: 'dataset_busy' }));
+    const { result } = renderWithClient(() => ({
+      generations: useVrtGenerations('ds-1', { limit: 1 }),
+      regenerate: useRegenerateVrt('ds-1'),
+    }));
+    await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(1));
+
+    result.current.regenerate.mutate();
+    await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(2));
+    resolveOld(gens('completed'));
+
+    await waitFor(() => expect(result.current.generations.data?.generations[0].id).toBe('g2'));
+  });
 });
