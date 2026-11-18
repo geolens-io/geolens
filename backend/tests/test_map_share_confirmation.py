@@ -21,7 +21,7 @@ from app.modules.catalog.datasets.domain.models import (
     DatasetGroupGrant,
     Record,
 )
-from app.modules.catalog.maps.models import Map, MapGroupGrant
+from app.modules.catalog.maps.models import Map, MapGroupGrant, MapLayer
 from tests.factories import create_dataset, create_user, get_user_id
 from tests.test_dataset_group_grants import _new_group
 from tests.test_vrt_source_authz_1172 import (
@@ -503,3 +503,53 @@ async def test_the_visibility_check_lists_nothing_under_an_authority_that_cannot
     monkeypatch.setitem(extensions._extensions, "permission", _Opaque())
 
     assert (await _hidden_from_groups(client, world["map"], world["owner"]))[0] == set()
+
+
+@pytest.mark.parametrize("slash", ["", "/"])
+async def test_a_dataset_share_stranding_the_owners_shared_map_is_coded(
+    client: AsyncClient, world, test_db_session, monkeypatch, slash
+):
+    """A confirmed dataset share refused for stranding one of the owner's shared
+    maps answers the structured 422 the dataset routes give, and writes nothing."""
+    from app.modules.catalog.maps import service_public
+
+    dataset_id = world["datasets"]["private"]
+    owner_id = await test_db_session.scalar(
+        select(Map.created_by).where(Map.id == uuid.UUID(world["map"]))
+    )
+    team_map = Map(
+        name=f"Team map {uuid.uuid4().hex[:6]}",
+        visibility="internal",
+        created_by=owner_id,
+    )
+    test_db_session.add(team_map)
+    await test_db_session.flush()
+    test_db_session.add(
+        MapLayer(map_id=team_map.id, dataset_id=dataset_id, sort_order=0)
+    )
+    await test_db_session.commit()
+    # An authority that can't answer counts every shared map of the owner's as
+    # stranded by a regrant.
+    monkeypatch.setattr(
+        service_public, "answers_audience_questions", lambda permission: False
+    )
+
+    refused = await client.put(
+        f"/maps/{world['map']}/groups{slash}",
+        json={"group_ids": [str(world["g"])], "confirm": "share_datasets"},
+        headers=world["owner"],
+    )
+
+    assert refused.status_code == 422, refused.text
+    body = refused.json()
+    assert body["detail"] == (
+        f"Cannot restrict visibility: dataset is used in shared maps: {team_map.name}"
+    )
+    assert body["code"] == "dataset_in_shared_maps"
+    assert body["action"] == "restrict_visibility"
+    assert body["shared_maps"] == [{"id": str(team_map.id), "name": team_map.name}]
+    assert await _map_state(test_db_session, uuid.UUID(world["map"])) == (
+        "private",
+        set(),
+    )
+    assert await _dataset_visibility(test_db_session, dataset_id) == "private"

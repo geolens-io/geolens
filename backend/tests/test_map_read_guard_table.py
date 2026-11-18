@@ -524,7 +524,7 @@ async def test_stranded_shared_maps(
     by_name = {name: v for v, name in world.names.items()}
 
     async def stranded(old: str, new: str) -> set[str]:
-        names = await find_maps_broken_by_dataset_visibility(
+        broken = await find_maps_broken_by_dataset_visibility(
             test_db_session,
             dataset_id,
             old_visibility=old,
@@ -533,7 +533,7 @@ async def test_stranded_shared_maps(
             record_id=record_id,
             owner_id=world.user_ids["owner"],
         )
-        return {by_name[n] for n in names}
+        return {by_name[entry["name"]] for entry in broken}
 
     # A restricted map is stranded when its group's members lose the layer.
     signed_in_audience = _audience("other") | {"restricted"}

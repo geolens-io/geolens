@@ -168,6 +168,35 @@ describe('apiFetch', () => {
     }
   });
 
+  it.each([
+    ['unpublish', 'would lose it if it were unpublished: Flood Risk, Parcels 2026.'],
+    ['restrict_visibility', 'would lose it: Flood Risk, Parcels 2026.'],
+  ])('localizes a coded %s refusal from the problem body, not its sentence', async (action, text) => {
+    mockFetch.mockResolvedValueOnce(
+      jsonResponse({
+        type: 'about:blank',
+        title: 'Validation Error',
+        status: 422,
+        detail: 'This dataset cannot change right now.',
+        code: 'dataset_in_shared_maps',
+        action,
+        shared_maps: [
+          { id: '00000000-0000-0000-0000-0000000000b1', name: 'Flood Risk' },
+          { id: '00000000-0000-0000-0000-0000000000b2', name: 'Parcels 2026' },
+        ],
+      }, 422),
+    );
+
+    try {
+      await apiFetch('/test/');
+      expect.fail('should have thrown');
+    } catch (e) {
+      expect(e).toBeInstanceOf(ApiError);
+      expect((e as ApiError).message).toContain(text);
+      expect((e as ApiError).status).toBe(422);
+    }
+  });
+
   it('localizes a FastAPI 422 detail array without exposing raw JSON', async () => {
     mockFetch.mockResolvedValueOnce({
       ok: false,

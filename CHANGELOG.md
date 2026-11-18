@@ -9,6 +9,7 @@ and releases use semantic versioning.
 
 ### Added
 - The dataset page's Source tab has a Regenerate button on VRT mosaics and band stacks for owners and admins. It rebuilds the VRT and is disabled while a rebuild is running.
+- A 422 refusing a dataset narrowing or unpublish because the owner's shared maps show it now carries top-level `code` of `dataset_in_shared_maps`, `action` and `shared_maps` beside `detail`, so a client can name the blocking maps without parsing the sentence; `ProblemDetail` declares `action` and `shared_maps` as optional members, present only on errors that carry them. The `detail` sentence is unchanged.
 
 ### Changed
 

@@ -836,6 +836,39 @@ describe('API error localization boundary', () => {
     ).toContain('Flood Risk');
   });
 
+  // The coded refusal names the maps beside the detail sentence, so the
+  // wording of that sentence no longer matters.
+  it.each([
+    [
+      'unpublish',
+      'errors.datasetUnpublishBlockedByMaps',
+      'These maps share the dataset with an audience that would lose it if it were unpublished: Flood Risk, Parcels 2026.',
+    ],
+    [
+      'restrict_visibility',
+      'errors.datasetVisibilityBlockedByMaps',
+      'These maps share the dataset with an audience that would lose it: Flood Risk, Parcels 2026.',
+    ],
+  ])('surfaces the maps from a coded %s refusal with a reworded detail', (action, key, text) => {
+    const body = {
+      type: 'about:blank',
+      title: 'Validation Error',
+      status: 422,
+      detail: 'This dataset cannot change right now.',
+      code: 'dataset_in_shared_maps',
+      action,
+      shared_maps: [
+        { id: '00000000-0000-0000-0000-0000000000b1', name: 'Flood Risk' },
+        { id: '00000000-0000-0000-0000-0000000000b2', name: 'Parcels 2026' },
+      ],
+    };
+    expect(classifyApiError(body, 422)).toEqual({
+      key,
+      values: { maps: 'Flood Risk, Parcels 2026' },
+    });
+    expect(translateApiErrorDetail(body, 422)).toContain(text);
+  });
+
   // `MapCreate.name` is length-bounded and NFC-normalized,
   // nothing more, so a newline in a map name is valid input. Without the `s`
   // flag `.` stopped at it and the whole list fell back to the generic 422 —

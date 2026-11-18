@@ -46,6 +46,9 @@ from app.modules.catalog.datasets.domain.schemas import (
     DatasetVersionListResponse,
     DatasetVersionResponse,
 )
+from app.modules.catalog.datasets.domain.helpers import (
+    DatasetInSharedMapsError,
+)
 from app.modules.catalog.datasets.domain.service import (
     GroupNotJoinedError,
     UnknownGroupsError,
@@ -709,6 +712,11 @@ async def set_dataset_groups_endpoint(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can share a dataset only with groups you belong to.",
         )
+    except DatasetInSharedMapsError:
+        # Answered by the handler in app/api/main.py with the sentence as
+        # detail and code, action and shared_maps beside it; the ValueError
+        # catch below must not flatten it back to the bare sentence.
+        raise
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
