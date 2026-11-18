@@ -21,6 +21,7 @@ from app.platform.database_sources import (
     freetds_workdir,
     get_database_connection,
     importable_identifier,
+    probe_table_geometry,
     safe_gdal_stderr,
 )
 from app.platform.gdal_env import gdal_database_safe_env
@@ -56,6 +57,21 @@ def require_importable_table(
         )
 
 
+async def _still_probes_as(
+    connection_name: str, schema_name: str, table_name: str, point_type: str
+) -> bool:
+    """Whether the table still holds only points of ``point_type``.
+
+    A point column accepts a point of other dimensions by padding or dropping
+    Z and M, so a copy that exits 0 says nothing about them.
+    """
+    try:
+        probed = await probe_table_geometry(connection_name, schema_name, table_name)
+    except DatabaseSourceError:
+        return False
+    return probed.point_type == point_type
+
+
 async def copy_database_table(
     connection_name: str,
     *,
@@ -72,7 +88,8 @@ async def copy_database_table(
     ``geometry_columns`` doesn't list. The table's primary key stays an
     ordinary column, and ``gid`` is numbered by PostGIS. A table holding only
     points is stored as ``point_type`` so clients can cluster it; every other
-    table, and a point copy that fails, is copied in its multi form.
+    table, and one that fails the point copy or no longer probes as
+    ``point_type`` after it, is copied in its multi form.
 
     Raises ``DatabaseImportError`` with a message safe to show.
     """
@@ -144,13 +161,18 @@ async def copy_database_table(
             _, stderr = await _communicate_with_timeout(
                 proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
             )
-            if proc.returncode == 0 or cmd[nlt] == "PROMOTE_TO_MULTI":
+            if cmd[nlt] == "PROMOTE_TO_MULTI":
                 break
-            # A multipoint written after the probe; -overwrite replaces
-            # whatever the first try created.
+            if proc.returncode == 0 and await _still_probes_as(
+                connection_name, schema_name, table_name, cmd[nlt]
+            ):
+                break
+            # The table changed after the probe; -overwrite replaces whatever
+            # this try created.
             logger.info(
-                "point table copy failed; retrying as multi",
+                "point table copy not kept; retrying as multi",
                 connection=connection_name,
+                returncode=proc.returncode,
             )
             cmd[nlt] = "PROMOTE_TO_MULTI"
 

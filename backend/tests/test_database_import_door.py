@@ -391,6 +391,13 @@ async def test_copy_stores_a_point_table_as_its_point_type(
     monkeypatch, point_type, nlt
 ):
     monkeypatch.setattr(settings, "database_sources", {"gis": _connection()})
+    monkeypatch.setattr(
+        database_import,
+        "probe_table_geometry",
+        AsyncMock(
+            return_value=TableGeometry(column="geom", srid=4326, point_type=point_type)
+        ),
+    )
     spawned: list[tuple] = []
 
     async def _spawn(*argv, **kwargs):
@@ -416,19 +423,43 @@ def _layer_types(argv) -> list[str]:
 
 
 @pytest.mark.parametrize(
-    ("point_type", "returncodes", "types", "fails"),
+    ("point_type", "returncodes", "after", "types", "fails"),
     [
-        ("POINT", [1, 0], ["POINT", "PROMOTE_TO_MULTI"], False),
-        ("POINT", [1, 1], ["POINT", "PROMOTE_TO_MULTI"], True),
-        ("POINT", [0], ["POINT"], False),
-        (None, [1], ["PROMOTE_TO_MULTI"], True),
+        ("POINT", [1, 0], "POINT", ["POINT", "PROMOTE_TO_MULTI"], False),
+        ("POINT", [1, 1], "POINT", ["POINT", "PROMOTE_TO_MULTI"], True),
+        ("POINT", [0], "POINT", ["POINT"], False),
+        (None, [1], None, ["PROMOTE_TO_MULTI"], True),
+        ("POINTZ", [0, 0], "POINT", ["POINTZ", "PROMOTE_TO_MULTI"], False),
+        ("POINT", [0, 0], None, ["POINT", "PROMOTE_TO_MULTI"], False),
+        (
+            "POINT",
+            [0, 0],
+            DatabaseConnectError("gis"),
+            ["POINT", "PROMOTE_TO_MULTI"],
+            False,
+        ),
     ],
-    ids=["retried", "retry-fails", "no-failure", "multi-not-retried"],
+    ids=[
+        "retried",
+        "retry-fails",
+        "no-failure",
+        "multi-not-retried",
+        "dimensions-changed",
+        "no-longer-points",
+        "second-probe-fails",
+    ],
 )
-async def test_a_failed_point_copy_is_retried_once_as_multi(
-    monkeypatch, point_type, returncodes, types, fails
+async def test_a_point_copy_the_table_outran_is_redone_once_as_multi(
+    monkeypatch, point_type, returncodes, after, types, fails
 ):
     monkeypatch.setattr(settings, "database_sources", {"gis": _connection()})
+
+    async def _probe(*args):
+        if isinstance(after, Exception):
+            raise after
+        return TableGeometry(column="geom", srid=4326, point_type=after)
+
+    monkeypatch.setattr(database_import, "probe_table_geometry", _probe)
     spawned: list[tuple] = []
     outcomes = iter(returncodes)
 

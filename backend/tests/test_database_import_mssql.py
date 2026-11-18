@@ -634,6 +634,37 @@ async def test_a_multipoint_written_after_the_probe_imports_as_multi(
         await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
 
 
+async def test_points_that_lost_their_z_after_the_probe_get_no_invented_z(
+    client: AsyncClient,
+    editor_auth_header,
+    configured,
+    test_db_session,
+    monkeypatch,
+):
+    probe = tasks_database.probe_table_geometry
+
+    async def _pointz(*args):
+        return dataclasses.replace(await probe(*args), point_type="POINTZ")
+
+    monkeypatch.setattr(tasks_database, "probe_table_geometry", _pointz)
+    name = f"dz_{uuid.uuid4().hex[:10]}"
+    await _admin(f"CREATE TABLE dbo.{name} (id int PRIMARY KEY, geom geometry)")
+    try:
+        await _admin(
+            f"INSERT INTO dbo.{name} VALUES "
+            "(1, geometry::STGeomFromText('POINT (1 1)', 4326)),"
+            "(2, geometry::STGeomFromText('POINT (2 2)', 4326))"
+        )
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        dataset = await _dataset(test_db_session, job.dataset_id)
+        dims = await _rows(test_db_session, dataset, "SELECT ST_NDims(geom) FROM {t}")
+        assert [d for (d,) in dims] == [2, 2]
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
 async def test_a_multipoint_written_after_the_refresh_probe_refreshes_as_multi(
     client: AsyncClient,
     editor_auth_header,
