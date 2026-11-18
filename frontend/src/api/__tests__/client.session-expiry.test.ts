@@ -80,7 +80,14 @@ describe('session-expiry notification (fix #628)', () => {
 
     // Flagged unconfirmed so a sign-in catch downstream cannot read
     // it as a rejected credential and revoke every session.
-    await expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401, unconfirmed: true });
+    vi.useFakeTimers();
+    try {
+      const pending = expect(apiFetch('/a/')).rejects.toMatchObject({ status: 401, unconfirmed: true });
+      await vi.advanceTimersByTimeAsync(4_000);
+      await pending;
+    } finally {
+      vi.useRealTimers();
+    }
 
     expect(logoutSession).not.toHaveBeenCalled();
     expect(handler).not.toHaveBeenCalled();

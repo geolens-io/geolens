@@ -3,7 +3,8 @@
  *
  * Renders <SearchPage/> in every case EXCEPT:
  *   flag ON  AND  no auth token  AND  no guest-browse session marker
- *   → <Navigate to="/login" replace/>
+ *   → <Navigate to="/login" replace/>, or a loading state while a reload's
+ *     session is still being restored
  *
  * This keeps the index route public: datasets/:id, collections,
  * maps, etc. are NOT affected — only the "/" index route uses this guard.
@@ -18,6 +19,8 @@ import { Navigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useAuthStore } from '@/stores/auth-store';
 import { getAuthConfig } from '@/api/auth';
+import { LoadingState } from '@/components/layout/LoadingState';
+import { useSessionRestore } from '@/lib/session-sync';
 import { queryKeys } from '@/lib/query-keys';
 import { readSessionStorage } from '@/lib/storage';
 
@@ -30,6 +33,7 @@ const GUEST_BROWSE_KEY = 'gl-guest-browse';
 
 export function LandingFirstGuard() {
   const token = useAuthStore((s) => s.token);
+  const restoring = useSessionRestore((s) => s.restoring);
 
   const { data: config } = useQuery({
     queryKey: queryKeys.authConfig.config,
@@ -46,7 +50,7 @@ export function LandingFirstGuard() {
   const guestBrowse = readSessionStorage(GUEST_BROWSE_KEY) === 'true';
 
   if (landingFirst && !token && !guestBrowse) {
-    return <Navigate to="/login" replace />;
+    return restoring ? <LoadingState /> : <Navigate to="/login" replace />;
   }
 
   return <SearchPage />;

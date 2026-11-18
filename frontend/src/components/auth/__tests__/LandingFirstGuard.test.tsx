@@ -6,6 +6,7 @@
  *  B) flag ON + no token + no guest marker → redirect to /login
  *  C) flag ON + guest marker set → SearchPage (escape hatch honoured)
  *  D) flag ON + authenticated → SearchPage (token present)
+ *  F) flag ON + no token yet, reload's session still restoring → loading state
  */
 import { act, Suspense } from 'react';
 import { readFileSync } from 'node:fs';
@@ -13,6 +14,7 @@ import { resolve } from 'node:path';
 import { render, screen } from '@testing-library/react';
 import { MemoryRouter, Routes, Route, useLocation } from 'react-router';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { useSessionRestore } from '@/lib/session-sync';
 import { useAuthStore } from '@/stores/auth-store';
 import { LandingFirstGuard } from '../LandingFirstGuard';
 import type { AuthConfigResponse } from '@/types/api';
@@ -156,6 +158,18 @@ describe('LandingFirstGuard', () => {
 
     expect(await screen.findByTestId('search-page')).toBeInTheDocument();
     expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
+  });
+
+  it('F) flag ON + session still restoring — shows the loading state, not /login', () => {
+    useSessionRestore.setState({ restoring: true });
+    try {
+      renderGuard({ landing_first: true });
+
+      expect(screen.getByRole('status')).toBeInTheDocument();
+      expect(screen.queryByTestId('login-page')).not.toBeInTheDocument();
+    } finally {
+      useSessionRestore.setState({ restoring: false });
+    }
   });
 
   it('E) DEMO-04 — flag ON + anon + /maps/:id route → NOT intercepted by the index guard', () => {

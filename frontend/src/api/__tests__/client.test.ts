@@ -414,24 +414,49 @@ describe('apiFetch', () => {
       expect(useAuthStore.getState().token).toBe('fresh-token');
     });
 
-    it('backs off once on a 429 before giving up', async () => {
+    it('resends a rate-limited refresh after its Retry-After and completes the request', async () => {
       vi.useFakeTimers();
       try {
         const { refreshAccessToken } = await import('@/api/auth');
-        vi.mocked(refreshAccessToken).mockRejectedValueOnce(new ApiError('rate limited', 429));
+        vi.mocked(refreshAccessToken)
+          .mockRejectedValueOnce(Object.assign(new ApiError('rate limited', 429), { retryAfterMs: 3_000 }))
+          .mockResolvedValueOnce({ access_token: 'fresh-429', refresh_token: null, expires_in: 900, token_type: 'bearer' });
+
+        useAuthStore.setState({ token: 'expired-token-429', refreshToken: 'r' });
+        mockFetch.mockResolvedValueOnce(errorResponse(401)).mockResolvedValueOnce(jsonResponse({ ok: true }));
+
+        const pending = apiFetch('/protected/');
+        await vi.advanceTimersByTimeAsync(3_000);
+
+        await expect(pending).resolves.toEqual({ ok: true });
+        expect(refreshAccessToken).toHaveBeenCalledTimes(2);
+        expect(useAuthStore.getState().token).toBe('fresh-429');
+      } finally {
+        vi.useRealTimers();
+      }
+    });
+
+    it('gives up on a refresh still rate-limited after its retries, keeping the session', async () => {
+      vi.useFakeTimers();
+      try {
+        const { refreshAccessToken } = await import('@/api/auth');
+        vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('rate limited', 429));
 
         useAuthStore.setState({ token: 'expired-token-1849c', refreshToken: 'bad-refresh' });
         mockFetch.mockResolvedValueOnce(errorResponse(401));
 
         const pending = apiFetch('/protected/').catch((e: unknown) => e);
-        await vi.advanceTimersByTimeAsync(2000);
+        await vi.advanceTimersByTimeAsync(4_000);
         const result = await pending;
 
-        expect(result).toBeInstanceOf(ApiError);
+        expect(result).toMatchObject({ status: 401, unconfirmed: true });
+        expect(refreshAccessToken).toHaveBeenCalledTimes(3);
         expect(mockFetch).toHaveBeenCalledTimes(1);
         // Rate-limited is transient, so the session survives it.
         expect(useAuthStore.getState().token).toBe('expired-token-1849c');
       } finally {
+        const { refreshAccessToken } = await import('@/api/auth');
+        vi.mocked(refreshAccessToken).mockReset();
         vi.useRealTimers();
       }
     });

@@ -57,7 +57,7 @@ describe('session recovery and cross-tab sync', () => {
     peer.close();
     unwire();
     abortInflightRefresh();
-    useSessionRestore.setState({ failures: 0 });
+    useSessionRestore.setState({ failures: 0, restoring: false });
     useAuthStore.setState({ token: null, refreshToken: null, expiresAt: null, user: null, sessionId: null });
     window.localStorage.removeItem(STORAGE_KEY);
     window.history.replaceState({}, '', '/');
@@ -140,25 +140,72 @@ describe('session recovery and cross-tab sync', () => {
     }
   });
 
-  it('retries a rate-limited recovery once the server says it may', async () => {
+  it('resends a rate-limited recovery after its Retry-After and keeps the session', async () => {
     const limited = Object.assign(new ApiError('rate limited', 429), { retryAfterMs: 5_000 });
     vi.mocked(refreshAccessToken).mockRejectedValueOnce(limited);
+    vi.mocked(refreshAccessToken).mockResolvedValueOnce(issued('recovered'));
     await reloadWith({ sessionId: 'session-1', user });
 
     vi.useFakeTimers();
     try {
-      vi.mocked(refreshAccessToken).mockResolvedValueOnce(issued('recovered'));
       const pending = restoreSession();
-      await vi.advanceTimersByTimeAsync(2_000);
-      await pending;
-      expect(useSessionRestore.getState().failures).toBe(1);
+      await vi.advanceTimersByTimeAsync(0);
+      expect(useSessionRestore.getState().restoring).toBe(true);
 
-      await vi.advanceTimersByTimeAsync(4_000);
+      await vi.advanceTimersByTimeAsync(4_900);
       expect(refreshAccessToken).toHaveBeenCalledTimes(1);
-      await vi.advanceTimersByTimeAsync(1_000);
+      await vi.advanceTimersByTimeAsync(100);
+      await pending;
+
       expect(refreshAccessToken).toHaveBeenCalledTimes(2);
+      expect(useAuthStore.getState()).toMatchObject({ token: 'recovered', sessionId: 'session-1', user });
+      expect(useSessionRestore.getState()).toMatchObject({ failures: 0, restoring: false });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('caps a long Retry-After so the page load does not wait out the whole window', async () => {
+    const limited = Object.assign(new ApiError('rate limited', 429), { retryAfterMs: 60_000 });
+    vi.mocked(refreshAccessToken).mockRejectedValueOnce(limited);
+    vi.mocked(refreshAccessToken).mockResolvedValueOnce(issued('recovered'));
+    await reloadWith({ sessionId: 'session-1', user });
+
+    vi.useFakeTimers();
+    try {
+      const pending = restoreSession();
+      await vi.advanceTimersByTimeAsync(10_000);
+      await pending;
+
+      expect(refreshAccessToken).toHaveBeenCalledTimes(2);
+      expect(useAuthStore.getState().token).toBe('recovered');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('keeps the session but stops holding the page once the rate-limit retries run out', async () => {
+    vi.mocked(refreshAccessToken).mockRejectedValue(new ApiError('rate limited', 429));
+    await reloadWith({ sessionId: 'session-1', user });
+
+    vi.useFakeTimers();
+    try {
+      const pending = restoreSession();
+      await vi.advanceTimersByTimeAsync(4_000);
+      await pending;
+
+      // The first send and two resends, two seconds apart without a Retry-After.
+      expect(refreshAccessToken).toHaveBeenCalledTimes(3);
+      expect(useAuthStore.getState()).toMatchObject({ token: null, sessionId: 'session-1', user });
+      expect(useSessionRestore.getState()).toMatchObject({ failures: 1, restoring: false });
+      expect(window.localStorage.getItem(STORAGE_KEY)).toContain('session-1');
+
+      // The slow background retry still brings the session back.
+      vi.mocked(refreshAccessToken).mockResolvedValueOnce(issued('recovered'));
+      await vi.advanceTimersByTimeAsync(30_000);
       expect(useAuthStore.getState()).toMatchObject({ token: 'recovered', sessionId: 'session-1' });
     } finally {
+      vi.mocked(refreshAccessToken).mockReset();
       vi.useRealTimers();
     }
   });
@@ -253,6 +300,26 @@ describe('session recovery and cross-tab sync', () => {
 
     expect(vi.mocked(refreshAccessToken).mock.calls[0][0]).toBeNull();
     expect(useAuthStore.getState()).toMatchObject({ token: 'adopted', sessionId: 'peer-session' });
+  });
+
+  it('keeps restoring a session another tab signed in while the replaced restore settles', async () => {
+    await reloadWith({ user, sessionId: 'session-1' });
+    vi.mocked(refreshAccessToken)
+      .mockImplementationOnce(
+        (_token, signal) =>
+          new Promise((_resolve, reject) => {
+            signal?.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError')));
+          }),
+      )
+      .mockImplementationOnce(() => new Promise(() => {}));
+    void restoreSession();
+    await vi.waitFor(() => expect(refreshAccessToken).toHaveBeenCalledTimes(1));
+
+    peer.post({ type: 'login', sessionId: 'peer-session' });
+    await settle();
+
+    expect(refreshAccessToken).toHaveBeenCalledTimes(2);
+    expect(useSessionRestore.getState().restoring).toBe(true);
   });
 
   it('announces sign-in and logout with the session id alone', async () => {

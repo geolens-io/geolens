@@ -12,12 +12,18 @@ import { isEmbedViewer } from '@/lib/embed-context';
 import { readPersistedUser, SIGNED_OUT, useAuthStore } from '@/stores/auth-store';
 
 /**
- * Transient restore failures since the session last held a token. Above zero,
- * the page shows the stored user without the access that user has.
+ * `failures`: transient restore failures since the session last held a token.
+ * Above zero, the page shows the stored user without the access that user has.
+ * `restoring`: a refresh for a known session is in flight, so a missing token
+ * does not yet mean signed out.
  */
-export const useSessionRestore = create<{ failures: number }>(() => ({ failures: 0 }));
+export const useSessionRestore = create<{ failures: number; restoring: boolean }>(() => ({
+  failures: 0,
+  restoring: false,
+}));
 
 let retryTimer: ReturnType<typeof setTimeout> | undefined;
+let restoreAttempt = 0;
 
 /**
  * Get an access token for a session this tab knows of but holds no token for:
@@ -31,7 +37,12 @@ export async function restoreSession(): Promise<void> {
   if (isEmbedViewer()) return;
   const { token, sessionId, refreshToken } = useAuthStore.getState();
   if (token || (!sessionId && !refreshToken)) return;
-  const outcome = await attemptRefresh();
+  const attempt = ++restoreAttempt;
+  useSessionRestore.setState({ restoring: true });
+  const outcome = await attemptRefresh().finally(() => {
+    // A restore started since, for a session another tab signed in, owns the flag.
+    if (attempt === restoreAttempt) useSessionRestore.setState({ restoring: false });
+  });
   const current = useAuthStore.getState();
   if (current.sessionId !== sessionId || current.token) return;
   if (outcome === 'rejected') {
