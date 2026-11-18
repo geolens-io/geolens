@@ -1405,7 +1405,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1222,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1865,
+    "backend/app/processing/ingest/ogr.py": 1932,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,
@@ -1422,7 +1422,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 700,
     # Dataset request and verification response families share this public contract.
-    "backend/app/modules/catalog/datasets/domain/schemas.py": 2025,
+    "backend/app/modules/catalog/datasets/domain/schemas.py": 2033,
     # Records, datasets and their grant, translation and attribute children map
     # one catalog schema.
     "backend/app/modules/catalog/datasets/domain/models.py": 1003,

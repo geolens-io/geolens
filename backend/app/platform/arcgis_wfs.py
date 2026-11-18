@@ -12,7 +12,7 @@ import asyncio
 import re
 from collections.abc import Callable
 from typing import NamedTuple
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import httpx
 import structlog
@@ -41,7 +41,11 @@ from app.platform.service_endpoints import (
     _operation_hrefs,
     _wfs_capabilities_node,
     _url_add_kvp,
+    _url_get_value,
+    _wfs_feature_types,
+    _wfs_layer_name,
     _wfs_root,
+    _xml_value,
     bounded_parse_qsl,
     credential_headers,
 )
@@ -59,8 +63,13 @@ _READ_KEYS = (
     "STARTINDEX",
     "OUTPUTFORMAT",
 )
+# The read keys GDAL passes on to the server, which can narrow the features
+# an import gets but not the total a hits read states.
+SUBSET_KEYS = ("STARTINDEX", "COUNT", "MAXFEATURES")
 _DEFAULT_VERSION = "2.0.0"
-_COUNT = re.compile("[0-9]+")
+# xsd:nonNegativeInteger: an optional "+" and leading zeros; more than 19
+# significant digits is no feature count, so it reads as unknown.
+_COUNT = re.compile(r"\+?0*([0-9]{1,19})")
 
 
 def wfs_url(url: str, layer: str, *, version: str, **params: str) -> str:
@@ -94,8 +103,25 @@ def number_matched(body: bytes) -> int | None:
     root = _root(body)
     if root is None:
         return None
-    value = root.get("numberMatched") or root.get("numberOfFeatures") or ""
-    return int(value) if _COUNT.fullmatch(value) else None
+    return _count(root.get("numberMatched") or root.get("numberOfFeatures") or "")
+
+
+def _count(value: str) -> int | None:
+    count = _COUNT.fullmatch(value.strip(" \t\r\n"))
+    return int(count.group(1)) if count else None
+
+
+def url_subset(url: str) -> dict[str, int]:
+    """The `SUBSET_KEYS` ``url`` sets to a positive count, by key: the first
+    query parameter whose whole name matches without case. A zero or
+    unparsable value narrows nothing."""
+    values: dict[str, str] = {}
+    for pair in url.partition("?")[2].split("&"):
+        name, _, value = pair.partition("=")
+        if name.isascii() and name.upper() in SUBSET_KEYS:
+            values.setdefault(name.upper(), value)
+    counts = {key: _count(unquote(value)) for key, value in values.items()}
+    return {key: count for key, count in counts.items() if count}
 
 
 def features_returned(body: bytes) -> int | None:
@@ -170,11 +196,17 @@ class CapabilitiesUnreadableError(Exception):
     URL doesn't say is unknown."""
 
 
-class ArcGISWfs(NamedTuple):
-    """What recognised an ArcGIS WFS, and the WFS version its reads speak."""
+class WfsService(NamedTuple):
+    """What recognised an ArcGIS WFS (None for another server), the WFS
+    version its reads speak, and the feature type names it advertises."""
 
-    evidence: EsriEvidence
+    evidence: EsriEvidence | None
     version: str
+    names: tuple[str, ...] = ()
+
+    def type_name(self, requested: str) -> str:
+        """The advertised name GDAL opens for ``requested``, else ``requested``."""
+        return _wfs_layer_name(list(self.names), requested) or requested
 
 
 def _url_version(url: str) -> str | None:
@@ -197,8 +229,8 @@ async def recognise_arcgis_wfs(
     *,
     credential_line: str | None,
     on_first_request: Callable[[], None] | None = None,
-) -> ArcGISWfs | None:
-    """The ArcGIS WFS ``url`` reaches, or None for any other WFS.
+) -> WfsService | None:
+    """The WFS ``url`` reaches, with ``evidence`` None for any other server.
 
     A URL naming the service decides on its own. Otherwise GetCapabilities
     does: the URL it ended on after redirects, the operation endpoints it
@@ -207,17 +239,19 @@ async def recognise_arcgis_wfs(
     body over its bound, an exception report) is retried after each of
     `RECOGNITION_RETRY_DELAYS`, then raises `CapabilitiesUnreadableError`:
     unrecognised, an ArcGIS layer would be imported unchecked. None is
-    returned only for another server's capabilities, an HTTP 401 or 403, or
-    an address the SSRF policy refuses: GDAL is refused the same way.
+    returned only for an HTTP 401 or 403 or an address the SSRF policy
+    refuses on a URL that doesn't name the service: GDAL is refused the
+    same way.
 
-    The version is the URL's own, else the one GetCapabilities answers in,
-    as GDAL settles on it, else 2.0.0; GetCapabilities isn't read when the
-    URL names both the service and a version.
+    The version is the one GetCapabilities answers in, read as GDAL reads
+    it, whatever the URL names. GetCapabilities isn't read when the URL
+    names both the service and a version; then, when that read fails, or
+    when an ArcGIS WFS states no version, it is the URL's own, else 2.0.0.
     """
     version = _url_version(url)
     evidence = esri_evidence("wfs", url)
     if evidence is not None and version is not None:
-        return ArcGISWfs(evidence, version)
+        return WfsService(evidence, version)
     if evidence is None:
         try:
             await validate_url_for_ssrf(_capabilities_url(url))
@@ -245,10 +279,18 @@ async def recognise_arcgis_wfs(
         )
         if evidence is not None:
             logger.info("arcgis_wfs_recognised", evidence=evidence)
-    if evidence is None:
-        return None
-    answered = None if root is None else root.get("version")
-    return ArcGISWfs(evidence, version or answered or _DEFAULT_VERSION)
+    if root is None:
+        return WfsService(evidence, version or _DEFAULT_VERSION)
+    answered, names = _wfs_feature_types(root)
+    if evidence is not None and not _xml_value(root, "version"):
+        answered = version or _DEFAULT_VERSION
+    # GDAL lists only the advertised types a TYPENAME (else TYPENAMES) in the
+    # URL selects, matched without case.
+    selector = _url_get_value(url, "TYPENAME") or _url_get_value(url, "TYPENAMES")
+    if selector:
+        selected = {name.lower() for name in unquote(selector).split(",")}
+        names = [name for name in names if name.lower() in selected]
+    return WfsService(evidence, answered, tuple(names))
 
 
 async def _read_capabilities(

@@ -171,6 +171,7 @@ describe('apiFetch', () => {
   it.each([
     ['unpublish', 'would lose it if it were unpublished: Flood Risk, Parcels 2026.'],
     ['restrict_visibility', 'would lose it: Flood Risk, Parcels 2026.'],
+    ['delete', 'would lose it if it were deleted: Flood Risk, Parcels 2026.'],
   ])('localizes a coded %s refusal from the problem body, not its sentence', async (action, text) => {
     mockFetch.mockResolvedValueOnce(
       jsonResponse({

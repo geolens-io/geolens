@@ -50,8 +50,10 @@ from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.arcgis_wfs import (
     CapabilitiesUnreadableError,
     arcgis_wfs_pages_by_count,
+    WfsService,
     fetch_arcgis_wfs_hits,
     recognise_arcgis_wfs,
+    url_subset,
 )
 from app.platform.egress_proxy import (
     gdal_source_url,
@@ -469,7 +471,7 @@ class IngestionError(Exception):
 
 
 class WfsCountMismatchError(IngestionError):
-    """An ArcGIS WFS import whose feature count differs from the layer's
+    """A WFS import whose staged count fails the check against the layer's
     total. Final: retrying under another layer name can't make it whole."""
 
 
@@ -1601,9 +1603,10 @@ async def run_ogr2ogr_service(
         cmd.append(layer_name)
 
     expected_features: int | None = None
+    expected_strict = False
     if service_type == "wfs":
         cmd.extend(["--config", "OGR_WFS_PAGE_SIZE", "1000"])
-        expected_features = await _arcgis_wfs_expected_features(
+        expected_features, expected_strict = await _wfs_expected_features(
             cmd, gdal_source, layer_name, token, arm_origin_contact
         )
 
@@ -1765,32 +1768,56 @@ async def run_ogr2ogr_service(
             service_error=service_error,
         )
     if expected_features is not None:
-        refuse_short_arcgis_wfs(
-            await staged_row_count(table_name, schema), expected_features
+        await _refuse_short_wfs_import(
+            table_name, schema, expected_features, expected_strict
         )
 
 
-async def _arcgis_wfs_expected_features(
+async def _refuse_short_wfs_import(
+    table_name: str,
+    schema: str,
+    expected: int,
+    strict: bool,
+) -> None:
+    """Fail a WFS import whose staged count fails the check against the
+    layer's total: any difference for an ArcGIS WFS, only a shortfall for
+    any other."""
+    staged = await staged_row_count(table_name, schema)
+    if strict:
+        refuse_short_arcgis_wfs(staged, expected)
+    else:
+        refuse_short_wfs(staged, expected)
+
+
+async def _wfs_expected_features(
     cmd: list[str],
     gdal_source: str,
     layer_name: str,
     token: str | None,
     arm_origin_contact: "Callable[[], None] | None",
-) -> int | None:
-    """For an ArcGIS WFS, read the layer's total, and turn GDAL's paging off
-    unless ``COUNT`` is a page size there. None for any other WFS. Raises
-    when the total can't be read: without it a capped read would pass for
-    the whole layer."""
+) -> tuple[int | None, bool]:
+    """For a WFS, read the layer's total from ``resultType=hits`` in the
+    version GDAL settles on, and for a non-ArcGIS WFS under its advertised
+    type name.
+
+    Returns the total and whether the count is strict. An ArcGIS WFS turns
+    GDAL's paging off unless ``COUNT`` is a page size there, and any
+    difference from the total fails the import, since a repeated page is
+    possible too. Any other WFS keeps the total as a floor: only fewer
+    staged than stated fails, since some servers state their cap, not the
+    layer size, while GDAL still pages through it. None when the service
+    states no total: an ArcGIS import raises without it, while any other
+    import goes ahead unchecked."""
     url = gdal_source_url(gdal_source)
     if url is None:
-        return None
+        return None, False
     credential_line = (
         _sanitize_authorization_token(token, service_format="wfs") if token else None
     )
     # The contact is armed by the first read to pass SSRF validation.
     reads = {"credential_line": credential_line, "on_first_request": arm_origin_contact}
     try:
-        arcgis = await recognise_arcgis_wfs(url, **reads)
+        service = await recognise_arcgis_wfs(url, **reads)
     except CapabilitiesUnreadableError:
         raise IngestionError(
             FixedReason(
@@ -1800,9 +1827,11 @@ async def _arcgis_wfs_expected_features(
                 code="arcgis_wfs_count_unavailable",
             )
         ) from None
-    if arcgis is None:
-        return None
-    version = arcgis.version
+    if service is None:
+        return None, False
+    if service.evidence is None:
+        return await _wfs_stated_floor(url, service, layer_name, reads), False
+    version = service.version
     expected = await fetch_arcgis_wfs_hits(url, layer_name, version=version, **reads)
     if expected is None:
         raise IngestionError(
@@ -1815,7 +1844,30 @@ async def _arcgis_wfs_expected_features(
         )
     if not await arcgis_wfs_pages_by_count(url, layer_name, version=version, **reads):
         cmd.extend(["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"])
-    return expected
+    return expected, True
+
+
+async def _wfs_stated_floor(
+    url: str, service: WfsService, layer_name: str, reads: dict
+) -> int | None:
+    """A non-ArcGIS WFS layer's total under its advertised name, or None
+    when the hits read can't describe the features the import gets.
+
+    WFS 1.0 has no ``resultType``. The hits read drops the URL's
+    `url_subset`, so a URL that narrows the import with any of it goes
+    unchecked, except a WFS 1.x ``MAXFEATURES`` alone, which caps the
+    total. Every other parameter reaches both reads as submitted.
+    """
+    version = service.version
+    subset = url_subset(url)
+    capped = not version.startswith("2") and subset.keys() == {"MAXFEATURES"}
+    if version.startswith("1.0") or (subset and not capped):
+        return None
+    layer = service.type_name(layer_name)
+    total = await fetch_arcgis_wfs_hits(url, layer, version=version, **reads)
+    if total is None or not capped:
+        return total
+    return min(total, subset["MAXFEATURES"])
 
 
 async def staged_row_count(table_name: str, schema: str) -> int:
@@ -1863,3 +1915,18 @@ def refuse_short_arcgis_wfs(imported: int, expected: int) -> None:
         )
     )
     raise WfsCountMismatchError(reason)
+
+
+def refuse_short_wfs(imported: int, expected: int) -> None:
+    """Fail a WFS import that staged fewer features than the server's
+    stated total. More than the total passes: some servers state their cap,
+    not the layer size, while GDAL still pages through it."""
+    if imported >= expected:
+        return
+    raise WfsCountMismatchError(
+        FixedReason(
+            f"The WFS returned {imported} of {expected} features, so nothing "
+            "was imported.",
+            code="wfs_short",
+        )
+    )

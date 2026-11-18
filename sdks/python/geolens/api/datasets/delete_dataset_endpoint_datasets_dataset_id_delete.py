@@ -114,6 +114,9 @@ def sync_detailed(
 
      Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
 
+    Refused with a 422 `dataset_in_shared_maps` (action `delete`) while one of
+    the owner's shared maps shows it to an audience that would lose it.
+
     Args:
         dataset_id (UUID):
         body (DatasetDeleteRequest):
@@ -148,6 +151,9 @@ def sync(
 
      Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
 
+    Refused with a 422 `dataset_in_shared_maps` (action `delete`) while one of
+    the owner's shared maps shows it to an audience that would lose it.
+
     Args:
         dataset_id (UUID):
         body (DatasetDeleteRequest):
@@ -176,6 +182,9 @@ async def asyncio_detailed(
     """Delete a dataset
 
      Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
+
+    Refused with a 422 `dataset_in_shared_maps` (action `delete`) while one of
+    the owner's shared maps shows it to an audience that would lose it.
 
     Args:
         dataset_id (UUID):
@@ -208,6 +217,9 @@ async def asyncio(
     """Delete a dataset
 
      Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
+
+    Refused with a 422 `dataset_in_shared_maps` (action `delete`) while one of
+    the owner's shared maps shows it to an audience that would lose it.
 
     Args:
         dataset_id (UUID):

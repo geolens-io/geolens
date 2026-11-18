@@ -3392,6 +3392,24 @@
               }
             ],
             "title": "Code"
+          },
+          "shared_maps": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The owner's shared maps that refused this item, as `{\"id\", \"name\"}` pairs, on a `dataset_in_shared_maps` error. Null otherwise.",
+            "title": "Shared Maps"
           }
         },
         "required": [
@@ -18798,7 +18816,7 @@
             "type": "string"
           },
           "action": {
-            "description": "The refused change, on a `dataset_in_shared_maps` 422: `unpublish` or `restrict_visibility`. Absent otherwise.",
+            "description": "The refused change, on a `dataset_in_shared_maps` 422: `unpublish`, `restrict_visibility` or `delete`. Absent otherwise.",
             "title": "Action",
             "type": "string"
           },
@@ -42481,7 +42499,7 @@
     },
     "/datasets/{dataset_id}": {
       "delete": {
-        "description": "Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.",
+        "description": "Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.\n\nRefused with a 422 `dataset_in_shared_maps` (action `delete`) while one of\nthe owner's shared maps shows it to an audience that would lose it.",
         "operationId": "delete_dataset_endpoint_datasets__dataset_id__delete",
         "parameters": [
           {

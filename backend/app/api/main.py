@@ -869,7 +869,7 @@ async def _storage_quota_handler(
 async def _dataset_in_shared_maps_handler(
     request: Request, exc: DatasetInSharedMapsError
 ) -> JSONResponse:
-    # A visibility narrowing refused because the owner's shared maps show the
+    # A narrowing or delete refused because the owner's shared maps show the
     # dataset: 422 with the sentence as detail and the structured fields
     # beside it, so released clients keep showing the sentence while newer
     # ones read the code and the blocking maps.
