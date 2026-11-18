@@ -51,9 +51,9 @@ from app.platform.arcgis_wfs import (
     CapabilitiesUnreadableError,
     arcgis_wfs_pages_by_count,
     WfsService,
-    feature_limit,
     fetch_arcgis_wfs_hits,
     recognise_arcgis_wfs,
+    url_subset,
 )
 from app.platform.egress_proxy import (
     gdal_source_url,
@@ -1848,21 +1848,24 @@ async def _wfs_expected_features(
 async def _wfs_stated_floor(
     url: str, service: WfsService, layer_name: str, reads: dict
 ) -> int | None:
-    """A non-ArcGIS WFS layer's total under its advertised name, capped by
-    the ``MAXFEATURES`` a WFS 1.x URL asks for, or None. WFS 1.0 has no
-    ``resultType``, so it isn't asked. Under 2.0 whether GDAL stops at a
-    ``COUNT`` or ``MAXFEATURES`` in the URL depends on the server's paging,
-    so a URL naming either goes unchecked."""
+    """A non-ArcGIS WFS layer's total under its advertised name, or None
+    when the hits read can't describe the features the import gets.
+
+    WFS 1.0 has no ``resultType``. The hits read drops the URL's
+    `url_subset`, so a URL that narrows the import with any of it goes
+    unchecked, except a WFS 1.x ``MAXFEATURES`` alone, which caps the
+    total. Every other parameter reaches both reads as submitted.
+    """
     version = service.version
-    if version.startswith("1.0"):
-        return None
-    two = version.startswith("2")
-    if two and (feature_limit(url, "COUNT") or feature_limit(url, "MAXFEATURES")):
+    subset = url_subset(url)
+    capped = not version.startswith("2") and subset.keys() == {"MAXFEATURES"}
+    if version.startswith("1.0") or (subset and not capped):
         return None
     layer = service.type_name(layer_name)
     total = await fetch_arcgis_wfs_hits(url, layer, version=version, **reads)
-    limit = None if two else feature_limit(url, "MAXFEATURES")
-    return total if total is None or limit is None else min(total, limit)
+    if total is None or not capped:
+        return total
+    return min(total, subset["MAXFEATURES"])
 
 
 async def staged_row_count(table_name: str, schema: str) -> int:

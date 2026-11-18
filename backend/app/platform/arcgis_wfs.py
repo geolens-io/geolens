@@ -63,6 +63,9 @@ _READ_KEYS = (
     "STARTINDEX",
     "OUTPUTFORMAT",
 )
+# The read keys GDAL passes on to the server, which can narrow the features
+# an import gets but not the total a hits read states.
+SUBSET_KEYS = ("STARTINDEX", "COUNT", "MAXFEATURES")
 _DEFAULT_VERSION = "2.0.0"
 # xsd:nonNegativeInteger: an optional "+" and leading zeros; more than 19
 # significant digits is no feature count, so it reads as unknown.
@@ -108,10 +111,11 @@ def _count(value: str) -> int | None:
     return int(count.group(1)) if count else None
 
 
-def feature_limit(url: str, key: str) -> int | None:
-    """The feature limit ``url`` asks for under ``key`` (``MAXFEATURES`` or
-    ``COUNT``), or None when it names no positive count."""
-    return _count(unquote(_url_get_value(url, key))) or None
+def url_subset(url: str) -> dict[str, int]:
+    """The `SUBSET_KEYS` ``url`` sets to a positive count, by key, matched
+    without case; a zero or unparsable value narrows nothing."""
+    counts = {key: _count(unquote(_url_get_value(url, key))) for key in SUBSET_KEYS}
+    return {key: count for key, count in counts.items() if count}
 
 
 def features_returned(body: bytes) -> int | None:

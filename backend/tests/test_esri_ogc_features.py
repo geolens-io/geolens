@@ -1819,6 +1819,15 @@ def _wfs(capabilities: bytes, *, hits: int = 25, member_count: int = 1):
     return handle
 
 
+def test_every_key_the_hits_read_drops_is_a_subset_key_or_keeps_the_features() -> None:
+    from app.platform.arcgis_wfs import _READ_KEYS, SUBSET_KEYS
+
+    # Replaced by the type name the count resolves, or no effect on which
+    # features come back.
+    same_features = {"TYPENAME", "TYPENAMES", "RESULTTYPE", "OUTPUTFORMAT"}
+    assert set(_READ_KEYS) == set(SUBSET_KEYS) | same_features
+
+
 class TestAnArcGISWFSBehindAnotherURLIsCounted:
     """GetCapabilities names the service when the URL doesn't, so the import
     is held to the layer's total."""
@@ -1995,18 +2004,18 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
         assert [r.url.params["VERSION"] for r in hits] == ["1.0.0"]
 
     @pytest.mark.parametrize(
-        ("query", "stated", "staged", "short"),
+        ("query", "stated", "staged", "floor"),
         [
-            ("?MAXFEATURES=25", "5000", 25, False),
-            ("?maxFeatures=+0025", "5000", 25, False),
-            ("", "5000", 25, True),
-            ("?MAXFEATURES=0", "5000", 25, True),
-            ("?MAXFEATURES=10000", "25", 10, True),
+            ("?MAXFEATURES=25", "5000", 25, None),
+            ("?maxFeatures=+0025", "5000", 25, None),
+            ("", "5000", 25, 5000),
+            ("?MAXFEATURES=0", "5000", 25, 5000),
+            ("?MAXFEATURES=10000", "25", 10, 25),
         ],
         ids=["limit", "limit-spelling", "no-limit", "zero-limit", "limit-above-total"],
     )
     async def test_a_1_1_geoserver_is_held_to_the_limit_its_url_asks_for(
-        self, monkeypatch, rows, query, stated, staged, short
+        self, monkeypatch, rows, query, stated, staged, floor
     ) -> None:
         from app.processing.ingest.ogr import WfsCountMismatchError
 
@@ -2017,8 +2026,10 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
         _spawn_reading_the_source(monkeypatch)
         rows.return_value = staged
 
-        if short:
-            with pytest.raises(WfsCountMismatchError, match=f"returned {staged} of"):
+        if floor is not None:
+            with pytest.raises(
+                WfsCountMismatchError, match=f"returned {staged} of {floor} features"
+            ):
                 await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
         else:
             await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
@@ -2054,6 +2065,57 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
 
         with pytest.raises(WfsCountMismatchError, match="returned 25 of 100"):
             await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
+
+    @pytest.mark.parametrize(
+        ("version", "query"),
+        [
+            ("2.0.0", "?STARTINDEX=10"),
+            ("1.1.0", "?STARTINDEX=10"),
+            ("2.0.0", "?StartIndex=10&Count=5"),
+            ("1.1.0", "?startindex=10&MAXFEATURES=5"),
+            ("1.1.0", "?COUNT=5"),
+        ],
+    )
+    async def test_a_url_narrowing_the_import_past_the_hits_read_is_not_counted(
+        self, monkeypatch, rows, version, query
+    ) -> None:
+        recorded = _serve(
+            monkeypatch,
+            _counting_only(version, "topp:pts", advertised=version, stated="25"),
+        )
+        _spawn_reading_the_source(monkeypatch)
+        rows.return_value = 5
+
+        await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
+
+        assert [r.url.params.get("REQUEST") for r in recorded] == ["GetCapabilities"]
+        rows.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        ("query", "key"),
+        [
+            ("?FILTER=%3CFilter%2F%3E", "FILTER"),
+            ("?cql_filter=fid%3C5", "cql_filter"),
+            ("?BBOX=0,0,5,5", "BBOX"),
+            ("?RESOURCEID=pts.1", "RESOURCEID"),
+            ("?STARTINDEX=0", "STARTINDEX"),
+        ],
+    )
+    async def test_a_url_parameter_the_hits_read_carries_keeps_the_check(
+        self, monkeypatch, rows, query, key
+    ) -> None:
+        from app.processing.ingest.ogr import WfsCountMismatchError
+
+        recorded = _serve(monkeypatch, _counting_only("2.0.0", "topp:pts"))
+        _spawn_reading_the_source(monkeypatch)
+        rows.return_value = 5
+
+        with pytest.raises(WfsCountMismatchError, match="returned 5 of 25 features"):
+            await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
+
+        (hits,) = [r for r in recorded if r.url.params.get("RESULTTYPE") == "hits"]
+        if key != "STARTINDEX":
+            assert key in hits.url.params
 
     async def test_a_geoserver_layer_is_counted_within_the_urls_type_name(
         self, monkeypatch, rows
