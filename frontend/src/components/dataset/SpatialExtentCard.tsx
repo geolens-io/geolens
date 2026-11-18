@@ -2,12 +2,13 @@ import { useTranslation } from 'react-i18next';
 import { MapPin } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { formatBbox } from '@/lib/format';
+import type { Translator } from '@/i18n/translator';
 
 function formatSrid(
   srid: number | null | undefined,
   originalSrid: number | null | undefined,
   unknownLabel: string,
-  t: (key: string, opts?: Record<string, unknown>) => string,
+  t: Translator,
 ): string {
   const current = srid ? `EPSG:${srid}` : unknownLabel;
   if (originalSrid && originalSrid !== srid) {

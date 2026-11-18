@@ -4,8 +4,9 @@
 // two can't drift.
 
 import { useEffect, useState } from 'react';
+import type { Translator } from '@/i18n/translator';
 
-type BuilderTranslator = (key: string, options?: Record<string, unknown>) => string;
+type BuilderTranslator = Translator;
 
 export interface EphemeralCountInput {
   featureCount: number;

@@ -8,6 +8,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { cn } from '@/lib/utils';
+import type { Translator } from '@/i18n/translator';
 
 /**
  * RasterStretchControls: the shared COLORMAP / STRETCH section for raster
@@ -36,7 +37,7 @@ interface RasterStretchControlsProps {
   onPaintProp: (key: string, value: unknown) => void;
   /** DEM layers never show stretch/colormap (terrainrgb). */
   isDem?: boolean | null;
-  t: (key: string, opts?: Record<string, unknown>) => string;
+  t: Translator;
 }
 
 export function RasterStretchControls({

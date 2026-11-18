@@ -1,4 +1,5 @@
 import type { BuilderStyleConfig, MapLayerResponse, StyleConfig, SymbolStyleConfig } from '@/types/api';
+import type { Translator } from '@/i18n/translator';
 
 /**
  * Shared props passed to every per-render-mode editor sub-component.
@@ -40,5 +41,5 @@ export interface BaseStyleEditorProps {
   onHeatmapPaintChange: (layerId: string, nextPaint: Record<string, unknown>) => void;
   onSymbolConfigChange: (patch: SymbolStyleConfig) => void;
   onBuilderChange: (patch: BuilderStyleConfig, nextPaint?: Record<string, unknown>) => void;
-  t: (key: string, opts?: Record<string, unknown>) => string;
+  t: Translator;
 }
