@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import { useEffect, useRef } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
@@ -17,14 +17,20 @@ export function SessionRestoreNotice() {
   const failures = useSessionRestore((s) => s.failures);
   const token = useAuthStore((s) => s.token);
   const hasUser = useAuthStore((s) => s.user !== null);
+  const hadToken = useRef(token !== null);
+
+  useEffect(() => {
+    // Queries that ran before the token arrived cached anonymous results,
+    // whether the restore failed first or only outlasted the first render.
+    if (token && !hadToken.current) void queryClient.invalidateQueries();
+    hadToken.current = token !== null;
+  }, [token, queryClient]);
 
   useEffect(() => {
     if (failures === 0) return;
     if (token || !hasUser) {
       useSessionRestore.setState({ failures: 0 });
       toast.dismiss(TOAST_ID);
-      // Queries that ran without the token cached anonymous results.
-      if (token) void queryClient.invalidateQueries();
       return;
     }
     toast.warning(t('sessionRestore.title'), {
