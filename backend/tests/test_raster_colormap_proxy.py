@@ -47,6 +47,7 @@ def _make_auth_response(
     band_count: int = 1,
     data_range_default: bool = False,
     cache_status: str = "public",
+    palette: bool = False,
 ) -> httpx.Response:
     """Build a fake raster-auth-check response matching the real handler's shape."""
     return MagicMock(
@@ -57,6 +58,7 @@ def _make_auth_response(
             "X-GeoLens-Render-Params": render_params,
             "X-GeoLens-Band-Count": str(band_count),
             **({"X-GeoLens-Data-Range-Default": "1"} if data_range_default else {}),
+            **({"X-GeoLens-Palette": "1"} if palette else {}),
         },
         content=b"",
     )
@@ -137,6 +139,7 @@ class TestRasterColormapProxy:
         self._auth_data_range_default = False
         self._auth_band_count = 1  # default single-band; override in multi-band tests
         self._auth_cache_status = "public"
+        self._auth_palette = False
 
         async def _fake_auth_check(request, dataset_id, user=None, db=None):
             return _make_auth_response(
@@ -145,6 +148,7 @@ class TestRasterColormapProxy:
                 self._auth_band_count,
                 self._auth_data_range_default,
                 self._auth_cache_status,
+                self._auth_palette,
             )
 
         from app.platform.storage import titiler_url
@@ -298,6 +302,38 @@ class TestRasterColormapProxy:
         # Stats-based rescale present; original dtype rescale (0,65535) replaced
         assert "rescale=512.66,1304.31" in tile_url, tile_url
         assert "rescale=0,65535" not in tile_url, tile_url
+
+    @pytest.mark.parametrize("stretch", [None, "gray", "percentile", "stddev"])
+    async def test_a_palette_raster_reaches_its_colour_table_unscaled(
+        self, client, stretch
+    ):
+        """Class ids keep their values and the band selection stays."""
+        self._auth_palette = True
+        self._auth_data_range_default = True
+        self._auth_render_params = "bidx=1&rescale=0,65535"
+        params = {"colormap_name": "gray"} if stretch == "gray" else {}
+        if stretch in ("percentile", "stddev"):
+            params["stretch"] = stretch
+        resp = await client.get(_TILE_PATH, params=params)
+        assert resp.status_code in (200, 204)
+        assert self._stats_titiler_calls == []
+        tile_url = self._tile_titiler_calls[0]
+        assert "rescale=" not in tile_url, tile_url
+        assert "bidx=1" in tile_url, tile_url
+
+    async def test_a_named_colormap_on_a_palette_raster_still_stretches(self, client):
+        """The ramp replaces the colour table, so the values are scaled for it."""
+        self._auth_palette = True
+        self._auth_render_params = "rescale=0,65535"
+        resp = await client.get(_TILE_PATH, params={"colormap_name": "viridis"})
+        assert resp.status_code in (200, 204)
+        assert "rescale=0,65535" in self._tile_titiler_calls[0]
+
+        resp = await client.get(
+            _TILE_PATH, params={"colormap_name": "viridis", "stretch": "percentile"}
+        )
+        assert resp.status_code in (200, 204)
+        assert "rescale=512.66,1304.31" in self._tile_titiler_calls[1]
 
     async def test_stretch_stddev_computes_rescale(self, client):
         """stretch=stddev overrides rescale with mean±2σ,

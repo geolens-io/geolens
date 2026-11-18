@@ -51,6 +51,8 @@ async def _create_raster_dataset(
     nodata: str | None = None,
     dtype: str | None = None,
     band_count: int | None = None,
+    band_info: list | None = None,
+    storage_backend: str = "local",
 ) -> tuple[Record, Dataset, RasterAsset | None]:
     """Create a Record + Dataset (+ optional RasterAsset) for raster tests."""
     dataset = await create_raster_dataset(
@@ -72,8 +74,9 @@ async def _create_raster_dataset(
         raster_asset = RasterAsset(
             dataset_id=dataset.id,
             asset_uri=f"rasters/{dataset.id}/abc123/source.cog.tif",
-            storage_backend="local",
+            storage_backend=storage_backend,
             is_dem=is_dem,
+            band_info=band_info,
             nodata=nodata,
             dtype=dtype,
             band_count=band_count,
@@ -758,6 +761,59 @@ class TestDefaultRescaleAuthCheck:
         headers = await self._headers(client, test_db_session, dtype=dtype, is_dem=True)
         assert "x-geolens-data-range-default" not in headers
         assert headers["x-geolens-render-params"].startswith("algorithm=terrainrgb")
+
+
+class TestPaletteRasterAuthCheck:
+    """A raster with a colour table is flagged, so the tile proxy can leave
+    its class ids unscaled; the render defaults stay for a named colormap."""
+
+    async def _headers(self, client, session, **raster):
+        admin_id = await _get_admin_id(session)
+        _, dataset, _ = await _create_raster_dataset(
+            session, created_by=admin_id, band_count=1, dtype="uint16", **raster
+        )
+        resp = await client.get(
+            "/tiles/raster-auth-check/", params={"dataset_id": str(dataset.id)}
+        )
+        assert resp.status_code == 200
+        return resp.headers
+
+    @pytest.mark.parametrize("storage_backend", ["local", "remote"])
+    async def test_palette_raster_is_flagged(
+        self, client: AsyncClient, test_db_session, storage_backend
+    ):
+        headers = await self._headers(
+            client,
+            test_db_session,
+            storage_backend=storage_backend,
+            band_info=[{"min": 1, "max": 3, "mean": 2, "color_interp": "palette"}],
+        )
+        assert headers["x-geolens-palette"] == "1"
+        assert headers["x-geolens-render-params"].startswith("rescale=")
+
+    async def test_remote_palette_raster_without_statistics_keeps_the_dtype_rescale(
+        self, client: AsyncClient, test_db_session
+    ):
+        """A named colormap still needs it; the proxy drops it for the table."""
+        headers = await self._headers(
+            client,
+            test_db_session,
+            storage_backend="remote",
+            band_info=[{"color_interp": "palette"}],
+        )
+        assert headers["x-geolens-palette"] == "1"
+        assert headers["x-geolens-render-params"] == "rescale=0,65535"
+
+    async def test_plain_raster_is_not_flagged(
+        self, client: AsyncClient, test_db_session
+    ):
+        headers = await self._headers(
+            client,
+            test_db_session,
+            band_info=[{"index": 1, "dtype": "uint16", "color_interp": "gray"}],
+        )
+        assert headers["x-geolens-render-params"] == "rescale=0,65535"
+        assert "x-geolens-palette" not in headers
 
 
 # ---------------------------------------------------------------------------

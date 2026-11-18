@@ -21,6 +21,21 @@ def band_display_name(band: dict) -> str | None:
     return band.get("name") or band.get("color_interp")
 
 
+def is_palette_raster(band_info: object) -> bool:
+    """Whether the first band carries an embedded colour table.
+
+    Such a raster stores class ids, so a numeric rescale before the table is
+    applied would remap the ids onto the wrong colours.
+    """
+    if not isinstance(band_info, list) or not band_info:
+        return False
+    first = band_info[0]
+    return (
+        isinstance(first, dict)
+        and str(first.get("color_interp") or "").lower() == "palette"
+    )
+
+
 def stac_band_nodata(value: object) -> float | int | str | None:
     """A `raster:bands[].nodata` value the STAC Raster Extension accepts.
 
