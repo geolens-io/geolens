@@ -1217,119 +1217,219 @@ def test_manhattan_buildings_start_at_zoom_12():
 # --- the Sentinel force path and the shared-map delete refusal ----------------
 
 SENTINEL = "New York From Orbit: Sentinel-2 by Reference"
+PENDING = f"{SENTINEL} - scenes pending delete"
 
 
-def _refusal(status: int, body: dict) -> httpx.HTTPStatusError:
+def _http_error(status: int, body: dict) -> httpx.HTTPStatusError:
     request = httpx.Request("DELETE", "http://x/api/datasets/d")
     response = httpx.Response(status, json=body, request=request)
     return httpx.HTTPStatusError(str(status), request=request, response=response)
 
 
-class _ForceApi:
-    """Scenes the server refuses while a stale map still shows them."""
+class _ForceServer:
+    """A catalog that refuses a dataset delete while its owner's shared map
+    shows it and cascades the layers otherwise, like the API."""
 
-    def __init__(self, layers_by_map, refusals=None):
-        self._layers = {m: list(ls) for m, ls in layers_by_map.items()}
-        self._refusals = refusals or {}
+    username = "seeder"
+
+    def __init__(self, scenes, maps, refusals=None):
+        self.datasets = dict(scenes)
+        # map id -> {"name", "visibility", "layers": [{"id", "dataset_id", ...}]}
+        self.maps = maps
+        self._refusals = dict(refusals or {})
+        self._fail = None
         self.calls = []
+        self._next = 0
 
-    def _maps_showing(self, ds_id):
+    def fail_once(self, kind, arg, skip=0):
+        """Answer 503 to the call after the first *skip* matching ones."""
+        self._fail = [kind, arg, skip]
+
+    def _maybe_fail(self, kind, arg):
+        if self._fail and self._fail[:2] == [kind, arg]:
+            if self._fail[2]:
+                self._fail[2] -= 1
+                return
+            self._fail = None
+            raise _http_error(503, {"detail": "unavailable"})
+
+    def list_all_maps(self):
         return [
-            m
-            for m, ls in self._layers.items()
-            if any(layer["dataset_id"] == ds_id for layer in ls)
+            {"id": m, "name": v["name"], "created_by_username": self.username}
+            for m, v in self.maps.items()
         ]
 
+    def list_own_datasets(self):
+        return [{"id": d, "title": t} for d, t in self.datasets.items()]
+
+    def get_map(self, map_id):
+        return {"id": map_id, "layers": list(self.maps[map_id]["layers"])}
+
+    def create_map(self, name, description):
+        self._maybe_fail("create_map", name)
+        self._next += 1
+        map_id = f"m-new-{self._next}"
+        self.maps[map_id] = {"name": name, "visibility": "private", "layers": []}
+        self.calls.append(("create_map", name))
+        return map_id
+
+    def add_layer(self, map_id, body):
+        self._maybe_fail("add_layer", body["dataset_id"])
+        self._next += 1
+        self.maps[map_id]["layers"].append({"id": f"l-new-{self._next}", **body})
+        self.calls.append(("add_layer", body["dataset_id"]))
+
+    def delete_layer(self, map_id, layer_id):
+        self._maybe_fail("delete_layer", layer_id)
+        layers = self.maps[map_id]["layers"]
+        self.maps[map_id]["layers"] = [x for x in layers if x["id"] != layer_id]
+        self.calls.append(("delete_layer", layer_id))
+
+    def delete_map(self, map_id):
+        self._maybe_fail("delete_map", map_id)
+        del self.maps[map_id]
+        self.calls.append(("delete_map", map_id))
+
     def delete_dataset(self, ds_id, title):
+        self._maybe_fail("delete_dataset", ds_id)
         if ds_id in self._refusals:
             raise self._refusals[ds_id]
-        showing = self._maps_showing(ds_id)
+        showing = [
+            m
+            for m, v in self.maps.items()
+            if v["visibility"] != "private"
+            and any(x["dataset_id"] == ds_id for x in v["layers"])
+        ]
         if showing:
-            raise _refusal(
+            raise _http_error(
                 422,
                 {
                     "detail": "Cannot delete: dataset is used in shared maps",
                     "code": "dataset_in_shared_maps",
                     "action": "delete",
-                    "shared_maps": [{"id": m, "name": SENTINEL} for m in showing],
+                    "shared_maps": [
+                        {"id": m, "name": self.maps[m]["name"]} for m in showing
+                    ],
                 },
             )
+        for v in self.maps.values():
+            v["layers"] = [x for x in v["layers"] if x["dataset_id"] != ds_id]
+        del self.datasets[ds_id]
         self.calls.append(("delete_dataset", ds_id))
 
-    def get_map(self, map_id):
-        return {"id": map_id, "layers": self._layers[map_id]}
 
-    def delete_layer(self, map_id, layer_id):
-        self._layers[map_id] = [
-            layer for layer in self._layers[map_id] if layer["id"] != layer_id
-        ]
-        self.calls.append(("delete_layer", layer_id))
-
-    def delete_map(self, map_id):
-        del self._layers[map_id]
-        self.calls.append(("delete_map", map_id))
+def _scene_layer(layer_id, ds_id):
+    return {"id": layer_id, "dataset_id": ds_id, "layer_type": "raster_geolens"}
 
 
-def _scene_layers():
-    return {
-        "m-1": [{"id": "l-1", "dataset_id": "d-1"}, {"id": "l-2", "dataset_id": "d-2"}]
-    }
-
-
-def test_a_kept_pinned_row_loses_the_scene_layers_before_the_scenes_go():
-    api = _ForceApi(_scene_layers())
-
-    kept = seeder._clear_stale_sentinel(
-        api, SENTINEL, {"d-1": "Scene 1", "d-2": "Scene 2"}, ["m-1"], True, False
+def _showcase(**extra_maps):
+    return _ForceServer(
+        {"d-1": "Sentinel-2 TCI one", "d-2": "Sentinel-2 TCI two"},
+        {
+            "m-1": {
+                "name": SENTINEL,
+                "visibility": "public",
+                "layers": [_scene_layer("l-1", "d-1"), _scene_layer("l-2", "d-2")],
+            },
+            **extra_maps,
+        },
     )
 
-    assert kept == ["m-1"]
+
+def _force(api, force_pinned):
+    stale, pending, doomed = seeder._stale_sentinel_targets(api, SENTINEL)
+    return seeder._clear_stale_sentinel(
+        api, SENTINEL, doomed, stale, pending, True, force_pinned
+    )
+
+
+def test_a_kept_pinned_row_hands_its_scenes_to_a_private_map_before_they_go():
+    api = _showcase()
+
+    assert _force(api, force_pinned=False) == ["m-1"]
+
     assert api.calls == [
+        ("create_map", PENDING),
+        ("add_layer", "d-1"),
+        ("add_layer", "d-2"),
         ("delete_layer", "l-1"),
         ("delete_layer", "l-2"),
         ("delete_dataset", "d-1"),
         ("delete_dataset", "d-2"),
+        ("delete_map", "m-new-1"),
     ]
+    assert api.datasets == {}
+    assert list(api.maps) == ["m-1"]
 
 
-def test_force_pinned_deletes_the_stale_row_before_the_scenes_it_shows():
-    api = _ForceApi(_scene_layers())
+def test_force_pinned_deletes_the_stale_row_once_its_scenes_are_held():
+    api = _showcase()
 
-    kept = seeder._clear_stale_sentinel(
-        api, SENTINEL, {"d-1": "Scene 1", "d-2": "Scene 2"}, ["m-1"], True, True
-    )
+    assert _force(api, force_pinned=True) == []
 
-    assert kept == []
-    assert api.calls == [
+    assert api.calls[3:] == [
         ("delete_map", "m-1"),
         ("delete_dataset", "d-1"),
         ("delete_dataset", "d-2"),
+        ("delete_map", "m-new-1"),
     ]
+    assert api.datasets == {}
+    assert api.maps == {}
+
+
+_EVERY_STEP = [
+    ("delete_dataset", "d-2", 0),  # the first try, before anything moved
+    ("create_map", PENDING, 0),
+    ("add_layer", "d-2", 0),
+    ("delete_dataset", "d-2", 1),  # the retry, once the stale rows let go
+    ("delete_map", "m-new-1", 0),
+]
+
+
+@pytest.mark.parametrize(
+    ("force_pinned", "step"),
+    [(False, step) for step in [*_EVERY_STEP, ("delete_layer", "l-2", 0)]]
+    + [(True, step) for step in [*_EVERY_STEP, ("delete_map", "m-1", 0)]],
+)
+def test_a_rebuild_stopped_midway_is_finished_by_the_next_run(force_pinned, step):
+    """Every scene stays on a map the next run reads, whichever step fails."""
+    api = _showcase()
+    api.fail_once(*step)
+
+    with pytest.raises((httpx.HTTPStatusError, RuntimeError)):
+        _force(api, force_pinned)
+    _force(api, force_pinned)
+
+    assert api.datasets == {}
+    assert list(api.maps) == ([] if force_pinned else ["m-1"])
 
 
 def test_a_dependent_vrt_still_aborts_with_the_stale_maps_standing():
-    vrt = _refusal(
+    vrt = _http_error(
         409,
         {"detail": {"message": "used by a VRT", "dependent_vrts": [{"id": "v"}]}},
     )
-    api = _ForceApi(_scene_layers(), refusals={"d-2": vrt})
+    api = _showcase()
+    api._refusals["d-1"] = vrt
 
     with pytest.raises(RuntimeError, match="dependent VRTs"):
-        seeder._clear_stale_sentinel(
-            api, SENTINEL, {"d-1": "Scene 1", "d-2": "Scene 2"}, ["m-1"], True, True
-        )
+        _force(api, force_pinned=True)
 
     assert api.calls == []
 
 
 def test_a_scene_another_shared_map_holds_aborts_before_any_map_changes():
-    api = _ForceApi(
-        {**_scene_layers(), "m-other": [{"id": "l-9", "dataset_id": "d-1"}]}
+    api = _showcase(
+        **{
+            "m-other": {
+                "name": "Someone's map",
+                "visibility": "public",
+                "layers": [_scene_layer("l-9", "d-1")],
+            }
+        }
     )
 
     with pytest.raises(RuntimeError, match="NOT deleted"):
-        seeder._clear_stale_sentinel(
-            api, SENTINEL, {"d-1": "Scene 1"}, ["m-1"], True, True
-        )
+        _force(api, force_pinned=True)
 
     assert api.calls == []

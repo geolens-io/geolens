@@ -218,50 +218,45 @@ async def delete_dataset(
             "Dataset deletion is missing tenant context in multi-tenant mode"
         )
 
-    # Asked before the shared-map check, so a COG a VRT depends on keeps
-    # answering with its dependent VRTs.
-    if record_type == "raster_dataset":
-        # Guard: prevent deletion if any VRT still references this COG.
-        #
-        # A reference is committed OR in flight -- an add
-        # staged by add_vrt_source has no vrt_source_links row until
-        # its regeneration publishes, so the second branch closes that
-        # gap by asking the not-yet-applied set too.
-        #
-        # Membership uses `@>`, not jsonb_array_elements_text: jsonb
-        # containment is TOTAL, so a column holding JSON `null`
-        # answers false instead of raising. Only
-        # 'pending'/'running' generations count.
-        refs_result = await session.execute(
-            text(
-                """
-                SELECT d.id, r.title
-                FROM catalog.vrt_source_links vsl
-                JOIN catalog.datasets d ON d.id = vsl.vrt_dataset_id
-                JOIN catalog.records r ON r.id = d.record_id
-                WHERE vsl.source_dataset_id = :dataset_id
-                UNION
-                SELECT d.id, r.title
-                FROM catalog.vrt_generations g
-                JOIN catalog.datasets d ON d.id = g.vrt_dataset_id
-                JOIN catalog.records r ON r.id = d.record_id
-                WHERE g.status IN ('pending', 'running')
-                  AND g.staged_source_ids @> to_jsonb(CAST(:dataset_id_text AS text))
-                """
-            ).bindparams(dataset_id=dataset_id, dataset_id_text=str(dataset_id))
-        )
-        refs = refs_result.all()
-        if refs:
-            raise DependentVrtError(
-                [
-                    {"vrt_dataset_id": str(row.id), "vrt_dataset_title": row.title}
-                    for row in refs
-                ]
-            )
-    await _refuse_stranding_shared_maps(session, dataset)
-
     if record_type in RASTER_FAMILY_RECORD_TYPES:
         if record_type == "raster_dataset":
+            # Guard: prevent deletion if any VRT still references this COG.
+            #
+            # A reference is committed OR in flight -- an add
+            # staged by add_vrt_source has no vrt_source_links row until
+            # its regeneration publishes, so the second branch closes that
+            # gap by asking the not-yet-applied set too.
+            #
+            # Membership uses `@>`, not jsonb_array_elements_text: jsonb
+            # containment is TOTAL, so a column holding JSON `null`
+            # answers false instead of raising. Only
+            # 'pending'/'running' generations count.
+            refs_result = await session.execute(
+                text(
+                    """
+                    SELECT d.id, r.title
+                    FROM catalog.vrt_source_links vsl
+                    JOIN catalog.datasets d ON d.id = vsl.vrt_dataset_id
+                    JOIN catalog.records r ON r.id = d.record_id
+                    WHERE vsl.source_dataset_id = :dataset_id
+                    UNION
+                    SELECT d.id, r.title
+                    FROM catalog.vrt_generations g
+                    JOIN catalog.datasets d ON d.id = g.vrt_dataset_id
+                    JOIN catalog.records r ON r.id = d.record_id
+                    WHERE g.status IN ('pending', 'running')
+                      AND g.staged_source_ids @> to_jsonb(CAST(:dataset_id_text AS text))
+                    """
+                ).bindparams(dataset_id=dataset_id, dataset_id_text=str(dataset_id))
+            )
+            refs = refs_result.all()
+            if refs:
+                raise DependentVrtError(
+                    [
+                        {"vrt_dataset_id": str(row.id), "vrt_dataset_title": row.title}
+                        for row in refs
+                    ]
+                )
             prefixes = [f"rasters/{dataset_id}/", f"originals/{dataset_id}/"]
         else:
             # VRT: no originals/ prefix -- VRTs are generated, not uploaded.
@@ -326,6 +321,11 @@ async def delete_dataset(
         await lock_catalog_rows_for_write(session, dataset)
 
         storage_prefixes = (f"originals/{dataset_id}/", f"vectors/{dataset_id}/")
+
+    # Asked under the catalog row locks: a map layer added meanwhile needs the
+    # dataset row's key-share lock, so it either is visible here or waits and
+    # then fails its foreign key. A refusal rolls back the DROP above.
+    await _refuse_stranding_shared_maps(session, dataset)
 
     # Commit name retirement with the DROP and record deletion so rollback cannot
     # leave a freed name without a tombstone. This also applies to a registered

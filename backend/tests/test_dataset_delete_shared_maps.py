@@ -11,8 +11,10 @@ import pytest
 import sqlalchemy as sa
 from httpx import AsyncClient
 
+import app.core.db as db_module
+import app.modules.catalog.features.service as features_service
 from app.modules.catalog.datasets.domain.models import Dataset
-from app.modules.catalog.maps.models import MapLayer
+from app.modules.catalog.maps.models import Map, MapLayer
 from app.processing.raster.models import VrtGeneration
 from tests.factories import create_dataset, create_user, get_user_id
 from tests.test_dataset_narrowing_shared_maps import _map_using
@@ -131,6 +133,8 @@ async def test_an_admin_delete_is_refused_by_the_owners_maps_only(
     client: AsyncClient, admin_auth_header: dict, test_db_session
 ):
     _, owner_id = await create_user(client, admin_auth_header, "editor")
+    # An internal map strands only a signed-in reader who isn't the owner or an admin.
+    await create_user(client, admin_auth_header, "viewer")
     admin_id = await get_user_id(test_db_session, "admin")
     dataset = await _vector_dataset(test_db_session, owner_id)
     own_map = await _map_using(test_db_session, dataset.id, owner_id, "internal")
@@ -247,3 +251,110 @@ async def test_a_vrt_dependency_answers_before_the_shared_maps(
     resp = await _delete(client, source, owner_headers)
     assert resp.status_code == 422, resp.text
     assert resp.json()["action"] == "delete"
+
+
+def _hook_the_catalog_lock(monkeypatch, *, before=None, after=None):
+    """Run ``before`` just ahead of the delete's catalog row lock and ``after``
+    once it is held, each from a second session."""
+    real = features_service.lock_catalog_rows_for_write
+
+    async def locking(session, dataset, **kwargs):
+        if before is not None:
+            await before(dataset.id)
+        result = await real(session, dataset, **kwargs)
+        if after is not None:
+            await after(dataset.id)
+        return result
+
+    monkeypatch.setattr(features_service, "lock_catalog_rows_for_write", locking)
+
+
+async def _empty_public_map(session, owner_id) -> Map:
+    map_obj = Map(
+        name=f"Map {uuid.uuid4().hex[:6]}",
+        visibility="public",
+        created_by=uuid.UUID(str(owner_id)),
+    )
+    session.add(map_obj)
+    await session.commit()
+    return map_obj
+
+
+async def _bulk_delete(client: AsyncClient, dataset, headers: dict):
+    return await client.post(
+        "/datasets/bulk-delete/",
+        json={
+            "datasets": [
+                {"dataset_id": str(dataset.id), "confirm_title": dataset.record.title}
+            ]
+        },
+        headers=headers,
+    )
+
+
+@pytest.mark.parametrize("bulk", [False, True])
+async def test_a_layer_added_before_the_delete_locks_is_seen_and_refuses(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch, bulk
+):
+    """The check runs under the lock, so a layer committed after the request
+    started but before the lock still refuses the delete."""
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    dataset = await _vector_dataset(test_db_session, owner_id)
+    own_map = await _empty_public_map(test_db_session, owner_id)
+
+    async def add_layer(dataset_id):
+        async with db_module.async_session() as other:
+            other.add(MapLayer(map_id=own_map.id, dataset_id=dataset_id, sort_order=0))
+            await other.commit()
+
+    _hook_the_catalog_lock(monkeypatch, before=add_layer)
+    try:
+        if bulk:
+            resp = await _bulk_delete(client, dataset, owner_headers)
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["results"][0]["code"] == "dataset_in_shared_maps"
+        else:
+            resp = await _delete(client, dataset, owner_headers)
+            assert resp.status_code == 422, resp.text
+            assert resp.json()["shared_maps"] == [
+                {"id": str(own_map.id), "name": own_map.name}
+            ]
+        assert await _still_there(test_db_session, dataset) == (True, 1, True)
+    finally:
+        await _cleanup_data_table(test_db_session, dataset.table_name)
+
+
+@pytest.mark.parametrize("bulk", [False, True])
+async def test_a_layer_added_while_the_delete_holds_its_lock_waits(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch, bulk
+):
+    """A layer insert needs the dataset row the delete holds, so it can't land
+    between the check and the cascade."""
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    dataset = await _vector_dataset(test_db_session, owner_id)
+    own_map = await _empty_public_map(test_db_session, owner_id)
+    blocked: list[bool] = []
+
+    async def add_layer(dataset_id):
+        async with db_module.async_session() as other:
+            await other.execute(sa.text("SET LOCAL lock_timeout = '200ms'"))
+            other.add(MapLayer(map_id=own_map.id, dataset_id=dataset_id, sort_order=0))
+            try:
+                await other.commit()
+            except sa.exc.DBAPIError as exc:
+                blocked.append("lock timeout" in str(exc))
+                await other.rollback()
+
+    _hook_the_catalog_lock(monkeypatch, after=add_layer)
+    try:
+        if bulk:
+            resp = await _bulk_delete(client, dataset, owner_headers)
+            assert resp.status_code == 200, resp.text
+            assert resp.json()["results"][0]["status"] == "deleted"
+        else:
+            resp = await _delete(client, dataset, owner_headers)
+            assert resp.status_code == 204, resp.text
+        assert blocked == [True]
+        assert await _still_there(test_db_session, dataset) == (False, 0, False)
+    finally:
+        await _cleanup_data_table(test_db_session, dataset.table_name)

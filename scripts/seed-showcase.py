@@ -7547,11 +7547,42 @@ def _shared_only_by(response: "httpx.Response", map_ids: set) -> bool:
     return bool(held_by) and held_by <= map_ids
 
 
+def _pending_map_name(name: str) -> str:
+    """The private map that holds a force rebuild's scenes until they are deleted."""
+    return f"{name} - scenes pending delete"
+
+
+def _stale_sentinel_targets(
+    api: Api, name: str
+) -> tuple[list[str], list[str], dict[str, str]]:
+    """This account's rows under *name*, its pending-delete maps, and the
+    seeder's scenes either of them shows, by id with their titles."""
+    own_maps = [
+        m for m in api.list_all_maps() if m.get("created_by_username") == api.username
+    ]
+    stale_maps = [m["id"] for m in own_maps if m.get("name") == name]
+    pending_maps = [
+        m["id"] for m in own_maps if m.get("name") == _pending_map_name(name)
+    ]
+    own_titles = {d["id"]: d["title"] for d in api.list_own_datasets()}
+    doomed: dict[str, str] = {}
+    for map_id in stale_maps + pending_maps:
+        for layer in api.get_map(map_id).get("layers", []):
+            ds_id = layer.get("dataset_id")
+            title = own_titles.get(ds_id, "")
+            if layer.get("layer_type") == "raster_geolens" and title.startswith(
+                "Sentinel-2 TCI "
+            ):
+                doomed[ds_id] = title
+    return stale_maps, pending_maps, doomed
+
+
 def _clear_stale_sentinel(
     api: Api,
     name: str,
     doomed: dict[str, str],
     stale_maps: list[str],
+    pending_maps: list[str],
     force: bool,
     force_pinned: bool,
 ) -> list[str]:
@@ -7560,9 +7591,14 @@ def _clear_stale_sentinel(
     The scenes are tried first, so a dependent-VRT 409 aborts with every stale
     map standing. A scene one of those maps shares is refused with 422
     dataset_in_shared_maps instead, and the server asks that only after its
-    VRT check, so the 422 also proves no VRT holds the scene. Those scenes are
-    deleted once the stale rows are cleared: a deleted row takes its layers
-    with it, and a kept (pinned) row has just their layers removed.
+    VRT check, so the 422 also proves no VRT holds the scene.
+
+    Those held scenes go onto a private map named by _pending_map_name, which
+    blocks no delete, before the stale rows let go of them: a deleted row
+    takes its layers with it, and a kept (pinned) row has just their layers
+    removed, since narrowing it would revoke the share links the examples
+    use. The scenes are deleted next and the private map last. A run stopped
+    anywhere in between leaves every scene on a map the next run reads.
     """
     stale = set(stale_maps)
     held: dict[str, str] = {}
@@ -7586,6 +7622,25 @@ def _clear_stale_sentinel(
                 f"deleted{blockers}; the stale showcase maps were NOT "
                 f"deleted - resolve the dependency and rerun"
             ) from e
+    if held:
+        pending = (
+            pending_maps[0]
+            if pending_maps
+            else api.create_map(
+                _pending_map_name(name),
+                "Scenes a --force rebuild of the Sentinel-2 map is deleting.",
+            )
+        )
+        pending_maps = [pending, *pending_maps[1:]]
+        already = {
+            layer.get("dataset_id")
+            for layer in api.get_map(pending).get("layers", [])
+        }
+        for ds_id in held:
+            if ds_id not in already:
+                api.add_layer(
+                    pending, {"dataset_id": ds_id, "layer_type": "raster_geolens"}
+                )
     retained: list[str] = []
     for map_id in stale_maps:
         # This delete destroys the uuid the examples gallery links, so the
@@ -7601,14 +7656,9 @@ def _clear_stale_sentinel(
         api.delete_map(map_id)
         print(f"  [force] deleted existing map {map_id}")
     for ds_id, title in held.items():
-        try:
-            api.delete_dataset(ds_id, title)
-        except httpx.HTTPStatusError as e:
-            raise RuntimeError(
-                f"force recreate stopped: scene {title!r} could not be deleted "
-                f"after the stale showcase maps were cleared ({e}); rerun "
-                f"--force once the scene's other references are gone"
-            ) from e
+        api.delete_dataset(ds_id, title)
+    for map_id in pending_maps:
+        api.delete_map(map_id)
     if doomed:
         print(f"  [force] deleted {len(doomed)} attached scene datasets")
     return retained
@@ -7715,23 +7765,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
         #   every stale map still standing, instead of discovering the block
         #   after the showcase is gone. See _clear_stale_sentinel for the
         #   scenes the stale maps themselves hold.
-        stale_maps = [
-            m["id"]
-            for m in api.list_all_maps()
-            if m.get("name") == name
-            and m.get("created_by_username") == api.username
-        ]
-        own_titles = {d["id"]: d["title"] for d in api.list_own_datasets()}
-        doomed: dict[str, str] = {}
-        for map_id in stale_maps:
-            for layer in api.get_map(map_id).get("layers", []):
-                ds_id = layer.get("dataset_id")
-                title = own_titles.get(ds_id, "")
-                if (
-                    layer.get("layer_type") == "raster_geolens"
-                    and title.startswith("Sentinel-2 TCI ")
-                ):
-                    doomed[ds_id] = title
+        stale_maps, pending_maps, doomed = _stale_sentinel_targets(api, name)
         if doomed:
             # A scene someone layered into ANY
             # other map is not ours to cascade away - keep it and say so. The
@@ -7742,7 +7776,7 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
             # imagery loss in an unrelated map. Rewiring the other map's
             # layer to the replacement was rejected: mutating a map this
             # seeder does not own is the same overreach in a different coat.
-            stale_set = set(stale_maps)
+            stale_set = set(stale_maps + pending_maps)
             for m in api.list_all_maps():
                 if m["id"] in stale_set or not doomed:
                     continue
@@ -7793,7 +7827,9 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
                 f"dedupe-skip and leave the rebuilt map incomplete: {names}"
             )
         retained_rows.extend(
-            _clear_stale_sentinel(api, name, doomed, stale_maps, force, force_pinned)
+            _clear_stale_sentinel(
+                api, name, doomed, stale_maps, pending_maps, force, force_pinned
+            )
         )
     print(f"  importing {len(items)} TCI COGs by reference (no download)...")
     results = api.stac_import(SENTINEL_STAC, items, visibility="public")
