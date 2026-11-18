@@ -15,7 +15,7 @@ _FORWARDING = [
 async def _get(path: str, headers: dict[str, str] | None = None):
     from app.api.main import app
 
-    transport = ASGITransport(app=app)
+    transport = ASGITransport(app=app, root_path="/api")
     async with AsyncClient(transport=transport, base_url="http://test") as http:
         return await http.get(path, headers=headers)
 

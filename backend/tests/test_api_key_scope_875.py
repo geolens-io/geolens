@@ -431,15 +431,12 @@ def _mounted_route_pairs() -> set[tuple[str, str]]:
 def test_no_exemption_carries_the_root_path_prefix():
     """The bug class that shipped: an exemption spelled with `/api`.
 
-    `root_path="/api"` is set on the app and starlette strips it before
+    The server serves under the `/api` root path and starlette strips it before
     matching, so no route template ever begins with it. An entry that does can
     never match, and the check fails closed, so it would defeat the carve-out
     without failing anything.
     """
-    from app.api.main import app
-
-    root = app.root_path
-    assert root, "root_path is what makes this test meaningful"
+    root = "/api"
     offenders = sorted(
         pair for pair in _READ_ONLY_KEY_EXEMPT_ROUTES if pair[1].startswith(root + "/")
     )
