@@ -849,6 +849,11 @@ describe('API error localization boundary', () => {
       'errors.datasetVisibilityBlockedByMaps',
       'These maps share the dataset with an audience that would lose it: Flood Risk, Parcels 2026.',
     ],
+    [
+      'delete',
+      'errors.datasetDeleteBlockedByMaps',
+      'These maps share the dataset with an audience that would lose it if it were deleted: Flood Risk, Parcels 2026.',
+    ],
   ])('surfaces the maps from a coded %s refusal with a reworded detail', (action, key, text) => {
     const body = {
       type: 'about:blank',

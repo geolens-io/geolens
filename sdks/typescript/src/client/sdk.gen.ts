@@ -2130,6 +2130,9 @@ export const deleteDatasetRelationshipDatasetsRelationshipsRelationshipIdDelete 
  * Delete a dataset
  *
  * Delete a dataset with cascade cleanup. Owner or admin only, requires confirm_title.
+ *
+ * Refused with a 422 `dataset_in_shared_maps` (action `delete`) while one of
+ * the owner's shared maps shows it to an audience that would lose it.
  */
 export const deleteDatasetEndpointDatasetsDatasetIdDelete = <ThrowOnError extends boolean = false>(options: Options<DeleteDatasetEndpointDatasetsDatasetIdDeleteData, ThrowOnError>): RequestResult<DeleteDatasetEndpointDatasetsDatasetIdDeleteResponses, DeleteDatasetEndpointDatasetsDatasetIdDeleteErrors, ThrowOnError> => (options.client ?? client).delete<DeleteDatasetEndpointDatasetsDatasetIdDeleteResponses, DeleteDatasetEndpointDatasetsDatasetIdDeleteErrors, ThrowOnError>({
     security: [

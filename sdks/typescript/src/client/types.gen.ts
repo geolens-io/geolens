@@ -2046,6 +2046,14 @@ export type BulkDeleteResultItem = {
      * Code
      */
     code?: string | null;
+    /**
+     * Shared Maps
+     *
+     * The owner's shared maps that refused this item, as `{"id", "name"}` pairs, on a `dataset_in_shared_maps` error. Null otherwise.
+     */
+    shared_maps?: Array<{
+        [key: string]: string;
+    }> | null;
 };
 
 /**
@@ -10880,7 +10888,7 @@ export type ProblemDetail = {
     /**
      * Action
      *
-     * The refused change, on a `dataset_in_shared_maps` 422: `unpublish` or `restrict_visibility`. Absent otherwise.
+     * The refused change, on a `dataset_in_shared_maps` 422: `unpublish`, `restrict_visibility` or `delete`. Absent otherwise.
      */
     action?: string;
     /**
