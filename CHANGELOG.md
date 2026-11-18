@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+- DEM mosaics now build with bilinear resampling instead of nearest-neighbour, so a coarse fill member no longer repeats its pixels as blocks in the hillshade at close zoom. Categorical rasters still build with nearest, so their values stay exact. A mosaic built from elevation members gets bilinear at creation time, and an existing DEM mosaic picks it up when it is next rebuilt, so run Regenerate on it. A rebuild derives the choice from the current members, so a mixed mosaic keeps nearest.
+
 ## [1.32.0] - 2026-11-16
 
 1.32.0 adds two migrations. 0104 adds the `map_author` API key scope and a
