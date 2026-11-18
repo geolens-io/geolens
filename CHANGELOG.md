@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+- A map builder save whose layer changes the server refused with 404, 405 or 501 no longer falls back to replacing the map's whole layer list, which deleted layers another session had added and overwrote its changes without a warning. The save now fails, keeps the unsaved changes and asks for a retry.
+
 ## [1.32.0] - 2026-11-16
 
 1.32.0 adds two migrations. 0104 adds the `map_author` API key scope and a
