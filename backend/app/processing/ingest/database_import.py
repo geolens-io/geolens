@@ -84,8 +84,7 @@ async def copy_database_table(
     GDAL carries them through; otherwise the copy is stored 2D. M is also
     dropped, keeping any Z, when the staging pipeline would refuse it at the
     Web Mercator limit. Returns how many values lost a Z or M: the larger of
-    the two counts, since the copy read the table between them, or the values
-    that lost their M.
+    the two counts, since the copy read the table between them.
 
     Raises ``DatabaseImportError`` with a message safe to show.
     """
@@ -181,15 +180,15 @@ async def copy_database_table(
     after = await _dimensions(connection_name, schema_name, table_name, column)
     await _grant_reader(target_schema, target_table)
     kept = dim is not None and after.shared_dimension() == dim
-    lost = 0 if kept else max(before.with_z_or_m, after.with_z_or_m)
     if dim is not None and not kept:
         await _store_2d(target_schema, target_table, srid)
     elif dim in ("XYM", "XYZM") and await _mercator_refuses_m(
         target_schema, target_table
     ):
-        lost = await _store_2d(target_schema, target_table, srid, keep_z=dim == "XYZM")
+        await _store_2d(target_schema, target_table, srid, keep_z=dim == "XYZM")
+        kept = False
     await _store_single_points_as_point(target_schema, target_table)
-    return lost
+    return 0 if kept else max(before.with_z_or_m, after.with_z_or_m)
 
 
 async def _dimensions(
@@ -223,11 +222,8 @@ async def _grant_reader(target_schema: str, target_table: str) -> None:
 
 async def _store_2d(
     target_schema: str, target_table: str, srid: int, *, keep_z: bool = False
-) -> int:
-    """Drop every M, and every Z unless ``keep_z``, filled-in zeros among them.
-
-    Returns how many values the copy holds.
-    """
+) -> None:
+    """Drop every M, and every Z unless ``keep_z``, filled-in zeros among them."""
     from sqlalchemy import text
 
     from app.core.db import async_session
@@ -245,14 +241,7 @@ async def _store_2d(
                 f"geometry({column_type}, {int(srid)}) USING {force}(_geolens_geom)"
             )
         )
-        values = await session.scalar(
-            text(
-                # codeql[py/sql-injection] table via _qtable (metadata_sql.py)
-                f"SELECT count(_geolens_geom) FROM {table}"  # noqa: S608
-            )
-        )
         await session.commit()
-    return int(values or 0)
 
 
 async def _mercator_refuses_m(target_schema: str, target_table: str) -> bool:
