@@ -2,6 +2,8 @@
 // ReportEntryList, admin ApiKeySection and settings MyApiKeySection so unit
 // ranges and fallbacks cannot drift.
 
+import type { Translator } from '@/i18n/translator';
+
 const MINUTE_MS = 60 * 1000;
 const HOUR_MS = 60 * MINUTE_MS;
 const DAY_MS = 24 * HOUR_MS;
@@ -77,7 +79,7 @@ export function formatRelativeTime(
  */
 export function formatLastUsedRelativeTime(
   dateStr: string | null,
-  t: (key: string, options?: Record<string, unknown>) => string,
+  t: Translator,
 ): string {
   if (!dateStr) return t('admin:apiKeys.neverUsed');
   const date = new Date(dateStr);

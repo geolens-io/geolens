@@ -10,6 +10,7 @@ import { MAP_COLORS } from '@/lib/map-colors';
 import { walkExpressionPairs } from '@/lib/zoom-expressions';
 import { Textarea } from '@/components/ui/textarea';
 import { randomId } from '@/lib/random-id';
+import type { Translator } from '@/i18n/translator';
 
 // Seed endpoints come from the shared categorical palette (blue -> pink) so
 // user-editable gradient defaults trace to MAP_COLORS, not fresh literals.
@@ -154,7 +155,7 @@ interface LineGradientControlsProps {
   styleConfig: StyleConfig | null;
   onPaintProp: (key: string, value: unknown) => void;
   onBuilderChange: (patch: BuilderStyleConfig, nextPaint?: Record<string, unknown>) => void;
-  t: (key: string, opts?: Record<string, unknown>) => string;
+  t: Translator;
 }
 
 export function LineGradientControls({ paint, styleConfig, onPaintProp, onBuilderChange, t }: LineGradientControlsProps) {

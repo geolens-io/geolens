@@ -1340,7 +1340,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The app object, its middleware and exception handlers, route registration
     # and the lifespan stay together to keep their order; the capability 401
     # mapping stays here because this module is already reviewed for embed tokens.
-    "backend/app/api/main.py": 1241,
+    "backend/app/api/main.py": 1243,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1602,
@@ -1397,7 +1397,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup; regeneration's claim, build and store phases are functions here.
-    "backend/app/processing/ingest/tasks_vrt.py": 1960,
+    "backend/app/processing/ingest/tasks_vrt.py": 1992,
     # Raster replacement owns conversion, read-back and published-object cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases

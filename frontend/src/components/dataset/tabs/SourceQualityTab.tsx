@@ -26,6 +26,7 @@ import { SpatialExtentCard } from '@/components/dataset/SpatialExtentCard';
 import { TemporalExtentCard } from '@/components/dataset/TemporalExtentCard';
 import type { DatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 import { UPDATE_FREQUENCY_OPTIONS, SENSITIVITY_OPTIONS, THEME_CATEGORIES } from '@/lib/iso-constants';
+import type { Translator } from '@/i18n/translator';
 
 interface SourceQualityTabProps {
   dataset: DatasetResponse;
@@ -51,21 +52,21 @@ export type SourceQualityDraftField =
 export type SourceQualityDraftValues = Record<SourceQualityDraftField, string>;
 
 function translateUpdateFrequency(
-  t: (key: string, options?: Record<string, unknown>) => string,
+  t: Translator,
   value: string,
 ): string {
   return t(`iso.updateFrequencyOptions.${value}`, { defaultValue: value });
 }
 
 function translateSensitivity(
-  t: (key: string, options?: Record<string, unknown>) => string,
+  t: Translator,
   value: string,
 ): string {
   return t(`iso.sensitivityOptions.${value}`, { defaultValue: value });
 }
 
 function translateThemeCategory(
-  t: (key: string, options?: Record<string, unknown>) => string,
+  t: Translator,
   value: string,
 ): string {
   return t(`iso.themeCategories.${value}`, { defaultValue: value });
