@@ -47,6 +47,7 @@ from app.modules.catalog.maps.service_layers import (
 from app.modules.catalog.maps.service_public import (
     _validate_share_token,
     create_share_token,
+    find_embedded_maps_using_dataset,
     find_maps_broken_by_dataset_visibility,
     get_active_share_token,
     get_maps_for_dataset,
@@ -109,6 +110,7 @@ __all__ = [
     "lock_maps_for_admin_write",
     "validate_public_visibility",
     "find_maps_broken_by_dataset_visibility",
+    "find_embedded_maps_using_dataset",
     "create_share_token",
     "update_share_token",
     "get_active_share_token",
