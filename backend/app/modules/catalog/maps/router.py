@@ -513,19 +513,6 @@ async def update_map_endpoint(
     # is on. None (untouched) passes through.
     await check_public_visibility_allowed(db, user, body.visibility)
 
-    # Hard block: prevent publishing maps with non-public datasets. A request
-    # that also replaces the layers is checked on the layers it leaves.
-    if body.visibility == MapVisibility.public and body.layers is None:
-        non_public = await validate_public_visibility(db, map_id, user)
-        if non_public:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "message": "Cannot set visibility to public: map contains non-public datasets",
-                    "datasets": ", ".join(non_public),
-                },
-            )
-
     # RBAC: when replacing layers, verify access to every dataset, or an owner
     # could insert MapLayer rows at restricted datasets (render-time RBAC hides
     # them, but the rows would be a leakage hazard).
@@ -575,6 +562,18 @@ async def update_map_endpoint(
             status_code=status.HTTP_404_NOT_FOUND,
             detail="Map not found",
         )
+    # Hard block on publishing non-public datasets, asked once update_map holds
+    # the layers' datasets. A layer replacement is checked on what it leaves.
+    if body.visibility == MapVisibility.public and body.layers is None:
+        non_public = await validate_public_visibility(db, map_id, user)
+        if non_public:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail={
+                    "message": "Cannot set visibility to public: map contains non-public datasets",
+                    "datasets": ", ".join(non_public),
+                },
+            )
 
     layers = _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user))
     await audit_emit(

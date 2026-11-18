@@ -27,6 +27,7 @@ from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
 from app.modules.catalog.maps.service import (
     filter_layer_rows_by_dataset_visibility,
     get_map_with_layers,
+    lock_layer_datasets,
     lock_map_layers,
     terrain_dataset_ids_visible_to,
 )
@@ -233,15 +234,17 @@ async def transfer_map_owner(
 
     A transfer to the current owner changes nothing, vets nothing and writes
     no row. Raises 422 for a target that is unknown, inactive, lacks
-    ``edit_metadata`` or cannot read every dataset the map uses. Takes the
-    map row, which re-checks the actor, and raises 403 unless the actor is
-    still an admin as committed. Does not commit.
+    ``edit_metadata`` or cannot read every dataset the map uses, asked once
+    any change to those datasets has committed. Takes the map row, which
+    re-checks the actor, and raises 403 unless the actor is still an admin as
+    committed. Does not commit.
     """
     await lock_map_layers(db, map_obj.id)
     require_transfer_admin(await get_user_roles(db, actor), owner_id)
     previous = await _locked_owner(db, map_obj)
     if previous == owner_id:
         return
+    await lock_layer_datasets(db, map_obj.id)
     new_owner = await _vet_new_owner(db, owner_id, EDIT_METADATA)
     await _refuse_hidden_datasets(db, map_obj.id, new_owner)
     map_obj.created_by = new_owner.id

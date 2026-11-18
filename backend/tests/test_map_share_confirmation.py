@@ -13,6 +13,7 @@ from sqlalchemy.ext.asyncio import create_async_engine
 from sqlalchemy.pool import NullPool
 
 from app.core.config import settings
+import app.modules.catalog.maps.service_groups as service_groups
 from app.modules.catalog.datasets.domain import service as dataset_service
 from app.modules.catalog.group_sharing import GroupNotJoinedError
 
@@ -355,16 +356,16 @@ async def test_a_dataset_deleted_mid_request_is_skipped(
 async def test_a_confirm_does_not_undo_a_revocation_it_raced(
     client: AsyncClient, world, test_db_session, monkeypatch
 ):
-    """A revocation that commits before the confirm locks the dataset stays
-    revoked."""
+    """A revocation that commits before the confirm locks the map's datasets
+    stays revoked."""
 
     target = world["datasets"]["without_g"]
     revoked = world["h"]
-    real = dataset_service.set_dataset_groups
+    real = service_groups.lock_layer_datasets
     committed = []
 
-    async def revoke_first(session, dataset, *args, **kwargs):
-        if dataset.id == target and not committed:
+    async def revoke_first(session, map_id):
+        if not committed:
             engine = create_async_engine(settings.test_database_url, poolclass=NullPool)
             try:
                 async with engine.begin() as conn:
@@ -387,9 +388,9 @@ async def test_a_confirm_does_not_undo_a_revocation_it_raced(
                 committed.append(False)
             finally:
                 await engine.dispose()
-        return await real(session, dataset, *args, **kwargs)
+        return await real(session, map_id)
 
-    monkeypatch.setattr(dataset_service, "set_dataset_groups", revoke_first)
+    monkeypatch.setattr(service_groups, "lock_layer_datasets", revoke_first)
 
     shared = await _share_map(
         client, world["map"], [world["g"]], world["owner"], "share_datasets"

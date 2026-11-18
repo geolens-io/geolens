@@ -33,7 +33,8 @@ from app.modules.catalog.group_sharing import (
     unshare_sole_group_items,
     write_group_grants,
 )
-from app.modules.catalog.maps.models import Map, MapGroupGrant
+from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.maps.models import Map, MapGroupGrant, MapLayer
 from app.modules.catalog.maps.schemas import MapLayerAccessGap
 from app.modules.catalog.maps.service_group_gaps import (
     LayersHiddenFromGroupsError,
@@ -45,9 +46,12 @@ from app.modules.catalog.maps.service_layers import lock_map_layers, touch_map
 from app.modules.catalog.maps.service_public import revoke_share_token_by_map
 from app.modules.catalog.write_recheck import refuse_stale_write
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
+from app.platform.catalog_locks import bounded_row_lock
 from app.platform.extensions import get_permission_extension
 
 RESTRICTED_NEEDS_GROUPS = "Share the map with a group before making it restricted."
+
+_DATASET_BUSY = "A dataset on this map is being changed. Retry shortly."
 
 
 class RestrictedWithoutGroupsError(ValueError):
@@ -89,6 +93,27 @@ async def map_group_layer_gaps(
     return await layer_gaps(session, map_obj.id, groups, actor, is_admin)
 
 
+async def lock_layer_datasets(session: AsyncSession, map_id: uuid.UUID) -> None:
+    """Wait out any change to the datasets the map's layers show, then hold
+    them while the caller widens the map's audience. Call holding the map row.
+
+    A dataset change asks about its owner's shared maps holding its rows
+    ``FOR UPDATE``, so this ``FOR KEY SHARE`` waits for that change to commit
+    and the caller's checks read the dataset as it left it. A lost wait
+    answers 409.
+    """
+    await bounded_row_lock(
+        session,
+        select(Dataset.id)
+        .where(
+            Dataset.id.in_(select(MapLayer.dataset_id).where(MapLayer.map_id == map_id))
+        )
+        .order_by(Dataset.id)
+        .with_for_update(read=True, key_share=True),
+        message=_DATASET_BUSY,
+    )
+
+
 async def _retire_links(
     session: AsyncSession, map_id: uuid.UUID, current: str, new: str
 ) -> None:
@@ -109,14 +134,14 @@ async def prepare_map_visibility(
     session: AsyncSession, map_id: uuid.UUID, requested: str
 ) -> str:
     """Return the visibility a write of ``requested`` gives the map: a map
-    with groups is restricted wherever it would be private. Short of public,
-    lock the map and revoke its links when the write narrows it.
+    with groups is restricted wherever it would be private. Locks the map,
+    revokes its links when the write narrows it, and takes its layers'
+    datasets with ``lock_layer_datasets`` when the write opens it to more
+    readers.
 
     Raises ``RestrictedWithoutGroupsError`` for ``restricted`` on a map with
     no group.
     """
-    if requested == "public":
-        return requested
     await lock_map_layers(session, map_id)
     current = await session.scalar(select(Map.visibility).where(Map.id == map_id))
     visibility = requested
@@ -128,6 +153,8 @@ async def prepare_map_visibility(
             visibility = RESTRICTED_MAP_VISIBILITY
         elif requested == RESTRICTED_MAP_VISIBILITY:
             raise RestrictedWithoutGroupsError(RESTRICTED_NEEDS_GROUPS)
+    if visibility not in (current, "private"):
+        await lock_layer_datasets(session, map_id)
     await _retire_links(session, map_id, str(current), visibility)
     return visibility
 
@@ -239,6 +266,8 @@ async def set_map_groups(
     if visibility == RESTRICTED_MAP_VISIBILITY:
         # Grants on an internal or public map are dormant until it narrows.
         reaching = added if previous == RESTRICTED_MAP_VISIBILITY else wanted
+        if reaching:
+            await lock_layer_datasets(session, map_obj.id)
         gaps = await layer_gaps(session, map_obj.id, reaching, actor, is_admin)
         if gaps and confirm is None:
             raise LayersHiddenFromGroupsError(gaps)
