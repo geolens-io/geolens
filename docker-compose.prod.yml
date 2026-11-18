@@ -411,7 +411,7 @@ services:
     # Held at 2.x without contract testing. Upstream ships security fixes as plain
     # bugfix releases with no advisory, so only a deliberate bump is a control. The
     # rasterio wheel, not this tag, pins GDAL (3.12.4 on 2.4.0).
-    image: ghcr.io/developmentseed/titiler:2.4.0
+    image: ghcr.io/developmentseed/titiler:2.4.1
     init: true
     restart: unless-stopped
     stop_grace_period: 15s
