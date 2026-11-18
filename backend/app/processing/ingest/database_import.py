@@ -21,7 +21,6 @@ from app.platform.database_sources import (
     freetds_workdir,
     get_database_connection,
     importable_identifier,
-    probe_table_geometry,
     safe_gdal_stderr,
 )
 from app.platform.gdal_env import gdal_database_safe_env
@@ -34,6 +33,9 @@ from app.processing.ingest.ogr import (
 )
 
 logger = structlog.stdlib.get_logger(__name__)
+
+# Indexed by ST_Zmflag: 0 2D, 1 M, 2 Z, 3 ZM.
+_POINT_TYPES = ("Point", "PointM", "PointZ", "PointZM")
 
 # GDAL's line for a table that is missing or that the login can't read.
 _MISSING_LAYER = "Couldn't fetch requested layer"
@@ -57,21 +59,6 @@ def require_importable_table(
         )
 
 
-async def _still_probes_as(
-    connection_name: str, schema_name: str, table_name: str, point_type: str
-) -> bool:
-    """Whether the table still holds only points of ``point_type``.
-
-    A point column accepts a point of other dimensions by padding or dropping
-    Z and M, so a copy that exits 0 says nothing about them.
-    """
-    try:
-        probed = await probe_table_geometry(connection_name, schema_name, table_name)
-    except DatabaseSourceError:
-        return False
-    return probed.point_type == point_type
-
-
 async def copy_database_table(
     connection_name: str,
     *,
@@ -80,16 +67,13 @@ async def copy_database_table(
     target_schema: str,
     target_table: str,
     srid: int,
-    point_type: str | None = None,
 ) -> None:
     """Load ``schema_name.table_name`` into ``target_schema.target_table``.
 
     ``srid`` is stamped on every geometry: GDAL reports none for a table that
     ``geometry_columns`` doesn't list. The table's primary key stays an
-    ordinary column, and ``gid`` is numbered by PostGIS. A table holding only
-    points is stored as ``point_type`` so clients can cluster it; every other
-    table, and one that fails the point copy or no longer probes as
-    ``point_type`` after it, is copied in its multi form.
+    ordinary column, and ``gid`` is numbered by PostGIS. A copy whose
+    geometries are all single points is stored as ``Point``.
 
     Raises ``DatabaseImportError`` with a message safe to show.
     """
@@ -141,7 +125,7 @@ async def copy_database_table(
             "-nlt",
             "CONVERT_TO_LINEAR",
             "-nlt",
-            point_type or "PROMOTE_TO_MULTI",
+            "PROMOTE_TO_MULTI",
             "-lco",
             "GEOMETRY_NAME=_geolens_geom",
             "-lco",
@@ -150,31 +134,15 @@ async def copy_database_table(
             f"EPSG:{int(srid)}",
             f"{schema_name}.{table_name}",
         ]
-        nlt = cmd.index("CONVERT_TO_LINEAR") + 2
-        while True:
-            proc = await asyncio.create_subprocess_exec(
-                *cmd,
-                stdout=asyncio.subprocess.PIPE,
-                stderr=asyncio.subprocess.PIPE,
-                env=_tenant_writer_subprocess_env(target_schema, base_env=env),
-            )
-            _, stderr = await _communicate_with_timeout(
-                proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
-            )
-            if cmd[nlt] == "PROMOTE_TO_MULTI":
-                break
-            if proc.returncode == 0 and await _still_probes_as(
-                connection_name, schema_name, table_name, cmd[nlt]
-            ):
-                break
-            # The table changed after the probe; -overwrite replaces whatever
-            # this try created.
-            logger.info(
-                "point table copy not kept; retrying as multi",
-                connection=connection_name,
-                returncode=proc.returncode,
-            )
-            cmd[nlt] = "PROMOTE_TO_MULTI"
+        proc = await asyncio.create_subprocess_exec(
+            *cmd,
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+            env=_tenant_writer_subprocess_env(target_schema, base_env=env),
+        )
+        _, stderr = await _communicate_with_timeout(
+            proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
+        )
 
     if proc.returncode != 0:
         # GDAL masks only the first word of a quoted PostGIS password when it
@@ -195,3 +163,48 @@ async def copy_database_table(
                 f"{connection_name!r} failed."
             )
         raise DatabaseImportError(str(error))
+    await _store_single_points_as_point(target_schema, target_table)
+
+
+async def _store_single_points_as_point(target_schema: str, target_table: str) -> None:
+    """Narrow the copy's column to a point type when every geometry is one point.
+
+    The copy promotes each point to a one-part MultiPoint, because SQL Server
+    declares no geometry type, and clients such as ArcGIS Online cluster only
+    a Point layer. Any other content, or no geometry at all, stays as copied.
+    """
+    from sqlalchemy import text
+
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import _qtable, grant_reader_access
+    from app.processing.ingest.tasks_common import _current_tenant_role
+
+    table = _qtable(target_table, schema=target_schema)
+    async with async_session() as session:
+        # In multi_tenant mode the read runs as the tenant reader.
+        await grant_reader_access(
+            session, target_table, schema=target_schema, role=_current_tenant_role()
+        )
+        row = (
+            await session.execute(
+                text(
+                    # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
+                    "SELECT bool_and(ST_GeometryType(_geolens_geom) = 'ST_MultiPoint' "
+                    "AND ST_NumGeometries(_geolens_geom) = 1) AS single, "
+                    "min(ST_Zmflag(_geolens_geom)) AS zm, "
+                    "max(ST_Zmflag(_geolens_geom)) AS max_zm, "
+                    "max(ST_SRID(_geolens_geom)) AS srid "
+                    f"FROM {table} WHERE _geolens_geom IS NOT NULL"  # noqa: S608
+                )
+            )
+        ).one()
+        if row.single and row.zm == row.max_zm:
+            await session.execute(
+                text(
+                    # codeql[py/sql-injection] table via _qtable (metadata_sql.py); the type is a fixed literal, srid an int()
+                    f"ALTER TABLE {table} ALTER COLUMN _geolens_geom TYPE "
+                    f"geometry({_POINT_TYPES[row.zm]}, {int(row.srid)}) "
+                    "USING ST_GeometryN(_geolens_geom, 1)"
+                )
+            )
+        await session.commit()

@@ -141,36 +141,3 @@ async def test_a_refresh_of_a_mixed_column_is_refused_before_the_copy(
         await strategy.fetch()
     assert raised.value.reason.code == "mixed_srid_database"
     copy.assert_not_awaited()
-
-
-@pytest.mark.anyio
-@pytest.mark.parametrize("point_type", ["POINT", None])
-async def test_a_refresh_copies_with_the_point_type_it_probed(
-    monkeypatch, point_type
-) -> None:
-    from app.platform.database_sources import TableGeometry
-    from app.platform.dataset_origin import DatabaseSource
-    from app.processing.ingest import tasks_database
-
-    monkeypatch.setattr(
-        tasks_database,
-        "probe_table_geometry",
-        AsyncMock(
-            return_value=TableGeometry(column="g", srid=4326, point_type=point_type)
-        ),
-    )
-
-    class _Copied(Exception):
-        pass
-
-    copy = AsyncMock(side_effect=_Copied)
-    monkeypatch.setattr(tasks_database, "copy_database_table", copy)
-    strategy = tasks_database._DatabaseRefresh(
-        job_id=str(uuid.uuid4()), user_id=str(uuid.uuid4())
-    )
-    strategy.source = DatabaseSource("gis", "dbo", "t")
-    strategy.stored_srid = 4326
-    strategy.staging_table = "t_stage"
-    with pytest.raises(_Copied):
-        await strategy.fetch()
-    assert copy.await_args.kwargs["point_type"] == point_type

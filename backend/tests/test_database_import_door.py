@@ -10,6 +10,7 @@ import pytest
 import structlog
 from httpx import AsyncClient
 from sqlalchemy import select
+from sqlalchemy import text as sql
 
 from app.core.config import settings
 from app.core.config_database_sources import DatabaseConnection
@@ -357,6 +358,8 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
         return _Proc()
 
     monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
+    narrow = AsyncMock()
+    monkeypatch.setattr(database_import, "_store_single_points_as_point", narrow)
 
     await database_import.copy_database_table(
         "gis",
@@ -367,6 +370,7 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
         srid=2263,
     )
 
+    narrow.assert_awaited_once_with("data", "parcels_copy")
     [(argv, kwargs)] = spawned
     assert argv[:3] == ("ogr2ogr", "-if", "MSSQLSpatial")
     assert argv[-1] == "dbo.parcels"
@@ -383,114 +387,117 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
     assert "MSSQLSpatial" not in env["GDAL_SKIP"].split()
 
 
-@pytest.mark.parametrize(
-    ("point_type", "nlt"),
-    [("POINT", "POINT"), ("POINTZ", "POINTZ"), (None, "PROMOTE_TO_MULTI")],
-)
-async def test_copy_stores_a_point_table_as_its_point_type(
-    monkeypatch, point_type, nlt
-):
-    monkeypatch.setattr(settings, "database_sources", {"gis": _connection()})
-    monkeypatch.setattr(
-        database_import,
-        "probe_table_geometry",
-        AsyncMock(
-            return_value=TableGeometry(column="geom", srid=4326, point_type=point_type)
-        ),
+async def _staged_copy(session, values: list[str | None]) -> str:
+    """A copy's table as ogr2ogr leaves it: an untyped ``_geolens_geom``."""
+    table = f"dbcopy_{uuid.uuid4().hex[:10]}"
+    await session.execute(
+        sql(
+            f'CREATE TABLE data."{table}" '
+            "(gid serial PRIMARY KEY, _geolens_geom geometry)"
+        )
     )
-    spawned: list[tuple] = []
+    for value in values:
+        await session.execute(
+            sql(
+                f'INSERT INTO data."{table}" (_geolens_geom) '
+                "VALUES (ST_GeomFromEWKT(:v))"
+            ),
+            {"v": value},
+        )
+    await session.commit()
+    return table
 
-    async def _spawn(*argv, **kwargs):
-        spawned.append(argv)
-        return _Proc()
 
-    monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
-    await database_import.copy_database_table(
-        "gis",
-        schema_name="dbo",
-        table_name="wells",
-        target_schema="data",
-        target_table="wells_copy",
-        srid=4326,
-        point_type=point_type,
+async def _geometries(session, table: str, *, first_part: bool = False):
+    value = "ST_GeometryN(_geolens_geom, 1)" if first_part else "_geolens_geom"
+    rows = await session.execute(
+        sql(f'SELECT ST_AsEWKB({value}) FROM data."{table}" ORDER BY gid')
     )
-    [argv] = spawned
-    assert _layer_types(argv) == ["CONVERT_TO_LINEAR", nlt]
+    values = [row[0] for row in rows]
+    # Release the read lock, or the narrowing's ALTER TABLE waits on it.
+    await session.commit()
+    return values
 
 
-def _layer_types(argv) -> list[str]:
-    return [argv[i + 1] for i, arg in enumerate(argv) if arg == "-nlt"]
+async def _column(session, table: str) -> tuple[str, int, int]:
+    row = (
+        await session.execute(
+            sql(
+                "SELECT type, coord_dimension, srid FROM geometry_columns "
+                "WHERE f_table_schema = 'data' AND f_table_name = :t"
+            ),
+            {"t": table},
+        )
+    ).one()
+    return row.type, row.coord_dimension, row.srid
 
 
 @pytest.mark.parametrize(
-    ("point_type", "returncodes", "after", "types", "fails"),
+    ("values", "column"),
     [
-        ("POINT", [1, 0], "POINT", ["POINT", "PROMOTE_TO_MULTI"], False),
-        ("POINT", [1, 1], "POINT", ["POINT", "PROMOTE_TO_MULTI"], True),
-        ("POINT", [0], "POINT", ["POINT"], False),
-        (None, [1], None, ["PROMOTE_TO_MULTI"], True),
-        ("POINTZ", [0, 0], "POINT", ["POINTZ", "PROMOTE_TO_MULTI"], False),
-        ("POINT", [0, 0], None, ["POINT", "PROMOTE_TO_MULTI"], False),
         (
-            "POINT",
-            [0, 0],
-            DatabaseConnectError("gis"),
-            ["POINT", "PROMOTE_TO_MULTI"],
-            False,
+            ["SRID=2263;MULTIPOINT(1.5 2.25)", None, "SRID=2263;MULTIPOINT(3 4)"],
+            ("POINT", 2, 2263),
         ),
+        (
+            ["SRID=4326;MULTIPOINT Z (1 2 3.25)", "SRID=4326;MULTIPOINT Z (3 4 -5.5)"],
+            ("POINT", 3, 4326),
+        ),
+        (["SRID=4326;MULTIPOINT M (1 2 7)"], ("POINTM", 3, 4326)),
+        (["SRID=4326;MULTIPOINT ZM (1 2 3 7)"], ("POINT", 4, 4326)),
+    ],
+    ids=["xy-with-null", "z", "m", "zm"],
+)
+async def test_a_copy_of_single_points_is_stored_as_point_with_every_value_kept(
+    test_db_session, values, column
+):
+    table = await _staged_copy(test_db_session, values)
+    try:
+        expected = await _geometries(test_db_session, table, first_part=True)
+
+        await database_import._store_single_points_as_point("data", table)
+
+        assert await _column(test_db_session, table) == column
+        assert await _geometries(test_db_session, table) == expected
+        assert expected.count(None) == values.count(None)
+    finally:
+        await test_db_session.execute(sql(f'DROP TABLE data."{table}"'))
+        await test_db_session.commit()
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        ["SRID=4326;MULTIPOINT(1 2)", "SRID=4326;MULTIPOINT((1 2),(3 4))"],
+        ["SRID=4326;MULTIPOINT(1 2)", "SRID=4326;MULTIPOINT Z (1 2 3)"],
+        ["SRID=4326;MULTIPOINT Z (1 2 3)", "SRID=4326;MULTIPOINT M (1 2 3)"],
+        ["SRID=4326;MULTIPOINT(1 2)", "SRID=4326;MULTILINESTRING((0 0,1 1))"],
+        ["SRID=4326;MULTIPOINT EMPTY"],
+        [None, None],
+        [],
     ],
     ids=[
-        "retried",
-        "retry-fails",
-        "no-failure",
-        "multi-not-retried",
-        "dimensions-changed",
-        "no-longer-points",
-        "second-probe-fails",
+        "two-part",
+        "mixed-dimensions",
+        "z-and-m",
+        "not-points",
+        "empty-multipoint",
+        "all-null",
+        "no-rows",
     ],
 )
-async def test_a_point_copy_the_table_outran_is_redone_once_as_multi(
-    monkeypatch, point_type, returncodes, after, types, fails
-):
-    monkeypatch.setattr(settings, "database_sources", {"gis": _connection()})
+async def test_any_other_copy_is_left_as_copied(test_db_session, values):
+    table = await _staged_copy(test_db_session, values)
+    try:
+        before = await _geometries(test_db_session, table)
 
-    async def _probe(*args):
-        if isinstance(after, Exception):
-            raise after
-        return TableGeometry(column="geom", srid=4326, point_type=after)
+        await database_import._store_single_points_as_point("data", table)
 
-    monkeypatch.setattr(database_import, "probe_table_geometry", _probe)
-    spawned: list[tuple] = []
-    outcomes = iter(returncodes)
-
-    async def _spawn(*argv, **kwargs):
-        spawned.append(argv)
-        code = next(outcomes)
-        stderr = b"ERROR 1: COPY statement failed." if code else b""
-        return _Proc(stderr=stderr, returncode=code)
-
-    monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
-    copy = database_import.copy_database_table(
-        "gis",
-        schema_name="dbo",
-        table_name="wells",
-        target_schema="data",
-        target_table="wells_copy",
-        srid=4326,
-        point_type=point_type,
-    )
-    if fails:
-        with pytest.raises(database_import.DatabaseImportError) as raised:
-            await copy
-        assert str(raised.value) == (
-            "Copying the table from the database connection 'gis' failed."
-        )
-    else:
-        await copy
-    assert [_layer_types(argv)[1] for argv in spawned] == types
-    # Every try writes the same staging table and replaces it.
-    assert {argv[argv.index("-nln") + 1] for argv in spawned} == {"data.wells_copy"}
-    assert all("-overwrite" in argv for argv in spawned)
+        assert await _column(test_db_session, table) == ("GEOMETRY", 2, 0)
+        assert await _geometries(test_db_session, table) == before
+    finally:
+        await test_db_session.execute(sql(f'DROP TABLE data."{table}"'))
+        await test_db_session.commit()
 
 
 @pytest.mark.parametrize(
@@ -562,45 +569,6 @@ def test_the_table_srid_wins_over_an_override_or_the_stored_srid(
     from app.processing.ingest.tasks_database import chosen_srid
 
     assert chosen_srid(probed, fallback) == chosen
-
-
-@pytest.mark.requires_ogr2ogr
-async def test_an_import_copies_a_point_table_as_point(
-    client: AsyncClient,
-    editor_auth_header,
-    configured,
-    listing,
-    deferred,
-    monkeypatch,
-):
-    spawned: list[tuple] = []
-
-    async def _spawn(*argv, **kwargs):
-        spawned.append(argv)
-        return _Proc(stderr=b"ERROR 1: COPY statement failed.", returncode=1)
-
-    monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
-    monkeypatch.setattr(
-        tasks_database,
-        "probe_table_geometry",
-        AsyncMock(
-            return_value=TableGeometry(column="shape", srid=2263, point_type="POINT")
-        ),
-    )
-    resp = await client.post(
-        URL,
-        json={"schema_name": "dbo", "table_name": "parcels"},
-        headers=editor_auth_header,
-    )
-    assert resp.status_code == 202, resp.text
-
-    with pytest.raises(database_import.DatabaseImportError):
-        await tasks_database.ingest_database.func(**deferred.await_args.kwargs)
-
-    assert [_layer_types(argv) for argv in spawned] == [
-        ["CONVERT_TO_LINEAR", "POINT"],
-        ["CONVERT_TO_LINEAR", "PROMOTE_TO_MULTI"],
-    ]
 
 
 @pytest.mark.requires_ogr2ogr

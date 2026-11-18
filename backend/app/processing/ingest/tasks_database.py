@@ -244,7 +244,6 @@ async def ingest_database(
             target_schema=_current_tenant_schema(),
             target_table=staging_table_name,
             srid=effective_srid,
-            point_type=probed.point_type,
         )
 
         async with _job_phase_session(
@@ -382,7 +381,6 @@ class _DatabaseRefresh(_LiveComparison):
             target_schema=schema,
             target_table=self.staging_table,
             srid=self.srid,
-            point_type=probed.point_type,
         )
         self.live_scan = await _live_geometry_types(
             self.live_table, schema=schema, dataset_id=self.dataset_id

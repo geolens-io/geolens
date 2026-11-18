@@ -359,19 +359,16 @@ def importable_identifier(name: str) -> bool:
 
 @dataclass(frozen=True)
 class TableGeometry:
-    """The spatial column GDAL reads from a table, and its values' SRID.
+    """The spatial column GDAL reads from a table, and its first value's SRID.
 
     ``srid`` is ``None`` when that is 0 or the column holds no value.
     ``mixed`` is whether its values carry more than one SRID, which one
-    assigned CRS can't describe. ``point_type`` is the ogr2ogr ``-nlt`` value
-    (``POINT``, ``POINTZ``, ``POINTM`` or ``POINTZM``) when every value is a
-    point with the same dimensions, else ``None``.
+    assigned CRS can't describe.
     """
 
     column: str
     srid: int | None
     mixed: bool = False
-    point_type: str | None = None
 
 
 def _table_columns_sql(schema_name: str, table_name: str) -> str:
@@ -388,41 +385,21 @@ def _table_columns_sql(schema_name: str, table_name: str) -> str:
     )
 
 
-def _table_values_sql(schema_name: str, table_name: str, column: str) -> str:
-    # One scan answers both: a second SRID makes the table mixed, and a point
-    # kind of -1 (not a point) or two kinds keep it out of a Point column.
-    # The kind adds 1 for Z and 2 for M.
+def _table_srids_sql(schema_name: str, table_name: str, column: str) -> str:
+    # One read answers both: no row, the one SRID, or two that make it mixed.
+    # Two settle "mixed", so the DISTINCT may stop there.
     col = quote_identifier(column)
     table = f"{quote_identifier(schema_name)}.{quote_identifier(table_name)}"
-    # STGeometryType raises on an invalid instance, so validity is tested
-    # first; an invalid value is never a point.
-    kind = (
-        f"CASE WHEN {col}.STIsValid() = 0 THEN -1 "
-        f"WHEN {col}.STGeometryType() = 'Point' "
-        f"THEN CAST({col}.HasZ AS int) + 2 * CAST({col}.HasM AS int) ELSE -1 END"
-    )
     return (
-        "SELECT MIN(v.srid) AS srid, MAX(v.srid) AS max_srid, "
-        "MIN(v.kind) AS min_kind, MAX(v.kind) AS max_kind "
-        f"FROM (SELECT {col}.STSrid AS srid, {kind} AS kind FROM {table} "
-        f"WHERE {col} IS NOT NULL) AS v"
+        f"SELECT DISTINCT TOP (2) {col}.STSrid AS srid FROM {table} "
+        f"WHERE {col} IS NOT NULL"
     )
-
-
-_POINT_TYPES = ("POINT", "POINTZ", "POINTM", "POINTZM")
-
-
-def _point_type(row: dict[str, object]) -> str | None:
-    kind = row.get("min_kind")
-    if isinstance(kind, int) and 0 <= kind < 4 and row.get("max_kind") == kind:
-        return _POINT_TYPES[kind]
-    return None
 
 
 async def probe_table_geometry(
     name: str, schema_name: str, table_name: str
 ) -> TableGeometry:
-    """One table's spatial column on connection ``name``, its SRID and point type.
+    """The spatial column of one table on connection ``name``, and its SRID.
 
     Raises ``DatabaseTableError`` when the table has no spatial column the
     login can see.
@@ -431,15 +408,12 @@ async def probe_table_geometry(
     column = rows[0].get("column_name") if rows else None
     if not isinstance(column, str):
         raise DatabaseTableError(name)
-    rows = await run_database_sql(
-        name, _table_values_sql(schema_name, table_name, column)
+    srids = await run_database_sql(
+        name, _table_srids_sql(schema_name, table_name, column)
     )
-    row = rows[0] if rows else {}
-    srid = row.get("srid")
-    if srid != row.get("max_srid"):
+    if len(srids) > 1:
         return TableGeometry(column=column, srid=None, mixed=True)
+    srid = srids[0].get("srid") if srids else None
     return TableGeometry(
-        column=column,
-        srid=srid if isinstance(srid, int) and srid != 0 else None,
-        point_type=_point_type(row),
+        column=column, srid=srid if isinstance(srid, int) and srid != 0 else None
     )

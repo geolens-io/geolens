@@ -9,9 +9,9 @@ SQL Server job sets them; everywhere else this module is skipped.
 from __future__ import annotations
 
 import asyncio
-import dataclasses
 import os
 import uuid
+from functools import partial
 from unittest.mock import AsyncMock, patch
 
 import pytest
@@ -27,7 +27,7 @@ from app.platform.gdal_env import gdal_database_safe_env
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest import service as ingest_service
-from app.processing.ingest import tasks_database
+from app.processing.ingest import database_import
 from app.processing.ingest.database_import import DatabaseImportError
 from app.processing.ingest.tasks_database import ingest_database, refresh_database
 
@@ -497,6 +497,10 @@ async def test_a_table_of_points_imports_and_refreshes_as_point(
     dataset = await _dataset(test_db_session, job.dataset_id)
     assert dataset.geometry_type == "POINT"
     assert await _column_type(test_db_session, dataset) == "POINT"
+    rows = await _rows(test_db_session, dataset, "SELECT ST_AsText(geom) FROM {t}")
+    assert "POINT(987654.25 203456.75)" in {wkt for (wkt,) in rows}
+    # Release the read lock the refresh's swap needs.
+    await test_db_session.commit()
 
     items = await client.get(
         f"/collections/{dataset.id}/items", headers=editor_auth_header
@@ -506,26 +510,51 @@ async def test_a_table_of_points_imports_and_refreshes_as_point(
     assert len(features) == 3
     assert {f["geometry"]["type"] for f in features} == {"Point"}
 
-    await _admin(f"UPDATE dbo.{table} SET label = N'renamed' WHERE pk = 12")
-    run = await _refresh(client, editor_auth_header, test_db_session, dataset.id)
-    assert run.status == "succeeded", run.error_message
-    dataset = await _dataset(test_db_session, dataset.id)
-    assert dataset.geometry_type == "POINT"
-    assert await _column_type(test_db_session, dataset) == "POINT"
-
-    # A multipoint added later moves the copy to the multi form, as a file
-    # re-upload holding one does.
     await _admin(
         f"INSERT INTO dbo.{table} VALUES (14, N'd', 4, geometry::STGeomFromText("
         "'MULTIPOINT ((990100 201100), (990200 201200))', 2263))"
     )
     run = await _refresh(client, editor_auth_header, test_db_session, dataset.id)
     assert run.status == "succeeded", run.error_message
+    assert run.verification["review_reasons"] == []
     dataset = await _dataset(test_db_session, dataset.id)
     assert (dataset.geometry_type, dataset.feature_count) == ("MULTIPOINT", 4)
+    assert await _column_type(test_db_session, dataset) == "GEOMETRY"
+
+    await _admin(f"DELETE FROM dbo.{table} WHERE pk = 14")
+    run = await _refresh(client, editor_auth_header, test_db_session, dataset.id)
+    assert run.status == "succeeded", run.error_message
+    assert run.verification["review_reasons"] == []
+    dataset = await _dataset(test_db_session, dataset.id)
+    assert (dataset.geometry_type, dataset.feature_count) == ("POINT", 3)
+    assert await _column_type(test_db_session, dataset) == "POINT"
 
 
-async def test_a_table_mixing_points_and_multipoints_imports_as_multipoint(
+async def test_a_multipoint_dataset_becomes_point_at_its_next_refresh(
+    client: AsyncClient,
+    editor_auth_header,
+    configured,
+    table,
+    test_db_session,
+    monkeypatch,
+):
+    with monkeypatch.context() as unnarrowed:
+        unnarrowed.setattr(
+            database_import, "_store_single_points_as_point", AsyncMock()
+        )
+        kwargs = await _import(client, editor_auth_header, table)
+    dataset_id = (await _job(test_db_session, kwargs["job_id"])).dataset_id
+    assert (await _dataset(test_db_session, dataset_id)).geometry_type == "MULTIPOINT"
+
+    run = await _refresh(client, editor_auth_header, test_db_session, dataset_id)
+
+    assert run.status == "succeeded", run.error_message
+    assert run.verification["review_reasons"] == []
+    dataset = await _dataset(test_db_session, dataset_id)
+    assert (dataset.geometry_type, dataset.feature_count) == ("POINT", 3)
+
+
+async def test_a_point_beside_a_two_part_multipoint_imports_as_multipoint(
     client: AsyncClient, editor_auth_header, configured, test_db_session
 ):
     name = f"p_{uuid.uuid4().hex[:10]}"
@@ -547,25 +576,68 @@ async def test_a_table_mixing_points_and_multipoints_imports_as_multipoint(
         await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
 
 
-async def test_a_table_of_3d_points_keeps_its_z(
-    client: AsyncClient, editor_auth_header, configured, test_db_session
+@pytest.mark.parametrize(
+    "values",
+    [
+        ["POINT (1.5 2.25)", "POINT (3 4)", None],
+        ["POINT (1 1 10.5)", "POINT (2 2 20.25)"],
+        ["POINT (1 1)", "POINT (2 2 20.25)"],
+        ["POINT (1 1 NULL 5)", "POINT (2 2 3 6)"],
+        ["MULTIPOINT ((2 2))", "MULTIPOINT ((3 3))"],
+    ],
+    ids=["xy", "xyz", "xy-and-xyz", "m-and-zm", "one-part-multipoints"],
+)
+async def test_storing_points_as_point_changes_no_coordinate_of_the_copy(
+    configured, test_db_session, monkeypatch, values
 ):
-    name = f"pz_{uuid.uuid4().hex[:10]}"
+    """Each narrowed value is the one point the multi copy stores, as stored."""
+    name = f"c_{uuid.uuid4().hex[:10]}"
     await _admin(f"CREATE TABLE dbo.{name} (id int PRIMARY KEY, geom geometry)")
+    multi, narrowed = f"{name}_multi", f"{name}_point"
     try:
-        await _admin(
-            f"INSERT INTO dbo.{name} VALUES "
-            "(1, geometry::STGeomFromText('POINT (1 1 10)', 4326)),"
-            "(2, geometry::STGeomFromText('POINT (2 2 20)', 4326))"
+        rows = ",".join(
+            f"({i}, geometry::STGeomFromText('{wkt}', 4326))" if wkt else f"({i}, NULL)"
+            for i, wkt in enumerate(values, start=1)
         )
-        kwargs = await _import(client, editor_auth_header, name)
-        job = await _job(test_db_session, kwargs["job_id"])
-        assert job.status == "complete", job.error_message
-        dataset = await _dataset(test_db_session, job.dataset_id)
-        assert await _column_type(test_db_session, dataset) == "POINT"
-        zs = await _rows(test_db_session, dataset, "SELECT ST_Z(geom) FROM {t}")
-        assert sorted(z for (z,) in zs) == [10.0, 20.0]
+        await _admin(f"INSERT INTO dbo.{name} VALUES {rows}")
+        copy = partial(
+            database_import.copy_database_table,
+            "gis",
+            schema_name="dbo",
+            table_name=name,
+            target_schema="data",
+            srid=4326,
+        )
+        with monkeypatch.context() as unnarrowed:
+            unnarrowed.setattr(
+                database_import, "_store_single_points_as_point", AsyncMock()
+            )
+            await copy(target_table=multi)
+        await copy(target_table=narrowed)
+
+        column = await test_db_session.scalar(
+            text(
+                "SELECT type FROM geometry_columns WHERE f_table_schema = 'data' "
+                "AND f_table_name = :t"
+            ),
+            {"t": narrowed},
+        )
+        assert column == "POINT"
+        pairs = (
+            await test_db_session.execute(
+                text(
+                    "SELECT ST_AsEWKB(ST_GeometryN(m._geolens_geom, 1)), "
+                    "ST_AsEWKB(p._geolens_geom) "
+                    f'FROM data."{multi}" m JOIN data."{narrowed}" p USING (id)'
+                )
+            )
+        ).all()
+        assert len(pairs) == len(values)
+        assert all(before == after for before, after in pairs)
     finally:
+        for staged in (multi, narrowed):
+            await test_db_session.execute(text(f'DROP TABLE IF EXISTS data."{staged}"'))
+        await test_db_session.commit()
         await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
 
 
@@ -597,93 +669,3 @@ async def test_a_table_with_an_invalid_value_imports_and_refreshes(
         assert (await _dataset(test_db_session, dataset.id)).feature_count == 3
     finally:
         await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
-
-
-def _probe_says_point(monkeypatch) -> None:
-    """Answer the probe as if every value were a point when it ran."""
-    probe = tasks_database.probe_table_geometry
-
-    async def _point(*args):
-        return dataclasses.replace(await probe(*args), point_type="POINT")
-
-    monkeypatch.setattr(tasks_database, "probe_table_geometry", _point)
-
-
-async def test_a_multipoint_written_after_the_probe_imports_as_multi(
-    client: AsyncClient,
-    editor_auth_header,
-    configured,
-    test_db_session,
-    monkeypatch,
-):
-    _probe_says_point(monkeypatch)
-    name = f"r_{uuid.uuid4().hex[:10]}"
-    await _admin(f"CREATE TABLE dbo.{name} (id int PRIMARY KEY, geom geometry)")
-    try:
-        await _admin(
-            f"INSERT INTO dbo.{name} VALUES "
-            "(1, geometry::STGeomFromText('POINT (1 1)', 4326)),"
-            "(2, geometry::STGeomFromText('MULTIPOINT ((2 2), (3 3))', 4326))"
-        )
-        kwargs = await _import(client, editor_auth_header, name)
-        job = await _job(test_db_session, kwargs["job_id"])
-        assert job.status == "complete", job.error_message
-        dataset = await _dataset(test_db_session, job.dataset_id)
-        assert (dataset.geometry_type, dataset.feature_count) == ("MULTIPOINT", 2)
-    finally:
-        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
-
-
-async def test_points_that_lost_their_z_after_the_probe_get_no_invented_z(
-    client: AsyncClient,
-    editor_auth_header,
-    configured,
-    test_db_session,
-    monkeypatch,
-):
-    probe = tasks_database.probe_table_geometry
-
-    async def _pointz(*args):
-        return dataclasses.replace(await probe(*args), point_type="POINTZ")
-
-    monkeypatch.setattr(tasks_database, "probe_table_geometry", _pointz)
-    name = f"dz_{uuid.uuid4().hex[:10]}"
-    await _admin(f"CREATE TABLE dbo.{name} (id int PRIMARY KEY, geom geometry)")
-    try:
-        await _admin(
-            f"INSERT INTO dbo.{name} VALUES "
-            "(1, geometry::STGeomFromText('POINT (1 1)', 4326)),"
-            "(2, geometry::STGeomFromText('POINT (2 2)', 4326))"
-        )
-        kwargs = await _import(client, editor_auth_header, name)
-        job = await _job(test_db_session, kwargs["job_id"])
-        assert job.status == "complete", job.error_message
-        dataset = await _dataset(test_db_session, job.dataset_id)
-        dims = await _rows(test_db_session, dataset, "SELECT ST_NDims(geom) FROM {t}")
-        assert [d for (d,) in dims] == [2, 2]
-    finally:
-        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
-
-
-async def test_a_multipoint_written_after_the_refresh_probe_refreshes_as_multi(
-    client: AsyncClient,
-    editor_auth_header,
-    configured,
-    table,
-    test_db_session,
-    monkeypatch,
-):
-    kwargs = await _import(client, editor_auth_header, table)
-    dataset_id = (await _job(test_db_session, kwargs["job_id"])).dataset_id
-    assert (await _dataset(test_db_session, dataset_id)).geometry_type == "POINT"
-    await _admin(
-        f"INSERT INTO dbo.{table} VALUES (14, N'd', 4, geometry::STGeomFromText("
-        "'MULTIPOINT ((990100 201100), (990200 201200))', 2263))"
-    )
-    _probe_says_point(monkeypatch)
-
-    run = await _refresh(client, editor_auth_header, test_db_session, dataset_id)
-
-    assert run.status == "succeeded", run.error_message
-    dataset = await _dataset(test_db_session, dataset_id)
-    assert (dataset.geometry_type, dataset.feature_count) == ("MULTIPOINT", 4)
