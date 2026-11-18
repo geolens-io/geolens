@@ -219,9 +219,10 @@ async def recognise_arcgis_wfs(
     refuses on a URL that doesn't name the service: GDAL is refused the
     same way.
 
-    The version is the URL's own, else the one GetCapabilities answers in,
-    as GDAL settles on it, else 2.0.0; GetCapabilities isn't read when the
-    URL names both the service and a version.
+    The version is the one GetCapabilities answers in, read as GDAL reads
+    it, whatever the URL names. GetCapabilities isn't read when the URL
+    names both the service and a version; then, or when that read fails,
+    the version is the URL's own, else 2.0.0.
     """
     version = _url_version(url)
     evidence = esri_evidence("wfs", url)
@@ -254,9 +255,10 @@ async def recognise_arcgis_wfs(
         )
         if evidence is not None:
             logger.info("arcgis_wfs_recognised", evidence=evidence)
-    answered = None if root is None else root.get("version")
-    names = () if root is None else tuple(_wfs_feature_types(root)[1])
-    return WfsService(evidence, version or answered or _DEFAULT_VERSION, names)
+    if root is None:
+        return WfsService(evidence, version or _DEFAULT_VERSION)
+    answered, names = _wfs_feature_types(root)
+    return WfsService(evidence, answered, tuple(names))
 
 
 async def _read_capabilities(

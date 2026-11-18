@@ -1726,18 +1726,27 @@ def _capabilities(
     endpoint: str,
     *,
     formats: tuple[str, ...] = ("GML32",),
-    version: str = "2.0.0",
+    version: str | None = "2.0.0",
+    version_form: str = "version",
     feature_types: tuple[str, ...] = (),
 ) -> bytes:
+    """``version_form`` names the root attribute that carries ``version``,
+    or is ``child`` for a ``Version`` element; a None version is absent."""
     values = "".join(f"<ows:Value>{f}</ows:Value>" for f in formats)
     types = "".join(
         f"<wfs:FeatureType><wfs:Name>{name}</wfs:Name></wfs:FeatureType>"
         for name in feature_types
     )
+    attribute = child = ""
+    if version is not None and version_form == "child":
+        child = f"<wfs:Version>{version}</wfs:Version>"
+    elif version is not None:
+        attribute = f' {version_form}="{version}"'
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <wfs:WFS_Capabilities xmlns:wfs="http://www.opengis.net/wfs/2.0"
   xmlns:ows="http://www.opengis.net/ows/1.1"
-  xmlns:xlink="http://www.w3.org/1999/xlink" version="{version}">
+  xmlns:xlink="http://www.w3.org/1999/xlink"{attribute}>
+  {child}
   <ows:OperationsMetadata>
     <ows:Operation name="GetFeature">
       <ows:DCP><ows:HTTP><ows:Get xlink:href="{endpoint}?"/></ows:HTTP></ows:DCP>
@@ -1750,20 +1759,34 @@ def _capabilities(
 </wfs:WFS_Capabilities>""".encode()
 
 
-def _counting_only(version: str, type_name: str, *, advertised: str = "2.0.0"):
+def _counting_only(
+    version: str,
+    type_name: str,
+    *,
+    advertised: str | None = "2.0.0",
+    version_form: str = "version",
+):
     """A WFS that states its total of 25 only to a hits read in ``version``
-    for ``type_name``, the name it advertises."""
+    for ``type_name``, the name it advertises, under the type-name key that
+    version uses."""
     capabilities = _capabilities(
-        _OTHER_WFS, version=advertised, feature_types=(type_name,)
+        _OTHER_WFS,
+        version=advertised,
+        version_form=version_form,
+        feature_types=(type_name,),
     )
     two = version.startswith("2")
+    key, other_key = ("TYPENAMES", "TYPENAME") if two else ("TYPENAME", "TYPENAMES")
 
     def handle(request: httpx.Request) -> httpx.Response:
         params = {k.upper(): v for k, v in request.url.params.items()}
         if params.get("REQUEST") == "GetCapabilities":
             return _streamed(200, capabilities, "application/xml")
-        names = params.get("TYPENAMES" if two else "TYPENAME")
-        if params.get("VERSION") == version and names == type_name:
+        if (
+            params.get("VERSION") == version
+            and params.get(key) == type_name
+            and other_key not in params
+        ):
             total = "numberMatched" if two else "numberOfFeatures"
             body = (
                 '<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs" '
@@ -1859,17 +1882,38 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
         ]
 
     @pytest.mark.parametrize(
-        ("url", "advertised"),
-        [(_OTHER_WFS, "1.1.0"), (f"{_OTHER_WFS}?VERSION=1.1.0", "2.0.0")],
-        ids=["negotiated", "named-in-url"],
+        ("url", "advertised", "version_form"),
+        [
+            (_OTHER_WFS, "1.1.0", "version"),
+            (f"{_OTHER_WFS}?VERSION=2.0.0", "1.1.0", "version"),
+            (f"{_OTHER_WFS}?VERSION=1.0.0", "2.0.0", "version"),
+            (_OTHER_WFS, "2.0.0", "version"),
+            (_OTHER_WFS, "1.1.0", "VERSION"),
+            (_OTHER_WFS, "1.1.0", "child"),
+            (_OTHER_WFS, "", "version"),
+        ],
+        ids=[
+            "1.1",
+            "url-2.0-caps-1.1",
+            "url-1.0-caps-2.0",
+            "2.0",
+            "upper-case-attribute",
+            "child-element",
+            "empty-sent-as-the-driver-sends-it",
+        ],
     )
-    async def test_a_1_1_geoserver_is_counted_in_1_1(
-        self, monkeypatch, rows, url, advertised
+    async def test_a_geoserver_is_counted_in_the_version_its_capabilities_answer(
+        self, monkeypatch, rows, url, advertised, version_form
     ) -> None:
         from app.core.failure_reason import failure_code, redact_failure_reason
         from app.processing.ingest.ogr import WfsCountMismatchError
 
-        _serve(monkeypatch, _counting_only("1.1.0", "topp:pts", advertised=advertised))
+        _serve(
+            monkeypatch,
+            _counting_only(
+                advertised, "topp:pts", advertised=advertised, version_form=version_form
+            ),
+        )
         _spawn_reading_the_source(monkeypatch)
 
         with pytest.raises(WfsCountMismatchError) as caught:
@@ -1892,13 +1936,24 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
 
         assert failure_code(redact_failure_reason(caught.value)) == "wfs_short"
 
-    async def test_a_1_0_geoserver_gets_no_hits_read(self, monkeypatch, rows) -> None:
+    @pytest.mark.parametrize(
+        ("url", "advertised"),
+        [
+            (_OTHER_WFS, "1.0.0"),
+            (f"{_OTHER_WFS}?VERSION=1.1.0", "1.0.0"),
+            (_OTHER_WFS, None),
+        ],
+        ids=["1.0", "url-1.1-caps-1.0", "absent-reads-as-1.0"],
+    )
+    async def test_a_1_0_geoserver_gets_no_hits_read(
+        self, monkeypatch, rows, url, advertised
+    ) -> None:
         recorded = _serve(
-            monkeypatch, _counting_only("1.0.0", "topp:pts", advertised="1.0.0")
+            monkeypatch, _counting_only("1.0.0", "topp:pts", advertised=advertised)
         )
         _spawn_reading_the_source(monkeypatch)
 
-        await self._import(_OTHER_WFS, "topp:pts")
+        await self._import(url, "topp:pts")
 
         assert [r.url.params.get("REQUEST") for r in recorded] == ["GetCapabilities"]
 
