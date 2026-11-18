@@ -39,7 +39,7 @@ import {
   semanticBadgeColors,
   vrtGenerationColors,
 } from '@/lib/status-colors';
-import { ApiError } from '@/api/client';
+import { isDatasetBusy } from '@/api/vrt';
 import { formatMutationError } from '@/lib/error-map';
 import { useCanMutate } from '@/hooks/use-can-mutate';
 import { useAuthStore } from '@/stores/auth-store';
@@ -675,11 +675,6 @@ function VrtMemberHealth({ status }: { status: VrtSourceHealth['status'] | undef
   );
 }
 
-function isDatasetBusy(err: ApiError): boolean {
-  const body = err.body as { code?: unknown } | null | undefined;
-  return err.status === 409 && body?.code === 'dataset_busy';
-}
-
 function VrtSection({
   dataset,
   isAuthenticated,
@@ -721,7 +716,7 @@ function VrtSection({
                 onSuccess: () => toast.success(t('vrt.regenerateStarted')),
                 onError: (err) => {
                   toast.error(
-                    err instanceof ApiError && isDatasetBusy(err)
+                    isDatasetBusy(err)
                       ? t('vrt.regenerateConflict')
                       : formatMutationError('common:errors.requestFailed', err),
                   );

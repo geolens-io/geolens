@@ -2,10 +2,12 @@ import { renderHook, waitFor } from '@/test/test-utils';
 import { vi } from 'vitest';
 import type { ReactNode } from 'react';
 import { renderHook as rtlRenderHook } from '@testing-library/react';
-import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { QueryClient, QueryClientProvider, useQuery } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { ApiError } from '@/api/client';
 
-vi.mock('@/api/vrt', () => ({
+vi.mock('@/api/vrt', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/api/vrt')>()),
   listVrtSources: vi.fn(),
   getVrtStatus: vi.fn(),
   getVrtGenerations: vi.fn(),
@@ -132,5 +134,93 @@ describe('VRT rebuild refresh', () => {
 
     result.current.regenerate.mutate();
     await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(2));
+  });
+
+  function renderWithClient<T>(hook: () => T) {
+    const client = new QueryClient();
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
+    );
+    return { client, ...rtlRenderHook(hook, { wrapper }) };
+  }
+
+  it('restarts a history read that was in flight when the rebuild was accepted', async () => {
+    let resolveOld!: (v: never) => void;
+    vi.mocked(getVrtGenerations)
+      .mockImplementationOnce(() => new Promise((r) => { resolveOld = r as never; }))
+      .mockResolvedValue({ generations: [{ id: 'g2', status: 'running' }], total: 2 } as never);
+    vi.mocked(regenerateVrt).mockResolvedValue({} as never);
+    const { result } = renderWithClient(() => ({
+      generations: useVrtGenerations('ds-1', { limit: 1 }),
+      regenerate: useRegenerateVrt('ds-1'),
+    }));
+    await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(1));
+
+    result.current.regenerate.mutate();
+    await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(2));
+    resolveOld(gens('completed'));
+
+    await waitFor(() => expect(result.current.generations.data?.generations[0].id).toBe('g2'));
+  });
+
+  it('refetches a cached-ready dataset detail when the history shows a running rebuild', async () => {
+    vi.mocked(getVrtGenerations).mockResolvedValue(gens('running'));
+    const detail = vi.fn().mockResolvedValue({ raster: { status: 'ready' } });
+    renderWithClient(() => ({
+      generations: useVrtGenerations('ds-1', { limit: 1 }),
+      detail: useQuery({ queryKey: queryKeys.datasets.detail('ds-1'), queryFn: detail, staleTime: Infinity }),
+    }));
+    await waitFor(() => expect(detail).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(detail).toHaveBeenCalledTimes(2));
+  });
+
+  it('picks up a rebuild someone else started on a dataset_busy answer', async () => {
+    vi.mocked(getVrtGenerations).mockResolvedValue(gens('completed'));
+    vi.mocked(regenerateVrt).mockRejectedValue(new ApiError('busy', 409, { code: 'dataset_busy' }));
+    const detail = vi.fn().mockResolvedValue({});
+    const { result } = renderWithClient(() => ({
+      generations: useVrtGenerations('ds-1', { limit: 1 }),
+      detail: useQuery({ queryKey: queryKeys.datasets.detail('ds-1'), queryFn: detail, staleTime: Infinity }),
+      regenerate: useRegenerateVrt('ds-1'),
+    }));
+    await waitFor(() => expect(detail).toHaveBeenCalledTimes(1));
+
+    result.current.regenerate.mutate();
+    await waitFor(() => expect(detail).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(2));
+  });
+
+  it('leaves the caches alone on a catalog lock conflict', async () => {
+    vi.mocked(getVrtGenerations).mockResolvedValue(gens('completed'));
+    vi.mocked(regenerateVrt).mockRejectedValue(new ApiError('locked', 409, { code: 'catalog_lock_conflict' }));
+    const { result } = renderWithClient(() => ({
+      generations: useVrtGenerations('ds-1', { limit: 1 }),
+      regenerate: useRegenerateVrt('ds-1'),
+    }));
+    await waitFor(() => expect(result.current.generations.isSuccess).toBe(true));
+
+    result.current.regenerate.mutate();
+    await waitFor(() => expect(result.current.regenerate.isError).toBe(true));
+    expect(getVrtGenerations).toHaveBeenCalledTimes(1);
+  });
+
+  it('stays pending until the refetches after an accepted rebuild settle', async () => {
+    let resolveRefetch!: (v: never) => void;
+    vi.mocked(getVrtGenerations)
+      .mockResolvedValueOnce(gens('completed'))
+      .mockImplementationOnce(() => new Promise((r) => { resolveRefetch = r as never; }));
+    vi.mocked(regenerateVrt).mockResolvedValue({} as never);
+    const { result } = renderWithClient(() => ({
+      generations: useVrtGenerations('ds-1', { limit: 1 }),
+      regenerate: useRegenerateVrt('ds-1'),
+    }));
+    await waitFor(() => expect(result.current.generations.isSuccess).toBe(true));
+
+    result.current.regenerate.mutate();
+    await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(2));
+    expect(result.current.regenerate.isPending).toBe(true);
+
+    resolveRefetch(gens('completed'));
+    await waitFor(() => expect(result.current.regenerate.isPending).toBe(false));
   });
 });

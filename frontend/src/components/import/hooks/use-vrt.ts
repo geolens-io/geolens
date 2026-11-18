@@ -6,6 +6,7 @@ import {
   getVrtStatus,
   getVrtGenerations,
   regenerateVrt,
+  isDatasetBusy,
 } from '@/api/vrt';
 import type { VrtGenerationListResponse } from '@/types/api';
 
@@ -46,33 +47,52 @@ export function useVrtGenerations(datasetId: string, params?: { limit?: number; 
     refetchInterval: (q) => (newestInProgress(q.state.data) ? 3_000 : false),
   });
 
-  // Member health can change when a rebuild ends.
-  const wasInProgress = useRef(false);
+  // A rebuild seen in the history may not be in the cached dataset detail
+  // (raster status, tile URL), and member health can change when one ends.
+  const newest = query.data?.generations[0];
+  const newestId = newest?.id;
   const inProgress = newestInProgress(query.data);
+  const wasInProgress = useRef(false);
+  const lastNewestId = useRef<string | undefined>(undefined);
   useEffect(() => {
-    if (wasInProgress.current && !inProgress && datasetId) {
+    if (!datasetId) return;
+    const changed = lastNewestId.current !== undefined && newestId !== lastNewestId.current;
+    if (inProgress || changed) {
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
+    }
+    if (wasInProgress.current && !inProgress) {
       qc.invalidateQueries({ queryKey: queryKeys.vrt.sources(datasetId) });
       qc.invalidateQueries({ queryKey: queryKeys.vrt.status(datasetId) });
     }
     wasInProgress.current = inProgress;
-  }, [qc, datasetId, inProgress]);
+    lastNewestId.current = newestId;
+  }, [qc, datasetId, inProgress, newestId]);
 
   return query;
 }
 
 function invalidateVrt(qc: ReturnType<typeof useQueryClient>, datasetId: string) {
-  qc.invalidateQueries({ queryKey: queryKeys.vrt.sources(datasetId) });
-  qc.invalidateQueries({ queryKey: queryKeys.vrt.status(datasetId) });
-  qc.invalidateQueries({ queryKey: queryKeys.vrt.generationsAll(datasetId) });
+  return Promise.all([
+    qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) }),
+    qc.invalidateQueries({ queryKey: queryKeys.vrt.sources(datasetId) }),
+    qc.invalidateQueries({ queryKey: queryKeys.vrt.status(datasetId) }),
+    qc.invalidateQueries({ queryKey: queryKeys.vrt.generationsAll(datasetId) }),
+  ]);
 }
 
 export function useRegenerateVrt(datasetId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => regenerateVrt(datasetId),
-    onSuccess: () => {
-      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
-      invalidateVrt(qc, datasetId);
+    // Returning the promise keeps the mutation pending, and the button disabled, until the refetches land.
+    onSuccess: async () => {
+      // A history read already in flight predates the rebuild; restart it.
+      await qc.cancelQueries({ queryKey: queryKeys.vrt.generationsAll(datasetId) });
+      await invalidateVrt(qc, datasetId);
+    },
+    // Someone else started the rebuild: pick it up so the page shows it.
+    onError: (err) => {
+      if (isDatasetBusy(err)) return invalidateVrt(qc, datasetId);
     },
   });
 }
