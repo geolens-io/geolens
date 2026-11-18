@@ -108,10 +108,10 @@ def _count(value: str) -> int | None:
     return int(count.group(1)) if count else None
 
 
-def max_features(url: str) -> int | None:
-    """The ``MAXFEATURES`` limit ``url`` asks for, or None when it names no
-    positive count."""
-    return _count(unquote(_url_get_value(url, "MAXFEATURES"))) or None
+def feature_limit(url: str, key: str) -> int | None:
+    """The feature limit ``url`` asks for under ``key`` (``MAXFEATURES`` or
+    ``COUNT``), or None when it names no positive count."""
+    return _count(unquote(_url_get_value(url, key))) or None
 
 
 def features_returned(body: bytes) -> int | None:

@@ -51,8 +51,8 @@ from app.platform.arcgis_wfs import (
     CapabilitiesUnreadableError,
     arcgis_wfs_pages_by_count,
     WfsService,
+    feature_limit,
     fetch_arcgis_wfs_hits,
-    max_features,
     recognise_arcgis_wfs,
 )
 from app.platform.egress_proxy import (
@@ -1850,13 +1850,18 @@ async def _wfs_stated_floor(
 ) -> int | None:
     """A non-ArcGIS WFS layer's total under its advertised name, capped by
     the ``MAXFEATURES`` a WFS 1.x URL asks for, or None. WFS 1.0 has no
-    ``resultType``, so it isn't asked."""
+    ``resultType``, so it isn't asked. Under 2.0 whether GDAL stops at a
+    ``COUNT`` or ``MAXFEATURES`` in the URL depends on the server's paging,
+    so a URL naming either goes unchecked."""
     version = service.version
     if version.startswith("1.0"):
         return None
+    two = version.startswith("2")
+    if two and (feature_limit(url, "COUNT") or feature_limit(url, "MAXFEATURES")):
+        return None
     layer = service.type_name(layer_name)
     total = await fetch_arcgis_wfs_hits(url, layer, version=version, **reads)
-    limit = None if version.startswith("2") else max_features(url)
+    limit = None if two else feature_limit(url, "MAXFEATURES")
     return total if total is None or limit is None else min(total, limit)
 
 

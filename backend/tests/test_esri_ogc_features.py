@@ -2023,6 +2023,38 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
         else:
             await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
 
+    @pytest.mark.parametrize(
+        "query", ["?COUNT=25", "?MAXFEATURES=25", "?count=+0025", "?maxFeatures=25"]
+    )
+    async def test_a_2_0_geoserver_with_a_limit_in_its_url_is_not_counted(
+        self, monkeypatch, rows, query
+    ) -> None:
+        recorded = _serve(
+            monkeypatch, _counting_only("2.0.0", "topp:pts", stated="100")
+        )
+        _spawn_reading_the_source(monkeypatch)
+        rows.return_value = 25
+
+        await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
+
+        assert [r.url.params.get("REQUEST") for r in recorded] == ["GetCapabilities"]
+        rows.assert_not_awaited()
+
+    @pytest.mark.parametrize(
+        "query", ["", "?COUNT=0", "?MAXFEATURES=0", "?COUNT=abc", "?MAXFEATURES=-5"]
+    )
+    async def test_a_2_0_geoserver_without_a_usable_limit_is_still_counted(
+        self, monkeypatch, rows, query
+    ) -> None:
+        from app.processing.ingest.ogr import WfsCountMismatchError
+
+        _serve(monkeypatch, _counting_only("2.0.0", "topp:pts", stated="100"))
+        _spawn_reading_the_source(monkeypatch)
+        rows.return_value = 25
+
+        with pytest.raises(WfsCountMismatchError, match="returned 25 of 100"):
+            await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
+
     async def test_a_geoserver_layer_is_counted_within_the_urls_type_name(
         self, monkeypatch, rows
     ) -> None:
