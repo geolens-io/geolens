@@ -417,3 +417,55 @@ async def probe_table_geometry(
     return TableGeometry(
         column=column, srid=srid if isinstance(srid, int) and srid != 0 else None
     )
+
+
+@dataclass(frozen=True)
+class TableDimensions:
+    """How many of a spatial column's non-null values carry Z, M, or either."""
+
+    geometries: int
+    with_z: int
+    with_m: int
+    with_z_or_m: int
+
+    def shared_dimension(self) -> Literal["XYZ", "XYM", "XYZM"] | None:
+        """The ``-dim`` every value has, or ``None`` for 2D, mixed or no values."""
+        total = self.geometries
+        if total == 0:
+            return None
+        if self.with_z == total and self.with_m == total:
+            return "XYZM"
+        if self.with_z == total and self.with_m == 0:
+            return "XYZ"
+        if self.with_m == total and self.with_z == 0:
+            return "XYM"
+        return None
+
+
+def _table_dimensions_sql(schema_name: str, table_name: str, column: str) -> str:
+    # HasZ and HasM, unlike the type accessors, also answer on invalid values.
+    col = quote_identifier(column)
+    table = f"{quote_identifier(schema_name)}.{quote_identifier(table_name)}"
+    return (
+        f"SELECT COUNT_BIG(CASE WHEN {col} IS NOT NULL THEN 1 END) AS geometries, "
+        f"COUNT_BIG(CASE WHEN {col}.HasZ = 1 THEN 1 END) AS with_z, "
+        f"COUNT_BIG(CASE WHEN {col}.HasM = 1 THEN 1 END) AS with_m, "
+        f"COUNT_BIG(CASE WHEN {col}.HasZ = 1 OR {col}.HasM = 1 THEN 1 END) "
+        f"AS with_z_or_m FROM {table}"
+    )
+
+
+async def probe_table_dimensions(
+    name: str, schema_name: str, table_name: str, column: str
+) -> TableDimensions:
+    """Count the values of ``column`` that carry Z and M on connection ``name``."""
+    rows = await run_database_sql(
+        name, _table_dimensions_sql(schema_name, table_name, column)
+    )
+    row = rows[0] if rows else {}
+    counts = {
+        key: row.get(key) for key in ("geometries", "with_z", "with_m", "with_z_or_m")
+    }
+    if not all(isinstance(value, int) for value in counts.values()):
+        raise DatabaseTableError(name)
+    return TableDimensions(**counts)

@@ -605,6 +605,7 @@ async def test_storing_points_as_point_changes_no_coordinate_of_the_copy(
             "gis",
             schema_name="dbo",
             table_name=name,
+            column="geom",
             target_schema="data",
             srid=4326,
         )
@@ -667,5 +668,284 @@ async def test_a_table_with_an_invalid_value_imports_and_refreshes(
         run = await _refresh(client, editor_auth_header, test_db_session, dataset.id)
         assert run.status == "succeeded", run.error_message
         assert (await _dataset(test_db_session, dataset.id)).feature_count == 3
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+async def _spatial_table(prefix: str, values: list[str | None], kind="geometry") -> str:
+    name = f"{prefix}_{uuid.uuid4().hex[:10]}"
+    await _admin(f"CREATE TABLE dbo.{name} (id int PRIMARY KEY, g {kind})")
+    await _insert(name, values, kind=kind)
+    return name
+
+
+async def _insert(name: str, values: list[str | None], *, start=1, kind="geometry"):
+    rows = ",".join(
+        f"({i}, {kind}::STGeomFromText('{wkt}', 4326))" if wkt else f"({i}, NULL)"
+        for i, wkt in enumerate(values, start=start)
+    )
+    await _admin(f"INSERT INTO dbo.{name} VALUES {rows}")
+
+
+async def _geometry_column(session, table: str) -> tuple[str, int]:
+    row = (
+        await session.execute(
+            text(
+                "SELECT type, coord_dimension FROM geometry_columns "
+                "WHERE f_table_schema = 'data' AND f_table_name = :t"
+            ),
+            {"t": table},
+        )
+    ).one()
+    return (row.type, row.coord_dimension)
+
+
+def _warnings(job: IngestJob) -> list[dict]:
+    return (job.user_metadata or {}).get("warnings", [])
+
+
+@pytest.mark.parametrize(
+    ("values", "kind", "stored", "column"),
+    [
+        (
+            ["POINT (1 1 10.5)", "POINT (2 2 0)", None],
+            "geometry",
+            ["POINT Z (1 1 10.5)", "POINT Z (2 2 0)", None],
+            ("POINT", 3),
+        ),
+        (
+            ["POINT (1 1 NULL 5)", "POINT (2 2 NULL 0)"],
+            "geometry",
+            ["POINT M (1 1 5)", "POINT M (2 2 0)"],
+            ("POINTM", 3),
+        ),
+        (
+            ["POINT (1 1 3 5)", "POINT (2 2 0 6)"],
+            "geometry",
+            ["POINT ZM (1 1 3 5)", "POINT ZM (2 2 0 6)"],
+            ("POINT", 4),
+        ),
+        (
+            ["LINESTRING (0 0 1, 1 1 2)", "LINESTRING (2 2 NULL 3, 3 3 NULL 4)"],
+            "geometry",
+            ["MULTILINESTRING((0 0,1 1))", "MULTILINESTRING((2 2,3 3))"],
+            ("GEOMETRY", 2),
+        ),
+        (
+            ["POLYGON ((0 0 5, 1 0 5, 1 1 5, 0 0 5))"],
+            "geometry",
+            ["MULTIPOLYGON Z (((0 0 5,1 0 5,1 1 5,0 0 5)))"],
+            ("GEOMETRY", 3),
+        ),
+        (
+            ["POINT (-73.9857 40.7484 12)"],
+            "geography",
+            ["POINT Z (-73.9857 40.7484 12)"],
+            ("POINT", 3),
+        ),
+        (
+            ["POINT (1.5 2.25)", "POINT (3 4)"],
+            "geometry",
+            ["POINT(1.5 2.25)", "POINT(3 4)"],
+            ("POINT", 2),
+        ),
+    ],
+    ids=["xyz", "xym", "xyzm", "z-and-m-lines", "polygon-z", "geography-z", "xy"],
+)
+async def test_the_copy_keeps_z_and_m_that_every_value_has(
+    configured, test_db_session, values, kind, stored, column
+):
+    """No ordinate is padded or dropped when every value shares its dimensions."""
+    name = await _spatial_table("d", values, kind=kind)
+    target = f"{name}_copy"
+    try:
+        lost = await database_import.copy_database_table(
+            "gis",
+            schema_name="dbo",
+            table_name=name,
+            column="g",
+            target_schema="data",
+            target_table=target,
+            srid=4326,
+        )
+        rows = (
+            await test_db_session.execute(
+                text(
+                    f'SELECT ST_AsText(_geolens_geom) FROM data."{target}" ORDER BY id'
+                )
+            )
+        ).all()
+        assert [wkt for (wkt,) in rows] == stored
+        assert await _geometry_column(test_db_session, target) == column
+        mixed = kind == "geometry" and values[0].startswith("LINESTRING")
+        assert lost == (2 if mixed else 0)
+    finally:
+        await test_db_session.execute(text(f'DROP TABLE IF EXISTS data."{target}"'))
+        await test_db_session.commit()
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+async def test_xyz_points_import_with_z_and_ogc_items_return_it(
+    client: AsyncClient, editor_auth_header, configured, test_db_session
+):
+    name = await _spatial_table("z", ["POINT (1 1 10.5)", "POINT (2 2 20.25)"])
+    try:
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        assert _warnings(job) == []
+        dataset = await _dataset(test_db_session, job.dataset_id)
+        assert (dataset.geometry_type, dataset.is_3d) == ("POINT", True)
+        await test_db_session.commit()
+
+        items = await client.get(
+            f"/collections/{dataset.id}/items", headers=editor_auth_header
+        )
+        assert items.status_code == 200, items.text
+        # Items serve the 2D WGS 84 copy; a point's Z rides along as ``elev``.
+        elevations = sorted(f["properties"]["elev"] for f in items.json()["features"])
+        assert elevations == [10.5, 20.25]
+        rows = await _rows(test_db_session, dataset, "SELECT ST_AsText(geom) FROM {t}")
+        assert sorted(wkt for (wkt,) in rows) == [
+            "POINT Z (1 1 10.5)",
+            "POINT Z (2 2 20.25)",
+        ]
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+async def test_a_mixed_table_imports_2d_and_says_how_many_lost_z_or_m(
+    client: AsyncClient, editor_auth_header, configured, test_db_session
+):
+    name = await _spatial_table(
+        "x", ["POINT (1 1)", "POINT (2 2 20.25)", "POINT (3 3 NULL 5)", None]
+    )
+    try:
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        assert _warnings(job) == [{"kind": "zm_dropped", "details": {"features": 2}}]
+        dataset = await _dataset(test_db_session, job.dataset_id)
+        rows = await _rows(test_db_session, dataset, "SELECT ST_AsText(geom) FROM {t}")
+        assert sorted(wkt for (wkt,) in rows if wkt) == [
+            "POINT(1 1)",
+            "POINT(2 2)",
+            "POINT(3 3)",
+        ]
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+def _probe_then(monkeypatch, *, after_first):
+    """Run ``after_first`` between the first count and the copy."""
+    real = database_import.probe_table_dimensions
+    calls = 0
+
+    async def _probe(*args):
+        nonlocal calls
+        calls += 1
+        counted = await real(*args)
+        if calls == 1:
+            await after_first()
+        return counted
+
+    monkeypatch.setattr(database_import, "probe_table_dimensions", _probe)
+
+
+async def test_a_value_without_z_written_during_the_copy_leaves_no_padded_z(
+    client: AsyncClient, editor_auth_header, configured, test_db_session, monkeypatch
+):
+    name = await _spatial_table("r", ["POINT (1 1 10.5)", "POINT (2 2 20.25)"])
+    try:
+        _probe_then(
+            monkeypatch, after_first=partial(_insert, name, ["POINT (3 3)"], start=3)
+        )
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        assert _warnings(job) == [{"kind": "zm_dropped", "details": {"features": 2}}]
+        dataset = await _dataset(test_db_session, job.dataset_id)
+        rows = await _rows(
+            test_db_session, dataset, "SELECT ST_NDims(geom), ST_AsText(geom) FROM {t}"
+        )
+        assert sorted(tuple(r) for r in rows) == [
+            (2, "POINT(1 1)"),
+            (2, "POINT(2 2)"),
+            (2, "POINT(3 3)"),
+        ]
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+async def test_a_busy_table_that_keeps_its_dimensions_keeps_z(
+    client: AsyncClient, editor_auth_header, configured, test_db_session, monkeypatch
+):
+    name = await _spatial_table("b", ["POINT (1 1 10.5)", "POINT (2 2 20.25)"])
+    try:
+        _probe_then(
+            monkeypatch, after_first=partial(_insert, name, ["POINT (3 3 7)"], start=3)
+        )
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        assert _warnings(job) == []
+        dataset = await _dataset(test_db_session, job.dataset_id)
+        rows = await _rows(test_db_session, dataset, "SELECT ST_AsText(geom) FROM {t}")
+        assert sorted(wkt for (wkt,) in rows) == [
+            "POINT Z (1 1 10.5)",
+            "POINT Z (2 2 20.25)",
+            "POINT Z (3 3 7)",
+        ]
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+async def test_a_2d_copy_of_an_xyz_table_gains_z_at_its_next_refresh(
+    client: AsyncClient, editor_auth_header, configured, test_db_session, monkeypatch
+):
+    from app.platform.database_sources import TableDimensions
+
+    name = await _spatial_table("g", ["POINT (1 1 10.5)", "POINT (2 2 20.25)"])
+    try:
+        with monkeypatch.context() as before_the_fix:
+            before_the_fix.setattr(
+                database_import,
+                "probe_table_dimensions",
+                AsyncMock(return_value=TableDimensions(2, 0, 0, 0)),
+            )
+            kwargs = await _import(client, editor_auth_header, name)
+        dataset_id = (await _job(test_db_session, kwargs["job_id"])).dataset_id
+        assert (await _dataset(test_db_session, dataset_id)).is_3d is False
+
+        run = await _refresh(client, editor_auth_header, test_db_session, dataset_id)
+
+        assert run.status == "succeeded", run.error_message
+        assert run.verification["review_reasons"] == []
+        dataset = await _dataset(test_db_session, dataset_id)
+        assert (dataset.geometry_type, dataset.is_3d) == ("POINT", True)
+        rows = await _rows(test_db_session, dataset, "SELECT ST_AsText(geom) FROM {t}")
+        assert sorted(wkt for (wkt,) in rows) == [
+            "POINT Z (1 1 10.5)",
+            "POINT Z (2 2 20.25)",
+        ]
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+async def test_a_refresh_that_reads_mixed_dimensions_warns_on_its_job(
+    client: AsyncClient, editor_auth_header, configured, test_db_session
+):
+    name = await _spatial_table("m", ["POINT (1 1 10.5)", "POINT (2 2 20.25)"])
+    try:
+        kwargs = await _import(client, editor_auth_header, name)
+        dataset_id = (await _job(test_db_session, kwargs["job_id"])).dataset_id
+        await _insert(name, ["POINT (3 3)"], start=3)
+
+        run = await _refresh(client, editor_auth_header, test_db_session, dataset_id)
+
+        assert run.status == "blocked"
+        assert "coordinate_dimension_reduced" in run.verification["review_reasons"]
+        job = await _job(test_db_session, run.ingest_job_id)
+        assert _warnings(job) == [{"kind": "zm_dropped", "details": {"features": 2}}]
     finally:
         await _admin(f"DROP TABLE IF EXISTS dbo.{name}")

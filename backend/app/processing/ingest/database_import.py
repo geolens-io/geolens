@@ -16,11 +16,13 @@ import structlog
 from app.platform.database_sources import (
     DatabaseSourceError,
     DatabaseTableError,
+    TableDimensions,
     classify_gdal_failure,
     database_gdal_source,
     freetds_workdir,
     get_database_connection,
     importable_identifier,
+    probe_table_dimensions,
     safe_gdal_stderr,
 )
 from app.platform.gdal_env import gdal_database_safe_env
@@ -64,16 +66,23 @@ async def copy_database_table(
     *,
     schema_name: str,
     table_name: str,
+    column: str,
     target_schema: str,
     target_table: str,
     srid: int,
-) -> None:
+) -> int:
     """Load ``schema_name.table_name`` into ``target_schema.target_table``.
 
     ``srid`` is stamped on every geometry: GDAL reports none for a table that
     ``geometry_columns`` doesn't list. The table's primary key stays an
     ordinary column, and ``gid`` is numbered by PostGIS. A copy whose
     geometries are all single points is stored as ``Point``.
+
+    GDAL writes every value in the dimensions the copy is told, filling a
+    missing Z or M with 0, so the values of ``column`` are counted before and
+    after it. Z and M are kept only when every value had them both times;
+    otherwise the copy is stored 2D. Returns how many values the latest count
+    found with a Z or M that the copy no longer holds.
 
     Raises ``DatabaseImportError`` with a message safe to show.
     """
@@ -87,6 +96,9 @@ async def copy_database_table(
         connection = get_database_connection(connection_name)
     except DatabaseSourceError as exc:
         raise DatabaseImportError(str(exc)) from None
+    dim = (
+        await _dimensions(connection_name, schema_name, table_name, column)
+    ).shared_dimension()
 
     with freetds_workdir(connection) as workdir:
         env = gdal_database_safe_env(
@@ -132,6 +144,7 @@ async def copy_database_table(
             "SPATIAL_INDEX=NONE",
             "-a_srs",
             f"EPSG:{int(srid)}",
+            *(("-dim", dim) if dim else ()),
             f"{schema_name}.{table_name}",
         ]
         proc = await asyncio.create_subprocess_exec(
@@ -163,7 +176,42 @@ async def copy_database_table(
                 f"{connection_name!r} failed."
             )
         raise DatabaseImportError(str(error))
+    after = await _dimensions(connection_name, schema_name, table_name, column)
+    kept = dim is not None and after.shared_dimension() == dim
+    if dim is not None and not kept:
+        await _store_2d(target_schema, target_table, srid)
     await _store_single_points_as_point(target_schema, target_table)
+    return 0 if kept else after.with_z_or_m
+
+
+async def _dimensions(
+    connection_name: str, schema_name: str, table_name: str, column: str
+) -> TableDimensions:
+    try:
+        return await probe_table_dimensions(
+            connection_name, schema_name, table_name, column
+        )
+    except DatabaseSourceError as exc:
+        raise DatabaseImportError(str(exc)) from None
+
+
+async def _store_2d(target_schema: str, target_table: str, srid: int) -> None:
+    """Drop every Z and M from the copy, the filled-in zeros among them."""
+    from sqlalchemy import text
+
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import _qtable
+
+    table = _qtable(target_table, schema=target_schema)
+    async with async_session() as session:
+        await session.execute(
+            text(
+                # codeql[py/sql-injection] table via _qtable (metadata_sql.py); srid an int()
+                f"ALTER TABLE {table} ALTER COLUMN _geolens_geom TYPE "
+                f"geometry(Geometry, {int(srid)}) USING ST_Force2D(_geolens_geom)"
+            )
+        )
+        await session.commit()
 
 
 async def _store_single_points_as_point(target_schema: str, target_table: str) -> None:
