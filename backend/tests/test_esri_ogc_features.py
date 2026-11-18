@@ -2011,8 +2011,16 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
             ("", "5000", 25, 5000),
             ("?MAXFEATURES=0", "5000", 25, 5000),
             ("?MAXFEATURES=10000", "25", 10, 25),
+            ("?CQL_FILTER=maxfeatures=3&MAXFEATURES=5", "25", 5, None),
         ],
-        ids=["limit", "limit-spelling", "no-limit", "zero-limit", "limit-above-total"],
+        ids=[
+            "limit",
+            "limit-spelling",
+            "no-limit",
+            "zero-limit",
+            "limit-above-total",
+            "limit-behind-a-value",
+        ],
     )
     async def test_a_1_1_geoserver_is_held_to_the_limit_its_url_asks_for(
         self, monkeypatch, rows, query, stated, staged, floor
@@ -2074,6 +2082,7 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
             ("2.0.0", "?StartIndex=10&Count=5"),
             ("1.1.0", "?startindex=10&MAXFEATURES=5"),
             ("1.1.0", "?COUNT=5"),
+            ("2.0.0", "?CQL_FILTER=discount=0&COUNT=25"),
         ],
     )
     async def test_a_url_narrowing_the_import_past_the_hits_read_is_not_counted(
@@ -2099,6 +2108,8 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
             ("?BBOX=0,0,5,5", "BBOX"),
             ("?RESOURCEID=pts.1", "RESOURCEID"),
             ("?STARTINDEX=0", "STARTINDEX"),
+            ("?CQL_FILTER=startindex=10", "CQL_FILTER"),
+            ("?ſtartindex=10", "ſtartindex"),
         ],
     )
     async def test_a_url_parameter_the_hits_read_carries_keeps_the_check(

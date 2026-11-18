@@ -112,9 +112,15 @@ def _count(value: str) -> int | None:
 
 
 def url_subset(url: str) -> dict[str, int]:
-    """The `SUBSET_KEYS` ``url`` sets to a positive count, by key, matched
-    without case; a zero or unparsable value narrows nothing."""
-    counts = {key: _count(unquote(_url_get_value(url, key))) for key in SUBSET_KEYS}
+    """The `SUBSET_KEYS` ``url`` sets to a positive count, by key: the first
+    query parameter whose whole name matches without case. A zero or
+    unparsable value narrows nothing."""
+    values: dict[str, str] = {}
+    for pair in url.partition("?")[2].split("&"):
+        name, _, value = pair.partition("=")
+        if name.isascii() and name.upper() in SUBSET_KEYS:
+            values.setdefault(name.upper(), value)
+    counts = {key: _count(unquote(value)) for key, value in values.items()}
     return {key: count for key, count in counts.items() if count}
 
 
