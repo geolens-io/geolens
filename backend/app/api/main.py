@@ -750,9 +750,8 @@ app = FastAPI(
     version=_resolve_app_version(),
     summary="PostGIS-native geospatial data catalog with OGC API Features and Records support",
     description=_DESCRIPTION,
-    # The server supplies the root path (UVICORN_ROOT_PATH in the image).
-    # FastAPI adds it to ``servers`` only when serving /openapi.json, so
-    # app.openapi() (the committed snapshot) would omit it.
+    # FastAPI adds the root path to ``servers`` only when serving
+    # /openapi.json, so app.openapi() (the committed snapshot) would omit it.
     servers=[{"url": "/api"}],
     docs_url=None if _is_production else "/docs",
     redoc_url=None if _is_production else "/redoc",
@@ -774,6 +773,9 @@ app = FastAPI(
     redirect_slashes=False,
     lifespan=lifespan,
 )
+# The constructor argument is deprecated, but FastAPI.__call__ still applies the
+# attribute to every scope. Prefixed and unprefixed requests both route.
+app.root_path = "/api"
 
 from app.observability.health.schemas import HealthResponse  # noqa: E402
 from app.standards.ogc.errors import (  # noqa: E402

@@ -1992,8 +1992,7 @@ async def client(tmp_path):
             lambda: _ensure_roles_and_admin(test_session_factory)
         )
 
-        # The server supplies the root path in deployments; the app no longer sets it.
-        transport = ASGITransport(app=app, root_path="/api")
+        transport = ASGITransport(app=app)
         async with AsyncClient(transport=transport, base_url="http://test") as ac:
             yield ac
     finally:

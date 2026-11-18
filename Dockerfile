@@ -183,10 +183,6 @@ LABEL org.opencontainers.image.source="https://github.com/geolens-io/geolens"
 HEALTHCHECK --interval=10s --timeout=5s --start-period=20s --retries=3 \
   CMD python -B -c "import urllib.request; urllib.request.urlopen('http://localhost:8000/health/live')"
 
-# uvicorn reads this for --root-path, so a Compose or chart command that
-# omits the flag still serves under /api.
-ENV UVICORN_ROOT_PATH=/api
-
 USER appuser
 
 ENTRYPOINT ["/app/scripts/api-entrypoint.sh"]

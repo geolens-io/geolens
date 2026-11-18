@@ -7,9 +7,6 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
-### Changed
-- The API no longer sets its `/api` root path in the FastAPI constructor, which fastapi 0.162 deprecates. The image sets `UVICORN_ROOT_PATH=/api` and the Compose files keep working unchanged. Anyone starting the API outside this image must pass `--root-path /api` (or set `UVICORN_ROOT_PATH=/api`) to keep self links and the refresh cookie path under `/api`. Requests that reach the API port with the `/api` prefix still attached now return 404 instead of 200; the bundled nginx and the Vite dev proxy strip it first.
-
 ## [1.32.0] - 2026-11-16
 
 1.32.0 adds two migrations. 0104 adds the `map_author` API key scope and a
