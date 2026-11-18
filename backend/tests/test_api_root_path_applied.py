@@ -1,5 +1,9 @@
 """The API serves under /api whether or not a proxy strips the prefix."""
 
+import os
+import subprocess
+import sys
+
 import pytest
 from httpx import ASGITransport, AsyncClient
 
@@ -36,3 +40,22 @@ async def test_docs_reference_the_prefixed_openapi_url():
 
     assert response.status_code == 200
     assert "/api/openapi.json" in response.text
+
+
+def test_importing_the_app_raises_no_root_path_deprecation():
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-c",
+            "import warnings\n"
+            "from fastapi.exceptions import FastAPIDeprecationWarning\n"
+            "warnings.simplefilter('error', FastAPIDeprecationWarning)\n"
+            "import app.api.main",
+        ],
+        env=os.environ.copy(),
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+
+    assert result.returncode == 0, result.stderr[-2000:]
