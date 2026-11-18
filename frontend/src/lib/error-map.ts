@@ -693,9 +693,8 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
       return { key: 'errors.reuploadGeometryLoss' };
     }
 
-    // The dataset narrowing refusal names the blocking maps as id/name
-    // pairs; the names join into the existing locale strings, and the
-    // action picks the unpublish wording from the visibility one.
+    // The dataset narrowing or delete refusal names the blocking maps as
+    // id/name pairs; the names join into the locale string its action picks.
     if (value.code === 'dataset_in_shared_maps' && Array.isArray(value.shared_maps)) {
       const names = value.shared_maps
         .filter(
@@ -708,7 +707,9 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
           key:
             value.action === 'unpublish'
               ? 'errors.datasetUnpublishBlockedByMaps'
-              : 'errors.datasetVisibilityBlockedByMaps',
+              : value.action === 'delete'
+                ? 'errors.datasetDeleteBlockedByMaps'
+                : 'errors.datasetVisibilityBlockedByMaps',
           values: { maps: names.join(', ') },
         };
       }

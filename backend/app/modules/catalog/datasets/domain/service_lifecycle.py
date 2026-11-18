@@ -13,6 +13,7 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     SAFE_TABLE_NAME_RE,
     _safe_table_ref,
 )
+from app.modules.catalog.datasets.domain.helpers import DatasetInSharedMapsError
 from app.modules.catalog.datasets.domain.models import (
     DetachedRelation,
     RetiredTableName,
@@ -124,6 +125,34 @@ class DependentVrtError(Exception):
         )
 
 
+async def _refuse_stranding_shared_maps(session: AsyncSession, dataset: Any) -> None:
+    """Raise DatasetInSharedMapsError when deleting strands the owner's shared maps.
+
+    A delete strands the maps that making the dataset private would: private
+    keeps only the owner and admins, and the owner's own view of their map is
+    not the audience the map is shared with. Other users' maps aren't asked;
+    their layers go with the cascade. Call it with the dataset's rows locked.
+    """
+    from app.modules.catalog.maps.service import (
+        find_maps_broken_by_dataset_visibility,
+    )
+
+    record = dataset.record
+    # Loaded before the lock: judge the row as committed.
+    await session.refresh(record, ["visibility", "record_status", "created_by"])
+    broken_maps = await find_maps_broken_by_dataset_visibility(
+        session,
+        dataset.id,
+        old_visibility=record.visibility,
+        new_visibility="private",
+        record_status=record.record_status,
+        record_id=record.id,
+        owner_id=record.created_by,
+    )
+    if broken_maps:
+        raise DatasetInSharedMapsError(action="delete", shared_maps=broken_maps)
+
+
 async def delete_dataset(
     session: AsyncSession, dataset_id: uuid.UUID, confirm_title: str
 ) -> DatasetDeletion:
@@ -133,7 +162,8 @@ async def delete_dataset(
     does NOT touch object storage: it returns the prefixes the caller must
     reap once the delete has COMMITTED. See `DatasetDeletion` for why that
     order. Raises ValueError if dataset not found, name mismatch, or invalid
-    table name.
+    table name, DependentVrtError if a VRT uses it, and DatasetInSharedMapsError
+    if it would strand one of its owner's shared maps.
 
     A dataset registered from an existing PostGIS table is
     DETACHED rather than dropped -- the catalog row, grants, tiles, search
@@ -293,6 +323,11 @@ async def delete_dataset(
         await lock_catalog_rows_for_write(session, dataset)
 
         storage_prefixes = (f"originals/{dataset_id}/", f"vectors/{dataset_id}/")
+
+    # Asked under the catalog row locks: a map layer added meanwhile needs the
+    # dataset row's key-share lock, so it either is visible here or waits and
+    # then fails its foreign key. A refusal rolls back the DROP above.
+    await _refuse_stranding_shared_maps(session, dataset)
 
     # Commit name retirement with the DROP and record deletion so rollback cannot
     # leave a freed name without a tombstone. This also applies to a registered

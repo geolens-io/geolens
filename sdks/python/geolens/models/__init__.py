@@ -139,6 +139,9 @@ from .bulk_delete_layers_response import BulkDeleteLayersResponse
 from .bulk_delete_request import BulkDeleteRequest
 from .bulk_delete_response import BulkDeleteResponse
 from .bulk_delete_result_item import BulkDeleteResultItem
+from .bulk_delete_result_item_shared_maps_type_0_item import (
+    BulkDeleteResultItemSharedMapsType0Item,
+)
 from .bulk_register_item import BulkRegisterItem
 from .bulk_register_item_visibility import BulkRegisterItemVisibility
 from .bulk_register_request import BulkRegisterRequest
@@ -1255,6 +1258,7 @@ __all__ = (
     "BulkDeleteRequest",
     "BulkDeleteResponse",
     "BulkDeleteResultItem",
+    "BulkDeleteResultItemSharedMapsType0Item",
     "BulkRegisterItem",
     "BulkRegisterItemVisibility",
     "BulkRegisterRequest",

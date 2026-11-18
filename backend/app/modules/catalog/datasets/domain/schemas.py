@@ -780,6 +780,14 @@ class BulkDeleteResultItem(BaseModel):
     # Carries the same code the single-delete 409 does, so a
     # client sees one code regardless of endpoint. None for prose-only errors.
     code: str | None = None
+    shared_maps: list[dict[str, str]] | None = Field(
+        default=None,
+        description=(
+            "The owner's shared maps that refused this item, as "
+            '`{"id", "name"}` pairs, on a `dataset_in_shared_maps` error. '
+            "Null otherwise."
+        ),
+    )
 
 
 class BulkDeleteResponse(BaseModel):

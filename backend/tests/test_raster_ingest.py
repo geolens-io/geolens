@@ -411,6 +411,10 @@ class _MockRecord:
         # record's created_by is nullable, and None is the honest value for a
         # double that never had an owner.
         self.created_by = None
+        # Read by the shared-map check; with no owner it asks no further.
+        self.id = uuid.uuid4()
+        self.visibility = "public"
+        self.record_status = "published"
         self._deleted = False
 
 
