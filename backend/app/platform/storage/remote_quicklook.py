@@ -18,6 +18,7 @@ from urllib.parse import urlencode
 import httpx
 import structlog
 
+from app.core.raster_bands import is_palette_raster
 from app.platform.storage.publication import AssetPublication, asset_publication
 from app.platform.storage.raster_relay import relay_url
 from app.platform.storage.titiler_url import (
@@ -81,7 +82,7 @@ def stretch_is_known(described: Mapping[str, Any]) -> bool:
     any dtype whose bands all carry stored statistics.
     """
     dtype = str(described.get("dtype") or "uint8").lower()
-    if dtype in ("uint8", "uint16"):
+    if dtype in ("uint8", "uint16") or is_palette_raster(described.get("band_info")):
         return True
     bands = (1, 2, 3) if (described.get("band_count") or 1) >= 3 else (1,)
     return all(_stats_range(described.get("band_info"), b) for b in bands)
@@ -99,9 +100,9 @@ def _render_query(described: Mapping[str, Any]) -> list[tuple[str, str]]:
     bands = (1, 2, 3) if band_count >= 3 else (1,)
     query = [("bidx", str(band)) for band in bands]
     dtype = str(described.get("dtype") or "uint8").lower()
-    if dtype == "uint8":
-        return query
     band_info = described.get("band_info")
+    if dtype == "uint8" or is_palette_raster(band_info):
+        return query
     band_info = band_info if isinstance(band_info, list) else []
     for band in bands:
         known = _stats_range(band_info, band)
