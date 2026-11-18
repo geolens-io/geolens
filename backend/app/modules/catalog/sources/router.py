@@ -51,6 +51,7 @@ from app.modules.catalog.sources.arcgis_signin import (
     portal_host,
 )
 from app.modules.catalog.sources.preview import build_gdal_source, run_service_preview
+from app.modules.catalog.sources.preview import ServicePreviewTimeoutError
 from app.modules.catalog.sources.signin_guard import (
     _signin_audit,
     _signin_refusal,
@@ -112,6 +113,7 @@ from app.platform.portal_link import (
     resolve_portal_link,
 )
 from app.standards.ogc.errors import (
+    BAD_GATEWAY_RESPONSE,
     ERROR_RESPONSES_WRITE,
     PROBLEM_RESPONSE,
     RATE_LIMIT_RESPONSE,
@@ -641,20 +643,27 @@ async def _fetch_ogcapi_collection_srid(
 
 
 async def _fail_preview(
-    db: AsyncSession, user_id: uuid.UUID, url: str, layer: str
+    db: AsyncSession,
+    user_id: uuid.UUID,
+    url: str,
+    layer: str,
+    timeout: ServicePreviewTimeoutError | None = None,
 ) -> NoReturn:
-    """Log audit and raise 502 for a failed service preview."""
+    """Log audit and raise 502 for a failed service preview, coded for a slow one."""
     safe_url = redact_url_credentials(url)
+    result = "ogrinfo_failed" if timeout is None else "ogrinfo_timeout"
     await audit_emit(
         db,
         AuditEvent(
             user_id=user_id,
             action="preview_service_layer",
             resource_type="service_url",
-            details={"url": safe_url, "layer": layer, "result": "ogrinfo_failed"},
+            details={"url": safe_url, "layer": layer, "result": result},
         ),
     )
     await db.commit()
+    if timeout is not None:
+        raise timeout.http_error() from None
     raise HTTPException(
         status_code=status.HTTP_502_BAD_GATEWAY,
         detail="Failed to preview remote layer. The service may be unavailable or the layer format is unsupported.",
@@ -772,8 +781,10 @@ async def _run_service_preview_or_refuse(
 ) -> dict:
     """`run_service_preview`, with every typed refusal mapped before it escapes.
 
-    `IngestionError` and `HTTPException` pass through unchanged:
-    `IngestionError` triggers the WFS namespace retry, and `HTTPException`
+    A timeout answers its coded 502 with no namespace retry, which can't
+    help a layer that was found. Any other `IngestionError` and
+    `HTTPException` pass through unchanged: `IngestionError` triggers the
+    WFS namespace retry, and `HTTPException`
     (the header-token charset refusal `run_service_preview` itself raises)
     is already a finished answer. Anything else matched by
     `_preview_refusal_response` is audited and raised as the coded
@@ -782,6 +793,8 @@ async def _run_service_preview_or_refuse(
     """
     try:
         return await run_service_preview(gdal_source, layer_arg, credential=credential)
+    except ServicePreviewTimeoutError as exc:
+        await _fail_preview(db, user_id, url, layer, exc)
     except (IngestionError, HTTPException):
         raise
     except Exception as exc:  # broad: classifies every refusal so none falls through
@@ -1138,6 +1151,7 @@ async def probe_service_url(
 @router.post(
     "/preview/",
     response_model=ServicePreviewResponse,
+    responses={502: BAD_GATEWAY_RESPONSE},
     summary="Preview a remote service layer",
 )
 async def preview_service_layer(

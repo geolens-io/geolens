@@ -151,6 +151,7 @@
     "viewScopeUnavailable": "Toute la couche est affichée : ce tableau de bord masque sa carte.",
     "filterIgnored": "Affiche toutes les entités : le filtre de la couche ne peut pas s'appliquer à ces chiffres.",
     "filterIgnoredWithPicks": "Applique vos filtres, mais pas le filtre propre à la couche, qui ne peut pas s’appliquer à ces chiffres.",
+    "ownFilterUnsupported": "Le filtre propre à ce widget ne peut pas s'appliquer ici, il n'affiche donc aucun chiffre.",
     "tooWide": "Trop d'entités dans la vue. Zoomez pour voir ces chiffres.",
     "loadFailed": "Impossible de charger ces chiffres.",
     "columnUnavailable": "La colonne de ce widget n'est pas disponible ici.",
@@ -192,6 +193,8 @@
     "preview": "Aperçu",
     "previewPanel": "Aperçu du panneau",
     "embedColumnHint": "Les copies intégrées de cette carte ne peuvent pas afficher cette colonne.",
+    "filterTitle": "Ne compter que les entités où…",
+    "filterHelp": "S'applique à ce widget seulement, en plus du filtre propre à la couche.",
     "previewPanelDescription": "Le panneau tel que les lecteurs le voient, avec un espace réservé pour la carte.",
     "previewMap": "Carte",
     "stat": "Statistique",
@@ -217,7 +220,9 @@
       "viewWithoutGeometry": "Cette couche n'a pas de géométrie : le widget ne peut pas suivre la vue de la carte. Faites-le porter sur toute la couche.",
       "notSortable": "« {{column}} » ne peut pas servir au tri. Choisissez-en une autre avant d’enregistrer.",
       "notListable": "« {{column}} » ne peut pas être listée. Choisissez-en une autre avant d’enregistrer.",
-      "notDate": "« {{column}} » n’est pas une colonne de date. Choisissez-en une autre avant d’enregistrer."
+      "notDate": "« {{column}} » n’est pas une colonne de date. Choisissez-en une autre avant d’enregistrer.",
+      "filterUnsupported": "Ce filtre ne peut pas s'appliquer aux chiffres du widget. Modifiez ou retirez une condition avant d'enregistrer.",
+      "filterTooLarge": "Ce filtre, avec celui de la couche, contient plus de valeurs ou de texte qu'un widget ne peut en envoyer. Retirez des conditions ou des valeurs avant d'enregistrer."
     },
     "maxWidgets": "Un tableau de bord contient au plus {{max}} widgets.",
     "reference": "Valeur de référence",

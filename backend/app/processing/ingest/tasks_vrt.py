@@ -354,6 +354,20 @@ def built_from_map(ordered_assets) -> dict:
     return {str(a.dataset_id): a.asset_uri for a in ordered_assets}
 
 
+def _vrt_members_are_dem(ordered_assets) -> bool:
+    """True only when every member of a VRT is elevation data.
+
+    The resampling choice follows the DEM flag: a mosaic built with
+    bilinear smooths a coarse DEM member instead of repeating its pixels
+    as blocks, but bilinear on a categorical member would blend its
+    values into ones no source holds. A mixed mosaic therefore keeps
+    nearest, and only an all-DEM member set gets bilinear.
+    """
+    if not ordered_assets:
+        return False
+    return all(bool(getattr(asset, "is_dem", False)) for asset in ordered_assets)
+
+
 def staged_source_ids_or_none(generation) -> list[uuid.UUID] | None:
     """The generation's staged member set as UUIDs, or None when it stages none.
 
@@ -687,11 +701,19 @@ async def ingest_vrt(
 
         # CPU work, with no session open.
 
-        # 5. Build VRT
+        # 5. Build VRT. The members' DEM flags are known before the build,
+        # so a mosaic of elevation data resamples with bilinear instead of
+        # repeating the coarser member's pixels as blocks; anything else
+        # keeps nearest.
         tmp_dir = tempfile.mkdtemp(dir=_scratch_dir())
         vrt_path = os.path.join(tmp_dir, "source.vrt")
         await asyncio.to_thread(
-            build_vrt, vrt_type, source_paths, vrt_path, resolution_strategy
+            build_vrt,
+            vrt_type,
+            source_paths,
+            vrt_path,
+            resolution_strategy,
+            is_dem=_vrt_members_are_dem(ordered_assets),
         )
         overview_paths = await asyncio.to_thread(add_vrt_overview, vrt_path)
         overview_paths = await keep_overview_if_it_fits(
@@ -1007,6 +1029,10 @@ class _RegenPlan:
     vrt_ql512_uri: str | None
     vrt_type: str
     resolution_strategy: str
+    # Derived from the members being rebuilt, the same rule as creation:
+    # only an all-DEM member set gets bilinear, so a mixed mosaic keeps
+    # nearest and a DEM mosaic keeps its smoothing across rebuilds.
+    is_dem: bool
 
 
 @dataclass(frozen=True)
@@ -1257,6 +1283,7 @@ def _plan_from_snapshot(
         vrt_ql512_uri=vrt_asset_row.quicklook_512_uri,
         vrt_type=vrt_asset_row.vrt_type or "mosaic",
         resolution_strategy=vrt_asset_row.resolution_strategy or "finest",
+        is_dem=_vrt_members_are_dem(ordered_assets),
     )
 
 
@@ -1275,7 +1302,12 @@ async def _build_regenerated_vrt(
     vrt_path = os.path.join(state.tmp_dir, "source.vrt")
 
     await asyncio.to_thread(
-        build_vrt, plan.vrt_type, plan.source_paths, vrt_path, plan.resolution_strategy
+        build_vrt,
+        plan.vrt_type,
+        plan.source_paths,
+        vrt_path,
+        plan.resolution_strategy,
+        is_dem=plan.is_dem,
     )
     overview_paths = await asyncio.to_thread(add_vrt_overview, vrt_path)
     async with async_session() as session:

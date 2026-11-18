@@ -254,6 +254,7 @@ export const queryKeys = {
   vrt: {
     sources: (datasetId: string) => ['vrt-sources', datasetId] as const,
     status: (datasetId: string) => ['vrt-status', datasetId] as const,
+    generationsAll: (datasetId: string) => ['vrt-generations', datasetId] as const,
     generations: (datasetId: string, params?: { limit?: number; offset?: number }) =>
       ['vrt-generations', datasetId, params] as const,
   },

@@ -34,23 +34,41 @@ from .arcgis_migrate_files import (
     _layer_name,
     _limit,
     _megabytes,
+    _NoFile,
     _Skipped,
 )
 from .arcgis_migrate_layers import (
     JOB_POLL_INTERVAL,
     JOB_TIMEOUT,
     _layer_key,
+    layer_report,
     _layer_label,
+    _redacted,
     _send,
+    _shared_notes,
     _title,
-    _titles,
     attachment_flags,
+    forget_other_service,
     importable_layers,
+    backfill_named_beside,
+    recorded_titles,
     relationship_records,
 )
-from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
-from .arcgis_migrate_state import ItemState, aware_time, whole_number
+from .arcgis_migrate_session import (
+    GeoLensError,
+    ItemFailed,
+    MigrationContext,
+    refuse_credentials,
+    write_refusal,
+)
+from .arcgis_migrate_state import (
+    MAX_ERROR_CHARS,
+    ItemState,
+    aware_time,
+    whole_number,
+)
 from .arcgis_plan import IMPORT_FILE
+from .arcgis_portal import redact_json
 from .refresh import (
     RefreshPollResult,
     _value,
@@ -457,6 +475,7 @@ def refresh_layers(
     if row is None or not row.get("url"):
         return ["the inventory has no service URL for the item"]
     if entry.service_url not in (None, row["url"]):
+        forget_other_service(entry, row["url"])
         return [
             "its service URL changed in the portal since it was migrated, so its "
             "datasets were not refreshed from the old one"
@@ -488,16 +507,70 @@ def refresh_layers(
         key: related[key] for key in entry.layer_datasets if key in related
     }
     ctx.save()
-    wanted, _notes, entry.left_behind = importable_layers(probe)
+    wanted, _notes, left_behind = importable_layers(probe)
+    # A refused layer the portal no longer lists is no longer a loss.
+    listed = {_layer_key(layer) for layer in probe.layers}
+    backfill_named_beside(entry, row["url"])
+    recorded = entry.refusals(row["url"])
+    refused = {k: r for k, r in recorded.items() if k in listed}
+    entry.refused_layers = refused
+    _drop_refusal_notes(
+        ctx, entry, [r["reason"] for k, r in recorded.items() if k not in refused]
+    )
+    entry.left_behind = [
+        *_redacted(ctx, left_behind),
+        *(r["reason"] for r in refused.values()),
+    ]
+    # Added only: the optional metadata may be missing from this probe, and a
+    # loss already reported stays true.
+    known = [layer for layer in wanted if _layer_key(layer) in entry.layer_datasets]
+    found = []
+    for layer in known:
+        key = _layer_key(layer)
+        stale = list(entry.layers_unread.get(key, []))
+        held = layer_report(ctx, entry, layer)
+        # The stored text, not a regenerated one: the layer may have been renamed.
+        entry.notes[:] = [n for n in entry.notes if n not in stale or n in held]
+        if entry.import_pass is not None:
+            # A resumed pass hands its notes back to the item.
+            entry.import_pass["notes"] = [
+                n for n in entry.import_pass["notes"] if n not in stale or n in held
+            ]
+        found += held
+    entry.notes.extend(n for n in found if n not in entry.notes)
     added = [
         f"layer {_layer_label(layer)} was added to the service in the portal and "
         "isn't migrated"
         for layer in wanted
         if _layer_key(layer) not in entry.layer_datasets
+        and _layer_key(layer) not in entry.shared
+        and _layer_key(layer) not in refused
     ]
-    return added + _bring_each(
-        ctx, item, entry, partial(_start_refresh, ctx, row, entry)
+    _notes, gone = _shared_notes(ctx, item, entry)
+    return (
+        added
+        + gone
+        + _bring_each(ctx, item, entry, partial(_start_refresh, ctx, row, entry))
     )
+
+
+def _drop_refusal_notes(
+    ctx: MigrationContext, entry: ItemState, reasons: list[str]
+) -> None:
+    """Take *reasons*, refusals of layers the portal no longer lists, out of
+    the item's notes, stored cleaned, and its import pass's, stored as built;
+    a reason a kept refusal shares stays."""
+    kept = {r["reason"] for r in entry.refused_layers.values()}
+    gone = set(reasons) - kept
+    if not gone:
+        return
+    cleaned = {redact_json(r, ctx.redact)[:MAX_ERROR_CHARS] for r in gone}
+    cleaned -= {redact_json(r, ctx.redact)[:MAX_ERROR_CHARS] for r in kept}
+    entry.notes[:] = [n for n in entry.notes if n not in cleaned]
+    if entry.import_pass is not None:
+        entry.import_pass["notes"] = [
+            n for n in entry.import_pass["notes"] if n not in gone
+        ]
 
 
 def _start_replace(
@@ -597,12 +670,24 @@ def refresh_file(
             f"not replaced: the file is {_megabytes(size)}, over the instance's "
             f"upload limit of {_megabytes(limit)}"
         ]
+    try:
+        # The upload's file name is made from the portal's title.
+        refuse_credentials(ctx, {"title": [item["title"], _filename(item, extension)]})
+    except ItemFailed as exc:
+        return [str(exc)]
     with tempfile.TemporaryDirectory(prefix="geolens-arcgis-") as tmp:
         path = Path(tmp) / _filename(item, extension)
         try:
             _download(ctx, item["id"], path, limit)
         except _Skipped as skipped:
             return [f"not replaced: {skipped}"]
+        except _NoFile:
+            return [
+                "not replaced: the portal says the item has no file now, as for "
+                "an item added by URL; its dataset keeps the data it has. Upload "
+                "a file to the item, or set its action to skip to keep the "
+                "dataset as it is and stop checking it"
+            ]
         except ItemFailed as exc:
             return [str(exc)]
         layers_seen: set[str] = set()
@@ -691,7 +776,13 @@ def _bring_one(
     ctx.save()
     try:
         apply_item_metadata(
-            ctx, item, entry, [dataset_id], _dataset_titles(item, entry)
+            ctx,
+            item,
+            entry,
+            [dataset_id],
+            _dataset_titles(
+                item, entry, (ctx.inventory.get(item["id"]) or {}).get("url")
+            ),
         )
     except ItemFailed:
         # A metadata write can land before a later step fails; it is this
@@ -717,9 +808,11 @@ def _record_own_write(
     return True
 
 
-def _dataset_titles(item: Mapping[str, Any], entry: ItemState) -> dict[str, str]:
+def _dataset_titles(
+    item: Mapping[str, Any], entry: ItemState, url: str | None
+) -> dict[str, str]:
     """Dataset -> the title an import of the item would give it now, for the
-    datasets the state records the layer of."""
+    datasets the state records the layer of; *url* is the item's service."""
     base = item["target"]["title"] or item["title"]
     if item["action"] == IMPORT_FILE:
         many = JOB_KEY not in entry.layer_datasets
@@ -728,10 +821,13 @@ def _dataset_titles(item: Mapping[str, Any], entry: ItemState) -> dict[str, str]
             for key, dataset in entry.layer_datasets.items()
         }
     recorded = (entry.import_pass or {}).get("layers") or {}
-    if not recorded or set(recorded) != set(entry.layer_datasets):
+    if not recorded or set(recorded) != {*entry.layer_datasets, *entry.shared}:
         return {}
-    titles = _titles(base, [(r["label"], r["layer_id"]) for r in recorded.values()])
-    return {entry.layer_datasets[key]: t for key, t in zip(recorded, titles)}
+    return {
+        entry.layer_datasets[key]: title
+        for key, title in recorded_titles(base, entry, url).items()
+        if key in entry.layer_datasets
+    }
 
 
 def _apply_visibility(
@@ -797,6 +893,9 @@ def _bring_each(
 ) -> list[str]:
     problems = []
     for dataset_id in dict.fromkeys(entry.layer_datasets.values()):
+        if refused := write_refusal(ctx, entry, dataset_id):
+            problems.append(refused)
+            continue
         try:
             problem = _bring_one(ctx, item, entry, dataset_id, start)
         except (ItemFailed, GeoLensError) as exc:

@@ -202,4 +202,32 @@ describe('useHeroState', () => {
     // Should skip back to loaded (not stuck at loading)
     expect(result.current.heroState).toBe('loaded');
   });
+
+  it('gives a remounted preview a fresh readiness window when the tile URL changes', () => {
+    const { result, rerender } = renderHook(
+      ({ tileUrl }) => useHeroState({ datasetId: 'd1', recordType: 'vrt_dataset', hasTileUrl: true, tileUrl }),
+      { initialProps: { tileUrl: '/t?v=1' } },
+    );
+    act(() => result.current.onMapReady());
+    expect(result.current.heroState).toBe('loaded');
+    const keyBefore = result.current.mapKey;
+
+    rerender({ tileUrl: '/t?v=2' });
+    expect(result.current.heroState).toBe('loading');
+    expect(result.current.mapKey).toBe(keyBefore + 1);
+
+    act(() => { vi.advanceTimersByTime(9_000); });
+    expect(result.current.heroState).toBe('loading');
+    act(() => { vi.advanceTimersByTime(1_500); });
+    expect(result.current.heroState).toBe('error');
+  });
+
+  it('does not reset on a tile URL change that comes with a different dataset', () => {
+    const { result, rerender } = renderHook(
+      ({ datasetId, tileUrl }) => useHeroState({ datasetId, recordType: 'vrt_dataset', hasTileUrl: true, tileUrl }),
+      { initialProps: { datasetId: 'd1', tileUrl: '/a' } },
+    );
+    rerender({ datasetId: 'd2', tileUrl: '/b' });
+    expect(result.current.mapKey).toBe(0);
+  });
 });

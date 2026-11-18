@@ -17,7 +17,13 @@ from html.parser import HTMLParser
 from typing import Any
 from uuid import UUID
 
-from .arcgis_migrate_session import GeoLensError, ItemFailed, MigrationContext
+from .arcgis_migrate_session import (
+    GeoLensError,
+    ItemFailed,
+    MigrationContext,
+    refuse_credentials,
+    writable,
+)
 from .arcgis_migrate_state import ItemState
 
 MAX_SUMMARY = 5000
@@ -193,6 +199,41 @@ def _decide(
     return "keep", False
 
 
+def _refuse_credentials(
+    ctx: MigrationContext,
+    item: Mapping[str, Any],
+    row: Mapping[str, Any],
+    fields: Mapping[str, Any],
+    titles: Mapping[str, str] | None,
+) -> None:
+    """``ItemFailed`` when a field the metadata pass writes, tags included,
+    contains a token or password the run was given, as the portal holds it or
+    as it would be sent: converted, normalised, lowercased and shortened."""
+    raw = {
+        "summary": [row.get("snippet"), row.get("description")],
+        "attribution": row.get("access_information"),
+        "license": row.get("license_info"),
+        "source_organization": (ctx.portal_info or {}).get("name"),
+    }
+    title = item["target"]["title"] or item.get("title")
+    refuse_credentials(
+        ctx,
+        {
+            "title": [title, *(titles or {}).values()],
+            **{
+                name: [_strings(value), fields.get(name, "")]
+                for name, value in raw.items()
+            },
+            "tags": [*(item["target"].get("tags") or []), *fields["keywords"]],
+        },
+    )
+
+
+def _strings(value: Any) -> list[str]:
+    values = value if isinstance(value, list) else [value]
+    return [str(v) for v in values if v]
+
+
 def apply_item_metadata(
     ctx: MigrationContext,
     item: Mapping[str, Any],
@@ -206,7 +247,8 @@ def apply_item_metadata(
     A field someone edited in GeoLens since the last run is kept and listed in
     the item's notes: a field is written only while it still holds what this
     command wrote (``entry.metadata_baseline``), or is empty. A title is never
-    emptied.
+    emptied. ``ItemFailed`` before any write when a value it would send, tags
+    included, contains a token or password the run was given.
     """
     from geolens.api.datasets import get_single_dataset_datasets_dataset_id_get as get
     from geolens.api.datasets import (
@@ -215,10 +257,15 @@ def apply_item_metadata(
     from geolens.models.dataset_meta import DatasetMeta
 
     row = ctx.inventory.get(item["id"])
-    ids = [d for d in entry.dataset_ids if datasets is None or d in datasets]
+    ids = [
+        d
+        for d in writable(ctx, entry, entry.dataset_ids)
+        if datasets is None or d in datasets
+    ]
     if row is None or not ids:
         return
     fields = item_metadata(row, item["target"], ctx.portal_info)
+    _refuse_credentials(ctx, item, row, fields, titles)
     keywords = fields.pop("keywords")
     record_ids: list[str] = []
     try:
@@ -244,9 +291,10 @@ def apply_item_metadata(
                 if action == "write":
                     meta[name] = value or None
                 elif action == "keep":
-                    entry.notes.append(
+                    _note(
+                        entry,
                         f"kept the {name.replace('_', ' ')} edited in GeoLens on "
-                        f"dataset {dataset_id}"
+                        f"dataset {dataset_id}",
                     )
                 if claim:
                     baseline[name] = value
@@ -273,13 +321,21 @@ def apply_item_metadata(
                 keywords,
                 entry.metadata_baseline[dataset_id]["keywords"],
             )
-            entry.notes.extend(
-                f"kept the removal of keyword {word!r} on dataset {dataset_id}"
-                for word in kept
-            )
+            for word in kept:
+                _note(
+                    entry,
+                    f"kept the removal of keyword {word!r} on dataset {dataset_id}",
+                )
     except GeoLensError as exc:
         raise ItemFailed(f"writing the item metadata failed, {exc}") from None
     ctx.save()
+
+
+def _note(entry: ItemState, note: str) -> None:
+    """Add *note* once: a rerun's refresh writes the metadata again into the
+    notes the item already has."""
+    if note not in entry.notes:
+        entry.notes.append(note)
 
 
 def _plan_keywords(

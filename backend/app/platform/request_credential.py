@@ -3,9 +3,10 @@
 A request's dependencies and handler share one session, so the record made
 while resolving the caller is visible to the guards and audit events of the
 same request, and to nothing else. Also the routes each dataset-bound key
-scope may call, the refusal a key gets for exceeding its scope, and two marks
-the CORS layer reads: whether a request's header key was looked up, and whether
-a limit refused it before that could happen.
+scope and the map_author scope may call, the refusal a key gets for exceeding its scope, and the marks
+the CORS layer reads: whether a request's header key was looked up, whether its
+query-string key was looked up and resolved, and whether a limit refused it
+before that could happen.
 """
 
 from __future__ import annotations
@@ -22,11 +23,22 @@ from sqlalchemy.ext.asyncio import AsyncSession
 _SESSION_KEY = "geolens.api_key_credential"
 _HEADER_KEY_EVALUATED = "geolens.header_api_key_evaluated"
 _REFUSED_BEFORE_AUTH = "geolens.refused_before_auth"
+_QUERY_KEY_RESOLVED = "geolens.query_api_key_resolved"
 
 
 def mark_header_api_key_evaluated(scope: MutableMapping[str, Any]) -> None:
     """Record that the auth layer looked up this request's X-Api-Key header."""
     scope.setdefault("state", {})[_HEADER_KEY_EVALUATED] = True
+
+
+def mark_query_api_key(scope: MutableMapping[str, Any], *, resolved: bool) -> None:
+    """Record that the auth layer looked up this request's ``?api_key=``, and whether it authenticated."""
+    scope.setdefault("state", {})[_QUERY_KEY_RESOLVED] = resolved
+
+
+def query_api_key_resolved(scope: Mapping[str, Any]) -> bool | None:
+    """Whether this request's ``?api_key=`` resolved; None if never looked up."""
+    return scope.get("state", {}).get(_QUERY_KEY_RESOLVED)
 
 
 def mark_refused_before_auth(scope: MutableMapping[str, Any]) -> None:
@@ -87,6 +99,21 @@ DATASET_KEY_SCOPE_ROUTES: dict[str, frozenset[tuple[str, str]]] = {
 
 # Scopes whose keys are bound to the one dataset in ``api_keys.dataset_id``.
 DATASET_KEY_SCOPES: frozenset[str] = frozenset(DATASET_KEY_SCOPE_ROUTES)
+
+# A map_author key may read like a read_only key and write only through these
+# pairs; each handler also limits the fields it may set and the maps it may
+# change to the ones the key created.
+MAP_AUTHOR_KEY_ROUTES: frozenset[tuple[str, str]] = frozenset(
+    {
+        ("POST", "/maps/"),
+        ("POST", "/maps"),
+        ("PUT", "/maps/{map_id}"),
+        ("POST", "/maps/{map_id}/layers"),
+        ("POST", "/maps/{map_id}/layers/"),
+        ("PATCH", "/maps/{map_id}/layers"),
+        ("PATCH", "/maps/{map_id}/layers/"),
+    }
+)
 
 
 @dataclass(frozen=True, slots=True)

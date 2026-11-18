@@ -914,7 +914,6 @@
   },
   "toasts": {
     "mapSaved": "Mapa guardado",
-    "mapSavedFullResync": "Mapa guardado, pero requirió una resincronización completa. Verifique el estilo de las capas.",
     "mapSavedAfterRemoteChange": "Guardado. Algunas capas ya habían cambiado en otra sesión, por lo que esas ediciones se omitieron.",
     "saveConflictReload": "Este mapa cambió en otra sesión. Vuelva a cargar el mapa para obtener la última versión y guarde de nuevo.",
     "saveFailed": "Error al guardar el mapa",
@@ -964,6 +963,8 @@
     "bulkUngrouped": "{{count}} grupos desagrupados",
     "dashboardWidgetInvalid": "No se puede guardar: un widget del panel lee «{{column}}», una columna que su capa no tiene o que no es numérica. Corrígelo en Panel.",
     "dashboardViewWithoutGeometry": "No se puede guardar: un widget del panel sigue la vista del mapa en una capa sin geometría. En Panel, haz que abarque toda la capa.",
+    "dashboardWidgetFilterUnsupported": "No se puede guardar: un widget del panel tiene un filtro que no se puede aplicar a sus cifras. Corrígelo en Panel.",
+    "dashboardWidgetFilterTooLarge": "No se puede guardar: el filtro de un widget del panel contiene más valores o texto de los que un widget puede enviar. Acórtalo en Panel.",
     "dashboardChangedElsewhere": "El panel de este mapa se cambió en otro lugar. Tus cambios sin guardar se conservan y, al guardar, reemplazan ese cambio."
   },
   "builderMap": {

@@ -187,6 +187,7 @@ const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   file_size_limit_exceeded: 'errors.uploadFileSizeLimitExceeded',
   filename_control_characters: 'errors.uploadFilenameControlCharacters',
   filename_missing_extension: 'errors.uploadFilenameMissingExtension',
+  geometry_columns_missing: 'errors.reuploadGeometryColumnsMissing',
   geometry_loss: 'errors.reuploadGeometryLoss',
   ingest_cell_limit_exceeded: 'errors.uploadIngestCellLimitExceeded',
   ingest_row_limit_exceeded: 'errors.uploadIngestRowLimitExceeded',
@@ -207,6 +208,7 @@ const UPLOAD_REFUSAL_CODE_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   raster_preview_failed: 'errors.uploadRasterPreviewFailed',
   reupload_unsupported: 'errors.reuploadUnsupported',
   service_preview_failed: 'errors.uploadServicePreviewFailed',
+  service_preview_timeout: 'errors.uploadServicePreviewTimeout',
   sqlite_schema_too_large: 'errors.uploadSqliteSchemaTooLarge',
   sqlite_too_many_schema_objects: 'errors.uploadSqliteTooManySchemaObjects',
   sqlite_virtual_table: 'errors.uploadSqliteVirtualTable',
@@ -600,7 +602,9 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
     }
     // A map save refusing dashboard widgets names them by id, which a reader can't act on.
     if (Array.isArray(value.widget_ids)) {
-      return { key: 'errors.dashboardWidgetsRefused' };
+      const refused = Array.isArray(value.widgets) ? (value.widgets as { reason?: unknown }[]) : [];
+      const filtered = refused.some((widget) => typeof widget?.reason === 'string' && widget.reason.startsWith('filter_'));
+      return { key: filtered ? 'errors.dashboardWidgetFilterRefused' : 'errors.dashboardWidgetsRefused' };
     }
     // An import still running has no dataset to name yet, only its job.
     if (value.code === 'duplicate_source' && typeof value.existing_job_id === 'string') {

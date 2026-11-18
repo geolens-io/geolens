@@ -13,8 +13,10 @@ The server owns the stored shape (`backend/app/modules/catalog/widgets/schemas.p
 and `registry.ts` mirrors it. Each instance is `{ id, type, v, title?, config }`:
 `id` is a UUID the client makes and keeps across saves, unique within a list;
 `title` is at most 120 characters. A dashboard widget also has a `layer_id`,
-the map layer it summarizes, and a `scope`, `layer` (the default) or `view`; no
-other keys are allowed. A `layerless` type (text) takes neither on a dashboard:
+the map layer it summarizes, a `scope`, `layer` (the default) or `view`, and
+an optional `filter` in the layer filter's MapLibre form, which narrows the
+layer for that widget alone and needs the type's `filterVersion`; no other keys
+are allowed. A `layerless` type (text) takes neither on a dashboard:
 the host makes no data request for it, picks and view scope don't reach it,
 and it never leaves the panel when a layer is hidden or removed. A type that
 needs more adds those keys to the server model and to `parseStoredWidget`
@@ -56,6 +58,10 @@ A type is a `WidgetDefinition` (`contract.ts`) with:
 - `type`: a stable id. Never rename or reuse a shipped one.
 - `v`: the newest config version. Bump it when the config shape changes, and
   make `parseConfig` read every older version and return the current shape.
+- `storedVersion(config)` (optional): the version a save stores, when a config
+  that uses no newer option can stay at one older clients read.
+- `filterVersion` (dashboard layer types): the version an instance with its
+  own `filter` stores at. A save stores the larger of it and `storedVersion`.
 - `surfaces`: `story`, `dashboard` or both.
 - `layerless` (optional): on a dashboard the instance names no layer. The
   renderer gets `headingLevel`, the level of the first heading it may draw,

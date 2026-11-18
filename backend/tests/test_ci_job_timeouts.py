@@ -384,14 +384,25 @@ def test_every_direct_apt_get_invocation_is_bounded_and_fits_its_step_cap():
 
 
 _RUNNER_APT_GET = re.compile(r"\bsudo\s+timeout\b[^\n]*\bapt-get\b")
-_DROPS_AZURE_MIRROR = re.compile(
-    r"sudo\s+sed\s+-i\s+'/azure\\\.archive\\\.ubuntu\\\.com/d'\s+/etc/apt/apt-mirrors\.txt"
+_DROPS_REGIONAL_MIRRORS = re.compile(
+    r"sudo\s+sed\s+-i\s+'/(\[a-z0-9\]\\\.archive\\\.ubuntu\\\.com)/d'\s+/etc/apt/apt-mirrors\.txt"
 )
 
 
-def test_every_runner_apt_retry_falls_back_from_the_azure_mirror():
-    """A trickling azure.archive.ubuntu.com mirror stalls every attempt on it,
-    so each runner-level apt or Playwright `--with-deps` retry loop drops it."""
+def test_the_mirror_fallback_keeps_only_the_main_archive():
+    """The runner image names a regional mirror first (Azure, then EC2), and
+    the fallback must drop whichever one it is."""
+    address = _DROPS_REGIONAL_MIRRORS.search(CI.read_text()).group(1)
+    dropped = re.compile(address)
+    assert dropped.search("http://azure.archive.ubuntu.com/ubuntu/\tpriority:1")
+    assert dropped.search("http://us-east-2.ec2.archive.ubuntu.com/ubuntu/\tpriority:1")
+    assert not dropped.search("http://archive.ubuntu.com/ubuntu/\tpriority:2")
+    assert not dropped.search("http://security.ubuntu.com/ubuntu/\tpriority:3")
+
+
+def test_every_runner_apt_retry_falls_back_from_the_regional_mirror():
+    """A trickling regional mirror stalls every attempt on it, so each
+    runner-level apt or Playwright `--with-deps` retry loop drops it."""
     checked, offenders = [], []
     for path in (CI, PROD_SMOKE):
         for job_name, job in _workflow(path)["jobs"].items():
@@ -407,7 +418,7 @@ def test_every_runner_apt_retry_falls_back_from_the_azure_mirror():
                     continue
                 label = f"{path.name} {job_name}: {step.get('name', '<unnamed>')}"
                 checked.append(label)
-                if not _DROPS_AZURE_MIRROR.search(code):
+                if not _DROPS_REGIONAL_MIRRORS.search(code):
                     offenders.append(label)
     assert checked, "found no runner-level apt retry loop to check"
-    assert not offenders, f"apt retry loops that keep the Azure mirror: {offenders}"
+    assert not offenders, f"apt retry loops that keep the regional mirror: {offenders}"

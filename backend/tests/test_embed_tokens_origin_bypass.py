@@ -129,6 +129,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         cache.get = AsyncMock(
             return_value={
                 "is_valid": True,
+                "token_id": "00000000-0000-0000-0000-0000000000e1",
                 "scoped_dataset_ids": ["00000000-0000-0000-0000-000000000001"],
                 "allowed_origins": ["https://customer.example.com"],
                 "map_id": "00000000-0000-0000-0000-000000000002",
@@ -170,6 +171,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         cache.get = AsyncMock(
             return_value={
                 "is_valid": True,
+                "token_id": "00000000-0000-0000-0000-0000000000e1",
                 "scoped_dataset_ids": [str(dataset_id)],
                 "allowed_origins": ["https://customer.example.com"],
                 "map_id": "00000000-0000-0000-0000-000000000002",
@@ -207,6 +209,7 @@ class TestEmbedTokenOriginBypassRequiresLoopbackPeer:
         cache.get = AsyncMock(
             return_value={
                 "is_valid": True,
+                "token_id": "00000000-0000-0000-0000-0000000000e1",
                 "scoped_dataset_ids": ["00000000-0000-0000-0000-000000000001"],
                 "allowed_origins": ["https://customer.example.com"],
                 "map_id": "00000000-0000-0000-0000-000000000002",

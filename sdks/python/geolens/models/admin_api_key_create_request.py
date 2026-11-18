@@ -33,7 +33,8 @@ class AdminApiKeyCreateRequest:
             'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-
             account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest
             apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin
-            or key route. Default: 'full'.
+            or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers' style and popups on
+            the maps it created. Default: 'full'.
     """
 
     user_id: UUID

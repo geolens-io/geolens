@@ -34,6 +34,12 @@ describe('API error localization boundary', () => {
     expect(translateApiErrorDetail(detail, 422)).toContain(text);
   });
 
+  it('maps a timed-out service preview to its own message, not the unavailable one', () => {
+    const detail = { code: 'service_preview_timeout', message: 'English diagnostic' };
+    expect(classifyApiError(detail, 502).key).toBe('errors.uploadServicePreviewTimeout');
+    expect(translateApiErrorDetail(detail, 502)).toContain('took too long to preview');
+  });
+
   it('maps known backend details to stable keys', () => {
     expect(classifyApiError('Dataset not found', 404)).toEqual({
       key: 'errors.datasetNotFound',
@@ -98,6 +104,17 @@ describe('API error localization boundary', () => {
     current_stage: current,
     requested_stage: requested,
     allowed_stages: allowed,
+  });
+
+  it("says a refused dashboard widget's filter is the problem when the save names one", () => {
+    const refused = (reason: string) => ({
+      message: "Some dashboard widgets can't be saved on this map",
+      widget_ids: ['w1'],
+      widgets: [{ id: 'w1', layer_id: 'l1', reason }],
+    });
+    expect(classifyApiError(refused('filter_invalid'), 422)).toEqual({ key: 'errors.dashboardWidgetFilterRefused' });
+    expect(classifyApiError(refused('filter_too_large'), 422)).toEqual({ key: 'errors.dashboardWidgetFilterRefused' });
+    expect(classifyApiError(refused('layer_unavailable'), 422)).toEqual({ key: 'errors.dashboardWidgetsRefused' });
   });
 
   it('names the refused workflow edge and the steps still open to the caller', () => {
@@ -284,6 +301,19 @@ describe('API error localization boundary', () => {
         422,
       ),
     ).toEqual({ key: 'errors.reuploadGeometryLoss' });
+  });
+
+  it('names the columns a re-upload lacks for the geometry it rebuilds', () => {
+    expect(
+      classifyApiError(
+        {
+          code: 'geometry_columns_missing',
+          message: 'Some future wording of the same refusal.',
+          columns: 'lat',
+        },
+        422,
+      ),
+    ).toEqual({ key: 'errors.reuploadGeometryColumnsMissing', values: { columns: 'lat' } });
   });
 
   // A plain 422 detail string, so without the matcher it lands on

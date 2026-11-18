@@ -43,7 +43,9 @@ from .arcgis_migrate_state import (
     MigrationState,
     whole_number,
 )
-from .arcgis_portal import PortalClient, PortalError, redact_json
+from .arcgis_inventory import draft_resource
+from .arcgis_plan import UNREAD_DEPENDENCIES as _UNREAD_REASON
+from .arcgis_portal import NO_FILE, PortalClient, PortalError, redact_json
 from .arcgis_story_markdown import render_classic, render_storymap
 
 EXPORT_DIRNAME = "export"
@@ -53,7 +55,8 @@ JSON_LIMIT = 32 * 1024 * 1024
 _ITEM_ID = re.compile(r"[0-9a-fA-F]{32}")
 _TOKEN_STATUSES = (498, 499)
 _NOT_JSON = object()
-# A portal answers these for an item that has no data of its own.
+# A portal answers these for an item that has no data of its own; an item
+# added by URL answers a 500 of kind NO_FILE.
 _NO_DATA = (400, 404)
 FILENAMES = {"Form": "form.zip", "Notebook": "notebook.ipynb"}
 # The extension of an uploaded file whose portal item names none; types that
@@ -69,16 +72,40 @@ _TYPE_EXTENSIONS = {
 _EXTENSION = re.compile(r"\.[A-Za-z0-9]{1,8}")
 _STORY = "Web Mapping Application"
 _NO_EQUIVALENT = "No equivalent in GeoLens."
+# File extensions the upload endpoint takes that name a data format by
+# themselves; a saved ``data<ext>`` of one is an upload as it is.
+_UPLOAD_EXTENSIONS = frozenset(
+    {
+        ".gpkg", ".geojson", ".csv", ".tif", ".tiff", ".xlsx", ".xls",
+        ".parquet", ".fgb", ".kml", ".kmz", ".3tz", ".laz",
+    }
+)  # fmt: skip
+_UNREAD_MAP = (
+    "The web map's layers could not be read, so it was exported instead of "
+    "migrated; rerun the inventory, then set the action to import_map."
+)
 _APP_REBUILD = (
     "Rebuild as a GeoLens map with a share link or embed; widgets with no "
     "equivalent are listed in data.json."
 )
+_STORY_INTRO = (
+    "Maps carry over. GeoLens stories are API-only for now (chapters with "
+    "map scenes and Markdown blocks, draft and publish, no web editor yet); "
+)
 NOTES: dict[str, str] = {
     "StoryMap": (
-        "Maps carry over. GeoLens stories are API-only for now (chapters with "
-        "map scenes and Markdown blocks, draft and publish, no web editor yet); "
-        "the story text and images are in story.md to recreate through the API "
-        "or reuse in a site or docs."
+        _STORY_INTRO + "the story text and images are in story.md to recreate "
+        "through the API or reuse in a site or docs."
+    ),
+    "Feature Collection": (
+        "data.json holds its layers as ArcGIS JSON, which GeoLens does not "
+        "read. Convert the features to GeoJSON or CSV with a GIS tool, then "
+        "upload that file."
+    ),
+    "WFS": "GeoLens imports WFS services by URL: add this service's URL as a dataset.",
+    "OGCFeatureServer": (
+        "GeoLens imports OGC API Features services by URL: add this service's "
+        "URL as a dataset."
     ),
     _STORY: _APP_REBUILD,
     "Web Experience": _APP_REBUILD,
@@ -178,12 +205,58 @@ def item_replacement(
     if not layer or item["action"] != default_action:
         if item["type"] == "Dashboard":
             return _dashboard_note(item, plan)
+        if item["type"] == "StoryMap":
+            return _story_note(state.items.get(item["id"]))
+        if item["type"] == "Web Map" and _UNREAD_REASON in item.get("reason", ""):
+            return _UNREAD_MAP
+        if item["type"] not in NOTES:
+            upload = _upload_note(state.items.get(item["id"]), item["type"])
+            if upload:
+                return upload
         return replacement_note(item["type"])
     title = next((i["title"] for i in plan["items"] if i["id"] == layer), layer)
     entry = state.items.get(layer)
     if entry and entry.dataset_ids and entry.status in (DONE, EXISTS):
         return f"Published as {title}; migrated with it."
     return f"Source file of {title}, which has not migrated."
+
+
+def _story_note(entry: ItemState | None) -> str:
+    """The StoryMap note, which names story.md only when it was written."""
+    export = (entry.export if entry else None) or {}
+    if export.get("story") or "story" not in export:
+        return NOTES["StoryMap"]
+    if not export.get("draft"):
+        return _STORY_INTRO + "no story.md could be made from its data."
+    saved = export.get("draft_resource")
+    where = (
+        f"its draft is saved as resources/{saved}"
+        if saved
+        else "no draft resource was saved"
+    )
+    return (
+        _STORY_INTRO + f"this story is an unpublished draft with no story.md; {where}."
+    )
+
+
+# Types whose saved JSON or ZIP is the dataset itself, so it uploads as it is.
+_DATASET_FILES = {
+    "GeoJson": "data.json",
+    "Shapefile": "data.zip",
+    "File Geodatabase": "data.zip",
+}
+
+
+def _upload_note(entry: ItemState | None, item_type: str) -> str | None:
+    """How to bring in a saved file the upload endpoint accepts, else None."""
+    files = ((entry.export if entry else None) or {}).get("files") or {}
+    for name in sorted(files):
+        stem, dot, suffix = name.partition(".")
+        if (dot and stem == "data" and f".{suffix}" in _UPLOAD_EXTENSIONS) or (
+            _DATASET_FILES.get(item_type) == name
+        ):
+            return f"GeoLens accepts this file type: upload {name} as a dataset."
+    return None
 
 
 def _private_dirs(path: Path) -> None:
@@ -251,7 +324,9 @@ class _Export:
             if exc.kind == "too_large":
                 self.partial = True
                 self.errors.append(f"{what}: over the export size cap, not saved")
-            elif what == "data" and exc.http_status in _NO_DATA:
+            elif what == "data" and (
+                exc.http_status in _NO_DATA or exc.kind == NO_FILE
+            ):
                 pass  # the item has no data of its own
             else:
                 self.note_error(what, exc)
@@ -365,6 +440,10 @@ def _save_data(
 ) -> Any:
     staged = export.download(f"content/items/{item['id']}/data", "data")
     if staged is None:
+        return None
+    if not staged.stat().st_size:
+        # Service items answer 200 with no body; an empty file is not data.
+        staged.unlink()
         return None
     name = FILENAMES.get(item["type"])
     folder = export.folder
@@ -500,21 +579,75 @@ def _story_links(ctx: MigrationContext) -> Callable[[str], str]:
     return lambda item_id: _map_link(ctx, item_id, web_app)
 
 
+_DRAFT_LINE = (
+    "> Unpublished draft: this story was never published, so this is its saved "
+    "draft.\n\n"
+)
+
+
+def _draft_resource(full: Mapping[str, Any]) -> str | None:
+    return draft_resource(full.get("typeKeywords"))
+
+
+def _read_draft(export: _Export, name: str | None, saved: set[str]) -> Any:
+    if not name or name not in saved or _safe_relative(name) is None:
+        return None
+    try:
+        draft = json.loads((export.folder / "resources" / name).read_bytes())
+    except (OSError, ValueError, RecursionError):
+        return None
+    ok = isinstance(draft, dict) and isinstance(draft.get("nodes"), dict)
+    return draft if ok else None
+
+
+def _usable_collection(data: Any) -> bool:
+    """A Feature Collection's data: an object with a layer holding a feature
+    set, which may have no features."""
+    layers = data.get("layers") if isinstance(data, dict) else None
+    return isinstance(layers, list) and any(
+        isinstance(layer, dict) and isinstance(layer.get("featureSet"), dict)
+        for layer in layers
+    )
+
+
+def _require_collection(export: _Export, item: Mapping[str, Any], data: Any) -> None:
+    """Fail a Feature Collection whose data is missing or not a collection, so
+    a bundle holding only item.json is never clean and never replaces a good
+    one."""
+    if item["type"] != "Feature Collection" or _usable_collection(data):
+        return
+    existing = [e for e in export.errors if e.startswith("data")]
+    message = (
+        existing[0]
+        if existing
+        else "data: not a Feature Collection with a layer, nothing usable saved"
+    )
+    if not existing:
+        export.errors.append(message)
+    export.failures.append(message)
+
+
 def _story(
     ctx: MigrationContext,
     export: _Export,
     item: Mapping[str, Any],
     data: Any,
     saved: set[str],
+    full: Mapping[str, Any],
 ) -> bool:
+    link = _story_links(ctx)
+    prefix = ""
+    draft = _draft_resource(full) if item["type"] == "StoryMap" else None
+    if draft and not (isinstance(data, dict) and "nodes" in data):
+        # An unpublished story has no /data; its content is the draft resource.
+        data = _read_draft(export, draft, saved)
+        prefix = _DRAFT_LINE
     if not isinstance(data, dict):
         return False
 
-    link = _story_links(ctx)
-
     text = None
     if item["type"] == "StoryMap" and "nodes" in data:
-        text = render_storymap(
+        text = prefix + render_storymap(
             data, title=item["title"], map_link=link, available=saved
         )
     elif item["type"] == _STORY:
@@ -591,12 +724,16 @@ def refresh_export(
         ]
     present = _bundle_in_place(ctx, item, entry)
     recorded = whole_number((entry.export or {}).get("modified"))
-    if present and recorded is not None and modified <= recorded:
+    # A story bundle from before drafts were read is exported once more.
+    outdated = item["type"] == "StoryMap" and "draft" not in (entry.export or {})
+    if present and recorded is not None and modified <= recorded and not outdated:
         return []
     why = (
         "changed in the portal since it was exported"
-        if present
+        if present and not outdated
         else "its bundle is missing"
+        if not present
+        else "it was exported by an earlier version"
     )
     try:
         result = export_item(ctx, item, entry)
@@ -621,12 +758,23 @@ def _bundle_in_place(
         or not files
     ):
         return False
+    if any(
+        _is_data(name) and (f.get("size") if isinstance(f, dict) else f) == 0
+        for name, f in files.items()
+    ):
+        # An empty data file an earlier version saved; exporting again drops it.
+        return False
     folder = ctx.export_dir / _slug(item["type"]) / item["id"]
     try:
         _recover_leftovers(folder)
         return _bundle_files(folder) == files
     except OSError:
         return False
+
+
+def _is_data(name: str) -> bool:
+    """Whether a bundle path is the item's data file."""
+    return "/" not in name and (name.startswith("data.") or name in FILENAMES.values())
 
 
 def _bundle_files(folder: Path) -> dict[str, dict[str, Any]]:
@@ -723,8 +871,15 @@ def _export_into(
             export.partial = True
             export.errors.append("item.json: over the export size cap, not saved")
         data = _save_data(ctx, export, item, full)
+        _require_collection(export, item, data)
         saved = _save_resources(ctx, export, item["id"])
-        story = _story(ctx, export, item, data, saved)
+        story = _story(ctx, export, item, data, saved, full)
+        draft = _draft_resource(full) if item["type"] == "StoryMap" else None
+        if draft and not story:
+            export.errors.append(
+                "story draft: the draft resource could not be read, so no "
+                "story.md was written"
+            )
     swapped = not (export.failures and folder.exists())
     if swapped:
         _swap_in(build, folder)
@@ -735,6 +890,8 @@ def _export_into(
         "partial": export.partial,
         "errors": [redact_json(e, ctx.redact) for e in export.errors],
         "story": story,
+        "draft": draft is not None,
+        "draft_resource": draft if draft in saved else None,
         # The portal's last change to the item, which a rerun compares.
         "modified": _modified(full),
         # What the bundle holds, which a rerun checks before trusting it.
@@ -754,6 +911,17 @@ def _export_into(
             + "; ".join(redact_json(f, ctx.redact) for f in export.failures)
         )
     return ItemResult(notes=notes)
+
+
+def _reference_note(row: Mapping[str, Any] | None, export: Mapping[str, Any]) -> str:
+    """The URL an item points to when its bundle holds no data file; nothing
+    for an older record that doesn't list its files."""
+    files = export.get("files")
+    if not row or not row.get("url") or not isinstance(files, dict) or not files:
+        return ""
+    if any(_is_data(name) for name in files):
+        return ""
+    return f" Points to {row['url']}; no data file was saved."
 
 
 def write_index(
@@ -791,7 +959,8 @@ def write_index(
             f"{export['bytes'] / (1024 * 1024):.1f} MB",
             status,
             f"`{export['path']}`",
-            item_replacement(item, plan, state),
+            item_replacement(item, plan, state)
+            + _reference_note(ctx.inventory.get(item["id"]), export),
         ]
         lines.append("| " + " | ".join(c.replace("|", "\\|") for c in cells) + " |")
         rows += 1

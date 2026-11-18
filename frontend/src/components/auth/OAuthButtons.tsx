@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button';
 import { useEdition } from '@/hooks/use-edition';
 import { ssoSignInUrl } from '@/lib/sso-sign-in';
 import { cn } from '@/lib/utils';
+import type { Translator } from '@/i18n/translator';
 
 function ProviderIcon({ providerType }: { providerType: string }) {
   if (providerType === 'google') {
@@ -66,7 +67,7 @@ function ProviderIcon({ providerType }: { providerType: string }) {
 const BRANDED_PROVIDER_TYPES = new Set(['google', 'microsoft', 'github']);
 
 function getButtonLabel(
-  t: (key: string, options?: Record<string, unknown>) => string,
+  t: Translator,
   provider: { display_name: string; provider_type: string },
 ) {
   const providerLabel =

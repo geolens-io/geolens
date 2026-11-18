@@ -344,6 +344,66 @@ test.describe('Builder residual-risk hardening', () => {
     }
   });
 
+  test('a layer save the diff route refuses fails and leaves another session\'s layer', async ({ page, request, browserName }) => {
+    test.skip(browserName !== 'chromium', 'concurrent-session saves are covered in the primary browser project');
+
+    const { mapId } = await createLayeredMap(request, `E2E Builder Stale Write ${Date.now()}`, 1);
+    const [original] = (await getMapDetails(request, mapId)).layers ?? [];
+    // A second page in the same context shares the rotating refresh cookie
+    // instead of redeeming a copy the first page has already rotated.
+    const a = await page.context().newPage();
+    try {
+      // Session B loads first, and its layer-diff route answers 405.
+      await page.route(`**/api/maps/${mapId}/layers`, async (route) => {
+        if (route.request().method() !== 'PATCH') {
+          await route.fallback();
+          return;
+        }
+        await route.fulfill({ status: 405, contentType: 'application/json', body: JSON.stringify({ detail: 'Method Not Allowed' }) });
+      });
+      await page.goto(`/maps/${mapId}`);
+      await waitForBuilder(page);
+      await expect(page.locator(`#stack-row-${original.id}`)).toBeVisible({ timeout: 10_000 });
+
+      // Session A duplicates the layer and saves.
+      await a.goto(`${BASE_URL}/maps/${mapId}`);
+      await waitForBuilder(a);
+      const duplicated = a.waitForResponse(
+        (response) => response.url().includes(`/api/maps/${mapId}/layers`) && response.request().method() === 'POST',
+      );
+      const row = a.locator(`#stack-row-${original.id}`);
+      await row.hover();
+      await row.locator('[data-kebab-trigger]').click();
+      await a.getByRole('menuitem', { name: /^Duplicate$/i }).click();
+      expect([200, 201]).toContain((await duplicated).status());
+      const aSaved = a.waitForResponse((response) => isMapUpdateResponse(response, mapId));
+      await a.getByRole('button', { name: /save/i }).first().click();
+      expect((await aSaved).status()).toBe(200);
+      const afterA = (await getMapDetails(request, mapId)).layers ?? [];
+      expect(afterA).toHaveLength(2);
+
+      // Session B, unaware of A's layer, changes its own and saves. The save
+      // fails without a map PUT, which would replace the layer list.
+      const bPuts: string[] = [];
+      page.on('request', (req) => {
+        if (req.method() === 'PUT' && new URL(req.url()).pathname === `/api/maps/${mapId}`) bPuts.push(req.url());
+      });
+      await page.locator(`#stack-row-${original.id}`).getByRole('button', { name: /toggle visibility/i }).click();
+      await page.getByRole('button', { name: /save/i }).first().click();
+      await expect(page.getByTestId('builder-save-status')).toHaveAttribute('data-save-status', 'failed');
+      await expect(
+        page.locator('[data-sonner-toast][data-type="error"]').filter({ hasText: /failed to save map/i }),
+      ).toBeVisible();
+      expect(bPuts).toHaveLength(0);
+
+      const afterB = (await getMapDetails(request, mapId)).layers ?? [];
+      expect(afterB.map((l) => l.id).sort()).toEqual(afterA.map((l) => l.id).sort());
+    } finally {
+      await a.close();
+      await deleteMap(request, mapId);
+    }
+  });
+
   test('public share, embed, and read-only map viewers work while unauthenticated editing stays protected', async ({ browser, request, browserName }, testInfo) => {
     test.skip(browserName !== 'chromium', 'permission/share variants are covered in the primary browser project');
 
@@ -407,9 +467,11 @@ test.describe('Builder residual-risk hardening', () => {
       await page.getByRole('button', { name: /close panel/i }).click();
 
       await page.getByRole('button', { name: /ask ai|ai unavailable/i }).click();
-      await expect(page.getByRole('dialog')).toBeVisible();
+      const aiSheet = page.getByRole('dialog');
+      await expect(aiSheet).toBeVisible();
+      // The page keeps empty live regions outside the sheet, so look inside it.
       await expect(
-        page.getByRole('status').or(page.getByPlaceholder(/describe a map change/i)).first(),
+        aiSheet.getByRole('status').or(aiSheet.getByPlaceholder(/describe a map change/i)).first(),
       ).toBeVisible({ timeout: 10_000 });
 
       const hasHorizontalOverflow = await page.evaluate(

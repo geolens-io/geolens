@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import secrets
 import shutil
@@ -13,11 +14,12 @@ import pytest
 
 from geolens_cli import arcgis_migrate as migrate
 from geolens_cli import arcgis_migrate_export as export_module
-from geolens_cli.arcgis_migrate_state import MigrationState
+from geolens_cli import arcgis_plan as plan_module
+from geolens_cli.arcgis_migrate_state import ItemState, MigrationState
 from geolens_cli.arcgis_portal import redact_json
 
 from . import test_arcgis_migrate_layers as layers
-from .arcgis_fake import C1, C2, C3, D1, FakePortal, portal_routes
+from .arcgis_fake import C1, C2, C3, D1, D2, NO_FILE_PAGE, FakePortal, portal_routes
 from .test_arcgis_migrate_layers import _migrate, _state, _write_plan
 
 geolens = layers.geolens
@@ -83,7 +85,7 @@ def test_the_index_is_written_when_the_export_folder_is_gone(tmp_path):
     record = {"bytes": 1024, "partial": False, "errors": [], "path": "export/d"}
     state = SimpleNamespace(items={C3: SimpleNamespace(export=record, status="done")})
     folder = tmp_path / "run" / "export"
-    ctx = SimpleNamespace(export_dir=folder, redact=Redactor())
+    ctx = SimpleNamespace(export_dir=folder, redact=Redactor(), inventory={})
 
     export.write_index(ctx, {"items": [item]}, state)
 
@@ -1419,9 +1421,7 @@ def test_the_hosted_layer_note_follows_the_items_current_action(
         item["defaults"] = defaults
     plan = {"items": [item, {"id": C1, "title": "Layer"}]}
 
-    assert export_module.item_replacement(item, plan, state).startswith(
-        expected
-    )
+    assert export_module.item_replacement(item, plan, state).startswith(expected)
 
 
 def _dashboard_plan(map_ids, map_widgets):
@@ -1478,3 +1478,477 @@ def test_one_widget_that_shows_two_maps_gets_its_own_wording(tmp_path):
     assert f"Its map widget shows 2 maps (Map {C2}, Map {C3})" in note
     assert "map widgets (" not in note
     assert "convert it to a single-map dashboard or split it" in note
+
+
+def _item_with_keywords(item_id: str, *keywords: str) -> dict:
+    return {**_routes()[f"content/items/{item_id}"], "typeKeywords": list(keywords)}
+
+
+_DRAFT = "draft_1.json"
+_DRAFT_KEYWORDS = ("StoryMap", "smstatusdraft", f"smdraftresourceid:{_DRAFT}")
+
+
+def _draft_story(runner, tmp_path, install, *, resource: bool):
+    data = json.loads((STORY_FIXTURE / "storymap_data.json").read_text())
+    routes = {
+        f"content/items/{C2}": _item_with_keywords(C2, *_DRAFT_KEYWORDS),
+        f"content/items/{C2}/data": (404, {"error": {"code": 404}}),
+        f"content/items/{C2}/resources": _resources(*([_DRAFT] if resource else [])),
+    }
+    if resource:
+        routes[f"content/items/{C2}/resources/{_DRAFT}"] = data
+    install(routes)
+    plan_file = _plan(tmp_path, rows={C2: {"type": "StoryMap"}})
+    result, _ = _migrate(runner, plan_file, "--only", C2)
+    assert result.exit_code == 0, result.output
+    return plan_file
+
+
+def test_an_unpublished_story_is_rendered_from_its_draft_resource(
+    runner, tmp_path, geolens, install
+):
+    plan_file = _draft_story(runner, tmp_path, install, resource=True)
+
+    story = _export(plan_file, "storymap", C2) / "story.md"
+    lines = story.read_text().splitlines()
+    assert "Unpublished draft" in lines[0]
+    assert "# Open Space Theme" in lines
+    assert _state(plan_file)["items"][C2]["export"]["story"] is True
+
+
+def test_an_unpublished_story_without_its_draft_is_said_so_in_the_index(
+    runner, tmp_path, geolens, install
+):
+    plan_file = _draft_story(runner, tmp_path, install, resource=False)
+
+    assert not (_export(plan_file, "storymap", C2) / "story.md").exists()
+    index = (_export(plan_file) / "INDEX.md").read_text()
+    assert "unpublished draft with no story.md" in index
+    assert "no draft resource was saved" in index
+    assert "story text and images are in story.md" not in index
+
+
+def test_the_index_names_the_saved_draft_when_it_cannot_be_rendered(
+    runner, tmp_path, geolens, install
+):
+    install(
+        {
+            f"content/items/{C2}": _item_with_keywords(C2, *_DRAFT_KEYWORDS),
+            f"content/items/{C2}/data": (404, {"error": {"code": 404}}),
+            f"content/items/{C2}/resources": _resources(_DRAFT),
+            f"content/items/{C2}/resources/{_DRAFT}": {"nodes": "broken"},
+        }
+    )
+    plan_file = _plan(tmp_path, rows={C2: {"type": "StoryMap"}})
+
+    result, _ = _migrate(runner, plan_file, "--only", C2)
+
+    assert result.exit_code == 0, result.output
+    assert not (_export(plan_file, "storymap", C2) / "story.md").exists()
+    index = (_export(plan_file) / "INDEX.md").read_text()
+    assert f"its draft is saved as resources/{_DRAFT}" in index
+
+
+_COLLECTION = {"layers": [{"featureSet": {"features": []}}]}
+_FC_ROW = {"type": "Feature Collection", "class": "partial"}
+
+
+@pytest.mark.parametrize("old_plan", [False, True])
+def test_a_feature_collection_is_exported_with_its_json(
+    runner, tmp_path, geolens, install, old_plan
+):
+    install({f"content/items/{C2}/data": _COLLECTION})
+    plan_file = _plan(
+        tmp_path, rows={C2: {**_FC_ROW, "reason": "data_file_import_candidate"}}
+    )
+    plan = json.loads(plan_file.read_text())
+    item = next(i for i in plan["items"] if i["id"] == C2)
+    assert item["action"] == "export_only"
+    if old_plan:
+        item["action"] = "import_file"
+        item["depends_on"] = []
+        plan_file.write_text(json.dumps(plan))
+
+    result, _ = _migrate(runner, plan_file, "--only", C2)
+
+    assert result.exit_code == 0, result.output
+    folder = _export(plan_file, "feature-collection", C2)
+    assert json.loads((folder / "data.json").read_text()) == _COLLECTION
+    index = (_export(plan_file) / "INDEX.md").read_text()
+    assert "upload that file" in index
+
+
+def test_a_type_with_no_file_extension_is_not_blamed_on_arcgis_json(
+    runner, tmp_path, geolens, install
+):
+    install()
+    plan_file = _plan(tmp_path, rows={C2: {"type": "Image"}})
+    plan = json.loads(plan_file.read_text())
+    next(i for i in plan["items"] if i["id"] == C2)["action"] = "import_file"
+    plan_file.write_text(json.dumps(plan))
+
+    result, payload = _migrate(runner, plan_file, "--only", C2)
+
+    notes = json.dumps(payload)
+    assert "ArcGIS JSON" not in notes
+    assert "not a data file GeoLens can import" in notes
+
+
+@pytest.mark.parametrize(
+    ("item_type", "name", "expected"),
+    [
+        ("GeoPackage", "layers.gpkg", "upload data.gpkg as a dataset"),
+        ("WFS", None, "imports WFS services by URL"),
+    ],
+)
+def test_the_index_says_how_to_bring_in_what_geolens_takes(
+    runner, tmp_path, geolens, install, item_type, name, expected
+):
+    routes = {f"content/items/{C2}/data": b"PK"}
+    if name:
+        routes[f"content/items/{C2}"] = {
+            **_routes()[f"content/items/{C2}"],
+            "name": name,
+        }
+    install(routes)
+    plan_file = _plan(tmp_path, rows={C2: {"type": item_type}})
+
+    result, _ = _migrate(runner, plan_file, "--only", C2)
+
+    assert result.exit_code == 0, result.output
+    index = (_export(plan_file) / "INDEX.md").read_text()
+    assert expected in index
+    assert "No equivalent in GeoLens." not in index
+
+
+def test_a_web_map_exported_because_its_data_could_not_be_read_says_so(tmp_path):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    item = {
+        "id": D1,
+        "type": "Web Map",
+        "action": "export_only",
+        "reason": "x" + plan_module.UNREAD_DEPENDENCIES,
+    }
+
+    note = export_module.item_replacement(item, {"items": [item]}, state)
+
+    assert "could not be read" in note
+    assert "No equivalent" not in note
+
+
+def test_a_draft_that_cannot_be_read_is_an_export_error_cutover_refuses(
+    runner, tmp_path, geolens, install
+):
+    plan_file = _draft_story(runner, tmp_path, install, resource=False)
+
+    export = _state(plan_file)["items"][C2]["export"]
+    assert any("draft resource could not be read" in e for e in export["errors"])
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C2:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    result, payload = _migrate(runner, plan_file, "--cutover")
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+def test_a_story_exported_before_drafts_were_read_is_exported_again_once(
+    runner, tmp_path, geolens, install
+):
+    plan_file = _draft_story(runner, tmp_path, install, resource=True)
+    state_path = plan_file.parent / "arcgis-migration-state.json"
+    state = _state(plan_file)
+    for key in ("draft", "draft_resource"):
+        del state["items"][C2]["export"][key]
+    story = _export(plan_file, "storymap", C2) / "story.md"
+    state_path.write_text(json.dumps(state))
+
+    result, _ = _migrate(runner, plan_file, "--only", C2, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert "draft" in _state(plan_file)["items"][C2]["export"]
+    before = story.stat().st_mtime_ns
+    _migrate(runner, plan_file, "--only", C2, "--token", TOKEN)
+    assert story.stat().st_mtime_ns == before
+
+
+@pytest.mark.parametrize(
+    ("item_type", "name"),
+    [
+        ("GeoJson", "data.json"),
+        ("Shapefile", "data.zip"),
+        ("File Geodatabase", "data.zip"),
+    ],
+)
+def test_a_dataset_type_saved_as_json_or_zip_gets_the_upload_line(
+    tmp_path, item_type, name
+):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    state.items[D1] = ItemState(export={"files": {name: {}}})
+    item = {"id": D1, "type": item_type, "action": "export_only"}
+
+    note = export_module.item_replacement(item, {"items": [item]}, state)
+
+    assert f"upload {name}" in note
+
+
+def test_other_json_and_zip_files_are_not_called_datasets(tmp_path):
+    state = MigrationState(tmp_path / "s.json", "p", "i", str, persist=False)
+    state.items[D1] = ItemState(export={"files": {"data.json": {}, "data.zip": {}}})
+    item = {"id": D1, "type": "Code Sample2", "action": "export_only"}
+
+    note = export_module.item_replacement(item, {"items": [item]}, state)
+
+    assert "upload" not in note
+
+
+_BAD_COLLECTIONS = {
+    "404": (404, {"error": {"code": 404}}),
+    "400": (400, {"error": {"code": 400}}),
+    "null": b"null",
+    "scalar": b"5",
+    "empty object": b"{}",
+    "empty list": b"[]",
+    "not json": b"plain text",
+}
+
+
+def _collection_plan(tmp_path: Path, legacy: bool) -> Path:
+    plan_file = _plan(
+        tmp_path, rows={C2: {**_FC_ROW, "reason": "data_file_import_candidate"}}
+    )
+    if legacy:
+        plan = json.loads(plan_file.read_text())
+        for item in plan["items"]:
+            if item["id"] == C2:
+                item["action"] = "import_file"
+        plan_file.write_text(json.dumps(plan))
+    return plan_file
+
+
+def _run_c2(runner, plan_file: Path, *extra: str):
+    return _migrate(runner, plan_file, "--only", C2, "--token", TOKEN, *extra)
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+@pytest.mark.parametrize("kind", list(_BAD_COLLECTIONS))
+def test_a_feature_collection_without_a_usable_payload_fails_and_blocks_cutover(
+    runner, tmp_path, geolens, install, kind, legacy
+):
+    install({f"content/items/{C2}/data": _BAD_COLLECTIONS[kind]})
+    plan_file = _collection_plan(tmp_path, legacy)
+
+    result, _ = _run_c2(runner, plan_file)
+
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][C2]["status"] == "failed"
+    plan = json.loads(plan_file.read_text())
+    for item in plan["items"]:
+        if item["id"] != C2:
+            item["action"] = "skip"
+    plan_file.write_text(json.dumps(plan))
+    _, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
+    assert payload["cutover"]["refused"] == ["unfinished-items"]
+
+
+@pytest.mark.parametrize("legacy", [False, True])
+def test_a_valid_collection_with_no_features_is_usable(
+    runner, tmp_path, geolens, install, legacy
+):
+    install({f"content/items/{C2}/data": _COLLECTION})
+    plan_file = _collection_plan(tmp_path, legacy)
+
+    result, _ = _run_c2(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    errors = _state(plan_file)["items"][C2]["export"]["errors"]
+    assert not [e for e in errors if e.startswith("data")]
+
+
+@pytest.mark.parametrize("kind", ["404", "null"])
+def test_a_collection_that_lost_its_data_keeps_the_earlier_bundle_and_recovers(
+    runner, tmp_path, geolens, install, kind
+):
+    portal = install({f"content/items/{C2}/data": _COLLECTION})
+    plan_file = _collection_plan(tmp_path, False)
+    result, _ = _run_c2(runner, plan_file)
+    assert result.exit_code == 0, result.output
+    folder = _export(plan_file, "feature-collection", C2)
+    before = _tree(folder)
+    item = portal.routes[f"content/items/{C2}"]
+    portal.routes[f"content/items/{C2}"] = {
+        **item,
+        "modified": item["modified"] + 60_000,
+    }
+    portal.routes[f"content/items/{C2}/data"] = _BAD_COLLECTIONS[kind]
+
+    result, _ = _run_c2(runner, plan_file)
+
+    assert result.exit_code == 1
+    assert _tree(folder) == before
+    portal.routes[f"content/items/{C2}/data"] = _COLLECTION
+    result, _ = _run_c2(runner, plan_file)
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][C2]["status"] == "done"
+
+
+@pytest.mark.parametrize("kind", ["malformed", "forbidden", "oversized"])
+@pytest.mark.parametrize("refresh", [False, True])
+def test_a_collection_whose_data_was_not_saved_fails_and_keeps_the_earlier_bundle(
+    runner, tmp_path, geolens, install, monkeypatch, kind, refresh
+):
+    portal = install({f"content/items/{C2}/data": _COLLECTION})
+    plan_file = _collection_plan(tmp_path, False)
+    folder = _export(plan_file, "feature-collection", C2)
+    if refresh:
+        result, _ = _run_c2(runner, plan_file)
+        assert result.exit_code == 0, result.output
+        before = _tree(folder)
+        modified = _state(plan_file)["items"][C2]["export"]["modified"]
+        item = portal.routes[f"content/items/{C2}"]
+        portal.routes[f"content/items/{C2}"] = {
+            **item,
+            "modified": item["modified"] + 60_000,
+        }
+    bad = {
+        "malformed": b'{"layers": [',
+        "forbidden": (403, {"error": {"code": 403}}),
+        "oversized": b'{"layers": []}' + b" " * 64,
+    }[kind]
+    portal.routes[f"content/items/{C2}/data"] = bad
+    if kind == "oversized":
+        monkeypatch.setattr(export_module, "JSON_LIMIT", 32)
+
+    result, payload = _run_c2(runner, plan_file)
+
+    assert result.exit_code == 1
+    if refresh:
+        assert payload["not_up_to_date"][C2]
+        assert _tree(folder) == before
+        assert _state(plan_file)["items"][C2]["export"]["modified"] == modified
+    else:
+        assert _state(plan_file)["items"][C2]["status"] == "failed"
+
+
+def test_an_exhausted_export_budget_fails_a_collection(
+    runner, tmp_path, geolens, install
+):
+    install({f"content/items/{C2}/data": b'{"layers": []}' + b" " * 1_200_000})
+    plan_file = _collection_plan(tmp_path, False)
+
+    result, _ = _run_c2(runner, plan_file, "--export-cap-mb", "1")
+
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][C2]["status"] == "failed"
+
+
+def test_an_older_plans_feature_collection_is_treated_as_export_only(
+    runner, tmp_path, geolens, install
+):
+    outcomes = []
+    for legacy, skipped_before in [(False, False), (True, False), (True, True)]:
+        sub = tmp_path / f"{legacy}-{skipped_before}"
+        sub.mkdir()
+        install(
+            {
+                f"content/items/{C2}/data": _COLLECTION,
+                f"content/items/{C2}/resources": _resources(),
+            }
+        )
+        plan_file = _collection_plan(sub, legacy)
+        if skipped_before:
+            state = {
+                "schema_version": "1",
+                "portal_url": json.loads(plan_file.read_text())["portal"]["url"],
+                "geolens_instance": layers.GEOLENS_INSTANCE,
+                "items": {C2: {"status": "skipped"}},
+            }
+            (sub / "arcgis-migration-state.json").write_text(json.dumps(state))
+        result, _ = _run_c2(runner, plan_file)
+        assert result.exit_code == 0, result.output
+        entry = _state(plan_file)["items"][C2]
+        outcomes.append((entry["status"], entry["export"]["files"].keys()))
+        plan = json.loads(plan_file.read_text())
+        for item in plan["items"]:
+            if item["id"] != C2:
+                item["action"] = "skip"
+        plan_file.write_text(json.dumps(plan))
+        _, payload = _migrate(runner, plan_file, "--token", TOKEN, "--cutover")
+        assert "unfinished-items" not in payload["cutover"]["refused"]
+    assert len({(s, tuple(sorted(f))) for s, f in outcomes}) == 1
+
+
+WMS_URL = "https://wms.example.gov/service"
+
+
+def test_an_item_added_by_url_without_a_file_ends_done_with_its_url_indexed(
+    runner, tmp_path, geolens, install
+):
+    install(
+        {
+            f"content/items/{D2}/data": NO_FILE_PAGE,
+            f"content/items/{D2}/resources": _resources(),
+        }
+    )
+    plan_file = _plan(tmp_path, rows={D2: {"type": "KML"}})
+
+    result, _ = _migrate(runner, plan_file, "--only", D2, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][D2]
+    assert entry["status"] == "done" and entry["export"]["errors"] == []
+    folder = _export(plan_file, "kml", D2)
+    assert sorted(p.name for p in folder.iterdir()) == ["item.json"]
+    index = _export(plan_file, "INDEX.md").read_text()
+    assert f"Points to {WMS_URL}" in index and "no data file was saved" in index
+
+
+def test_any_other_500_on_the_data_leaves_the_export_to_retry(
+    runner, tmp_path, geolens, install
+):
+    install(
+        {f"content/items/{C3}/data": (500, b"<html><title>Server Error</title></html>")}
+    )
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", C3, "--token", TOKEN)
+
+    assert result.exit_code == 1
+    entry = _state(plan_file)["items"][C3]
+    assert entry["status"] == "failed" and "rerun to retry" in entry["error"]
+
+
+def test_an_empty_data_answer_saves_no_data_file(runner, tmp_path, geolens, install):
+    install({f"content/items/{D2}/data": b""})
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D2, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    folder = _export(plan_file, "wms", D2)
+    assert sorted(p.name for p in folder.iterdir()) == ["item.json"]
+    assert "no data file was saved" in _export(plan_file, "INDEX.md").read_text()
+
+
+def test_a_recorded_empty_data_file_is_dropped_by_the_next_run(
+    runner, tmp_path, geolens, install
+):
+    portal = install({f"content/items/{D2}/data": b""})
+    plan_file = _plan(tmp_path)
+    assert _migrate(runner, plan_file, "--only", D2, "--token", TOKEN)[0].exit_code == 0
+    folder = _export(plan_file, "wms", D2)
+    (folder / "data.bin").write_bytes(b"")
+    state = _state(plan_file)
+    state["items"][D2]["export"]["files"]["data.bin"] = {
+        "size": 0,
+        "sha256": hashlib.sha256(b"").hexdigest(),
+    }
+    (plan_file.parent / "arcgis-migration-state.json").write_text(json.dumps(state))
+    downloads = len(portal.requests_to(f"content/items/{D2}/data"))
+
+    result, _ = _migrate(runner, plan_file, "--only", D2, "--token", TOKEN)
+
+    assert result.exit_code == 0, result.output
+    assert len(portal.requests_to(f"content/items/{D2}/data")) == downloads + 1
+    assert sorted(p.name for p in folder.iterdir()) == ["item.json"]
+    assert set(_state(plan_file)["items"][D2]["export"]["files"]) == {"item.json"}

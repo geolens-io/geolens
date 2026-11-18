@@ -2,7 +2,7 @@ import { memo, Suspense, useCallback, useId, useMemo, useRef, useState } from 'r
 import { useTranslation } from 'react-i18next';
 import { arrayMove } from '@dnd-kit/sortable';
 import { ArrowDown, ArrowUp, Eye, Plus, Trash2 } from 'lucide-react';
-import type { Map as MaplibreMap } from 'maplibre-gl';
+import type { FilterSpecification, Map as MaplibreMap } from 'maplibre-gl';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
@@ -24,8 +24,10 @@ import { useTheme } from '@/components/theme-provider';
 import { useDebouncedValue } from '@/hooks/use-debounce';
 import type { Bbox } from '@/lib/bbox';
 import { randomId } from '@/lib/random-id';
+import { widgetFilterShape } from '@/lib/widget-filter-shape';
 import { cn } from '@/lib/utils';
 import type { MapLayerResponse } from '@/types/api';
+import { LayerFilterEditor } from './LayerFilterEditor';
 import {
   dashboardLayers,
   dashboardPayload,
@@ -60,8 +62,8 @@ function ProblemText({ problem }: { problem: WidgetProblem }) {
   const { t } = useTranslation('widgets');
   return (
     <p className="text-xs text-destructive">
-      {problem.kind === 'viewWithoutGeometry'
-        ? t('editor.problem.viewWithoutGeometry')
+      {problem.kind === 'viewWithoutGeometry' || problem.kind === 'filterUnsupported' || problem.kind === 'filterTooLarge'
+        ? t(`editor.problem.${problem.kind}`)
         : problem.kind === 'missingColumn'
           ? t('editor.problem.missingColumn', { column: problem.column })
           : t(`editor.problem.${problem.kind}`, {
@@ -107,8 +109,10 @@ function LayerScopeFields({
         onChange={(layerId) => {
           const next = candidates.find((candidate) => candidate.id === layerId);
           if (!next) return;
+          // The filter names the old layer's columns too.
+          const { filter: _filter, ...rest } = widget;
           onChange({
-            ...widget,
+            ...rest,
             layer_id: layerId,
             scope: layerFollowsView(next) ? widget.scope : 'layer',
             config: startingConfig(definition, next),
@@ -147,6 +151,8 @@ interface WidgetCardProps {
   viewBbox: Bbox | null;
   mapHidden: boolean;
   onChange: (widget: WidgetInstance) => void;
+  /** Sets the filter of the widget with this id as it is now, since the editor reports it after a delay. */
+  onFilterChange: (id: string, filter: FilterSpecification | null) => void;
   onMove: (id: string, by: number) => void;
   onRemove: (id: string) => void;
 }
@@ -161,6 +167,7 @@ const WidgetCard = memo(function WidgetCard({
   viewBbox,
   mapHidden,
   onChange,
+  onFilterChange,
   onMove,
   onRemove,
 }: WidgetCardProps) {
@@ -171,14 +178,20 @@ const WidgetCard = memo(function WidgetCard({
   const layerless = !isLayerBound(definition.type);
   const problem = layer ? widgetProblem(widget, layer) : null;
   const previewConfig = useDebouncedValue(widget.config, PREVIEW_DEBOUNCE_MS);
-  const preview = { ...widget, config: previewConfig };
+  const previewFilter = useDebouncedValue(widget.filter, PREVIEW_DEBOUNCE_MS);
+  const { filter: _filter, ...unfiltered } = widget;
+  const preview = { ...unfiltered, config: previewConfig, ...(previewFilter ? { filter: previewFilter } : {}) };
   // Until the debounce catches up, the preview's config can still name the previous layer's columns.
   const previewReady = layerless || (layer !== undefined && !problem && !widgetProblem(preview, layer));
   // A dataset that limits its tile columns hides the rest from embedded copies, unless anyone can read it in full.
   const tileColumns = layer?.dataset_visibility === 'public' ? null : layer?.dataset_tile_columns;
+  const filterColumns = widget.filter ? (widgetFilterShape(widget.filter)?.columns ?? null) : [];
   const hiddenFromEmbeds =
     !!tileColumns &&
-    (definition.readsColumns?.(widget.config) ?? []).some((use) => !tileColumns.includes(use.name));
+    (filterColumns === null ||
+      [...(definition.readsColumns?.(widget.config) ?? []).map((use) => use.name), ...filterColumns].some(
+        (name) => !tileColumns.includes(name),
+      ));
   const Editor = definition.Editor;
 
   return (
@@ -254,6 +267,19 @@ const WidgetCard = memo(function WidgetCard({
             idPrefix={idPrefix}
           />
         </Suspense>
+      )}
+
+      {layer && definition.filterVersion && (
+        <LayerFilterEditor
+          // Its conditions name this layer's columns.
+          key={layer.id}
+          immediate
+          columnInfo={(layer.dataset_column_info ?? []).map((column) => ({ name: column.name, type: column.type ?? '' }))}
+          filter={widget.filter ?? null}
+          onFilterChange={(filter) => onFilterChange(widget.id, filter)}
+          title={t('editor.filterTitle')}
+          help={t('editor.filterHelp')}
+        />
       )}
 
       {layer && hiddenFromEmbeds && <p className="text-xs text-muted-foreground">{t('editor.embedColumnHint')}</p>}
@@ -374,6 +400,17 @@ export function DashboardEditorPanel({
     (next: WidgetInstance) => setWidgets((widgets) => widgets.map((widget) => (widget.id === next.id ? next : widget))),
     [setWidgets],
   );
+  const changeFilter = useCallback(
+    (id: string, filter: FilterSpecification | null) =>
+      setWidgets((widgets) =>
+        widgets.map((widget) => {
+          if (widget.id !== id) return widget;
+          const { filter: _previous, ...rest } = widget;
+          return filter ? { ...rest, filter } : rest;
+        }),
+      ),
+    [setWidgets],
+  );
   const moveWidget = useCallback(
     (id: string, by: number) =>
       setWidgets((widgets) => {
@@ -468,6 +505,7 @@ export function DashboardEditorPanel({
                   viewBbox={widget.scope === 'view' ? viewBbox : null}
                   mapHidden={mapHidden}
                   onChange={changeWidget}
+                  onFilterChange={changeFilter}
                   onMove={moveWidget}
                   onRemove={removeWidget}
                 />

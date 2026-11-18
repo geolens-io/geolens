@@ -26,9 +26,11 @@ from app.modules.auth.permissions import get_user_roles
 from app.platform.extensions import get_identity_extension, get_permission_extension
 from app.platform.request_credential import (
     DATASET_KEY_SCOPE_ROUTES,
+    MAP_AUTHOR_KEY_ROUTES,
     ApiKeyCredential,
     api_key_scope_refusal,
     mark_header_api_key_evaluated,
+    mark_query_api_key,
     record_api_key,
     refuse_publish_key,
 )
@@ -260,6 +262,16 @@ def _publish_key_may_call(
     )
 
 
+def _map_author_key_may_call(
+    method: str,
+    route_template: str,
+    query_params: Mapping[str, str] | None = None,
+) -> bool:
+    if (method, route_template) in MAP_AUTHOR_KEY_ROUTES:
+        return True
+    return _read_only_key_may_call(method, route_template, query_params)
+
+
 _PUBLISH_REFUSAL = (
     "This API key has the publish scope, which can't delete datasets or maps, "
     "update a map, write features or reach admin and key routes"
@@ -277,6 +289,14 @@ _SCOPE_RULES = {
     "publish": (
         _publish_key_may_call,
         {"code": "api_key_scope", "message": _PUBLISH_REFUSAL},
+    ),
+    "map_author": (
+        _map_author_key_may_call,
+        {
+            "code": "api_key_scope",
+            "message": "This API key has the map_author scope, which can only "
+            "read, create maps and style the maps it created",
+        },
     ),
 }
 _UNRESTRICTED_SCOPES = frozenset({"full", *DATASET_KEY_SCOPE_ROUTES})
@@ -445,8 +465,13 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
     api_key = _supplied_api_key(request)
     if not api_key:
         return None
+    from_query = not request.headers.get("X-Api-Key") and not _basic_password(
+        request.headers.get("Authorization", "")
+    )
     if request.headers.get("X-Api-Key"):
         mark_header_api_key_evaluated(request.scope)
+    elif from_query:
+        mark_query_api_key(request.scope, resolved=False)
     # codeql[py/weak-sensitive-data-hashing] API keys are server-minted 256-bit random tokens; SHA-256 makes a lookup key, not password storage
     key_hash = hashlib.sha256(api_key.encode()).hexdigest()
     result = await db.execute(
@@ -537,6 +562,8 @@ async def _resolve_api_key(request: Request, db: AsyncSession) -> User | None:
             expires_at=api_key_obj.expires_at,
         ),
     )
+    if from_query:
+        mark_query_api_key(request.scope, resolved=True)
     return user
 
 

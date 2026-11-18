@@ -35,7 +35,6 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
-import click
 import typer
 
 from . import arcgis_plan as _plan
@@ -229,7 +228,9 @@ def _create(geolens: GeoLens, row: Row, password: str) -> Any:
     body = AdminUserCreate(username=row.username, password=password, role=row.role)
     if row.email:
         body.email = row.email
-    return geolens.call(create.sync_detailed, body=body, expected=201)
+    return geolens.call(
+        create.sync_detailed, body=body, expected=201, sends=("body.password",)
+    )
 
 
 def _load_rows(opts: ImportOptions) -> list[Row]:
@@ -440,7 +441,7 @@ def run_cli(
         # The failed request was reported where it failed.
         result["stopped"] = "stopped by a failed request"
         code = exc.exit_code or EXIT_GENERIC
-    except click.ClickException as exc:
+    except typer.BadParameter as exc:
         result["stopped"], code = redact(exc.format_message()), exc.exit_code
     except GeoLensError as exc:
         result["stopped"] = redact(

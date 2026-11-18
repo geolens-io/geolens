@@ -3,7 +3,7 @@ import { translateApiErrorDetail } from '@/lib/error-map';
 import i18n from '@/i18n/i18n';
 import { apiFetch, authenticatedRawFetch, ApiError } from './client';
 import { uploadChunks } from './_presignedUpload';
-import { rethrowAsUploadRefusal } from './ingest';
+import { rethrowAsUploadRefusal, SERVICE_PREVIEW_TIMEOUT_MS } from './ingest';
 import { triggerDownload } from '@/lib/download';
 import { pushReportEntry, reportNetworkError } from '@/lib/report';
 import type {
@@ -293,6 +293,7 @@ export async function reuploadServicePreview(
     return await apiFetch<ReuploadPreviewResponse>(`/datasets/${encodeURIComponent(datasetId)}/reupload/service/preview`, {
       method: 'POST',
       body: JSON.stringify(request),
+      timeoutMs: SERVICE_PREVIEW_TIMEOUT_MS,
     });
   } catch (err) {
     rethrowAsUploadRefusal(err);

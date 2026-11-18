@@ -78,6 +78,19 @@ imported earlier hold those fields as text. Their next refresh is held for
 review once, with the type changes listed. Accept it to switch to bigint,
 date and timestamptz columns. TimeOnly fields stay text.
 
+ArcGIS web maps imported or migrated with `geolens arcgis migrate` before this
+release stack their layers upside down: the layer that draws at the bottom in
+ArcGIS draws on top in GeoLens. The upgrade doesn't change them. Reorder their
+layers in the map builder. A map imported through
+`POST /maps/import/arcgis-webmap` can instead be deleted and imported again.
+A rerun of `geolens arcgis migrate` translates a map it created again, in the
+new order, when the web map changed in the portal since the last run or a
+layer is still owed, as long as the map wasn't edited in GeoLens since then;
+otherwise it leaves the layers as they are. Don't delete a migrated map to
+redo it: a rerun reports it as gone and doesn't create it again. A
+`style.json` exported earlier lists layers in the reverse of their draw order;
+export it again.
+
 Every existing map starts with "Readers can open the attribute table" on. While
 it is on, the map's embed tokens can page its layers' rows through
 `GET /datasets/{id}/rows/`, within each dataset's `tile_columns` allowlist
@@ -97,6 +110,31 @@ with a `transition` until it is upgraded; the stored scene is kept. A draft
 saved through a 1.29 instance drops the story's reader settings (navigation,
 layout, theme), so set them again once every instance is on 1.30. Chapters,
 blocks and scenes without a transition are kept.
+
+Migrations 0104 and 0105 add nullable columns and widen the API key scope
+check, and 1.31 reads none of them, so a rolling upgrade from 1.31 keeps
+working. A `map_author` key is refused by an instance still on 1.31.
+
+From 1.32, an admin transfer of a map revokes that map's embed tokens, and
+while public visibility is restricted to admins, embed tokens a non-admin
+minted on a private or internal map stop working. Mint new ones as the new
+owner or an admin where a map needs them. Reads by a caller with no sign-in or
+API key (OGC API, STAC, catalog search) now stop after 30 seconds of database
+time and answer 503; set `DB_ANONYMOUS_READ_TIMEOUT_SECONDS` to change it.
+
+`SESSION_SECRET_KEY` is a new optional signing key for the OAuth sign-in
+session cookie. Unset, it falls back to `JWT_SECRET_KEY`. If you set it, use at
+least 32 characters that differ from the JWT secret and the tile signing key,
+or the API refuses to start, and use the same value on every API replica. New installs get one generated; an
+existing `.env` keeps what it has. `install.sh` and `upgrade.sh` now keep the
+mode of an existing `.env` and create a new one with mode 600.
+
+During a rolling upgrade to 1.32, an instance still on 1.31 answers 403 to a
+tile URL that a 1.32 instance signed for an embedded map. Embedded maps can
+miss tiles until every instance is on 1.32, and a map opened during the upgrade
+recovers on reload. After a rollback to 1.31 the same happens for up to 16
+minutes, until the URLs signed by 1.32 expire. Single-instance installs are not
+affected.
 
 ## Change the published default database password
 
@@ -140,6 +178,16 @@ docker compose up -d
 in use, `POSTGRES_PASSWORD` belongs to the bootstrap login and the API and
 worker don't see it, so they don't log the warning; change it the same way.
 
+## Replace a weak TILE_SIGNING_SECRET
+
+A `TILE_SIGNING_SECRET` shorter than 32 characters or equal to a known-public
+value logs `tile_signing_secret_weak` at startup, and GeoLens 1.33.0 (not before
+2027-02-10) refuses to start with it. An unset value, or one equal to
+`JWT_SECRET_KEY`, is not refused. Set a new value from `openssl rand -hex 32` in
+`.env`, the same on every API replica, then run `docker compose up -d api worker`.
+Signed tile URLs issued under the old key stop verifying until the page reloads
+them.
+
 ## Rollback
 
 Rollback is re-pinning the previous version and restoring the pre-upgrade dump.
@@ -166,6 +214,10 @@ keys in Settings > API keys (or as an admin), then run the downgrade again.
 Revoke them too before you start an older image against the newer schema with
 `GEOLENS_API_RUN_MIGRATIONS=false`: an older image doesn't know the Publish
 scope and treats those keys as full-access keys.
+
+The downgrade of `0104_map_author_api_keys` stops the same way while any active
+API key has the Map author scope, and drops the record of which key created
+each map. An older image refuses Map author keys on every request.
 
 The downgrade of `0088_dataset_kept_versions` stops while any dataset keeps more
 than one previous version. The downgrade of the `restricted` map visibility

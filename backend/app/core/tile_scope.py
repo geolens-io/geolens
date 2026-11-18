@@ -8,6 +8,7 @@ without a port, which no overlay can replace on one side only.
 
 from __future__ import annotations
 
+import uuid
 from urllib.parse import urlencode
 
 from app.core.tenancy import tenant_bound_scope
@@ -27,6 +28,41 @@ def tile_signature_scope(resource: str, publication_version: int | None) -> str:
     ordinary edit. A NULL counter reads as 0 on both sides.
     """
     return tenant_bound_scope(f"{resource}:p{int(publication_version or 0)}")
+
+
+_ORIGIN_POLICY_HEX = 16
+
+
+def bind_scope_to_embed_token(
+    scope: str, token_id: uuid.UUID, origin_policy: str
+) -> str:
+    """Return ``scope`` naming the embed token and origin policy it is minted under.
+
+    The signature covers the scope, so neither can be removed or swapped, and
+    the verifier holds the template to that token still being accepted under
+    that policy. ``origin_policy`` is a 16-hex-digit fingerprint.
+    """
+    return f"{scope}:e{token_id.hex}{origin_policy}"
+
+
+def split_embed_binding(scope: str) -> tuple[str, tuple[uuid.UUID, str] | None]:
+    """Split a signed scope into the unbound scope and its embed binding, if any.
+
+    An unbound scope ends in the ``:p<N>`` segment of
+    :func:`tile_signature_scope`, so a final ``:e<hex>`` segment of the bound
+    length is unambiguous. Any other ``:e`` segment stays part of the scope and
+    so fails the verifier's scope comparison.
+    """
+    base, _, last = scope.rpartition(":")
+    if base and last.startswith("e") and len(last) == 33 + _ORIGIN_POLICY_HEX:
+        token_hex, policy = last[1:33], last[33:]
+        try:
+            token_id = uuid.UUID(hex=token_hex)
+        except ValueError:
+            return scope, None
+        if token_id.hex == token_hex and all(c in "0123456789abcdef" for c in policy):
+            return base, (token_id, policy)
+    return scope, None
 
 
 TILE_PUBLICATION_VERSION_PARAM = "pv"

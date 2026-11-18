@@ -210,3 +210,23 @@ def test_weak_existing_tile_key_warns_without_the_value(tile):
     )
     assert "tile_signing_secret_weak" in events
     assert tile not in log.warning.call_args.kwargs["message"]
+
+
+def _tile_messages(tile):
+    _, log = _events(
+        _ns(tile_signing_secret=SecretStr(tile), session_secret_key=SecretStr(_key()))
+    )
+    return [c.kwargs["message"] for c in log.warning.call_args_list]
+
+
+@pytest.mark.parametrize("tile", ["tiny-key", sorted(KNOWN_PUBLIC_CREDENTIALS)[-1]])
+def test_short_or_public_tile_key_warning_names_release_and_date(tile):
+    messages = _tile_messages(tile)
+    assert messages
+    assert all("1.33.0" in m and "2027-02-10" in m for m in messages)
+
+
+def test_equal_to_jwt_tile_key_warning_does_not_announce_a_refusal():
+    messages = _tile_messages(JWT)
+    assert messages
+    assert not any("refuse" in m or "1.33.0" in m for m in messages)

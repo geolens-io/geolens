@@ -134,6 +134,8 @@ interface DatasetMapProps {
    * all-family renderers. */
   hasGenericGeometry?: boolean;
   datasetId?: string;
+  /** Changes when the dataset's data is replaced (not on feature edits); the map then refits a moved extent. */
+  dataRevision?: string;
   columnInfo?: { name: string; type: string }[] | null;
   containerRef?: RefObject<HTMLDivElement | null>;
   canEdit?: boolean;
@@ -163,6 +165,7 @@ export const DatasetMap = memo(function DatasetMap({
   geometryType,
   hasGenericGeometry,
   datasetId,
+  dataRevision,
   columnInfo,
   containerRef,
   canEdit = false,
@@ -653,6 +656,26 @@ export const DatasetMap = memo(function DatasetMap({
       map.fitBounds(toFitBounds(bbox!), { padding: 60, duration: motionDuration(1000) });
     }
   }, [hasBbox, bbox]);
+
+  // initialViewState only applies at mount, but a re-upload, refresh or raster
+  // swap replaces the data under a live map. A change of `dataRevision` that
+  // also moves the extent queues a refit, which waits for the map to load.
+  // In-place feature edits move the extent without a new revision, and must
+  // not jump the reader's camera.
+  const extentKey = hasBbox ? bbox!.slice(0, 4).join(',') : null;
+  const seenRevisionRef = useRef(dataRevision);
+  const previousExtentKeyRef = useRef(extentKey);
+  const refitPendingRef = useRef(false);
+  useEffect(() => {
+    if (seenRevisionRef.current !== dataRevision) {
+      seenRevisionRef.current = dataRevision;
+      if (previousExtentKeyRef.current !== extentKey) refitPendingRef.current = extentKey !== null;
+    }
+    previousExtentKeyRef.current = extentKey;
+    if (!refitPendingRef.current || !extentKey || !mapInstance) return;
+    refitPendingRef.current = false;
+    handleZoomToExtent();
+  }, [dataRevision, extentKey, mapInstance, handleZoomToExtent]);
 
   const handleToggleFullscreen = useCallback(() => {
     if (!containerRef?.current) return;

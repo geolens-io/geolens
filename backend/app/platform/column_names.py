@@ -42,6 +42,13 @@ def free_name(base: str, taken: set[str]) -> str:
     return target
 
 
+def laundered_column_name(name: str) -> str:
+    """ogr2ogr's PostgreSQL laundering: ASCII lowercase; ``'``, ``-`` and ``#`` become ``_``."""
+    return "".join(
+        "_" if ch in "'-#" else ch.lower() if ch.isascii() else ch for ch in name
+    )
+
+
 def stored_column_names(source_names: Sequence[str]) -> list[str]:
     """The column names a file's source fields are stored under once it is loaded.
 
@@ -50,12 +57,7 @@ def stored_column_names(source_names: Sequence[str]) -> list[str]:
     order, so a rename that collides with another column takes the same suffix
     ``rename_reserved_columns`` gives it.
     """
-    laundered = [
-        "".join(
-            "_" if ch in "'-#" else ch.lower() if ch.isascii() else ch for ch in name
-        )
-        for name in source_names
-    ]
+    laundered = [laundered_column_name(name) for name in source_names]
     taken = set(laundered)
     stored: list[str] = []
     for name in laundered:

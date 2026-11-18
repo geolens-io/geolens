@@ -5,8 +5,9 @@ credential for CORS to guard. The answer is ``Access-Control-Allow-Origin: *``
 with no credentials flag, so a browser never pairs it with cookies, and the
 middleware drops any cookie before the request is served. A response gets the
 wildcard only when the auth layer looked the key up, so a made-up key opens no
-route that never reads one. Bearer tokens, cookies, embed tokens and
-query-string credentials keep the old rule: no wildcard outside
+route that never reads one. A read whose only credential is ``?api_key=`` gets
+the same answer, limited to read methods, once the auth layer resolved the key.
+Bearer tokens, cookies and embed tokens keep the old rule: no wildcard outside
 ``CORS_ALLOWED_ORIGINS``.
 """
 
@@ -23,6 +24,7 @@ from starlette.testclient import TestClient
 from app.api.middleware.cors import DynamicCORSMiddleware
 from app.platform.request_credential import (
     mark_header_api_key_evaluated,
+    mark_query_api_key,
     mark_refused_before_auth,
 )
 from app.core.config import settings
@@ -270,17 +272,6 @@ def test_nothing_that_reads_credentials_runs_before_the_cookie_strip():
 
 
 @pytest.mark.anyio
-async def test_a_query_string_key_gets_no_wildcard(client, allow_one_origin):
-    resp = await client.get(
-        "/auth/me/",
-        params={"api_key": await _full_key(client)},
-        headers={"Origin": _FOREIGN_ORIGIN},
-    )
-    assert resp.status_code == 200
-    assert "access-control-allow-origin" not in resp.headers
-
-
-@pytest.mark.anyio
 async def test_a_listed_origin_keeps_its_credentialed_answer(client, allow_one_origin):
     resp = await client.get(
         "/auth/me/",
@@ -325,6 +316,8 @@ def _cookie_echo_client(monkeypatch) -> TestClient:
         # Stands in for the auth layer reading the key.
         if request.headers.get("x-api-key"):
             mark_header_api_key_evaluated(request.scope)
+        elif request.query_params.get("api_key"):
+            mark_query_api_key(request.scope, resolved=True)
         return JSONResponse({"cookies": dict(request.cookies)})
 
     app = Starlette(routes=[Route("/echo", echo, methods=["GET", "POST"])])
@@ -341,6 +334,17 @@ def test_a_cookie_sent_with_a_key_is_not_read(monkeypatch):
             "X-Api-Key": "k",
             "Cookie": "geolens_refresh=secret",
         },
+    )
+    assert resp.json() == {"cookies": {}}
+    assert resp.headers["access-control-allow-origin"] == "*"
+    assert "access-control-allow-credentials" not in resp.headers
+
+
+def test_a_cookie_sent_with_a_url_key_is_not_read(monkeypatch):
+    client = _cookie_echo_client(monkeypatch)
+    resp = client.get(
+        "/echo?api_key=k",
+        headers={"Origin": _FOREIGN_ORIGIN, "Cookie": "geolens_refresh=secret"},
     )
     assert resp.json() == {"cookies": {}}
     assert resp.headers["access-control-allow-origin"] == "*"
@@ -571,3 +575,257 @@ async def test_the_global_rate_limit_marks_its_refusal(monkeypatch):
 
     assert refused.status_code == 429
     assert refused.headers["access-control-allow-origin"] == "*"
+
+
+_URL_KEY_METHODS = "GET, HEAD, OPTIONS"
+_CORS_HEADERS = (
+    "access-control-allow-origin",
+    "access-control-allow-credentials",
+    "access-control-allow-methods",
+    "access-control-allow-headers",
+    "access-control-expose-headers",
+    "access-control-max-age",
+)
+
+
+def _cors_answer(resp) -> dict[str, object]:
+    """The CORS headers and Vary tokens of a response, Allow-Methods aside."""
+    answer: dict[str, object] = {
+        name: resp.headers.get(name)
+        for name in _CORS_HEADERS
+        if name != "access-control-allow-methods"
+    }
+    answer["vary"] = {
+        token.strip().lower()
+        for line in resp.headers.get_list("vary")
+        for token in line.split(",")
+    }
+    return answer
+
+
+def _assert_url_key_answer(url_keyed, header_keyed) -> None:
+    """A URL key gets the header-key answer, promising only read methods."""
+    _assert_header_key_answer(url_keyed)
+    assert _cors_answer(url_keyed) == _cors_answer(header_keyed)
+    assert url_keyed.headers["access-control-allow-methods"] == _URL_KEY_METHODS
+
+
+@pytest.fixture
+def fake_export(monkeypatch, tmp_path):
+    """Each export writes a small file of its own instead of running ogr2ogr."""
+
+    async def _export(table_name, dataset_name, format_key, **_options):
+        out = tmp_path / uuid.uuid4().hex
+        out.mkdir()
+        path = out / f"{dataset_name}.geojson"
+        path.write_bytes(b'{"type":"FeatureCollection","features":[]}')
+        return str(path), path.name, "application/geo+json"
+
+    monkeypatch.setattr("app.processing.export.selection.export_dataset", _export)
+
+
+@pytest.fixture
+async def private_dataset(test_db_session, fake_export):
+    """A private, published point dataset owned by the admin, with a data table."""
+    from tests.factories import create_dataset, get_user_id
+    from tests.test_tiles import _cleanup_data_table, _create_data_table
+
+    table = f"cors_url_key_{uuid.uuid4().hex[:8]}"
+    dataset = await create_dataset(
+        test_db_session,
+        created_by=await get_user_id(test_db_session, "admin"),
+        table_name=table,
+        visibility="private",
+        geometry_type="Point",
+        feature_count=1,
+        column_info=[
+            {"name": "gid", "type": "integer"},
+            {"name": "name", "type": "text"},
+            {"name": "value", "type": "integer"},
+            {"name": "geom", "type": "geometry"},
+            {"name": "geom_4326", "type": "geometry"},
+        ],
+    )
+    await _create_data_table(test_db_session, table)
+    yield dataset
+    await test_db_session.rollback()
+    await _cleanup_data_table(test_db_session, table)
+
+
+_KEYED_READS = {
+    "items": "/collections/{id}/items",
+    "collection": "/collections/{id}",
+    "collections": "/collections",
+    "export": "/datasets/{id}/export?format=geojson",
+    "tile": "/tiles/data.{table}/0/0/0.pbf",
+}
+
+
+@pytest.mark.anyio
+@pytest.mark.usefixtures("_init_tile_pool_for_tests")
+@pytest.mark.parametrize("target", sorted(_KEYED_READS))
+async def test_a_url_key_gets_the_header_key_answer(
+    client, allow_one_origin, private_dataset, target
+):
+    key = await _full_key(client)
+    path = _KEYED_READS[target].format(
+        id=private_dataset.id, table=private_dataset.table_name
+    )
+    origin = {"Origin": _FOREIGN_ORIGIN}
+
+    url_keyed = await client.get(path, params={"api_key": key}, headers=origin)
+    header_keyed = await client.get(path, headers={**origin, "X-Api-Key": key})
+
+    assert url_keyed.status_code == header_keyed.status_code == 200, header_keyed.text
+    _assert_url_key_answer(url_keyed, header_keyed)
+
+
+@pytest.mark.anyio
+async def test_a_url_keyed_read_is_never_shared_cached_and_echoes_no_key(
+    client, allow_one_origin, private_dataset
+):
+    key = await _full_key(client)
+    resp = await client.get(
+        f"/collections/{private_dataset.id}/items",
+        params={"api_key": key},
+        headers={"Origin": _FOREIGN_ORIGIN},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.headers["cache-control"].startswith("private")
+    assert {"origin", "authorization", "x-api-key", "cookie"} <= _cors_answer(resp)[
+        "vary"
+    ]
+    assert not [name for name, value in resp.headers.items() if key in value]
+
+
+@pytest.mark.anyio
+async def test_an_unknown_or_revoked_url_key_gets_no_wildcard(
+    client, allow_one_origin, private_dataset
+):
+    admin = await get_auth_header(
+        client,
+        settings.geolens_admin_username,
+        settings.geolens_admin_password.get_secret_value(),
+    )
+    minted = await _scope_tests._mint(client, admin)
+    revoked = await client.delete(f"/auth/api-keys/{minted['id']}", headers=admin)
+    assert revoked.status_code == 204, revoked.text
+    path = f"/collections/{private_dataset.id}/items"
+
+    for key in ("not-a-real-key", minted["key"]):
+        resp = await client.get(
+            path, params={"api_key": key}, headers={"Origin": _FOREIGN_ORIGIN}
+        )
+        assert resp.status_code == 401
+        assert "access-control-allow-origin" not in resp.headers
+
+
+@pytest.mark.anyio
+async def test_a_url_key_on_a_route_refusing_that_form_gets_no_wildcard(
+    client, allow_one_origin, private_dataset
+):
+    """A validate run that refreshes is a write, so a URL key never authenticates it."""
+    resp = await client.get(
+        f"/datasets/{private_dataset.id}/validate",
+        params={"api_key": await _full_key(client), "refresh": "true"},
+        headers={"Origin": _FOREIGN_ORIGIN},
+    )
+    assert resp.status_code == 404
+    assert "access-control-allow-origin" not in resp.headers
+
+
+@pytest.mark.anyio
+async def test_a_url_keyed_write_is_refused_without_a_wildcard(
+    client, allow_one_origin
+):
+    key = await _full_key(client)
+    write = await client.post(
+        "/maps/",
+        params={"api_key": key},
+        json={"name": "URL keyed map"},
+        headers={"Origin": _FOREIGN_ORIGIN},
+    )
+    assert write.status_code == 401
+    assert "access-control-allow-origin" not in write.headers
+
+    preflight = await client.options(
+        f"/maps/?api_key={key}",
+        headers={
+            "Origin": _FOREIGN_ORIGIN,
+            "Access-Control-Request-Method": "POST",
+            "Access-Control-Request-Headers": "content-type",
+        },
+    )
+    assert "access-control-allow-origin" not in preflight.headers
+
+
+@pytest.mark.anyio
+async def test_a_url_keyed_preflight_gets_the_header_key_answer_for_reads(
+    client, allow_one_origin, private_dataset
+):
+    path = f"/collections/{private_dataset.id}/items"
+    preflight = {
+        "Origin": _FOREIGN_ORIGIN,
+        "Access-Control-Request-Method": "GET",
+        "Access-Control-Request-Headers": "accept, range",
+    }
+
+    url_keyed = await client.options(f"{path}?api_key=x", headers=preflight)
+    header_keyed = await client.options(
+        path,
+        headers={
+            **preflight,
+            "Access-Control-Request-Headers": "x-api-key, accept, range",
+        },
+    )
+
+    assert url_keyed.status_code == 200
+    _assert_url_key_answer(url_keyed, header_keyed)
+
+
+@pytest.mark.anyio
+async def test_a_url_key_with_a_bearer_token_keeps_todays_answer(
+    client, allow_one_origin, private_dataset
+):
+    admin = await get_auth_header(
+        client,
+        settings.geolens_admin_username,
+        settings.geolens_admin_password.get_secret_value(),
+    )
+    resp = await client.get(
+        f"/collections/{private_dataset.id}/items",
+        params={"api_key": await _full_key(client)},
+        headers={"Origin": _FOREIGN_ORIGIN, **admin},
+    )
+    assert resp.status_code == 200
+    assert "access-control-allow-origin" not in resp.headers
+
+
+@pytest.mark.anyio
+async def test_a_url_key_from_a_listed_origin_keeps_the_credentialed_answer(
+    client, allow_one_origin, private_dataset
+):
+    resp = await client.get(
+        f"/collections/{private_dataset.id}/items",
+        params={"api_key": await _full_key(client)},
+        headers={"Origin": _ALLOWED_ORIGIN},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == _ALLOWED_ORIGIN
+    assert resp.headers["access-control-allow-credentials"] == "true"
+
+
+@pytest.mark.anyio
+async def test_a_url_key_to_a_route_that_never_reads_it_keeps_the_public_answer(
+    client, allow_one_origin
+):
+    """A map client sends its key on every request, conformance included."""
+    resp = await client.get(
+        "/conformance",
+        params={"api_key": "not-a-real-key"},
+        headers={"Origin": _FOREIGN_ORIGIN},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["access-control-allow-origin"] == "*"
+    assert "access-control-allow-credentials" not in resp.headers
+    assert "x-api-key" not in _cors_answer(resp)["vary"]
