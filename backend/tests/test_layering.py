@@ -1211,7 +1211,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,
         # restricted maps' group members and embed tokens included.
-        "backend/app/modules/catalog/maps/service_public.py": 1152,
+        "backend/app/modules/catalog/maps/service_public.py": 1154,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 660,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.

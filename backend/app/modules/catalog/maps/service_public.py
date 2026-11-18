@@ -253,8 +253,8 @@ async def find_embedded_maps_using_dataset(
     session: AsyncSession, dataset_id: uuid.UUID, *, owner_id: uuid.UUID | None
 ) -> list[dict[str, str]]:
     """Ids and names of the owner's maps that show the dataset and hold an
-    active, unexpired embed token. Deleting the dataset strands them whatever
-    its visibility, since an embed token also serves private datasets."""
+    active, unexpired embed token whose scope includes it. Deleting the dataset
+    strands them whatever its visibility: a token also serves private datasets."""
     if owner_id is None:
         return []
     stmt = (
@@ -270,7 +270,9 @@ async def find_embedded_maps_using_dataset(
         {"id": str(map_id), "name": name}
         for map_id, name in (await session.execute(stmt)).all()
         if any(
-            token.is_active and token.expires_at > now
+            token.is_active
+            and token.expires_at > now
+            and str(dataset_id) in (token.scoped_dataset_ids or [])
             for token in await list_embed_tokens(session, map_id)
         )
     ]

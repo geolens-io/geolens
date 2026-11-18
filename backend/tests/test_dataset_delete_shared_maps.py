@@ -260,6 +260,27 @@ async def test_a_public_map_with_an_embed_token_is_named_once(
         await _cleanup_data_table(test_db_session, dataset.table_name)
 
 
+async def test_a_layer_added_after_the_mint_is_outside_the_token_and_deletes(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    scoped, map_obj, _ = await _embedded_private_map(
+        client, test_db_session, owner_headers, owner_id
+    )
+    later = await _vector_dataset(test_db_session, owner_id, visibility="private")
+    test_db_session.add(MapLayer(map_id=map_obj.id, dataset_id=later.id, sort_order=1))
+    await test_db_session.commit()
+    try:
+        resp = await _delete(client, later, owner_headers)
+
+        assert resp.status_code == 204, resp.text
+        assert await _still_there(test_db_session, later) == (False, 0, False)
+        assert (await _delete(client, scoped, owner_headers)).status_code == 422
+    finally:
+        await _cleanup_data_table(test_db_session, scoped.table_name)
+        await _cleanup_data_table(test_db_session, later.table_name)
+
+
 @pytest.mark.parametrize("ended", ["revoked", "expired"])
 async def test_an_ended_embed_token_does_not_block_the_delete(
     client: AsyncClient, admin_auth_header: dict, test_db_session, ended: str
