@@ -110,6 +110,12 @@
       "clipped_one": "{{count}} entidad se recortó en el límite",
       "clipped_other": "{{count}} entidades se recortaron en el límite"
     },
+    "zmDropped": {
+      "title": "No se conservaron los valores Z o M",
+      "description": "El origen mezcla geometrías con y sin valores Z o M, por lo que GeoLens guardó todas las geometrías en 2D. X e Y no cambian. Para conservar Z y M, dé a todas las geometrías las mismas dimensiones en el origen.",
+      "features_one": "{{count}} entidad perdió sus valores Z o M",
+      "features_other": "{{count}} entidades perdieron sus valores Z o M"
+    },
     "archiveFailed": {
       "title": "Error al archivar el archivo original",
       "description": "El conjunto de datos se importó correctamente, pero la copia del archivo fuente original al almacenamiento duradero falló. El conjunto de datos sigue siendo consultable; vuelva a subirlo si necesita restaurar el archivo original."

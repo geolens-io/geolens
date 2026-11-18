@@ -52,6 +52,7 @@ from app.platform.jobs.schemas import (
     MercatorClipWarning,
     ReservedRenameWarning,
     StaleCleanupResponse,
+    ZmDroppedWarning,
 )
 from app.platform.refresh.job_runs import latest_runs_for_jobs, stored_review_reasons
 from app.platform.source_copies import retry_conflict
@@ -683,7 +684,10 @@ async def _job_to_status_response(
 
     warning_message: str | None = None
     warnings: list[
-        ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning
+        ReservedRenameWarning
+        | DbfTruncationCollisionWarning
+        | MercatorClipWarning
+        | ZmDroppedWarning
     ] = []
     archive_failed = False
     temporal_parse_errors: dict[TemporalParseKey, str] = {}
@@ -704,6 +708,8 @@ async def _job_to_status_response(
                         )
                     elif kind == "mercator_clip":
                         warnings.append(MercatorClipWarning.model_validate(raw))
+                    elif kind == "zm_dropped":
+                        warnings.append(ZmDroppedWarning.model_validate(raw))
                     else:
                         logger.warning(
                             "Dropping ingest warning with unknown kind",

@@ -69,8 +69,30 @@ class MercatorClipWarning(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ZmDroppedDetail(BaseModel):
+    """How many features were stored without the Z or M values they had.
+
+    A source whose geometries mix dimensions is stored in 2D, so the features
+    that had Z or M lose those values; X and Y are unchanged.
+    """
+
+    features: int = Field(ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ZmDroppedWarning(BaseModel):
+    kind: Literal["zm_dropped"]
+    details: ZmDroppedDetail
+
+    model_config = ConfigDict(extra="forbid")
+
+
 IngestJobWarning = Annotated[
-    ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning,
+    ReservedRenameWarning
+    | DbfTruncationCollisionWarning
+    | MercatorClipWarning
+    | ZmDroppedWarning,
     Field(discriminator="kind"),
 ]
 

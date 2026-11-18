@@ -12532,7 +12532,8 @@
                 "mapping": {
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
-                  "reserved_rename": "#/components/schemas/ReservedRenameWarning"
+                  "reserved_rename": "#/components/schemas/ReservedRenameWarning",
+                  "zm_dropped": "#/components/schemas/ZmDroppedWarning"
                 },
                 "propertyName": "kind"
               },
@@ -12545,6 +12546,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/MercatorClipWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ZmDroppedWarning"
                 }
               ]
             },
@@ -12708,7 +12712,8 @@
                 "mapping": {
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
-                  "reserved_rename": "#/components/schemas/ReservedRenameWarning"
+                  "reserved_rename": "#/components/schemas/ReservedRenameWarning",
+                  "zm_dropped": "#/components/schemas/ZmDroppedWarning"
                 },
                 "propertyName": "kind"
               },
@@ -12721,6 +12726,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/MercatorClipWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ZmDroppedWarning"
                 }
               ]
             },
@@ -27314,6 +27322,41 @@
           "source_health"
         ],
         "title": "VrtStatusResponse",
+        "type": "object"
+      },
+      "ZmDroppedDetail": {
+        "additionalProperties": false,
+        "description": "How many features were stored without the Z or M values they had.\n\nA source whose geometries mix dimensions is stored in 2D, so the features\nthat had Z or M lose those values; X and Y are unchanged.",
+        "properties": {
+          "features": {
+            "minimum": 1.0,
+            "title": "Features",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "features"
+        ],
+        "title": "ZmDroppedDetail",
+        "type": "object"
+      },
+      "ZmDroppedWarning": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "zm_dropped",
+            "title": "Kind",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ZmDroppedDetail"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "ZmDroppedWarning",
         "type": "object"
       }
     },

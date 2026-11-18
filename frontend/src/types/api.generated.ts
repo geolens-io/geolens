@@ -12275,7 +12275,7 @@ export interface components {
             /** Error Code */
             error_code?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"])[];
             /**
              * Can Retry
              * @default false
@@ -12327,7 +12327,7 @@ export interface components {
             /** Warning Message */
             warning_message?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"])[];
             /** Progress */
             progress?: number | null;
             /** Current Step */
@@ -18704,6 +18704,26 @@ export interface components {
             active_generation?: components["schemas"]["VrtActiveGeneration"] | null;
             /** Source Health */
             source_health: components["schemas"]["VrtSourceHealth"][];
+        };
+        /**
+         * ZmDroppedDetail
+         * @description How many features were stored without the Z or M values they had.
+         *
+         *     A source whose geometries mix dimensions is stored in 2D, so the features
+         *     that had Z or M lose those values; X and Y are unchanged.
+         */
+        ZmDroppedDetail: {
+            /** Features */
+            features: number;
+        };
+        /** ZmDroppedWarning */
+        ZmDroppedWarning: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "zm_dropped";
+            details: components["schemas"]["ZmDroppedDetail"];
         };
     };
     responses: never;

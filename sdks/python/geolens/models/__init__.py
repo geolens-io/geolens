@@ -1149,6 +1149,8 @@ from .vrt_source_item import VrtSourceItem
 from .vrt_source_list_response import VrtSourceListResponse
 from .vrt_status_response import VrtStatusResponse
 from .vrt_status_response_status import VrtStatusResponseStatus
+from .zm_dropped_detail import ZmDroppedDetail
+from .zm_dropped_warning import ZmDroppedWarning
 
 __all__ = (
     "AddColumnRequest",
@@ -1990,4 +1992,6 @@ __all__ = (
     "VrtSourceListResponse",
     "VrtStatusResponse",
     "VrtStatusResponseStatus",
+    "ZmDroppedDetail",
+    "ZmDroppedWarning",
 )

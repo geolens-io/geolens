@@ -110,6 +110,12 @@
       "clipped_one": "{{count}} 个要素在边界处被裁剪",
       "clipped_other": "{{count}} 个要素在边界处被裁剪"
     },
+    "zmDropped": {
+      "title": "未保留 Z 或 M 值",
+      "description": "数据源中的几何有的带 Z 或 M 值，有的不带，因此 GeoLens 以二维方式存储了所有几何。X 和 Y 保持不变。若要保留 Z 和 M，请在数据源中让所有几何使用相同的维度。",
+      "features_one": "{{count}} 个要素丢失了 Z 或 M 值",
+      "features_other": "{{count}} 个要素丢失了 Z 或 M 值"
+    },
     "archiveFailed": {
       "title": "原始文件归档失败",
       "description": "数据集已成功导入，但将原始源文件复制到持久存储失败。数据集仍可查询；如需恢复原始文件，请重新上传。"

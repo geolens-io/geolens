@@ -110,6 +110,12 @@
       "clipped_one": "{{count}} entité a été rognée à la limite",
       "clipped_other": "{{count}} entités ont été rognées à la limite"
     },
+    "zmDropped": {
+      "title": "Valeurs Z ou M non conservées",
+      "description": "La source mélange des géométries avec et sans valeurs Z ou M : GeoLens a donc enregistré toutes les géométries en 2D. X et Y sont inchangés. Pour conserver Z et M, donnez les mêmes dimensions à toutes les géométries dans la source.",
+      "features_one": "{{count}} entité a perdu ses valeurs Z ou M",
+      "features_other": "{{count}} entités ont perdu leurs valeurs Z ou M"
+    },
     "archiveFailed": {
       "title": "Échec de l'archivage du fichier original",
       "description": "Le jeu de données a été importé avec succès, mais la copie du fichier source original vers le stockage durable a échoué. Le jeu de données reste interrogeable ; retéléchargez-le si vous avez besoin de restaurer le fichier original."

@@ -110,6 +110,12 @@
       "clipped_one": "{{count}} feature was trimmed at the boundary",
       "clipped_other": "{{count}} features were trimmed at the boundary"
     },
+    "zmDropped": {
+      "title": "Z or M values not kept",
+      "description": "The source mixes geometries with and without Z or M values, so GeoLens stored every geometry in 2D. X and Y are unchanged. To keep Z and M, give every geometry the same dimensions in the source.",
+      "features_one": "{{count}} feature lost its Z or M values",
+      "features_other": "{{count}} features lost their Z or M values"
+    },
     "archiveFailed": {
       "title": "Original file archive failed",
       "description": "The dataset was imported successfully, but copying the original source file to durable storage failed. The dataset is still queryable; re-upload if you need the original file restored."

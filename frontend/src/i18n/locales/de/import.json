@@ -110,6 +110,12 @@
       "clipped_one": "{{count}} Objekt wurde an der Grenze beschnitten",
       "clipped_other": "{{count}} Objekte wurden an der Grenze beschnitten"
     },
+    "zmDropped": {
+      "title": "Z- oder M-Werte nicht übernommen",
+      "description": "Die Quelle mischt Geometrien mit und ohne Z- oder M-Werte, daher hat GeoLens alle Geometrien in 2D gespeichert. X und Y bleiben unverändert. Damit Z und M erhalten bleiben, geben Sie allen Geometrien in der Quelle dieselben Dimensionen.",
+      "features_one": "{{count}} Objekt hat seine Z- oder M-Werte verloren",
+      "features_other": "{{count}} Objekte haben ihre Z- oder M-Werte verloren"
+    },
     "archiveFailed": {
       "title": "Archivierung der Originaldatei fehlgeschlagen",
       "description": "Der Datensatz wurde erfolgreich importiert, aber das Kopieren der Originalquelldatei in den dauerhaften Speicher ist fehlgeschlagen. Der Datensatz ist weiterhin abfragbar; laden Sie die Datei erneut hoch, wenn das Original wiederhergestellt werden soll."

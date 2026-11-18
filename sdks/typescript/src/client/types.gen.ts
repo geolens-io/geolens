@@ -7371,7 +7371,7 @@ export type JobStatusBatchEntry = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning>;
     /**
      * Can Retry
      */
@@ -7449,7 +7449,7 @@ export type JobStatusResponse = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning>;
     /**
      * Progress
      */
@@ -15877,6 +15877,32 @@ export type VrtStatusResponse = {
      * Source Health
      */
     source_health: Array<VrtSourceHealth>;
+};
+
+/**
+ * ZmDroppedDetail
+ *
+ * How many features were stored without the Z or M values they had.
+ *
+ * A source whose geometries mix dimensions is stored in 2D, so the features
+ * that had Z or M lose those values; X and Y are unchanged.
+ */
+export type ZmDroppedDetail = {
+    /**
+     * Features
+     */
+    features: number;
+};
+
+/**
+ * ZmDroppedWarning
+ */
+export type ZmDroppedWarning = {
+    /**
+     * Kind
+     */
+    kind: 'zm_dropped';
+    details: ZmDroppedDetail;
 };
 
 export type LandingPageGetData = {
