@@ -74,7 +74,10 @@ from app.modules.catalog.maps.service_shared import (
 )
 from app.modules.catalog.maps.dashboard import render_dashboard
 from app.modules.catalog.maps.style_json import project_terrain_config
-from app.modules.embed_tokens.service import resolve_embed_scope_for_map
+from app.modules.embed_tokens.service import (
+    list_embed_tokens,
+    resolve_embed_scope_for_map,
+)
 from app.modules.embed_tokens.sharing import (
     active_embed_count_subquery,
     get_active_allowed_origins,
@@ -244,6 +247,33 @@ async def find_maps_broken_by_dataset_visibility(
         stmt = stmt.where(audience_admits(before, owner_id)).where(reached)
     result = await session.execute(stmt)
     return [{"id": str(map_id), "name": name} for map_id, name in result.all()]
+
+
+async def find_embedded_maps_using_dataset(
+    session: AsyncSession, dataset_id: uuid.UUID, *, owner_id: uuid.UUID | None
+) -> list[dict[str, str]]:
+    """Ids and names of the owner's maps that show the dataset and hold an
+    active, unexpired embed token. Deleting the dataset strands them whatever
+    its visibility, since an embed token also serves private datasets."""
+    if owner_id is None:
+        return []
+    stmt = (
+        select(Map.id, Map.name)
+        .select_from(MapLayer)
+        .join(Map, MapLayer.map_id == Map.id)
+        .where(MapLayer.dataset_id == dataset_id)
+        .where(Map.created_by == owner_id)
+        .distinct()
+    )
+    now = datetime.now(timezone.utc)
+    return [
+        {"id": str(map_id), "name": name}
+        for map_id, name in (await session.execute(stmt)).all()
+        if any(
+            token.is_active and token.expires_at > now
+            for token in await list_embed_tokens(session, map_id)
+        )
+    ]
 
 
 async def create_share_token(

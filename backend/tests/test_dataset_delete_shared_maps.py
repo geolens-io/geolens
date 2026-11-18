@@ -15,6 +15,7 @@ import app.core.db as db_module
 import app.modules.catalog.features.service as features_service
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.embed_tokens.models import EmbedToken
 from app.processing.raster.models import VrtGeneration
 from tests.factories import create_dataset, create_user, get_user_id
 from tests.test_dataset_narrowing_shared_maps import _map_using
@@ -205,6 +206,145 @@ async def test_bulk_delete_refuses_the_stranding_item_and_deletes_the_rest(
     finally:
         for dataset in (blocked, free):
             await _cleanup_data_table(test_db_session, dataset.table_name)
+
+
+async def _embedded_private_map(client, session, owner_headers, owner_id):
+    """A private dataset on the owner's private map, framed through an embed token."""
+    dataset = await _vector_dataset(session, owner_id, visibility="private")
+    map_obj = await _map_using(session, dataset.id, owner_id, visibility="private")
+    embed = await client.post(
+        f"/maps/{map_obj.id}/embed-tokens/", json={}, headers=owner_headers
+    )
+    assert embed.status_code == 201, embed.text
+    return dataset, map_obj, embed.json()["id"]
+
+
+async def test_an_active_embed_token_on_the_owners_private_map_refuses_the_delete(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    dataset, map_obj, _ = await _embedded_private_map(
+        client, test_db_session, owner_headers, owner_id
+    )
+    try:
+        resp = await _delete(client, dataset, owner_headers)
+
+        assert resp.status_code == 422, resp.text
+        body = resp.json()
+        assert body["code"] == "dataset_in_shared_maps"
+        assert body["action"] == "delete"
+        assert body["shared_maps"] == [{"id": str(map_obj.id), "name": map_obj.name}]
+        assert await _still_there(test_db_session, dataset) == (True, 1, True)
+    finally:
+        await _cleanup_data_table(test_db_session, dataset.table_name)
+
+
+async def test_a_public_map_with_an_embed_token_is_named_once(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    dataset = await _vector_dataset(test_db_session, owner_id)
+    own_map = await _map_using(test_db_session, dataset.id, owner_id)
+    embed = await client.post(
+        f"/maps/{own_map.id}/embed-tokens/", json={}, headers=owner_headers
+    )
+    assert embed.status_code == 201, embed.text
+    try:
+        resp = await _delete(client, dataset, owner_headers)
+
+        assert resp.status_code == 422, resp.text
+        assert resp.json()["shared_maps"] == [
+            {"id": str(own_map.id), "name": own_map.name}
+        ]
+    finally:
+        await _cleanup_data_table(test_db_session, dataset.table_name)
+
+
+@pytest.mark.parametrize("ended", ["revoked", "expired"])
+async def test_an_ended_embed_token_does_not_block_the_delete(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, ended: str
+):
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    dataset, map_obj, token_id = await _embedded_private_map(
+        client, test_db_session, owner_headers, owner_id
+    )
+    if ended == "revoked":
+        revoke = await client.delete(
+            f"/maps/{map_obj.id}/embed-tokens/{token_id}/", headers=owner_headers
+        )
+        assert revoke.status_code == 200, revoke.text
+    else:
+        await test_db_session.execute(
+            sa.update(EmbedToken)
+            .where(EmbedToken.id == uuid.UUID(token_id))
+            .values(expires_at=sa.func.now() - sa.text("interval '1 minute'"))
+        )
+        await test_db_session.commit()
+    try:
+        resp = await _delete(client, dataset, owner_headers)
+
+        assert resp.status_code == 204, resp.text
+        assert await _still_there(test_db_session, dataset) == (False, 0, False)
+    finally:
+        await _cleanup_data_table(test_db_session, dataset.table_name)
+
+
+async def test_bulk_delete_refuses_the_embedded_item_and_deletes_the_rest(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    blocked, map_obj, _ = await _embedded_private_map(
+        client, test_db_session, owner_headers, owner_id
+    )
+    free = await _vector_dataset(test_db_session, owner_id, visibility="private")
+    try:
+        resp = await client.post(
+            "/datasets/bulk-delete/",
+            json={
+                "datasets": [
+                    {"dataset_id": str(d.id), "confirm_title": d.record.title}
+                    for d in (blocked, free)
+                ]
+            },
+            headers=owner_headers,
+        )
+
+        assert resp.status_code == 200, resp.text
+        body = resp.json()
+        assert (body["deleted"], body["errors"]) == (1, 1)
+        refused, deleted = body["results"]
+        assert refused["dataset_id"] == str(blocked.id)
+        assert refused["code"] == "dataset_in_shared_maps"
+        assert refused["shared_maps"] == [{"id": str(map_obj.id), "name": map_obj.name}]
+        assert deleted["status"] == "deleted"
+        assert await _still_there(test_db_session, blocked) == (True, 1, True)
+        assert await _still_there(test_db_session, free) == (False, 0, False)
+    finally:
+        for dataset in (blocked, free):
+            await _cleanup_data_table(test_db_session, dataset.table_name)
+
+
+async def test_narrowing_a_dataset_an_embed_token_serves_is_not_refused(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """The token keeps serving a private dataset, so only a delete strands it."""
+    owner_headers, owner_id = await create_user(client, admin_auth_header, "editor")
+    dataset = await _vector_dataset(test_db_session, owner_id)
+    map_obj = await _map_using(test_db_session, dataset.id, owner_id, "private")
+    embed = await client.post(
+        f"/maps/{map_obj.id}/embed-tokens/", json={}, headers=owner_headers
+    )
+    assert embed.status_code == 201, embed.text
+    try:
+        narrow = await client.patch(
+            f"/datasets/{dataset.id}",
+            json={"visibility": "private"},
+            headers=owner_headers,
+        )
+
+        assert narrow.status_code == 200, narrow.text
+    finally:
+        await _cleanup_data_table(test_db_session, dataset.table_name)
 
 
 async def test_a_vrt_dependency_answers_before_the_shared_maps(

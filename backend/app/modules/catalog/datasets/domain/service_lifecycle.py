@@ -130,10 +130,13 @@ async def _refuse_stranding_shared_maps(session: AsyncSession, dataset: Any) -> 
 
     A delete strands the maps that making the dataset private would: private
     keeps only the owner and admins, and the owner's own view of their map is
-    not the audience the map is shared with. Other users' maps aren't asked;
-    their layers go with the cascade. Call it with the dataset's rows locked.
+    not the audience the map is shared with. It also strands the owner's maps
+    with an active embed token, which serves a private dataset too. Other
+    users' maps aren't asked; their layers go with the cascade. Call it with
+    the dataset's rows locked.
     """
     from app.modules.catalog.maps.service import (
+        find_embedded_maps_using_dataset,
         find_maps_broken_by_dataset_visibility,
     )
 
@@ -149,6 +152,13 @@ async def _refuse_stranding_shared_maps(session: AsyncSession, dataset: Any) -> 
         record_id=record.id,
         owner_id=record.created_by,
     )
+    seen = {entry["id"] for entry in broken_maps}
+    for entry in await find_embedded_maps_using_dataset(
+        session, dataset.id, owner_id=record.created_by
+    ):
+        if entry["id"] not in seen:
+            seen.add(entry["id"])
+            broken_maps.append(entry)
     if broken_maps:
         raise DatasetInSharedMapsError(action="delete", shared_maps=broken_maps)
 
