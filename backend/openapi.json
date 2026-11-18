@@ -3392,6 +3392,24 @@
               }
             ],
             "title": "Code"
+          },
+          "shared_maps": {
+            "anyOf": [
+              {
+                "items": {
+                  "additionalProperties": {
+                    "type": "string"
+                  },
+                  "type": "object"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The owner's shared maps that refused this item, as `{\"id\", \"name\"}` pairs, on a `dataset_in_shared_maps` error. Null otherwise.",
+            "title": "Shared Maps"
           }
         },
         "required": [

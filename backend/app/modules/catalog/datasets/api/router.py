@@ -709,9 +709,9 @@ async def bulk_delete_datasets_endpoint(
                     )
                 )
                 continue
-            code = None
+            code = shared_maps = None
             if isinstance(exc, DatasetInSharedMapsError):
-                detail, code = str(exc), exc.code
+                detail, code, shared_maps = str(exc), exc.code, exc.shared_maps
             elif isinstance(exc, (DependentVrtError, DatasetTitleMismatchError)):
                 detail = str(exc)
             else:
@@ -726,6 +726,7 @@ async def bulk_delete_datasets_endpoint(
                     status="error",
                     detail=detail,
                     code=code,
+                    shared_maps=shared_maps,
                 )
             )
 

@@ -160,16 +160,37 @@ test.describe('Accessibility - WCAG 2AA', () => {
       });
     }
     // The public map goes first: its owner can't delete a dataset it shares.
-    if (builderMapId) {
-      await fetch(`${BASE_URL}/api/maps/${builderMapId}`, {
-        method: 'DELETE',
-        headers: {
-          Authorization: `Bearer ${getAuthToken()}`,
-        },
-      });
+    const mapGone = builderMapId ? await deleteBuilderMap(builderMapId) : true;
+    const datasetGone = datasetId ? await deleteDataset(datasetId, datasetTitle) : true;
+    if (!mapGone || !datasetGone) {
+      // Teardown is best-effort; say what was left behind instead of failing the run.
+      console.warn(
+        `[accessibility teardown] left behind: ${[
+          mapGone ? null : `map ${builderMapId}`,
+          datasetGone ? null : `dataset ${datasetId}`,
+        ]
+          .filter(Boolean)
+          .join(', ')}`,
+      );
     }
-    if (datasetId) await deleteDataset(datasetId, datasetTitle);
   });
+
+  /** Delete the builder map, retrying once; true when it is gone. */
+  async function deleteBuilderMap(mapId: string): Promise<boolean> {
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      try {
+        const response = await fetch(`${BASE_URL}/api/maps/${mapId}`, {
+          method: 'DELETE',
+          headers: { Authorization: `Bearer ${getAuthToken()}` },
+        });
+        if (response.ok || response.status === 404) return true;
+        if (response.status < 500 && response.status !== 429) return false;
+      } catch {
+        // The connection can drop after the server deleted the map; the retry's 404 says so.
+      }
+    }
+    return false;
+  }
 
   // Every gating axe scan below runs in both color schemes.
   // playwright.config.ts's `use` block sets no colorScheme, so Playwright

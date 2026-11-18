@@ -2046,6 +2046,14 @@ export type BulkDeleteResultItem = {
      * Code
      */
     code?: string | null;
+    /**
+     * Shared Maps
+     *
+     * The owner's shared maps that refused this item, as `{"id", "name"}` pairs, on a `dataset_in_shared_maps` error. Null otherwise.
+     */
+    shared_maps?: Array<{
+        [key: string]: string;
+    }> | null;
 };
 
 /**

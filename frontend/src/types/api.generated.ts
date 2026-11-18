@@ -8236,6 +8236,13 @@ export interface components {
             detail?: string | null;
             /** Code */
             code?: string | null;
+            /**
+             * Shared Maps
+             * @description The owner's shared maps that refused this item, as `{"id", "name"}` pairs, on a `dataset_in_shared_maps` error. Null otherwise.
+             */
+            shared_maps?: {
+                [key: string]: string;
+            }[] | null;
         };
         /** BulkRegisterItem */
         BulkRegisterItem: {

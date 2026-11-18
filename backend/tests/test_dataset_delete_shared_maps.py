@@ -197,6 +197,7 @@ async def test_bulk_delete_refuses_the_stranding_item_and_deletes_the_rest(
             "status": "error",
             "detail": f"Cannot delete: dataset is used in shared maps: {own_map.name}",
             "code": "dataset_in_shared_maps",
+            "shared_maps": [{"id": str(own_map.id), "name": own_map.name}],
         }
         assert deleted["status"] == "deleted"
         assert await _still_there(test_db_session, blocked) == (True, 1, True)
@@ -312,7 +313,11 @@ async def test_a_layer_added_before_the_delete_locks_is_seen_and_refuses(
         if bulk:
             resp = await _bulk_delete(client, dataset, owner_headers)
             assert resp.status_code == 200, resp.text
-            assert resp.json()["results"][0]["code"] == "dataset_in_shared_maps"
+            refused = resp.json()["results"][0]
+            assert refused["code"] == "dataset_in_shared_maps"
+            assert refused["shared_maps"] == [
+                {"id": str(own_map.id), "name": own_map.name}
+            ]
         else:
             resp = await _delete(client, dataset, owner_headers)
             assert resp.status_code == 422, resp.text
@@ -412,7 +417,11 @@ async def test_a_record_change_committed_before_the_lock_is_judged(
         if bulk:
             resp = await _bulk_delete(client, dataset, headers)
             assert resp.status_code == 200, resp.text
-            assert resp.json()["results"][0]["code"] == "dataset_in_shared_maps"
+            refused = resp.json()["results"][0]
+            assert refused["code"] == "dataset_in_shared_maps"
+            assert refused["shared_maps"] == [
+                {"id": str(own_map.id), "name": own_map.name}
+            ]
         else:
             resp = await _delete(client, dataset, headers)
             assert resp.status_code == 422, resp.text
