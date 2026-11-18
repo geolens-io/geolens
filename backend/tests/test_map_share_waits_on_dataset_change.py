@@ -21,9 +21,14 @@ import app.modules.catalog.maps.service_groups as service_groups
 from app.modules.catalog.datasets.domain import service as dataset_service
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map, MapLayer
+import app.modules.embed_tokens.router as embed_router
 from app.modules.embed_tokens.models import EmbedToken
 from tests.factories import create_dataset, create_user
-from tests.test_dataset_delete_shared_maps import _delete, _vector_dataset
+from tests.test_dataset_delete_shared_maps import (
+    _delete,
+    _still_there,
+    _vector_dataset,
+)
 from tests.test_dataset_group_grants import _new_group
 from tests.test_dataset_narrowing_shared_maps import _map_using
 from tests.test_embed_tokens import _cleanup_data_table
@@ -445,3 +450,39 @@ async def test_a_transfer_waits_for_a_change_to_its_terrain_source(
 
     assert resp.status_code == 422, resp.text
     assert str(dem.id) in resp.text
+
+
+async def test_a_delete_behind_an_embed_token_mint_sees_the_token(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+):
+    """A delete that waited on a mint holding the map's datasets is refused
+    by the token the mint committed."""
+    owner, owner_id = await create_user(client, admin_auth_header, "editor")
+    dataset = await _vector_dataset(test_db_session, owner_id)
+    map_obj = await _map_using(test_db_session, dataset.id, owner_id, "private")
+    table, expected = dataset.table_name, {"id": str(map_obj.id), "name": map_obj.name}
+    real = embed_router.create_embed_token
+    started: list[asyncio.Task] = []
+
+    async def minting(session, *args, **kwargs):
+        started.append(asyncio.create_task(_delete(client, dataset, owner)))
+        await _blocked_or_done(session, started[0])
+        return await real(session, *args, **kwargs)
+
+    monkeypatch.setattr(embed_router, "create_embed_token", minting)
+    try:
+        minted = await client.post(
+            f"/maps/{map_obj.id}/embed-tokens/", json={}, headers=owner
+        )
+        assert minted.status_code == 201, minted.text
+        refused = await started[0]
+
+        assert refused.status_code == 422, refused.text
+        assert refused.json()["code"] == "dataset_in_shared_maps"
+        assert refused.json()["shared_maps"] == [expected]
+        assert await _still_there(test_db_session, dataset) == (True, 1, True)
+    finally:
+        await _cleanup_data_table(test_db_session, table)
