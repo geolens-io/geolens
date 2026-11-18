@@ -10,6 +10,7 @@ import pytest
 import structlog
 from httpx import AsyncClient
 from sqlalchemy import select
+from sqlalchemy import text as sql
 
 from app.core.config import settings
 from app.core.config_database_sources import DatabaseConnection
@@ -357,6 +358,8 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
         return _Proc()
 
     monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
+    narrow = AsyncMock()
+    monkeypatch.setattr(database_import, "_store_single_points_as_point", narrow)
 
     await database_import.copy_database_table(
         "gis",
@@ -367,6 +370,7 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
         srid=2263,
     )
 
+    narrow.assert_awaited_once_with("data", "parcels_copy")
     [(argv, kwargs)] = spawned
     assert argv[:3] == ("ogr2ogr", "-if", "MSSQLSpatial")
     assert argv[-1] == "dbo.parcels"
@@ -381,6 +385,119 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
     assert env["MSSQLSPATIAL_PWD"] == PASSWORD
     assert env["CPL_DEBUG"] == "OFF"
     assert "MSSQLSpatial" not in env["GDAL_SKIP"].split()
+
+
+async def _staged_copy(session, values: list[str | None]) -> str:
+    """A copy's table as ogr2ogr leaves it: an untyped ``_geolens_geom``."""
+    table = f"dbcopy_{uuid.uuid4().hex[:10]}"
+    await session.execute(
+        sql(
+            f'CREATE TABLE data."{table}" '
+            "(gid serial PRIMARY KEY, _geolens_geom geometry)"
+        )
+    )
+    for value in values:
+        await session.execute(
+            sql(
+                f'INSERT INTO data."{table}" (_geolens_geom) '
+                "VALUES (ST_GeomFromEWKT(:v))"
+            ),
+            {"v": value},
+        )
+    await session.commit()
+    return table
+
+
+async def _geometries(session, table: str, *, first_part: bool = False):
+    value = "ST_GeometryN(_geolens_geom, 1)" if first_part else "_geolens_geom"
+    rows = await session.execute(
+        sql(f'SELECT ST_AsEWKB({value}) FROM data."{table}" ORDER BY gid')
+    )
+    values = [row[0] for row in rows]
+    # Release the read lock, or the narrowing's ALTER TABLE waits on it.
+    await session.commit()
+    return values
+
+
+async def _column(session, table: str) -> tuple[str, int, int]:
+    row = (
+        await session.execute(
+            sql(
+                "SELECT type, coord_dimension, srid FROM geometry_columns "
+                "WHERE f_table_schema = 'data' AND f_table_name = :t"
+            ),
+            {"t": table},
+        )
+    ).one()
+    return row.type, row.coord_dimension, row.srid
+
+
+@pytest.mark.parametrize(
+    ("values", "column"),
+    [
+        (
+            ["SRID=2263;MULTIPOINT(1.5 2.25)", None, "SRID=2263;MULTIPOINT(3 4)"],
+            ("POINT", 2, 2263),
+        ),
+        (
+            ["SRID=4326;MULTIPOINT Z (1 2 3.25)", "SRID=4326;MULTIPOINT Z (3 4 -5.5)"],
+            ("POINT", 3, 4326),
+        ),
+        (["SRID=4326;MULTIPOINT M (1 2 7)"], ("POINTM", 3, 4326)),
+        (["SRID=4326;MULTIPOINT ZM (1 2 3 7)"], ("POINT", 4, 4326)),
+    ],
+    ids=["xy-with-null", "z", "m", "zm"],
+)
+async def test_a_copy_of_single_points_is_stored_as_point_with_every_value_kept(
+    test_db_session, values, column
+):
+    table = await _staged_copy(test_db_session, values)
+    try:
+        expected = await _geometries(test_db_session, table, first_part=True)
+
+        await database_import._store_single_points_as_point("data", table)
+
+        assert await _column(test_db_session, table) == column
+        assert await _geometries(test_db_session, table) == expected
+        assert expected.count(None) == values.count(None)
+    finally:
+        await test_db_session.execute(sql(f'DROP TABLE data."{table}"'))
+        await test_db_session.commit()
+
+
+@pytest.mark.parametrize(
+    "values",
+    [
+        ["SRID=4326;MULTIPOINT(1 2)", "SRID=4326;MULTIPOINT((1 2),(3 4))"],
+        ["SRID=4326;MULTIPOINT(1 2)", "SRID=4326;MULTIPOINT Z (1 2 3)"],
+        ["SRID=4326;MULTIPOINT Z (1 2 3)", "SRID=4326;MULTIPOINT M (1 2 3)"],
+        ["SRID=4326;MULTIPOINT(1 2)", "SRID=4326;MULTILINESTRING((0 0,1 1))"],
+        ["SRID=4326;MULTIPOINT EMPTY"],
+        [None, None],
+        [],
+    ],
+    ids=[
+        "two-part",
+        "mixed-dimensions",
+        "z-and-m",
+        "not-points",
+        "empty-multipoint",
+        "all-null",
+        "no-rows",
+    ],
+)
+async def test_any_other_copy_is_left_as_copied(test_db_session, values):
+    table = await _staged_copy(test_db_session, values)
+    try:
+        before = await _geometries(test_db_session, table)
+
+        await database_import._store_single_points_as_point("data", table)
+
+        assert await _column(test_db_session, table) == ("GEOMETRY", 2, 0)
+        assert await _geometries(test_db_session, table) == before
+    finally:
+        await test_db_session.execute(sql(f'DROP TABLE data."{table}"'))
+        await test_db_session.commit()
 
 
 @pytest.mark.parametrize(
