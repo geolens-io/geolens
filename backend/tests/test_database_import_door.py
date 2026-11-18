@@ -377,6 +377,7 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
     )
     narrow = AsyncMock()
     monkeypatch.setattr(database_import, "_store_single_points_as_point", narrow)
+    monkeypatch.setattr(database_import, "_grant_reader", AsyncMock())
 
     await database_import.copy_database_table(
         "gis",
@@ -437,6 +438,7 @@ async def test_copy_keeps_z_only_when_both_counts_agree(
     flatten = AsyncMock()
     monkeypatch.setattr(database_import, "_store_2d", flatten)
     monkeypatch.setattr(database_import, "_store_single_points_as_point", AsyncMock())
+    monkeypatch.setattr(database_import, "_grant_reader", AsyncMock())
 
     lost = await database_import.copy_database_table(
         "gis",
@@ -481,6 +483,7 @@ async def test_the_dimension_counts_get_the_copys_budget_and_metadata_the_short_
         AsyncMock(return_value=_Proc()),
     )
     monkeypatch.setattr(database_import, "_store_single_points_as_point", AsyncMock())
+    monkeypatch.setattr(database_import, "_grant_reader", AsyncMock())
 
     await database_sources.probe_table_geometry("gis", "dbo", "parcels")
     metadata_reads = reads.await_count
@@ -762,3 +765,36 @@ async def test_a_multi_word_postgis_password_never_reaches_the_log_or_the_job(
     assert any(log["event"] == "database import failed" for log in logs)
     for text in (repr(logs), str(raised.value), job.error_message or ""):
         assert tail not in text
+
+
+async def test_the_mercator_probe_leaves_the_copy_as_it_found_it(test_db_session):
+    """Staging renames a reserved source column and reports it, so the probe
+    must not rename it first."""
+    table = await _staged_copy(
+        test_db_session, ["SRID=4326;LINESTRING M (0 84 10, 0 86 20)"]
+    )
+    try:
+        await test_db_session.execute(
+            sql(
+                f'ALTER TABLE data."{table}" ADD COLUMN fid integer, '
+                "ALTER COLUMN _geolens_geom TYPE geometry(LineStringM, 4326)"
+            )
+        )
+        await test_db_session.commit()
+
+        assert await database_import._mercator_refuses_m("data", table)
+
+        columns = await test_db_session.scalars(
+            sql(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'data' AND table_name = :t "
+                "ORDER BY ordinal_position"
+            ),
+            {"t": table},
+        )
+        assert list(columns) == ["gid", "_geolens_geom", "fid"]
+        await test_db_session.commit()
+    finally:
+        await test_db_session.rollback()
+        await test_db_session.execute(sql(f'DROP TABLE data."{table}"'))
+        await test_db_session.commit()

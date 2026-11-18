@@ -271,7 +271,9 @@ async def _mercator_refuses_m(target_schema: str, target_table: str) -> bool:
 
     async with async_session() as session:
         try:
-            await rename_reserved_columns(session, target_table, schema=target_schema)
+            await rename_reserved_columns(
+                session, target_table, schema=target_schema, commit=False
+            )
             await ensure_geom_column(session, target_table, schema=target_schema)
             await clip_to_mercator_bounds(session, target_table, schema=target_schema)
         except MeasuredLayerCrossesMercator:
