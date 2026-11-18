@@ -421,17 +421,22 @@ async def probe_table_geometry(
 
 @dataclass(frozen=True)
 class TableDimensions:
-    """How many of a spatial column's non-null values carry Z, M, or either."""
+    """How many of a spatial column's non-null values carry Z, M, or either.
+
+    ``lossy_curves`` counts curves whose Z or M GDAL drops when it linearizes
+    them: M on a circular or compound curve, Z or M on a curve polygon.
+    """
 
     geometries: int
     with_z: int
     with_m: int
     with_z_or_m: int
+    lossy_curves: int
 
     def shared_dimension(self) -> Literal["XYZ", "XYM", "XYZM"] | None:
-        """The ``-dim`` every value has, or ``None`` for 2D, mixed or no values."""
+        """The ``-dim`` the copy keeps on every value, else ``None`` for 2D."""
         total = self.geometries
-        if total == 0:
+        if total == 0 or self.lossy_curves:
             return None
         if self.with_z == total and self.with_m == total:
             return "XYZM"
@@ -442,16 +447,28 @@ class TableDimensions:
         return None
 
 
+_COUNTS = ("geometries", "with_z", "with_m", "with_z_or_m", "lossy_curves")
+
+
 def _table_dimensions_sql(schema_name: str, table_name: str, column: str) -> str:
-    # HasZ and HasM, unlike the type accessors, also answer on invalid values.
+    # HasZ, HasM and STAsText answer on an invalid value; STGeometryType raises.
     col = quote_identifier(column)
     table = f"{quote_identifier(schema_name)}.{quote_identifier(table_name)}"
+    kind = (
+        f"CASE WHEN {col}.HasZ = 1 OR {col}.HasM = 1 THEN "
+        f"CASE WHEN {col}.STIsValid() = 1 THEN UPPER({col}.STGeometryType()) "
+        f"ELSE {col}.STAsText() END END"
+    )
     return (
-        f"SELECT COUNT_BIG(CASE WHEN {col} IS NOT NULL THEN 1 END) AS geometries, "
-        f"COUNT_BIG(CASE WHEN {col}.HasZ = 1 THEN 1 END) AS with_z, "
-        f"COUNT_BIG(CASE WHEN {col}.HasM = 1 THEN 1 END) AS with_m, "
-        f"COUNT_BIG(CASE WHEN {col}.HasZ = 1 OR {col}.HasM = 1 THEN 1 END) "
-        f"AS with_z_or_m FROM {table}"
+        "SELECT COUNT_BIG(CASE WHEN g IS NOT NULL THEN 1 END) AS geometries, "
+        "COUNT_BIG(CASE WHEN z = 1 THEN 1 END) AS with_z, "
+        "COUNT_BIG(CASE WHEN m = 1 THEN 1 END) AS with_m, "
+        "COUNT_BIG(CASE WHEN z = 1 OR m = 1 THEN 1 END) AS with_z_or_m, "
+        "COUNT_BIG(CASE WHEN kind LIKE 'CURVEPOLYGON%' OR (m = 1 AND "
+        "(kind LIKE 'CIRCULARSTRING%' OR kind LIKE 'COMPOUNDCURVE%')) "
+        "THEN 1 END) AS lossy_curves "
+        f"FROM (SELECT {col} AS g, {col}.HasZ AS z, {col}.HasM AS m, "
+        f"{kind} AS kind FROM {table}) AS s"
     )
 
 
@@ -463,9 +480,7 @@ async def probe_table_dimensions(
         name, _table_dimensions_sql(schema_name, table_name, column)
     )
     row = rows[0] if rows else {}
-    counts = {
-        key: row.get(key) for key in ("geometries", "with_z", "with_m", "with_z_or_m")
-    }
+    counts = {key: row.get(key) for key in _COUNTS}
     if not all(isinstance(value, int) for value in counts.values()):
         raise DatabaseTableError(name)
     return TableDimensions(**counts)

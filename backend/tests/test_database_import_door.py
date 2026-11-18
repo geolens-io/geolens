@@ -336,9 +336,16 @@ async def test_retry_of_a_failed_import_routes_to_the_database_task(
     assert deferred.await_args.kwargs["job_id"] == str(job.id)
 
 
-_FLAT = TableDimensions(geometries=3, with_z=0, with_m=0, with_z_or_m=0)
-_ALL_Z = TableDimensions(geometries=3, with_z=3, with_m=0, with_z_or_m=3)
-_ONE_Z = TableDimensions(geometries=3, with_z=1, with_m=0, with_z_or_m=1)
+_FLAT = TableDimensions(geometries=3, with_z=0, with_m=0, with_z_or_m=0, lossy_curves=0)
+_ALL_Z = TableDimensions(
+    geometries=3, with_z=3, with_m=0, with_z_or_m=3, lossy_curves=0
+)
+_ONE_Z = TableDimensions(
+    geometries=3, with_z=1, with_m=0, with_z_or_m=1, lossy_curves=0
+)
+_Z_ARCS = TableDimensions(
+    geometries=3, with_z=3, with_m=3, with_z_or_m=3, lossy_curves=1
+)
 
 
 class _Proc:
@@ -402,11 +409,13 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
     ("before", "after", "dim", "flattened", "dropped"),
     [
         (_ALL_Z, _ALL_Z, "XYZ", False, 0),
-        (_ALL_Z, _ONE_Z, "XYZ", True, 1),
+        (_ALL_Z, _ONE_Z, "XYZ", True, 3),
         (_ONE_Z, _ALL_Z, None, False, 3),
         (_FLAT, _FLAT, None, False, 0),
+        (_ALL_Z, _FLAT, "XYZ", True, 3),
+        (_Z_ARCS, _Z_ARCS, None, False, 3),
     ],
-    ids=["kept", "mixed-after", "mixed-before", "flat"],
+    ids=["kept", "mixed-after", "mixed-before", "flat", "cleared-after", "arcs-with-m"],
 )
 async def test_copy_keeps_z_only_when_both_counts_agree(
     monkeypatch, before, after, dim, flattened, dropped

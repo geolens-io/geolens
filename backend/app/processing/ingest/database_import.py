@@ -80,9 +80,10 @@ async def copy_database_table(
 
     GDAL writes every value in the dimensions the copy is told, filling a
     missing Z or M with 0, so the values of ``column`` are counted before and
-    after it. Z and M are kept only when every value had them both times;
-    otherwise the copy is stored 2D. Returns how many values the latest count
-    found with a Z or M that the copy no longer holds.
+    after it. Z and M are kept only when every value had them both times and
+    GDAL carries them through; otherwise the copy is stored 2D. Returns how
+    many values lost a Z or M: the larger of the two counts, since the copy
+    read the table between them.
 
     Raises ``DatabaseImportError`` with a message safe to show.
     """
@@ -96,9 +97,8 @@ async def copy_database_table(
         connection = get_database_connection(connection_name)
     except DatabaseSourceError as exc:
         raise DatabaseImportError(str(exc)) from None
-    dim = (
-        await _dimensions(connection_name, schema_name, table_name, column)
-    ).shared_dimension()
+    before = await _dimensions(connection_name, schema_name, table_name, column)
+    dim = before.shared_dimension()
 
     with freetds_workdir(connection) as workdir:
         env = gdal_database_safe_env(
@@ -181,7 +181,7 @@ async def copy_database_table(
     if dim is not None and not kept:
         await _store_2d(target_schema, target_table, srid)
     await _store_single_points_as_point(target_schema, target_table)
-    return 0 if kept else after.with_z_or_m
+    return 0 if kept else max(before.with_z_or_m, after.with_z_or_m)
 
 
 async def _dimensions(
