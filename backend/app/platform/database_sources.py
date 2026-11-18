@@ -394,8 +394,11 @@ def _table_values_sql(schema_name: str, table_name: str, column: str) -> str:
     # The kind adds 1 for Z and 2 for M.
     col = quote_identifier(column)
     table = f"{quote_identifier(schema_name)}.{quote_identifier(table_name)}"
+    # STGeometryType raises on an invalid instance, so validity is tested
+    # first; an invalid value is never a point.
     kind = (
-        f"CASE WHEN {col}.STGeometryType() = 'Point' "
+        f"CASE WHEN {col}.STIsValid() = 0 THEN -1 "
+        f"WHEN {col}.STGeometryType() = 'Point' "
         f"THEN CAST({col}.HasZ AS int) + 2 * CAST({col}.HasM AS int) ELSE -1 END"
     )
     return (

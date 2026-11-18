@@ -408,8 +408,58 @@ async def test_copy_stores_a_point_table_as_its_point_type(
         point_type=point_type,
     )
     [argv] = spawned
-    types = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-nlt"]
-    assert types == ["CONVERT_TO_LINEAR", nlt]
+    assert _layer_types(argv) == ["CONVERT_TO_LINEAR", nlt]
+
+
+def _layer_types(argv) -> list[str]:
+    return [argv[i + 1] for i, arg in enumerate(argv) if arg == "-nlt"]
+
+
+@pytest.mark.parametrize(
+    ("point_type", "returncodes", "types", "fails"),
+    [
+        ("POINT", [1, 0], ["POINT", "PROMOTE_TO_MULTI"], False),
+        ("POINT", [1, 1], ["POINT", "PROMOTE_TO_MULTI"], True),
+        ("POINT", [0], ["POINT"], False),
+        (None, [1], ["PROMOTE_TO_MULTI"], True),
+    ],
+    ids=["retried", "retry-fails", "no-failure", "multi-not-retried"],
+)
+async def test_a_failed_point_copy_is_retried_once_as_multi(
+    monkeypatch, point_type, returncodes, types, fails
+):
+    monkeypatch.setattr(settings, "database_sources", {"gis": _connection()})
+    spawned: list[tuple] = []
+    outcomes = iter(returncodes)
+
+    async def _spawn(*argv, **kwargs):
+        spawned.append(argv)
+        code = next(outcomes)
+        stderr = b"ERROR 1: COPY statement failed." if code else b""
+        return _Proc(stderr=stderr, returncode=code)
+
+    monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
+    copy = database_import.copy_database_table(
+        "gis",
+        schema_name="dbo",
+        table_name="wells",
+        target_schema="data",
+        target_table="wells_copy",
+        srid=4326,
+        point_type=point_type,
+    )
+    if fails:
+        with pytest.raises(database_import.DatabaseImportError) as raised:
+            await copy
+        assert str(raised.value) == (
+            "Copying the table from the database connection 'gis' failed."
+        )
+    else:
+        await copy
+    assert [_layer_types(argv)[1] for argv in spawned] == types
+    # Every try writes the same staging table and replaces it.
+    assert {argv[argv.index("-nln") + 1] for argv in spawned} == {"data.wells_copy"}
+    assert all("-overwrite" in argv for argv in spawned)
 
 
 @pytest.mark.parametrize(
@@ -516,10 +566,9 @@ async def test_an_import_copies_a_point_table_as_point(
     with pytest.raises(database_import.DatabaseImportError):
         await tasks_database.ingest_database.func(**deferred.await_args.kwargs)
 
-    [argv] = spawned
-    assert [argv[i + 1] for i, arg in enumerate(argv) if arg == "-nlt"] == [
-        "CONVERT_TO_LINEAR",
-        "POINT",
+    assert [_layer_types(argv) for argv in spawned] == [
+        ["CONVERT_TO_LINEAR", "POINT"],
+        ["CONVERT_TO_LINEAR", "PROMOTE_TO_MULTI"],
     ]
 
 

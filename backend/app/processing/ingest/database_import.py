@@ -72,7 +72,7 @@ async def copy_database_table(
     ``geometry_columns`` doesn't list. The table's primary key stays an
     ordinary column, and ``gid`` is numbered by PostGIS. A table holding only
     points is stored as ``point_type`` so clients can cluster it; every other
-    table is stored in its multi form.
+    table, and a point copy that fails, is copied in its multi form.
 
     Raises ``DatabaseImportError`` with a message safe to show.
     """
@@ -133,15 +133,26 @@ async def copy_database_table(
             f"EPSG:{int(srid)}",
             f"{schema_name}.{table_name}",
         ]
-        proc = await asyncio.create_subprocess_exec(
-            *cmd,
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-            env=_tenant_writer_subprocess_env(target_schema, base_env=env),
-        )
-        _, stderr = await _communicate_with_timeout(
-            proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
-        )
+        nlt = cmd.index("CONVERT_TO_LINEAR") + 2
+        while True:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=_tenant_writer_subprocess_env(target_schema, base_env=env),
+            )
+            _, stderr = await _communicate_with_timeout(
+                proc, OGR2OGR_FILE_TIMEOUT_SECONDS, tool_name="ogr2ogr"
+            )
+            if proc.returncode == 0 or cmd[nlt] == "PROMOTE_TO_MULTI":
+                break
+            # A multipoint written after the probe; -overwrite replaces
+            # whatever the first try created.
+            logger.info(
+                "point table copy failed; retrying as multi",
+                connection=connection_name,
+            )
+            cmd[nlt] = "PROMOTE_TO_MULTI"
 
     if proc.returncode != 0:
         # GDAL masks only the first word of a quoted PostGIS password when it

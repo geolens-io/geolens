@@ -9,6 +9,7 @@ SQL Server job sets them; everywhere else this module is skipped.
 from __future__ import annotations
 
 import asyncio
+import dataclasses
 import os
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -26,6 +27,7 @@ from app.platform.gdal_env import gdal_database_safe_env
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest import service as ingest_service
+from app.processing.ingest import tasks_database
 from app.processing.ingest.database_import import DatabaseImportError
 from app.processing.ingest.tasks_database import ingest_database, refresh_database
 
@@ -565,3 +567,92 @@ async def test_a_table_of_3d_points_keeps_its_z(
         assert sorted(z for (z,) in zs) == [10.0, 20.0]
     finally:
         await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+@pytest.mark.parametrize("column_type", ["geometry", "geography"])
+async def test_a_table_with_an_invalid_value_imports_and_refreshes(
+    client: AsyncClient, editor_auth_header, configured, test_db_session, column_type
+):
+    name = f"iv_{uuid.uuid4().hex[:10]}"
+    bowtie = "POLYGON ((0 0, 1 1, 1 0, 0 1, 0 0))"
+    await _admin(f"CREATE TABLE dbo.{name} (id int PRIMARY KEY, g {column_type})")
+    try:
+        await _admin(
+            f"INSERT INTO dbo.{name} VALUES "
+            f"(1, {column_type}::STGeomFromText('{bowtie}', 4326)),"
+            f"(2, {column_type}::STGeomFromText('POINT (1 1)', 4326))"
+        )
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        dataset = await _dataset(test_db_session, job.dataset_id)
+        assert dataset.feature_count == 2
+
+        await _admin(
+            f"INSERT INTO dbo.{name} VALUES "
+            f"(3, {column_type}::STGeomFromText('POINT (2 2)', 4326))"
+        )
+        run = await _refresh(client, editor_auth_header, test_db_session, dataset.id)
+        assert run.status == "succeeded", run.error_message
+        assert (await _dataset(test_db_session, dataset.id)).feature_count == 3
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+def _probe_says_point(monkeypatch) -> None:
+    """Answer the probe as if every value were a point when it ran."""
+    probe = tasks_database.probe_table_geometry
+
+    async def _point(*args):
+        return dataclasses.replace(await probe(*args), point_type="POINT")
+
+    monkeypatch.setattr(tasks_database, "probe_table_geometry", _point)
+
+
+async def test_a_multipoint_written_after_the_probe_imports_as_multi(
+    client: AsyncClient,
+    editor_auth_header,
+    configured,
+    test_db_session,
+    monkeypatch,
+):
+    _probe_says_point(monkeypatch)
+    name = f"r_{uuid.uuid4().hex[:10]}"
+    await _admin(f"CREATE TABLE dbo.{name} (id int PRIMARY KEY, geom geometry)")
+    try:
+        await _admin(
+            f"INSERT INTO dbo.{name} VALUES "
+            "(1, geometry::STGeomFromText('POINT (1 1)', 4326)),"
+            "(2, geometry::STGeomFromText('MULTIPOINT ((2 2), (3 3))', 4326))"
+        )
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        dataset = await _dataset(test_db_session, job.dataset_id)
+        assert (dataset.geometry_type, dataset.feature_count) == ("MULTIPOINT", 2)
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+async def test_a_multipoint_written_after_the_refresh_probe_refreshes_as_multi(
+    client: AsyncClient,
+    editor_auth_header,
+    configured,
+    table,
+    test_db_session,
+    monkeypatch,
+):
+    kwargs = await _import(client, editor_auth_header, table)
+    dataset_id = (await _job(test_db_session, kwargs["job_id"])).dataset_id
+    assert (await _dataset(test_db_session, dataset_id)).geometry_type == "POINT"
+    await _admin(
+        f"INSERT INTO dbo.{table} VALUES (14, N'd', 4, geometry::STGeomFromText("
+        "'MULTIPOINT ((990100 201100), (990200 201200))', 2263))"
+    )
+    _probe_says_point(monkeypatch)
+
+    run = await _refresh(client, editor_auth_header, test_db_session, dataset_id)
+
+    assert run.status == "succeeded", run.error_message
+    dataset = await _dataset(test_db_session, dataset_id)
+    assert (dataset.geometry_type, dataset.feature_count) == ("MULTIPOINT", 4)
