@@ -15,7 +15,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Literal
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
@@ -93,21 +93,34 @@ async def map_group_layer_gaps(
     return await layer_gaps(session, map_obj.id, groups, actor, is_admin)
 
 
-async def lock_layer_datasets(session: AsyncSession, map_id: uuid.UUID) -> None:
-    """Wait out any change to the datasets the map's layers show, then hold
-    them while the caller widens the map's audience. Call holding the map row.
+async def lock_layer_datasets(
+    session: AsyncSession, map_id: uuid.UUID, *, with_terrain: bool = False
+) -> None:
+    """Wait out any change to the datasets the map's layers show, and with
+    ``with_terrain`` its stored terrain source, then hold them while the
+    caller widens the map's audience. Call holding the map row.
 
     A dataset change asks about its owner's shared maps holding its rows
     ``FOR UPDATE``, so this ``FOR KEY SHARE`` waits for that change to commit
     and the caller's checks read the dataset as it left it. A lost wait
     answers 409.
     """
+    wanted = Dataset.id.in_(
+        select(MapLayer.dataset_id).where(MapLayer.map_id == map_id)
+    )
+    if with_terrain:
+        terrain = await session.scalar(
+            select(Map.terrain_config).where(Map.id == map_id)
+        )
+        source = terrain.get("source_dataset_id") if isinstance(terrain, dict) else None
+        try:
+            wanted = or_(wanted, Dataset.id == uuid.UUID(str(source)))
+        except ValueError:
+            pass
     await bounded_row_lock(
         session,
         select(Dataset.id)
-        .where(
-            Dataset.id.in_(select(MapLayer.dataset_id).where(MapLayer.map_id == map_id))
-        )
+        .where(wanted)
         .order_by(Dataset.id)
         .with_for_update(read=True, key_share=True),
         message=_DATASET_BUSY,

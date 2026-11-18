@@ -18,6 +18,7 @@ from httpx import AsyncClient
 
 import app.core.db as db_module
 import app.modules.catalog.maps.service_groups as service_groups
+from app.modules.catalog.datasets.domain import service as dataset_service
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.embed_tokens.models import EmbedToken
@@ -353,3 +354,94 @@ async def test_an_embed_token_mint_waits_for_a_delete_and_leaves_its_dataset_out
 
     assert minted.status_code == 201, minted.text
     assert minted.json()["scoped_dataset_ids"] == [str(kept_id)]
+
+
+@pytest.mark.parametrize(
+    ("path", "target"), [("status", "internal"), ("target-status", "draft")]
+)
+async def test_an_unpublish_behind_a_dataset_share_judges_the_shared_dataset(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    path: str,
+    target: str,
+):
+    """An unpublish loaded before a map share made its private dataset
+    restricted judges the restricted dataset once it holds the rows."""
+    owner, owner_id = await create_user(client, admin_auth_header, "editor")
+    _, member_id = await create_user(client, admin_auth_header, "editor")
+    group = await _new_group(client, admin_auth_header, [owner_id, member_id])
+    dataset = await create_dataset(
+        test_db_session, created_by=uuid.UUID(str(owner_id)), visibility="private"
+    )
+    map_obj = await _map_using(test_db_session, dataset.id, owner_id, "private")
+    dataset_id, expected = dataset.id, {"id": str(map_obj.id), "name": map_obj.name}
+    real = dataset_service.set_dataset_groups
+    started: list[asyncio.Task] = []
+
+    async def unpublish():
+        return await client.patch(
+            f"/datasets/{dataset_id}/{path}/", json={"status": target}, headers=owner
+        )
+
+    async def sharing(session, dataset, *args, **kwargs):
+        result = await real(session, dataset, *args, **kwargs)
+        started.append(asyncio.create_task(unpublish()))
+        await _blocked_or_done(session, started[0])
+        return result
+
+    monkeypatch.setattr(dataset_service, "set_dataset_groups", sharing)
+    shared = await client.put(
+        f"/maps/{map_obj.id}/groups/",
+        json={"group_ids": [group], "confirm": "share_datasets"},
+        headers=owner,
+    )
+    assert shared.status_code == 200, shared.text
+    assert shared.json()["shared_dataset_ids"] == [str(dataset_id)]
+    refused = await started[0]
+
+    assert refused.status_code == 422, refused.text
+    assert refused.json()["shared_maps"] == [expected]
+
+
+async def test_a_transfer_waits_for_a_change_to_its_terrain_source(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+):
+    """A DEM bound only as terrain is read by the transfer's check, so the
+    transfer waits for it too."""
+    _, owner_id = await create_user(client, admin_auth_header, "editor")
+    _, heir_id = await create_user(client, admin_auth_header, "editor")
+    dem = await create_dataset(
+        test_db_session,
+        created_by=uuid.UUID(str(owner_id)),
+        visibility="internal",
+        record_type="raster_dataset",
+    )
+    map_obj = Map(
+        name=f"Map {uuid.uuid4().hex[:6]}",
+        visibility="private",
+        created_by=uuid.UUID(str(owner_id)),
+        terrain_config={"source_dataset_id": str(dem.id)},
+    )
+    test_db_session.add(map_obj)
+    await test_db_session.commit()
+    map_id = map_obj.id
+
+    async with db_module.async_session() as holder:
+        await _hold_dataset_change(holder, dem, "narrowed")
+        transfer = asyncio.create_task(
+            client.patch(
+                f"/maps/{map_id}",
+                json={"owner_id": str(heir_id)},
+                headers=admin_auth_header,
+            )
+        )
+        await _blocked_or_done(holder, transfer)
+
+        assert not transfer.done(), "the transfer did not wait for the DEM"
+        await holder.commit()
+        resp = await transfer
+
+    assert resp.status_code == 422, resp.text
+    assert str(dem.id) in resp.text

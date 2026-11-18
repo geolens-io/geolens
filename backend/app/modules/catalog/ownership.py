@@ -244,7 +244,7 @@ async def transfer_map_owner(
     previous = await _locked_owner(db, map_obj)
     if previous == owner_id:
         return
-    await lock_layer_datasets(db, map_obj.id)
+    await lock_layer_datasets(db, map_obj.id, with_terrain=True)
     new_owner = await _vet_new_owner(db, owner_id, EDIT_METADATA)
     await _refuse_hidden_datasets(db, map_obj.id, new_owner)
     map_obj.created_by = new_owner.id
