@@ -309,7 +309,7 @@ async def test_a_map_made_internal_after_a_narrowing_keeps_the_hidden_layer(
     assert read.json()["layers"] == []
 
 
-@pytest.mark.parametrize("prior", [None, "expired"])
+@pytest.mark.parametrize("prior", [None, "expired", "revoked"])
 async def test_an_embed_token_mint_waits_for_a_delete_and_leaves_its_dataset_out(
     client: AsyncClient,
     admin_auth_header: dict,
@@ -334,7 +334,11 @@ async def test_an_embed_token_mint_waits_for_a_delete_and_leaves_its_dataset_out
         await test_db_session.execute(
             sa.update(EmbedToken)
             .where(EmbedToken.map_id == map_id)
-            .values(expires_at=sa.func.now() - sa.text("interval '1 day'"))
+            .values(
+                {"is_active": False}
+                if prior == "revoked"
+                else {"expires_at": sa.func.now() - sa.text("interval '1 day'")}
+            )
         )
         await test_db_session.commit()
 
