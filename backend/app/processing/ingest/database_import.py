@@ -64,12 +64,15 @@ async def copy_database_table(
     target_schema: str,
     target_table: str,
     srid: int,
+    point_type: str | None = None,
 ) -> None:
     """Load ``schema_name.table_name`` into ``target_schema.target_table``.
 
     ``srid`` is stamped on every geometry: GDAL reports none for a table that
     ``geometry_columns`` doesn't list. The table's primary key stays an
-    ordinary column, and ``gid`` is numbered by PostGIS.
+    ordinary column, and ``gid`` is numbered by PostGIS. A table holding only
+    points is stored as ``point_type`` so clients can cluster it; every other
+    table is stored in its multi form.
 
     Raises ``DatabaseImportError`` with a message safe to show.
     """
@@ -121,7 +124,7 @@ async def copy_database_table(
             "-nlt",
             "CONVERT_TO_LINEAR",
             "-nlt",
-            "PROMOTE_TO_MULTI",
+            point_type or "PROMOTE_TO_MULTI",
             "-lco",
             "GEOMETRY_NAME=_geolens_geom",
             "-lco",

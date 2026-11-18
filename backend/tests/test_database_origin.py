@@ -126,7 +126,9 @@ def test_table_probe_sql_quotes_the_names_it_is_given() -> None:
 async def test_table_probe_reads_the_first_spatial_column_and_its_srid(
     monkeypatch,
 ) -> None:
-    run = AsyncMock(side_effect=[[{"column_name": "shape"}], [{"i": 0, "srid": 0}]])
+    run = AsyncMock(
+        side_effect=[[{"column_name": "shape"}], [{"srid": 0, "max_srid": 0}]]
+    )
     monkeypatch.setattr(database_sources, "run_database_sql", run)
     probed = await database_sources.probe_table_geometry("gis", "dbo", "t")
     assert probed == database_sources.TableGeometry(column="shape", srid=None)
@@ -152,18 +154,31 @@ async def test_a_failed_database_import_can_be_retried() -> None:
     assert (await get_retry_capability(job))[0] is False
 
 
+def _probed(srid, max_srid=..., min_kind=None, max_kind=...) -> list[dict]:
+    """The one row SQL Server returns for the aggregate probe."""
+    return [
+        {
+            "srid": srid,
+            "max_srid": srid if max_srid is ... else max_srid,
+            "min_kind": min_kind,
+            "max_kind": min_kind if max_kind is ... else max_kind,
+        }
+    ]
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     ("rows", "expected"),
     [
         ([], (None, False)),
-        ([{"srid": 0}], (None, False)),
-        ([{"srid": 2263}], (2263, False)),
-        ([{"srid": 4326}, {"srid": 32618}], (None, True)),
-        ([{"srid": 0}, {"srid": 4326}], (None, True)),
+        (_probed(None), (None, False)),
+        (_probed(0), (None, False)),
+        (_probed(2263), (2263, False)),
+        (_probed(4326, 32618), (None, True)),
+        (_probed(0, 4326), (None, True)),
     ],
 )
-async def test_one_distinct_read_gives_the_srid_and_the_mixed_flag(
+async def test_one_scan_gives_the_srid_and_the_mixed_flag(
     monkeypatch, rows, expected
 ) -> None:
     run = AsyncMock(side_effect=[[{"column_name": "shape"}], rows])
@@ -172,4 +187,52 @@ async def test_one_distinct_read_gives_the_srid_and_the_mixed_flag(
     assert (probed.srid, probed.mixed) == expected
     assert run.await_count == 2
     sql = run.await_args_list[1].args[1]
-    assert sql.startswith("SELECT DISTINCT TOP (2) [shape].STSrid AS srid")
+    assert "MIN(v.srid) AS srid, MAX(v.srid) AS max_srid" in sql
+    assert "[shape].STSrid" in sql
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("rows", "point_type"),
+    [
+        (_probed(4326, min_kind=0), "POINT"),
+        (_probed(4326, min_kind=1), "POINTZ"),
+        (_probed(4326, min_kind=2), "POINTM"),
+        (_probed(4326, min_kind=3), "POINTZM"),
+        # A MultiPoint, line or polygon among the points.
+        (_probed(4326, min_kind=-1, max_kind=0), None),
+        (_probed(4326, min_kind=-1), None),
+        # Points with and without Z.
+        (_probed(4326, min_kind=0, max_kind=1), None),
+        # No non-null geometry.
+        (_probed(None), None),
+        ([], None),
+        (_probed(4326, 3857, min_kind=0), None),
+    ],
+    ids=[
+        "points",
+        "points-z",
+        "points-m",
+        "points-zm",
+        "points-and-multipoints",
+        "no-points",
+        "mixed-dimensions",
+        "all-null",
+        "no-row",
+        "mixed-srid",
+    ],
+)
+async def test_only_a_table_of_like_points_gets_a_point_type(
+    monkeypatch, rows, point_type
+) -> None:
+    run = AsyncMock(side_effect=[[{"column_name": "shape"}], rows])
+    monkeypatch.setattr(database_sources, "run_database_sql", run)
+    probed = await database_sources.probe_table_geometry("gis", "dbo", "t")
+    assert probed.point_type == point_type
+
+
+def test_the_value_probe_bracket_quotes_hostile_names() -> None:
+    sql = database_sources._table_values_sql("s;x", "a]b;DROP TABLE t--", "g];")
+    assert "FROM [s;x].[a]]b;DROP TABLE t--] WHERE [g]];] IS NOT NULL" in sql
+    assert "[g]];].STGeometryType() = 'Point'" in sql
+    assert "CAST([g]];].HasZ AS int) + 2 * CAST([g]];].HasM AS int)" in sql

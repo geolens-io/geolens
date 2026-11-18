@@ -384,6 +384,35 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
 
 
 @pytest.mark.parametrize(
+    ("point_type", "nlt"),
+    [("POINT", "POINT"), ("POINTZ", "POINTZ"), (None, "PROMOTE_TO_MULTI")],
+)
+async def test_copy_stores_a_point_table_as_its_point_type(
+    monkeypatch, point_type, nlt
+):
+    monkeypatch.setattr(settings, "database_sources", {"gis": _connection()})
+    spawned: list[tuple] = []
+
+    async def _spawn(*argv, **kwargs):
+        spawned.append(argv)
+        return _Proc()
+
+    monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
+    await database_import.copy_database_table(
+        "gis",
+        schema_name="dbo",
+        table_name="wells",
+        target_schema="data",
+        target_table="wells_copy",
+        srid=4326,
+        point_type=point_type,
+    )
+    [argv] = spawned
+    types = [argv[i + 1] for i, arg in enumerate(argv) if arg == "-nlt"]
+    assert types == ["CONVERT_TO_LINEAR", nlt]
+
+
+@pytest.mark.parametrize(
     ("stderr", "message"),
     [
         (
@@ -452,6 +481,46 @@ def test_the_table_srid_wins_over_an_override_or_the_stored_srid(
     from app.processing.ingest.tasks_database import chosen_srid
 
     assert chosen_srid(probed, fallback) == chosen
+
+
+@pytest.mark.requires_ogr2ogr
+async def test_an_import_copies_a_point_table_as_point(
+    client: AsyncClient,
+    editor_auth_header,
+    configured,
+    listing,
+    deferred,
+    monkeypatch,
+):
+    spawned: list[tuple] = []
+
+    async def _spawn(*argv, **kwargs):
+        spawned.append(argv)
+        return _Proc(stderr=b"ERROR 1: COPY statement failed.", returncode=1)
+
+    monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
+    monkeypatch.setattr(
+        tasks_database,
+        "probe_table_geometry",
+        AsyncMock(
+            return_value=TableGeometry(column="shape", srid=2263, point_type="POINT")
+        ),
+    )
+    resp = await client.post(
+        URL,
+        json={"schema_name": "dbo", "table_name": "parcels"},
+        headers=editor_auth_header,
+    )
+    assert resp.status_code == 202, resp.text
+
+    with pytest.raises(database_import.DatabaseImportError):
+        await tasks_database.ingest_database.func(**deferred.await_args.kwargs)
+
+    [argv] = spawned
+    assert [argv[i + 1] for i, arg in enumerate(argv) if arg == "-nlt"] == [
+        "CONVERT_TO_LINEAR",
+        "POINT",
+    ]
 
 
 @pytest.mark.requires_ogr2ogr

@@ -474,3 +474,94 @@ async def test_mixed_srids_are_refused_on_import_and_refresh(
     assert run.status == "failed"
     assert run.error_code == "mixed_srid_database"
     assert (await _dataset(test_db_session, dataset_id)).feature_count == 3
+
+
+async def _column_type(session, dataset: Dataset) -> str:
+    return await session.scalar(
+        text(
+            "SELECT type FROM geometry_columns WHERE f_table_schema = 'data' "
+            "AND f_table_name = :t AND f_geometry_column = 'geom'"
+        ),
+        {"t": dataset.table_name},
+    )
+
+
+async def test_a_table_of_points_imports_and_refreshes_as_point(
+    client: AsyncClient, editor_auth_header, configured, table, test_db_session
+):
+    kwargs = await _import(client, editor_auth_header, table)
+    job = await _job(test_db_session, kwargs["job_id"])
+    assert job.status == "complete", job.error_message
+    dataset = await _dataset(test_db_session, job.dataset_id)
+    assert dataset.geometry_type == "POINT"
+    assert await _column_type(test_db_session, dataset) == "POINT"
+
+    items = await client.get(
+        f"/collections/{dataset.id}/items", headers=editor_auth_header
+    )
+    assert items.status_code == 200, items.text
+    features = items.json()["features"]
+    assert len(features) == 3
+    assert {f["geometry"]["type"] for f in features} == {"Point"}
+
+    await _admin(f"UPDATE dbo.{table} SET label = N'renamed' WHERE pk = 12")
+    run = await _refresh(client, editor_auth_header, test_db_session, dataset.id)
+    assert run.status == "succeeded", run.error_message
+    dataset = await _dataset(test_db_session, dataset.id)
+    assert dataset.geometry_type == "POINT"
+    assert await _column_type(test_db_session, dataset) == "POINT"
+
+    # A multipoint added later moves the copy to the multi form, as a file
+    # re-upload holding one does.
+    await _admin(
+        f"INSERT INTO dbo.{table} VALUES (14, N'd', 4, geometry::STGeomFromText("
+        "'MULTIPOINT ((990100 201100), (990200 201200))', 2263))"
+    )
+    run = await _refresh(client, editor_auth_header, test_db_session, dataset.id)
+    assert run.status == "succeeded", run.error_message
+    dataset = await _dataset(test_db_session, dataset.id)
+    assert (dataset.geometry_type, dataset.feature_count) == ("MULTIPOINT", 4)
+
+
+async def test_a_table_mixing_points_and_multipoints_imports_as_multipoint(
+    client: AsyncClient, editor_auth_header, configured, test_db_session
+):
+    name = f"p_{uuid.uuid4().hex[:10]}"
+    await _admin(f"CREATE TABLE dbo.{name} (id int PRIMARY KEY, geom geometry)")
+    try:
+        await _admin(
+            f"INSERT INTO dbo.{name} VALUES "
+            "(1, geometry::STGeomFromText('POINT (1 1)', 4326)),"
+            "(2, geometry::STGeomFromText('MULTIPOINT ((2 2), (3 3))', 4326)),"
+            "(3, NULL)"
+        )
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        dataset = await _dataset(test_db_session, job.dataset_id)
+        assert dataset.geometry_type == "MULTIPOINT"
+        assert dataset.feature_count == 3
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+async def test_a_table_of_3d_points_keeps_its_z(
+    client: AsyncClient, editor_auth_header, configured, test_db_session
+):
+    name = f"pz_{uuid.uuid4().hex[:10]}"
+    await _admin(f"CREATE TABLE dbo.{name} (id int PRIMARY KEY, geom geometry)")
+    try:
+        await _admin(
+            f"INSERT INTO dbo.{name} VALUES "
+            "(1, geometry::STGeomFromText('POINT (1 1 10)', 4326)),"
+            "(2, geometry::STGeomFromText('POINT (2 2 20)', 4326))"
+        )
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        dataset = await _dataset(test_db_session, job.dataset_id)
+        assert await _column_type(test_db_session, dataset) == "POINT"
+        zs = await _rows(test_db_session, dataset, "SELECT ST_Z(geom) FROM {t}")
+        assert sorted(z for (z,) in zs) == [10.0, 20.0]
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")

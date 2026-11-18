@@ -7,6 +7,10 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+
+- A SQL Server table holding only points now imports and refreshes with geometry type `Point` instead of `MultiPoint`, so clients such as ArcGIS Online can cluster it. A table with any multipoint, line or polygon, or with points that differ in Z or M, is stored as before. An existing point dataset becomes `Point` at its next refresh.
+
 ## [1.32.0] - 2026-11-16
 
 1.32.0 adds two migrations. 0104 adds the `map_author` API key scope and a
