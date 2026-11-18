@@ -1,9 +1,10 @@
-import { useQuery } from '@tanstack/react-query';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
   listVrtSources,
   getVrtStatus,
   getVrtGenerations,
+  regenerateVrt,
 } from '@/api/vrt';
 
 export function useVrtSources(datasetId: string) {
@@ -30,5 +31,17 @@ export function useVrtGenerations(datasetId: string, params?: { limit?: number; 
     queryFn: () => getVrtGenerations(datasetId, params),
     enabled: !!datasetId,
     staleTime: 120_000,
+  });
+}
+
+export function useRegenerateVrt(datasetId: string) {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: () => regenerateVrt(datasetId),
+    onSuccess: () => {
+      qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.vrt.status(datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.vrt.generations(datasetId) });
+    },
   });
 }

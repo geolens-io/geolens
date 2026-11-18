@@ -3,6 +3,7 @@ import type {
   VrtSourceListResponse,
   VrtStatusResponse,
   VrtGenerationListResponse,
+  VrtMutationResponse,
 } from '@/types/api';
 
 export async function listVrtSources(datasetId: string): Promise<VrtSourceListResponse> {
@@ -23,5 +24,12 @@ export async function getVrtGenerations(
   const query = qs.toString();
   return apiFetch<VrtGenerationListResponse>(
     `/datasets/${encodeURIComponent(datasetId)}/vrt/generations/${query ? `?${query}` : ''}`,
+  );
+}
+
+export async function regenerateVrt(datasetId: string): Promise<VrtMutationResponse> {
+  return apiFetch<VrtMutationResponse>(
+    `/datasets/${encodeURIComponent(datasetId)}/vrt/regenerate/`,
+    { method: 'POST' },
   );
 }

@@ -13,7 +13,12 @@ import {
 import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
 import { REFRESHABLE_ORIGINS } from '@/components/dataset/SourceRefreshAction';
 import { SourceSyncPanel } from '@/components/dataset/SourceSyncPanel';
-import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
+import {
+  useRegenerateVrt,
+  useVrtGenerations,
+  useVrtSources,
+  useVrtStatus,
+} from '@/components/import/hooks/use-vrt';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardAction, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -34,6 +39,8 @@ import {
   semanticBadgeColors,
   vrtGenerationColors,
 } from '@/lib/status-colors';
+import { ApiError } from '@/api/client';
+import { formatMutationError } from '@/lib/error-map';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
 import type {
@@ -667,26 +674,58 @@ function VrtMemberHealth({ status }: { status: VrtSourceHealth['status'] | undef
   );
 }
 
-function VrtSection({ dataset, isAuthenticated }: { dataset: DatasetResponse; isAuthenticated: boolean }) {
+function VrtSection({
+  dataset,
+  isAuthenticated,
+  canEdit,
+}: {
+  dataset: DatasetResponse;
+  isAuthenticated: boolean;
+  canEdit: boolean;
+}) {
   const { t, i18n } = useTranslation('dataset');
   const isRegenerating = dataset.raster?.status === 'regenerating';
   const queryId = isAuthenticated ? dataset.id : '';
   const { data: sourcesData, isLoading, isError } = useVrtSources(queryId);
   const { data: statusData } = useVrtStatus(queryId, isRegenerating);
   const { data: generationsData } = useVrtGenerations(queryId);
+  const regenerate = useRegenerateVrt(dataset.id);
   const sources = sourcesData?.sources ?? [];
   const healthById = new Map<string, VrtSourceHealth['status']>();
   statusData?.source_health.forEach((health) => healthById.set(health.dataset_id, health.status));
 
   return (
     <section aria-labelledby="vrt-members-heading" className="space-y-4">
-      <div>
-        <h2 id="vrt-members-heading" className="text-base font-semibold">
-          {t('sourcePanel.vrt.title')}
-        </h2>
-        <p className="mt-1 text-sm text-muted-foreground">
-          {t('sourcePanel.vrt.description')}
-        </p>
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 id="vrt-members-heading" className="text-base font-semibold">
+            {t('sourcePanel.vrt.title')}
+          </h2>
+          <p className="mt-1 text-sm text-muted-foreground">
+            {t('sourcePanel.vrt.description')}
+          </p>
+        </div>
+        {canEdit && (
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={isRegenerating || regenerate.isPending}
+            onClick={() =>
+              regenerate.mutate(undefined, {
+                onSuccess: () => toast.success(t('vrt.regenerateStarted')),
+                onError: (err) => {
+                  toast.error(
+                    err instanceof ApiError && err.status === 409
+                      ? t('vrt.regenerateConflict')
+                      : formatMutationError('common:errors.requestFailed', err),
+                  );
+                },
+              })
+            }
+          >
+            {t('vrt.regenerate')}
+          </Button>
+        )}
       </div>
 
       {isRegenerating && (
@@ -926,7 +965,7 @@ export function SourcePanel({
       </Card>
 
       {isVrt ? (
-        <VrtSection dataset={dataset} isAuthenticated={isAuthenticated} />
+        <VrtSection dataset={dataset} isAuthenticated={isAuthenticated} canEdit={canEdit} />
       ) : (
         <>
           {hasRemoteSource && (

@@ -6,7 +6,14 @@ import {
   useDatasetRefreshRuns,
   useDatasetVersions,
 } from '@/components/dataset/hooks/use-dataset';
-import { useVrtGenerations, useVrtSources, useVrtStatus } from '@/components/import/hooks/use-vrt';
+import {
+  useRegenerateVrt,
+  useVrtGenerations,
+  useVrtSources,
+  useVrtStatus,
+} from '@/components/import/hooks/use-vrt';
+import { toast } from 'sonner';
+import { ApiError } from '@/api/client';
 import { useAuthStore } from '@/stores/auth-store';
 import { changeTestLanguage } from '@/test/i18n';
 import { useDrawingStore } from '@/stores/drawing-store';
@@ -23,7 +30,10 @@ vi.mock('@/components/import/hooks/use-vrt', () => ({
   useVrtSources: vi.fn(),
   useVrtStatus: vi.fn(),
   useVrtGenerations: vi.fn(),
+  useRegenerateVrt: vi.fn(),
 }));
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 function makeDataset(overrides: Partial<DatasetResponse> = {}): DatasetResponse {
   return {
@@ -117,6 +127,10 @@ beforeEach(() => {
   vi.mocked(useVrtGenerations).mockReturnValue({
     data: { generations: [], total: 0 },
   } as unknown as ReturnType<typeof useVrtGenerations>);
+  vi.mocked(useRegenerateVrt).mockReturnValue({
+    mutate: vi.fn(),
+    isPending: false,
+  } as unknown as ReturnType<typeof useRegenerateVrt>);
   vi.mocked(useDatasetRefreshRuns).mockReturnValue({
     data: { runs: [], total: 0 },
     isLoading: false,
@@ -1646,5 +1660,62 @@ describe('SourcePanel', () => {
     } finally {
       useDrawingStore.setState({ targetDatasetId: null, selectedFeature: null });
     }
+  });
+
+  describe('VRT regenerate action', () => {
+    const vrtDataset = (status: 'ready' | 'regenerating') => makeDataset({
+      origin: null,
+      origin_ref: null,
+      source_format: null,
+      record_type: 'vrt_dataset',
+      feature_count: null,
+      raster: {
+        epsg: 4326, res_x: 1, res_y: 1, band_count: 1, nodata: null, compression: null,
+        width: 10, height: 10, size_bytes: null, tile_url: null, bands: [], connect: null,
+        status, vrt_type: 'mosaic', source_count: 1, resolution_strategy: 'finest',
+      },
+    });
+    const mockMutate = (outcome: 'ok' | 'conflict' | 'error') => {
+      const mutate = vi.fn((_v: undefined, opts: { onSuccess?: () => void; onError?: (e: Error) => void }) => {
+        if (outcome === 'ok') opts.onSuccess?.();
+        else opts.onError?.(outcome === 'conflict' ? new ApiError('busy', 409, { code: 'dataset_busy' }) : new ApiError('boom', 500));
+      });
+      vi.mocked(useRegenerateVrt).mockReturnValue({ mutate, isPending: false } as unknown as ReturnType<typeof useRegenerateVrt>);
+      return mutate;
+    };
+
+    beforeEach(() => useAuthStore.setState({ token: 'editor-token' }));
+
+    it('hides the button from a user who cannot edit', () => {
+      render(<SourcePanel dataset={vrtDataset('ready')} />);
+      expect(screen.queryByRole('button', { name: 'Regenerate' })).not.toBeInTheDocument();
+    });
+
+    it('starts a rebuild and announces it', async () => {
+      const mutate = mockMutate('ok');
+      render(<SourcePanel dataset={vrtDataset('ready')} canEdit />);
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Regenerate' }));
+      expect(mutate).toHaveBeenCalledTimes(1);
+      expect(toast.success).toHaveBeenCalledWith('VRT regeneration started.');
+    });
+
+    it('reports a rebuild that is already running', async () => {
+      mockMutate('conflict');
+      render(<SourcePanel dataset={vrtDataset('ready')} canEdit />);
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Regenerate' }));
+      expect(toast.error).toHaveBeenCalledWith('VRT is already regenerating.');
+    });
+
+    it('shows other failures with the generic message', async () => {
+      mockMutate('error');
+      render(<SourcePanel dataset={vrtDataset('ready')} canEdit />);
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Regenerate' }));
+      expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('boom'));
+    });
+
+    it('disables the button while the VRT is regenerating', () => {
+      render(<SourcePanel dataset={vrtDataset('regenerating')} canEdit />);
+      expect(screen.getByRole('button', { name: 'Regenerate' })).toBeDisabled();
+    });
   });
 });
