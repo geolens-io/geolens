@@ -139,7 +139,7 @@ function useCombinedBuilder(
     saveFence: layers.saveFence,
   });
 
-  return { ...layers, ...save };
+  return { ...layers, ...save, saveBaselineSyncRef };
 }
 
 function renderCombined(mapData: MapResponse, mapId = 'map-1') {
@@ -809,7 +809,7 @@ describe('layer creates and deletes during a save', () => {
 // the layers as they were when it started. The fake server below stores it as
 // the backend does: a listed id the map still has keeps its row, any other
 // listed layer gets a new row and unlisted rows are deleted.
-describe('layer creates and deletes during a full-replacement save', () => {
+describe('layers a PATCH adds', () => {
   const duplicate = makeBuilderLayer({ id: 'dup', dataset_id: 'ds-keep', sort_order: 1 });
   const stale = new ApiError(
     'Layer diff references layer ids outside this map',
@@ -818,8 +818,6 @@ describe('layer creates and deletes during a full-replacement save', () => {
   );
   let server: MapLayerResponse[];
   let storedCount: number;
-  let patchAvailable: boolean;
-  let holdPut: Promise<void> | null;
 
   const storeRow = (input: MapLayerInput, id: string, index: number): MapLayerResponse => ({
     ...makeBuilderLayer({ dataset_id: input.dataset_id }),
@@ -829,9 +827,9 @@ describe('layer creates and deletes during a full-replacement save', () => {
   });
   const newId = () => `stored-${++storedCount}`;
 
-  // mapData is read from the detail cache the save's read-back writes into, as
-  // MapBuilderPage's useMap does. It is read without an observer, so no
-  // refetch after the save replaces the local layers before the assertions.
+  // mapData is read from the detail cache without an observer, as
+  // MapBuilderPage's useMap does, so no refetch after the save replaces the
+  // local layers before the assertions.
   function renderOnServer(layers: MapLayerResponse[]) {
     server = layers;
     const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
@@ -847,27 +845,16 @@ describe('layer creates and deletes during a full-replacement save', () => {
       { mutate } as unknown as Parameters<typeof useBuilderLayers>[3],
       { mutate: removeMutate } as unknown as Parameters<typeof useBuilderLayers>[4],
     ), { wrapper });
-    return { result, mutate, removeMutate };
+    return { result, mutate, queryClient };
   }
 
   beforeEach(() => {
     vi.clearAllMocks();
     __resetThumbnailDebounceForTests();
     storedCount = 0;
-    patchAvailable = false;
-    holdPut = null;
     mockGetMap.mockImplementation(async () => ({ id: 'map-1', layers: server.map((l) => ({ ...l })) }));
-    mockUpdateMapMutateAsync.mockImplementation(async ({ id, data }: { id: string; data: { layers?: MapLayerInput[] } }) => {
-      if (holdPut) await holdPut;
-      const layers = data.layers;
-      if (layers) {
-        const stored = new Set(server.map((l) => l.id));
-        server = layers.map((input, i) => storeRow(input, input.id && stored.has(input.id) ? input.id : newId(), i));
-      }
-      return { id, layers: server };
-    });
+    mockUpdateMapMutateAsync.mockImplementation(async ({ id }: { id: string }) => ({ id, layers: server }));
     mockPatchMapLayersMutateAsync.mockImplementation(async ({ diff }: { diff: MapLayerDiffRequest }) => {
-      if (!patchAvailable) throw new ApiError('Method Not Allowed', 405, 'Method Not Allowed');
       const stored = new Set(server.map((l) => l.id));
       const named = [...(diff.removed ?? []), ...(diff.updated ?? []).map((u) => u.id), ...(diff.order ?? [])];
       if (named.some((id) => !stored.has(id))) throw stale;
@@ -877,31 +864,14 @@ describe('layer creates and deletes during a full-replacement save', () => {
     });
   });
 
-  // Dirty the map and start a save whose full-replacement PUT is stored only
-  // when the returned call releases it.
-  async function startReplacement(result: Rendered) {
-    act(() => { result.current.handleOpacityChange('keep', 0.4); });
-    let release!: () => void;
-    holdPut = new Promise((resolve) => { release = resolve; });
-    let saving!: Promise<void>;
-    act(() => { saving = result.current.handleSave(); });
-    await act(async () => { await Promise.resolve(); });
-    expect(mockUpdateMapMutateAsync).toHaveBeenCalledOnce();
-    return () => act(async () => { release(); holdPut = null; await saving; });
-  }
-
-  function duplicateDuringSave(result: Rendered, mutate: ReturnType<typeof vi.fn>) {
+  // A layer on the local stack that neither the save baseline nor the server
+  // holds, so the next PATCH sends it as an add.
+  function unsavedDuplicate(result: Rendered, mutate: ReturnType<typeof vi.fn>) {
     act(() => { result.current.handleDuplicateRendering('keep'); });
-    server = [...server, duplicate];
     const [, { onSuccess }] = mutate.mock.calls[0];
     act(() => { onSuccess(duplicate); });
-  }
-
-  function deleteDuringSave(result: Rendered, removeMutate: ReturnType<typeof vi.fn>) {
-    act(() => { result.current.handleRemove('doomed'); });
-    server = server.filter((l) => l.id !== 'doomed');
-    const [, handlers] = removeMutate.mock.calls[0];
-    act(() => { handlers.onSuccess(); });
+    act(() => { result.current.saveBaselineSyncRef.current.remove(['dup']); });
+    act(() => { result.current.handleOpacityChange('keep', 0.4); });
   }
 
   const indicatorOn = (layerId: string) => ({
@@ -913,114 +883,28 @@ describe('layer creates and deletes during a full-replacement save', () => {
     config: { stat: 'count', column: null },
   });
 
-  // The ids the second save's PUT listed; undefined when it sent no layers.
-  const resentIds = () =>
-    (mockUpdateMapMutateAsync.mock.calls[1][0].data.layers as MapLayerInput[] | undefined)?.map((l) => l.id);
-
   function expectLocalIdsMatchServer(result: Rendered) {
     const local = result.current.localLayers.filter((l) => !isFolderGroupLayer(l)).map((l) => l.id);
     expect(local).toEqual(server.map((l) => l.id));
   }
 
-  it.each([
-    ['the read-back succeeds', false],
-    ['the read-back fails', true],
-  ])('sends again a layer created during the save that the replacement deleted when %s', async (_, readBackFails) => {
+  it('follows the id the server stores for a layer a PATCH adds', async () => {
     const { result, mutate } = renderOnServer([keep]);
-    const finishSave = await startReplacement(result);
-    duplicateDuringSave(result, mutate);
-    if (readBackFails) mockGetMap.mockRejectedValueOnce(new Error('read-back failed'));
-    await finishSave();
-    expect(server.map((l) => l.id)).toEqual(['keep']);
-    expect(result.current.hasUnsavedChanges).toBe(true);
+    unsavedDuplicate(result, mutate);
 
-    await act(async () => { await result.current.handleSave(); });
-
-    expect(resentIds()).toEqual(['keep', 'dup']);
-    expect(server.map((l) => l.dataset_id)).toEqual(['ds-keep', 'ds-keep']);
-    expectLocalIdsMatchServer(result);
-  });
-
-  it('keeps a layer created after the read-back instead of sending it again', async () => {
-    const { result, mutate } = renderOnServer([keep]);
-    act(() => { result.current.handleOpacityChange('keep', 0.4); });
-    let releaseRead!: () => void;
-    const readHeld = new Promise<void>((resolve) => { releaseRead = resolve; });
-    mockGetMap.mockImplementationOnce(async () => {
-      const snapshot = server.map((l) => ({ ...l }));
-      await readHeld;
-      return { id: 'map-1', layers: snapshot };
-    });
-    let saving!: Promise<void>;
-    act(() => { saving = result.current.handleSave(); });
-    await act(async () => { await vi.waitFor(() => expect(mockGetMap).toHaveBeenCalled()); });
-    duplicateDuringSave(result, mutate);
-    await act(async () => { releaseRead(); await saving; });
-
-    patchAvailable = true;
-    act(() => { result.current.handleOpacityChange('keep', 0.6); });
-    await act(async () => { await result.current.handleSave(); });
-
-    expect(server.map((l) => l.id)).toEqual(['keep', 'dup']);
-    expectLocalIdsMatchServer(result);
-  });
-
-  it('leaves a layer another session added before the read-back on the server', async () => {
-    const remote = makeBuilderLayer({ id: 'remote', dataset_id: 'ds-remote', sort_order: 1 });
-    const { result } = renderOnServer([keep]);
-    const finishSave = await startReplacement(result);
-    act(() => { result.current.handleOpacityChange('keep', 0.6); });
-    mockGetMap.mockImplementationOnce(async () => {
-      server = [...server, remote];
-      return { id: 'map-1', layers: server.map((l) => ({ ...l })) };
-    });
-    await finishSave();
-
-    patchAvailable = true;
-    await act(async () => { await result.current.handleSave(); });
-
-    expect(server.map((l) => l.id)).toEqual(['keep', 'remote']);
-  });
-
-  it('does not create again a layer another session deleted before the read-back', async () => {
-    const { result } = renderOnServer([keep, doomed]);
-    const finishSave = await startReplacement(result);
-    act(() => { result.current.handleOpacityChange('keep', 0.6); });
-    mockGetMap.mockImplementationOnce(async () => {
-      server = server.filter((l) => l.id !== 'doomed');
-      return { id: 'map-1', layers: server.map((l) => ({ ...l })) };
-    });
-    await finishSave();
-
-    patchAvailable = true;
-    await act(async () => { await result.current.handleSave(); });
-
-    expect(server.map((l) => l.id)).toEqual(['keep']);
-  });
-
-  it('follows the id the server stores for a layer a PATCH sends again', async () => {
-    const { result, mutate } = renderOnServer([keep]);
-    const finishSave = await startReplacement(result);
-    duplicateDuringSave(result, mutate);
-    await finishSave();
-
-    patchAvailable = true;
     await act(async () => { await result.current.handleSave(); });
 
     expect(server.map((l) => l.id)).toEqual(['keep', 'stored-1']);
     expectLocalIdsMatchServer(result);
   });
 
-  it('follows the id a retried PATCH stores for a layer it sends again', async () => {
+  it('follows the id a retried PATCH stores for a layer it adds', async () => {
     const { result, mutate } = renderOnServer([keep, doomed]);
-    const finishSave = await startReplacement(result);
-    duplicateDuringSave(result, mutate);
-    await finishSave();
+    unsavedDuplicate(result, mutate);
     // Another session deletes a layer this one still edits, so the PATCH is stale.
     server = server.filter((l) => l.id !== 'doomed');
     act(() => { result.current.handleOpacityChange('doomed', 0.2); });
 
-    patchAvailable = true;
     await act(async () => { await result.current.handleSave(); });
 
     expect(server.map((l) => l.id)).toEqual(['keep', 'stored-1']);
@@ -1029,12 +913,10 @@ describe('layer creates and deletes during a full-replacement save', () => {
   });
 
   it('pairs only the layers a PATCH added with the ids it stored', async () => {
-    // Ahead of the restored layer, so it would be paired first.
+    // Ahead of the added layer, so it would be paired first.
     const sibling = makeBuilderLayer({ id: 'sibling', dataset_id: 'ds-keep', sort_order: 0 });
     const { result, mutate } = renderOnServer([sibling, keep]);
-    const finishSave = await startReplacement(result);
-    duplicateDuringSave(result, mutate);
-    await finishSave();
+    unsavedDuplicate(result, mutate);
     // Another session deletes a layer on the same dataset that this one edits.
     server = server.filter((l) => l.id !== 'sibling');
     act(() => { result.current.handleOpacityChange('sibling', 0.2); });
@@ -1042,7 +924,6 @@ describe('layer creates and deletes during a full-replacement save', () => {
       result.current.handleDashboardChange({ ...result.current.dashboard, widgets: [indicatorOn('dup')] });
     });
 
-    patchAvailable = true;
     await act(async () => { await result.current.handleSave(); });
 
     expect(server.map((l) => l.id)).toEqual(['keep', 'stored-1']);
@@ -1052,17 +933,12 @@ describe('layer creates and deletes during a full-replacement save', () => {
 
   it('never pairs a PATCH-added layer with a row the map already held', async () => {
     const remote = makeBuilderLayer({ id: 'remote', dataset_id: 'ds-keep', sort_order: 1 });
-    const { result, mutate } = renderOnServer([keep]);
-    const finishSave = await startReplacement(result);
-    duplicateDuringSave(result, mutate);
-    // Another session adds a layer on the same dataset before the read-back.
-    mockGetMap.mockImplementationOnce(async () => {
-      server = [...server, remote];
-      return { id: 'map-1', layers: server.map((l) => ({ ...l })) };
-    });
-    await finishSave();
+    const { result, mutate, queryClient } = renderOnServer([keep]);
+    unsavedDuplicate(result, mutate);
+    // Another session adds a layer on the same dataset, which this one has read.
+    server = [...server, remote];
+    queryClient.setQueryData(queryKeys.maps.detail('map-1'), makeBuilderMap(server));
 
-    patchAvailable = true;
     await act(async () => { await result.current.handleSave(); });
 
     expect(server.map((l) => l.id)).toEqual(['keep', 'remote', 'stored-1']);
@@ -1070,13 +946,10 @@ describe('layer creates and deletes during a full-replacement save', () => {
     expect([...local].sort()).toEqual(['keep', 'stored-1']);
   });
 
-  it('keeps a create made while a PATCH that sends a layer again is in flight', async () => {
+  it('keeps a create made while a PATCH that adds a layer is in flight', async () => {
     const { result, mutate } = renderOnServer([keep]);
-    const finishSave = await startReplacement(result);
-    duplicateDuringSave(result, mutate);
-    await finishSave();
+    unsavedDuplicate(result, mutate);
 
-    patchAvailable = true;
     const patch = mockPatchMapLayersMutateAsync.getMockImplementation()!;
     let release!: () => void;
     const held = new Promise<void>((resolve) => { release = resolve; });
@@ -1088,7 +961,7 @@ describe('layer creates and deletes during a full-replacement save', () => {
     let saving!: Promise<void>;
     act(() => { saving = result.current.handleSave(); });
     await act(async () => {
-      await vi.waitFor(() => expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledTimes(2));
+      await vi.waitFor(() => expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledOnce());
     });
     // A create that commits after the PATCH answered, before its response arrives.
     const late = makeBuilderLayer({ id: 'late', dataset_id: 'ds-keep', sort_order: 2 });
@@ -1105,64 +978,14 @@ describe('layer creates and deletes during a full-replacement save', () => {
 
   it('names the id a PATCH stores in the dashboard the same save sends', async () => {
     const { result, mutate } = renderOnServer([keep]);
-    const finishSave = await startReplacement(result);
-    duplicateDuringSave(result, mutate);
-    await finishSave();
+    unsavedDuplicate(result, mutate);
     act(() => {
       result.current.handleDashboardChange({ ...result.current.dashboard, widgets: [indicatorOn('dup')] });
     });
 
-    patchAvailable = true;
     await act(async () => { await result.current.handleSave(); });
 
     const sent = mockUpdateMapMutateAsync.mock.calls.at(-1)?.[0].data.dashboard_config;
     expect(sent.widgets.map((w: { layer_id: string }) => w.layer_id)).toEqual(['stored-1']);
-  });
-
-  it('points dashboard widgets at the id a replacement re-creates their layer under', async () => {
-    const { result } = renderOnServer([keep, doomed]);
-    act(() => {
-      result.current.handleDashboardChange({
-        ...result.current.dashboard,
-        widgets: [indicatorOn('doomed')],
-      });
-    });
-    const finishSave = await startReplacement(result);
-    // Another session deletes the layer while the PUT is in flight.
-    server = server.filter((l) => l.id !== 'doomed');
-    await finishSave();
-
-    expect(server.map((l) => l.id)).toEqual(['keep', 'stored-1']);
-    expect(result.current.dashboard.widgets[0].layer_id).toBe('stored-1');
-  });
-
-  it('removes a layer deleted during the save that the replacement recreated', async () => {
-    const { result, removeMutate } = renderOnServer([keep, doomed]);
-    const finishSave = await startReplacement(result);
-    deleteDuringSave(result, removeMutate);
-    await finishSave();
-    expect(server.map((l) => l.id)).toEqual(['keep', 'stored-1']);
-
-    patchAvailable = true;
-    await act(async () => { await result.current.handleSave(); });
-
-    expect(mockPatchMapLayersMutateAsync.mock.calls[1][0].diff.removed).toEqual(['stored-1']);
-    expect(server.map((l) => l.id)).toEqual(['keep']);
-    expectLocalIdsMatchServer(result);
-  });
-
-  it('keeps a create and a delete made during the save and follows the ids the server stores', async () => {
-    const { result, mutate, removeMutate } = renderOnServer([keep, doomed]);
-    const finishSave = await startReplacement(result);
-    duplicateDuringSave(result, mutate);
-    deleteDuringSave(result, removeMutate);
-    await finishSave();
-
-    await act(async () => { await result.current.handleSave(); });
-
-    expect(resentIds()).toEqual(['keep', 'dup']);
-    expect(server.map((l) => l.dataset_id)).toEqual(['ds-keep', 'ds-keep']);
-    expect(server.map((l) => l.id)).not.toContain('dup');
-    expectLocalIdsMatchServer(result);
   });
 });

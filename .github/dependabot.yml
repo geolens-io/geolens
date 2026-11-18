@@ -35,6 +35,12 @@ updates:
       backend-major:
         update-types: ["major"]
         patterns: ["*"]
+    ignore:
+      # pytest-xdist 3.8 ignores xdist_group under pytest 9.2. update-types,
+      # unlike versions, still lets a security fix through. Remove this entry
+      # when the pytest pin in pyproject.toml is lifted (#3918).
+      - dependency-name: "pytest"
+        update-types: ["version-update:semver-minor", "version-update:semver-major"]
 
   # --- Frontend React app (npm) ---
   - package-ecosystem: "npm"
