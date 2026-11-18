@@ -41,6 +41,8 @@ from app.platform.service_endpoints import (
     _operation_hrefs,
     _wfs_capabilities_node,
     _url_add_kvp,
+    _wfs_feature_types,
+    _wfs_layer_name,
     _wfs_root,
     bounded_parse_qsl,
     credential_headers,
@@ -170,11 +172,17 @@ class CapabilitiesUnreadableError(Exception):
     URL doesn't say is unknown."""
 
 
-class ArcGISWfs(NamedTuple):
-    """What recognised an ArcGIS WFS, and the WFS version its reads speak."""
+class WfsService(NamedTuple):
+    """What recognised an ArcGIS WFS (None for another server), the WFS
+    version its reads speak, and the feature type names it advertises."""
 
-    evidence: EsriEvidence
+    evidence: EsriEvidence | None
     version: str
+    names: tuple[str, ...] = ()
+
+    def type_name(self, requested: str) -> str:
+        """The advertised name GDAL opens for ``requested``, else ``requested``."""
+        return _wfs_layer_name(list(self.names), requested) or requested
 
 
 def _url_version(url: str) -> str | None:
@@ -197,8 +205,8 @@ async def recognise_arcgis_wfs(
     *,
     credential_line: str | None,
     on_first_request: Callable[[], None] | None = None,
-) -> ArcGISWfs | None:
-    """The ArcGIS WFS ``url`` reaches, or None for any other WFS.
+) -> WfsService | None:
+    """The WFS ``url`` reaches, with ``evidence`` None for any other server.
 
     A URL naming the service decides on its own. Otherwise GetCapabilities
     does: the URL it ended on after redirects, the operation endpoints it
@@ -207,8 +215,9 @@ async def recognise_arcgis_wfs(
     body over its bound, an exception report) is retried after each of
     `RECOGNITION_RETRY_DELAYS`, then raises `CapabilitiesUnreadableError`:
     unrecognised, an ArcGIS layer would be imported unchecked. None is
-    returned only for another server's capabilities, an HTTP 401 or 403, or
-    an address the SSRF policy refuses: GDAL is refused the same way.
+    returned only for an HTTP 401 or 403 or an address the SSRF policy
+    refuses on a URL that doesn't name the service: GDAL is refused the
+    same way.
 
     The version is the URL's own, else the one GetCapabilities answers in,
     as GDAL settles on it, else 2.0.0; GetCapabilities isn't read when the
@@ -217,7 +226,7 @@ async def recognise_arcgis_wfs(
     version = _url_version(url)
     evidence = esri_evidence("wfs", url)
     if evidence is not None and version is not None:
-        return ArcGISWfs(evidence, version)
+        return WfsService(evidence, version)
     if evidence is None:
         try:
             await validate_url_for_ssrf(_capabilities_url(url))
@@ -245,10 +254,9 @@ async def recognise_arcgis_wfs(
         )
         if evidence is not None:
             logger.info("arcgis_wfs_recognised", evidence=evidence)
-    if evidence is None:
-        return None
     answered = None if root is None else root.get("version")
-    return ArcGISWfs(evidence, version or answered or _DEFAULT_VERSION)
+    names = () if root is None else tuple(_wfs_feature_types(root)[1])
+    return WfsService(evidence, version or answered or _DEFAULT_VERSION, names)
 
 
 async def _read_capabilities(
@@ -281,7 +289,10 @@ async def fetch_arcgis_wfs_hits(
     on_first_request: Callable[[], None] | None = None,
 ) -> int | None:
     """The layer's total from a ``resultType=hits`` read, or None when the
-    service doesn't say. Never raises for the service's answer."""
+    service doesn't say. WFS 1.0 has no ``resultType``, so it isn't asked.
+    Never raises for the service's answer."""
+    if version.startswith("1.0"):
+        return None
     target = wfs_url(url, layer, version=version, RESULTTYPE="hits")
     answer = await _read(target, credential_line, on_first_request)
     return None if answer is None else number_matched(answer.body)

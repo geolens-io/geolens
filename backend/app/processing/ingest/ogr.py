@@ -1792,7 +1792,8 @@ async def _wfs_expected_features(
     token: str | None,
     arm_origin_contact: "Callable[[], None] | None",
 ) -> tuple[int | None, bool]:
-    """For a WFS, read the layer's total from ``resultType=hits``.
+    """For a WFS, read the layer's total from ``resultType=hits``, in the
+    version and under the type name GDAL settles on.
 
     Returns the total and whether the count is strict. An ArcGIS WFS turns
     GDAL's paging off unless ``COUNT`` is a page size there, and any
@@ -1811,7 +1812,7 @@ async def _wfs_expected_features(
     # The contact is armed by the first read to pass SSRF validation.
     reads = {"credential_line": credential_line, "on_first_request": arm_origin_contact}
     try:
-        arcgis = await recognise_arcgis_wfs(url, **reads)
+        service = await recognise_arcgis_wfs(url, **reads)
     except CapabilitiesUnreadableError:
         raise IngestionError(
             FixedReason(
@@ -1821,10 +1822,13 @@ async def _wfs_expected_features(
                 code="arcgis_wfs_count_unavailable",
             )
         ) from None
-    if arcgis is None:
-        return await fetch_arcgis_wfs_hits(url, layer_name, **reads), False
-    version = arcgis.version
-    expected = await fetch_arcgis_wfs_hits(url, layer_name, version=version, **reads)
+    if service is None:
+        return None, False
+    version = service.version
+    layer = service.type_name(layer_name)
+    expected = await fetch_arcgis_wfs_hits(url, layer, version=version, **reads)
+    if service.evidence is None:
+        return expected, False
     if expected is None:
         raise IngestionError(
             FixedReason(
@@ -1834,7 +1838,7 @@ async def _wfs_expected_features(
                 code="arcgis_wfs_count_unavailable",
             )
         )
-    if not await arcgis_wfs_pages_by_count(url, layer_name, version=version, **reads):
+    if not await arcgis_wfs_pages_by_count(url, layer, version=version, **reads):
         cmd.extend(["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"])
     return expected, True
 

@@ -630,11 +630,11 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
 
     @pytest.fixture(autouse=True)
     def recognise(self, monkeypatch):
-        from app.platform.arcgis_wfs import ArcGISWfs
+        from app.platform.arcgis_wfs import WfsService
         from app.platform.esri_services import esri_service_kind
 
-        async def _by_url(url: str, **_reads) -> ArcGISWfs | None:
-            return ArcGISWfs("url", "2.0.0") if esri_service_kind(url) else None
+        async def _by_url(url: str, **_reads) -> WfsService:
+            return WfsService("url" if esri_service_kind(url) else None, "2.0.0")
 
         settle = AsyncMock(side_effect=_by_url)
         monkeypatch.setattr("app.processing.ingest.ogr.recognise_arcgis_wfs", settle)
@@ -1151,13 +1151,13 @@ class TestTheWFSReadsSpeakTheEndpointsVersion:
         assert "VERSION" not in recorded[0].url.params
 
     async def test_the_urls_own_version_is_kept(self, monkeypatch) -> None:
-        from app.platform.arcgis_wfs import ArcGISWfs, recognise_arcgis_wfs
+        from app.platform.arcgis_wfs import WfsService, recognise_arcgis_wfs
 
         recorded = self._serve(monkeypatch, lambda r: _streamed(500, b"", "text/plain"))
 
         assert await recognise_arcgis_wfs(
             f"{_ARCGIS_WFS}?service=WFS&version=1.1.0", credential_line=None
-        ) == ArcGISWfs("url", "1.1.0")
+        ) == WfsService("url", "1.1.0")
         assert recorded == []
 
     async def test_a_1_1_endpoint_is_not_probed_for_paging(self, monkeypatch) -> None:
@@ -1330,12 +1330,12 @@ class TestTheWorkerRefusalsKeepTheirCodes:
 
     async def test_an_uncountable_wfs_stores_its_code(self, monkeypatch) -> None:
         from app.core.failure_reason import failure_code, redact_failure_reason
-        from app.platform.arcgis_wfs import ArcGISWfs
+        from app.platform.arcgis_wfs import WfsService
         from app.processing.ingest.ogr import IngestionError, run_ogr2ogr_service
 
         monkeypatch.setattr(
             "app.processing.ingest.ogr.recognise_arcgis_wfs",
-            AsyncMock(return_value=ArcGISWfs("url", "2.0.0")),
+            AsyncMock(return_value=WfsService("url", "2.0.0")),
         )
         monkeypatch.setattr(
             "app.processing.ingest.ogr.fetch_arcgis_wfs_hits",
@@ -1722,12 +1722,22 @@ class TestWhatRecognisesAnArcGISCollection:
 _PROXIED_WFS = "https://gis.example.test/wfs/parcels"
 
 
-def _capabilities(endpoint: str, *, formats: tuple[str, ...] = ("GML32",)) -> bytes:
+def _capabilities(
+    endpoint: str,
+    *,
+    formats: tuple[str, ...] = ("GML32",),
+    version: str = "2.0.0",
+    feature_types: tuple[str, ...] = (),
+) -> bytes:
     values = "".join(f"<ows:Value>{f}</ows:Value>" for f in formats)
+    types = "".join(
+        f"<wfs:FeatureType><wfs:Name>{name}</wfs:Name></wfs:FeatureType>"
+        for name in feature_types
+    )
     return f"""<?xml version="1.0" encoding="UTF-8"?>
 <wfs:WFS_Capabilities xmlns:wfs="http://www.opengis.net/wfs/2.0"
   xmlns:ows="http://www.opengis.net/ows/1.1"
-  xmlns:xlink="http://www.w3.org/1999/xlink" version="2.0.0">
+  xmlns:xlink="http://www.w3.org/1999/xlink" version="{version}">
   <ows:OperationsMetadata>
     <ows:Operation name="GetFeature">
       <ows:DCP><ows:HTTP><ows:Get xlink:href="{endpoint}?"/></ows:HTTP></ows:DCP>
@@ -1736,7 +1746,33 @@ def _capabilities(endpoint: str, *, formats: tuple[str, ...] = ("GML32",)) -> by
       </ows:Parameter>
     </ows:Operation>
   </ows:OperationsMetadata>
+  <wfs:FeatureTypeList>{types}</wfs:FeatureTypeList>
 </wfs:WFS_Capabilities>""".encode()
+
+
+def _counting_only(version: str, type_name: str, *, advertised: str = "2.0.0"):
+    """A WFS that states its total of 25 only to a hits read in ``version``
+    for ``type_name``, the name it advertises."""
+    capabilities = _capabilities(
+        _OTHER_WFS, version=advertised, feature_types=(type_name,)
+    )
+    two = version.startswith("2")
+
+    def handle(request: httpx.Request) -> httpx.Response:
+        params = {k.upper(): v for k, v in request.url.params.items()}
+        if params.get("REQUEST") == "GetCapabilities":
+            return _streamed(200, capabilities, "application/xml")
+        names = params.get("TYPENAMES" if two else "TYPENAME")
+        if params.get("VERSION") == version and names == type_name:
+            total = "numberMatched" if two else "numberOfFeatures"
+            body = (
+                '<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs" '
+                f'{total}="25"/>'
+            ).encode()
+            return _streamed(200, body, "application/xml")
+        return _streamed(400, b"<ows:ExceptionReport/>", "application/xml")
+
+    return handle
 
 
 def _wfs(capabilities: bytes, *, hits: int = 25, member_count: int = 1):
@@ -1770,11 +1806,11 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
         monkeypatch.setattr("app.processing.ingest.ogr.staged_row_count", count)
         return count
 
-    async def _import(self, url: str) -> None:
+    async def _import(self, url: str, layer: str = "glTrial2Ogc:pts") -> None:
         from app.processing.ingest.ogr import run_ogr2ogr_service
 
         await run_ogr2ogr_service(
-            f"WFS:{url}", "glTrial2Ogc:pts", "t", "PG:dbname=x", "wfs", schema="data"
+            f"WFS:{url}", layer, "t", "PG:dbname=x", "wfs", schema="data"
         )
 
     async def test_a_short_read_behind_a_proxy_is_refused(
@@ -1821,6 +1857,50 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
             "GetCapabilities",
             "GetFeature",
         ]
+
+    @pytest.mark.parametrize(
+        ("url", "advertised"),
+        [(_OTHER_WFS, "1.1.0"), (f"{_OTHER_WFS}?VERSION=1.1.0", "2.0.0")],
+        ids=["negotiated", "named-in-url"],
+    )
+    async def test_a_1_1_geoserver_is_counted_in_1_1(
+        self, monkeypatch, rows, url, advertised
+    ) -> None:
+        from app.core.failure_reason import failure_code, redact_failure_reason
+        from app.processing.ingest.ogr import WfsCountMismatchError
+
+        _serve(monkeypatch, _counting_only("1.1.0", "topp:pts", advertised=advertised))
+        _spawn_reading_the_source(monkeypatch)
+
+        with pytest.raises(WfsCountMismatchError) as caught:
+            await self._import(url, "topp:pts")
+
+        assert failure_code(redact_failure_reason(caught.value)) == "wfs_short"
+
+    @pytest.mark.parametrize("requested", ["TOPP:Parcels", "parcels"])
+    async def test_a_geoserver_layer_is_counted_under_its_advertised_name(
+        self, monkeypatch, rows, requested
+    ) -> None:
+        from app.core.failure_reason import failure_code, redact_failure_reason
+        from app.processing.ingest.ogr import WfsCountMismatchError
+
+        _serve(monkeypatch, _counting_only("2.0.0", "topp:parcels"))
+        _spawn_reading_the_source(monkeypatch)
+
+        with pytest.raises(WfsCountMismatchError) as caught:
+            await self._import(_OTHER_WFS, requested)
+
+        assert failure_code(redact_failure_reason(caught.value)) == "wfs_short"
+
+    async def test_a_1_0_geoserver_gets_no_hits_read(self, monkeypatch, rows) -> None:
+        recorded = _serve(
+            monkeypatch, _counting_only("1.0.0", "topp:pts", advertised="1.0.0")
+        )
+        _spawn_reading_the_source(monkeypatch)
+
+        await self._import(_OTHER_WFS, "topp:pts")
+
+        assert [r.url.params.get("REQUEST") for r in recorded] == ["GetCapabilities"]
 
     async def test_a_redirect_to_the_service_path(self, monkeypatch) -> None:
         from app.platform.arcgis_wfs import recognise_arcgis_wfs
