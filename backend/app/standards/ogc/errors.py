@@ -50,6 +50,26 @@ class ProblemDetail(BaseModel):
             json_schema_extra=_absent_not_defaulted,
         ),
     ] = None
+    action: Annotated[
+        str | SkipJsonSchema[None],
+        Field(
+            description=(
+                "The refused change, on a `dataset_in_shared_maps` 422: "
+                "`unpublish` or `restrict_visibility`. Absent otherwise."
+            ),
+            json_schema_extra=_absent_not_defaulted,
+        ),
+    ] = None
+    shared_maps: Annotated[
+        list[dict[str, str]] | SkipJsonSchema[None],
+        Field(
+            description=(
+                "The shared maps behind a `dataset_in_shared_maps` 422, as "
+                '`{"id", "name"}` pairs. Absent otherwise.'
+            ),
+            json_schema_extra=_absent_not_defaulted,
+        ),
+    ] = None
 
     model_config = ConfigDict(
         json_schema_extra={
@@ -65,13 +85,18 @@ class ProblemDetail(BaseModel):
     )
 
     @model_serializer(mode="wrap")
-    def _omit_unset_code(
+    def _omit_unset_members(
         self, handler: SerializerFunctionWrapHandler
     ) -> dict[str, Any]:
-        # Bodies without a code keep the shape they had before the member existed.
+        # Bodies without a code, action or map list keep the shape they had
+        # before those members existed.
         data = handler(self)
         if self.code is None:
             data.pop("code", None)
+        if self.action is None:
+            data.pop("action", None)
+        if self.shared_maps is None:
+            data.pop("shared_maps", None)
         return data
 
 

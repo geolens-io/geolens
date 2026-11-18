@@ -12,6 +12,7 @@ from typing import cast
 
 if TYPE_CHECKING:
     from ..models.problem_detail_detail_type_1 import ProblemDetailDetailType1
+    from ..models.problem_detail_shared_maps_item import ProblemDetailSharedMapsItem
 
 
 T = TypeVar("T", bound="ProblemDetail")
@@ -27,6 +28,10 @@ class ProblemDetail:
         type_ (str | Unset):  Default: 'about:blank'.
         code (str | Unset): A machine-readable code for the problem, on the errors that carry one, such as
             `catalog_lock_conflict` on a 409 for a row another request holds. Absent otherwise.
+        action (str | Unset): The refused change, on a `dataset_in_shared_maps` 422: `unpublish` or
+            `restrict_visibility`. Absent otherwise.
+        shared_maps (list[ProblemDetailSharedMapsItem] | Unset): The shared maps behind a `dataset_in_shared_maps` 422,
+            as `{"id", "name"}` pairs. Absent otherwise.
     """
 
     title: str
@@ -34,6 +39,8 @@ class ProblemDetail:
     detail: list[Any] | ProblemDetailDetailType1 | str
     type_: str | Unset = "about:blank"
     code: str | Unset = UNSET
+    action: str | Unset = UNSET
+    shared_maps: list[ProblemDetailSharedMapsItem] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -56,6 +63,15 @@ class ProblemDetail:
 
         code = self.code
 
+        action = self.action
+
+        shared_maps: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.shared_maps, Unset):
+            shared_maps = []
+            for shared_maps_item_data in self.shared_maps:
+                shared_maps_item = shared_maps_item_data.to_dict()
+                shared_maps.append(shared_maps_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -69,12 +85,17 @@ class ProblemDetail:
             field_dict["type"] = type_
         if code is not UNSET:
             field_dict["code"] = code
+        if action is not UNSET:
+            field_dict["action"] = action
+        if shared_maps is not UNSET:
+            field_dict["shared_maps"] = shared_maps
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.problem_detail_detail_type_1 import ProblemDetailDetailType1
+        from ..models.problem_detail_shared_maps_item import ProblemDetailSharedMapsItem
 
         d = dict(src_dict)
         title = d.pop("title")
@@ -106,12 +127,27 @@ class ProblemDetail:
 
         code = d.pop("code", UNSET)
 
+        action = d.pop("action", UNSET)
+
+        _shared_maps = d.pop("shared_maps", UNSET)
+        shared_maps: list[ProblemDetailSharedMapsItem] | Unset = UNSET
+        if _shared_maps is not UNSET:
+            shared_maps = []
+            for shared_maps_item_data in _shared_maps:
+                shared_maps_item = ProblemDetailSharedMapsItem.from_dict(
+                    shared_maps_item_data
+                )
+
+                shared_maps.append(shared_maps_item)
+
         problem_detail = cls(
             title=title,
             status=status,
             detail=detail,
             type_=type_,
             code=code,
+            action=action,
+            shared_maps=shared_maps,
         )
 
         problem_detail.additional_properties = d

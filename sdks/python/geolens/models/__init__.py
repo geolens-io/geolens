@@ -842,6 +842,7 @@ from .probe_request import ProbeRequest
 from .probe_response import ProbeResponse
 from .problem_detail import ProblemDetail
 from .problem_detail_detail_type_1 import ProblemDetailDetailType1
+from .problem_detail_shared_maps_item import ProblemDetailSharedMapsItem
 from .provider_health import ProviderHealth
 from .quality_detail import QualityDetail
 from .quality_statement_draft_response import QualityStatementDraftResponse
@@ -1741,6 +1742,7 @@ __all__ = (
     "ProbeResponse",
     "ProblemDetail",
     "ProblemDetailDetailType1",
+    "ProblemDetailSharedMapsItem",
     "ProviderHealth",
     "QualityDetail",
     "QualityStatementDraftResponse",

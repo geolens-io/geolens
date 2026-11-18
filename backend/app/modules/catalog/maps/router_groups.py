@@ -12,6 +12,7 @@ from app.core.dependencies import get_client_ip, get_db
 from app.core.identity import Identity
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.dependencies import require_permission
+from app.modules.catalog.datasets.domain.helpers import DatasetInSharedMapsError
 from app.modules.catalog.group_sharing import GroupNotJoinedError, UnknownGroupsError
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.schemas import MapGroupsResponse, MapGroupsUpdate
@@ -117,6 +118,9 @@ async def set_map_groups_endpoint(
             status_code=status.HTTP_403_FORBIDDEN,
             detail="You can share a map only with groups you belong to.",
         )
+    except DatasetInSharedMapsError:
+        # The app handler answers it with code, action and shared_maps.
+        raise
     except ValueError as exc:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=str(exc)
