@@ -1792,8 +1792,9 @@ async def _wfs_expected_features(
     token: str | None,
     arm_origin_contact: "Callable[[], None] | None",
 ) -> tuple[int | None, bool]:
-    """For a WFS, read the layer's total from ``resultType=hits``, in the
-    version and under the type name GDAL settles on.
+    """For a WFS, read the layer's total from ``resultType=hits`` in the
+    version GDAL settles on, and for a non-ArcGIS WFS under its advertised
+    type name.
 
     Returns the total and whether the count is strict. An ArcGIS WFS turns
     GDAL's paging off unless ``COUNT`` is a page size there, and any
@@ -1825,10 +1826,10 @@ async def _wfs_expected_features(
     if service is None:
         return None, False
     version = service.version
-    layer = service.type_name(layer_name)
-    expected = await fetch_arcgis_wfs_hits(url, layer, version=version, **reads)
     if service.evidence is None:
-        return expected, False
+        layer = service.type_name(layer_name)
+        return await fetch_arcgis_wfs_hits(url, layer, version=version, **reads), False
+    expected = await fetch_arcgis_wfs_hits(url, layer_name, version=version, **reads)
     if expected is None:
         raise IngestionError(
             FixedReason(
@@ -1838,7 +1839,7 @@ async def _wfs_expected_features(
                 code="arcgis_wfs_count_unavailable",
             )
         )
-    if not await arcgis_wfs_pages_by_count(url, layer, version=version, **reads):
+    if not await arcgis_wfs_pages_by_count(url, layer_name, version=version, **reads):
         cmd.extend(["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"])
     return expected, True
 

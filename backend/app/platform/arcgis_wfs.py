@@ -44,6 +44,7 @@ from app.platform.service_endpoints import (
     _wfs_feature_types,
     _wfs_layer_name,
     _wfs_root,
+    _xml_value,
     bounded_parse_qsl,
     credential_headers,
 )
@@ -221,8 +222,8 @@ async def recognise_arcgis_wfs(
 
     The version is the one GetCapabilities answers in, read as GDAL reads
     it, whatever the URL names. GetCapabilities isn't read when the URL
-    names both the service and a version; then, or when that read fails,
-    the version is the URL's own, else 2.0.0.
+    names both the service and a version; then, when that read fails, or
+    when an ArcGIS WFS states no version, it is the URL's own, else 2.0.0.
     """
     version = _url_version(url)
     evidence = esri_evidence("wfs", url)
@@ -258,6 +259,8 @@ async def recognise_arcgis_wfs(
     if root is None:
         return WfsService(evidence, version or _DEFAULT_VERSION)
     answered, names = _wfs_feature_types(root)
+    if evidence is not None and not _xml_value(root, "version"):
+        answered = version or _DEFAULT_VERSION
     return WfsService(evidence, answered, tuple(names))
 
 

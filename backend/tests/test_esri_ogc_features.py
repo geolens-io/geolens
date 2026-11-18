@@ -1765,12 +1765,13 @@ def _counting_only(
     *,
     advertised: str | None = "2.0.0",
     version_form: str = "version",
+    endpoint: str = _OTHER_WFS,
 ):
     """A WFS that states its total of 25 only to a hits read in ``version``
     for ``type_name``, the name it advertises, under the type-name key that
     version uses."""
     capabilities = _capabilities(
-        _OTHER_WFS,
+        endpoint,
         version=advertised,
         version_form=version_form,
         feature_types=(type_name,),
@@ -1920,6 +1921,24 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
             await self._import(url, "topp:pts")
 
         assert failure_code(redact_failure_reason(caught.value)) == "wfs_short"
+
+    @pytest.mark.parametrize("advertised", [None, ""], ids=["absent", "empty"])
+    async def test_an_arcgis_wfs_stating_no_version_is_counted_in_2_0(
+        self, monkeypatch, rows, advertised
+    ) -> None:
+        recorded = _serve(
+            monkeypatch,
+            _counting_only(
+                "2.0.0", "glTrial2Ogc:pts", advertised=advertised, endpoint=_ARCGIS_WFS
+            ),
+        )
+        _spawn_reading_the_source(monkeypatch)
+        rows.return_value = 25
+
+        await self._import(_PROXIED_WFS)
+
+        hits = [r for r in recorded if r.url.params.get("RESULTTYPE") == "hits"]
+        assert [r.url.params["VERSION"] for r in hits] == ["2.0.0"]
 
     @pytest.mark.parametrize("requested", ["TOPP:Parcels", "parcels"])
     async def test_a_geoserver_layer_is_counted_under_its_advertised_name(
