@@ -50,7 +50,9 @@ from app.core.url_redaction import redact_url_credentials, scrub_secret_value
 from app.platform.arcgis_wfs import (
     CapabilitiesUnreadableError,
     arcgis_wfs_pages_by_count,
+    WfsService,
     fetch_arcgis_wfs_hits,
+    max_features,
     recognise_arcgis_wfs,
 )
 from app.platform.egress_proxy import (
@@ -1825,10 +1827,9 @@ async def _wfs_expected_features(
         ) from None
     if service is None:
         return None, False
-    version = service.version
     if service.evidence is None:
-        layer = service.type_name(layer_name)
-        return await fetch_arcgis_wfs_hits(url, layer, version=version, **reads), False
+        return await _wfs_stated_floor(url, service, layer_name, reads), False
+    version = service.version
     expected = await fetch_arcgis_wfs_hits(url, layer_name, version=version, **reads)
     if expected is None:
         raise IngestionError(
@@ -1842,6 +1843,21 @@ async def _wfs_expected_features(
     if not await arcgis_wfs_pages_by_count(url, layer_name, version=version, **reads):
         cmd.extend(["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"])
     return expected, True
+
+
+async def _wfs_stated_floor(
+    url: str, service: WfsService, layer_name: str, reads: dict
+) -> int | None:
+    """A non-ArcGIS WFS layer's total under its advertised name, capped by
+    the ``MAXFEATURES`` a WFS 1.x URL asks for, or None. WFS 1.0 has no
+    ``resultType``, so it isn't asked."""
+    version = service.version
+    if version.startswith("1.0"):
+        return None
+    layer = service.type_name(layer_name)
+    total = await fetch_arcgis_wfs_hits(url, layer, version=version, **reads)
+    limit = None if version.startswith("2") else max_features(url)
+    return total if total is None or limit is None else min(total, limit)
 
 
 async def staged_row_count(table_name: str, schema: str) -> int:

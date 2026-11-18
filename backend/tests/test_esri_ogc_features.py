@@ -1767,15 +1767,16 @@ def _counting_only(
     version_form: str = "version",
     endpoint: str = _OTHER_WFS,
     stated: str = "25",
+    others: tuple[str, ...] = (),
 ):
-    """A WFS that states its total of 25 only to a hits read in ``version``
-    for ``type_name``, the name it advertises, under the type-name key that
-    version uses."""
+    """A WFS that states ``stated`` as its total only to a hits read in
+    ``version`` for ``type_name``, under the type-name key that version
+    uses. It advertises ``others``, then ``type_name``."""
     capabilities = _capabilities(
         endpoint,
         version=advertised,
         version_form=version_form,
-        feature_types=(type_name,),
+        feature_types=(*others, type_name),
     )
     two = version.startswith("2")
     key, other_key = ("TYPENAMES", "TYPENAME") if two else ("TYPENAME", "TYPENAMES")
@@ -1785,7 +1786,9 @@ def _counting_only(
         if params.get("REQUEST") == "GetCapabilities":
             return _streamed(200, capabilities, "application/xml")
         if (
-            params.get("VERSION") == version
+            params.get("REQUEST") == "GetFeature"
+            and params.get("RESULTTYPE") == "hits"
+            and params.get("VERSION") == version
             and params.get(key) == type_name
             and other_key not in params
         ):
@@ -1975,6 +1978,64 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
 
         hits = [r for r in recorded if r.url.params.get("RESULTTYPE") == "hits"]
         assert [r.url.params["VERSION"] for r in hits] == ["2.0.0"]
+
+    async def test_an_arcgis_wfs_named_in_1_0_is_still_asked_for_its_total(
+        self, monkeypatch, rows
+    ) -> None:
+        recorded = _serve(
+            monkeypatch,
+            _counting_only("1.0.0", "glTrial2Ogc:pts", endpoint=_ARCGIS_WFS),
+        )
+        _spawn_reading_the_source(monkeypatch)
+        rows.return_value = 25
+
+        await self._import(f"{_ARCGIS_WFS}?VERSION=1.0.0")
+
+        hits = [r for r in recorded if r.url.params.get("RESULTTYPE") == "hits"]
+        assert [r.url.params["VERSION"] for r in hits] == ["1.0.0"]
+
+    @pytest.mark.parametrize(
+        ("query", "stated", "staged", "short"),
+        [
+            ("?MAXFEATURES=25", "5000", 25, False),
+            ("?maxFeatures=+0025", "5000", 25, False),
+            ("", "5000", 25, True),
+            ("?MAXFEATURES=0", "5000", 25, True),
+            ("?MAXFEATURES=10000", "25", 10, True),
+        ],
+        ids=["limit", "limit-spelling", "no-limit", "zero-limit", "limit-above-total"],
+    )
+    async def test_a_1_1_geoserver_is_held_to_the_limit_its_url_asks_for(
+        self, monkeypatch, rows, query, stated, staged, short
+    ) -> None:
+        from app.processing.ingest.ogr import WfsCountMismatchError
+
+        _serve(
+            monkeypatch,
+            _counting_only("1.1.0", "topp:pts", advertised="1.1.0", stated=stated),
+        )
+        _spawn_reading_the_source(monkeypatch)
+        rows.return_value = staged
+
+        if short:
+            with pytest.raises(WfsCountMismatchError, match=f"returned {staged} of"):
+                await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
+        else:
+            await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
+
+    async def test_a_geoserver_layer_is_counted_within_the_urls_type_name(
+        self, monkeypatch, rows
+    ) -> None:
+        from app.core.failure_reason import failure_code, redact_failure_reason
+        from app.processing.ingest.ogr import WfsCountMismatchError
+
+        _serve(monkeypatch, _counting_only("2.0.0", "b:parcels", others=("a:Parcels",)))
+        _spawn_reading_the_source(monkeypatch)
+
+        with pytest.raises(WfsCountMismatchError) as caught:
+            await self._import(f"{_OTHER_WFS}?TYPENAME=b:parcels", "parcels")
+
+        assert failure_code(redact_failure_reason(caught.value)) == "wfs_short"
 
     @pytest.mark.parametrize("requested", ["TOPP:Parcels", "parcels"])
     async def test_a_geoserver_layer_is_counted_under_its_advertised_name(

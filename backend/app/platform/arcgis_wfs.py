@@ -12,7 +12,7 @@ import asyncio
 import re
 from collections.abc import Callable
 from typing import NamedTuple
-from urllib.parse import urlsplit
+from urllib.parse import unquote, urlsplit
 
 import httpx
 import structlog
@@ -41,6 +41,7 @@ from app.platform.service_endpoints import (
     _operation_hrefs,
     _wfs_capabilities_node,
     _url_add_kvp,
+    _url_get_value,
     _wfs_feature_types,
     _wfs_layer_name,
     _wfs_root,
@@ -99,9 +100,18 @@ def number_matched(body: bytes) -> int | None:
     root = _root(body)
     if root is None:
         return None
-    value = root.get("numberMatched") or root.get("numberOfFeatures") or ""
+    return _count(root.get("numberMatched") or root.get("numberOfFeatures") or "")
+
+
+def _count(value: str) -> int | None:
     count = _COUNT.fullmatch(value.strip(" \t\r\n"))
     return int(count.group(1)) if count else None
+
+
+def max_features(url: str) -> int | None:
+    """The ``MAXFEATURES`` limit ``url`` asks for, or None when it names no
+    positive count."""
+    return _count(unquote(_url_get_value(url, "MAXFEATURES"))) or None
 
 
 def features_returned(body: bytes) -> int | None:
@@ -264,6 +274,12 @@ async def recognise_arcgis_wfs(
     answered, names = _wfs_feature_types(root)
     if evidence is not None and not _xml_value(root, "version"):
         answered = version or _DEFAULT_VERSION
+    # GDAL lists only the advertised types a TYPENAME (else TYPENAMES) in the
+    # URL selects, matched without case.
+    selector = _url_get_value(url, "TYPENAME") or _url_get_value(url, "TYPENAMES")
+    if selector:
+        selected = {name.lower() for name in unquote(selector).split(",")}
+        names = [name for name in names if name.lower() in selected]
     return WfsService(evidence, answered, tuple(names))
 
 
@@ -297,10 +313,7 @@ async def fetch_arcgis_wfs_hits(
     on_first_request: Callable[[], None] | None = None,
 ) -> int | None:
     """The layer's total from a ``resultType=hits`` read, or None when the
-    service doesn't say. WFS 1.0 has no ``resultType``, so it isn't asked.
-    Never raises for the service's answer."""
-    if version.startswith("1.0"):
-        return None
+    service doesn't say. Never raises for the service's answer."""
     target = wfs_url(url, layer, version=version, RESULTTYPE="hits")
     answer = await _read(target, credential_line, on_first_request)
     return None if answer is None else number_matched(answer.body)
