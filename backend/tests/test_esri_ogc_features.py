@@ -1766,6 +1766,7 @@ def _counting_only(
     advertised: str | None = "2.0.0",
     version_form: str = "version",
     endpoint: str = _OTHER_WFS,
+    stated: str = "25",
 ):
     """A WFS that states its total of 25 only to a hits read in ``version``
     for ``type_name``, the name it advertises, under the type-name key that
@@ -1791,7 +1792,7 @@ def _counting_only(
             total = "numberMatched" if two else "numberOfFeatures"
             body = (
                 '<wfs:FeatureCollection xmlns:wfs="http://www.opengis.net/wfs" '
-                f'{total}="25"/>'
+                f'{total}="{stated}"/>'
             ).encode()
             return _streamed(200, body, "application/xml")
         return _streamed(400, b"<ows:ExceptionReport/>", "application/xml")
@@ -1921,6 +1922,41 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
             await self._import(url, "topp:pts")
 
         assert failure_code(redact_failure_reason(caught.value)) == "wfs_short"
+
+    @pytest.mark.parametrize("version", ["2.0.0", "1.1.0"])
+    @pytest.mark.parametrize(
+        "stated",
+        ["+25", " 25 ", "\t25\n", "0" * 5000 + "25"],
+        ids=["plus", "padded", "xml-whitespace", "long-zeros"],
+    )
+    async def test_a_total_in_any_xml_integer_spelling_is_checked(
+        self, monkeypatch, rows, version, stated
+    ) -> None:
+        from app.processing.ingest.ogr import WfsCountMismatchError
+
+        _serve(
+            monkeypatch,
+            _counting_only(version, "topp:pts", advertised=version, stated=stated),
+        )
+        _spawn_reading_the_source(monkeypatch)
+
+        with pytest.raises(WfsCountMismatchError, match="returned 10 of 25"):
+            await self._import(_OTHER_WFS, "topp:pts")
+
+    @pytest.mark.parametrize("version", ["2.0.0", "1.1.0"])
+    @pytest.mark.parametrize("stated", ["-1", "2.5", "abc", "unknown", "9" * 20])
+    async def test_a_total_that_is_no_count_is_unknown(
+        self, monkeypatch, rows, version, stated
+    ) -> None:
+        _serve(
+            monkeypatch,
+            _counting_only(version, "topp:pts", advertised=version, stated=stated),
+        )
+        _spawn_reading_the_source(monkeypatch)
+
+        await self._import(_OTHER_WFS, "topp:pts")
+
+        rows.assert_not_awaited()
 
     @pytest.mark.parametrize("advertised", [None, ""], ids=["absent", "empty"])
     async def test_an_arcgis_wfs_stating_no_version_is_counted_in_2_0(

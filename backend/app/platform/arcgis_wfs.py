@@ -63,7 +63,9 @@ _READ_KEYS = (
     "OUTPUTFORMAT",
 )
 _DEFAULT_VERSION = "2.0.0"
-_COUNT = re.compile("[0-9]+")
+# xsd:nonNegativeInteger: an optional "+" and leading zeros; more than 19
+# significant digits is no feature count, so it reads as unknown.
+_COUNT = re.compile(r"\+?0*([0-9]{1,19})")
 
 
 def wfs_url(url: str, layer: str, *, version: str, **params: str) -> str:
@@ -98,7 +100,8 @@ def number_matched(body: bytes) -> int | None:
     if root is None:
         return None
     value = root.get("numberMatched") or root.get("numberOfFeatures") or ""
-    return int(value) if _COUNT.fullmatch(value) else None
+    count = _COUNT.fullmatch(value.strip(" \t\r\n"))
+    return int(count.group(1)) if count else None
 
 
 def features_returned(body: bytes) -> int | None:
