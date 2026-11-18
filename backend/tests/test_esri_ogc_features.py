@@ -707,6 +707,8 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
 
         await self._import(_OTHER_WFS)
 
+        rows.assert_awaited_once()
+
     async def test_a_non_arcgis_wfs_with_no_total_is_imported_unchecked(
         self, monkeypatch, hits, pages, rows
     ) -> None:
@@ -714,6 +716,8 @@ class TestArcGISWFSIsReadUnpagedAndCounted:
         hits.return_value, rows.return_value = None, 1000
 
         await self._import(_OTHER_WFS)
+
+        rows.assert_not_awaited()
 
     async def test_fewer_features_than_the_total_fails_the_import(
         self, monkeypatch, hits, pages, rows
@@ -2006,12 +2010,12 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
     @pytest.mark.parametrize(
         ("query", "stated", "staged", "floor"),
         [
-            ("?MAXFEATURES=25", "5000", 25, None),
-            ("?maxFeatures=+0025", "5000", 25, None),
+            ("?MAXFEATURES=25", "5000", 24, 25),
+            ("?maxFeatures=+0025", "5000", 24, 25),
             ("", "5000", 25, 5000),
             ("?MAXFEATURES=0", "5000", 25, 5000),
             ("?MAXFEATURES=10000", "25", 10, 25),
-            ("?CQL_FILTER=maxfeatures=3&MAXFEATURES=5", "25", 5, None),
+            ("?CQL_FILTER=maxfeatures=3&MAXFEATURES=5", "25", 4, 5),
         ],
         ids=[
             "limit",
@@ -2034,13 +2038,24 @@ class TestAnArcGISWFSBehindAnotherURLIsCounted:
         _spawn_reading_the_source(monkeypatch)
         rows.return_value = staged
 
-        if floor is not None:
-            with pytest.raises(
-                WfsCountMismatchError, match=f"returned {staged} of {floor} features"
-            ):
-                await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
-        else:
+        with pytest.raises(
+            WfsCountMismatchError, match=f"returned {staged} of {floor} features"
+        ):
             await self._import(f"{_OTHER_WFS}{query}", "topp:pts")
+
+    async def test_a_1_1_geoserver_staging_its_url_limit_passes_the_check(
+        self, monkeypatch, rows
+    ) -> None:
+        _serve(
+            monkeypatch,
+            _counting_only("1.1.0", "topp:pts", advertised="1.1.0", stated="5000"),
+        )
+        _spawn_reading_the_source(monkeypatch)
+        rows.return_value = 25
+
+        await self._import(f"{_OTHER_WFS}?MAXFEATURES=25", "topp:pts")
+
+        rows.assert_awaited_once()
 
     @pytest.mark.parametrize(
         "query", ["?COUNT=25", "?MAXFEATURES=25", "?count=+0025", "?maxFeatures=25"]
