@@ -68,6 +68,15 @@ class DatabaseConnectError(DatabaseSourceError):
         )
 
 
+class DatabaseReadTimeoutError(DatabaseSourceError):
+    def __init__(self, connection: str, seconds: float) -> None:
+        super().__init__(
+            connection,
+            f"Reading from the database connection {connection!r} timed out "
+            f"after {int(seconds)}s.",
+        )
+
+
 class DatabaseTableError(DatabaseSourceError):
     def __init__(self, connection: str) -> None:
         super().__init__(
@@ -176,10 +185,14 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
         await await_draining(asyncio.wait_for(proc.wait(), timeout=_REAP_WAIT_SECONDS))
 
 
-async def run_database_sql(name: str, sql: str) -> list[dict[str, object]]:
+async def run_database_sql(
+    name: str, sql: str, *, timeout: float | None = None
+) -> list[dict[str, object]]:
     """Run one GeoLens-built SELECT on connection ``name`` and return its rows.
 
-    Raises a ``DatabaseSourceError`` subclass whose message is safe to show.
+    ``timeout`` is for a read that scans a whole table; running out of it is a
+    ``DatabaseReadTimeoutError``, not a failed connect. Raises a ``DatabaseSourceError`` subclass whose message is safe
+    to show.
     """
     connection = get_database_connection(name)
     with freetds_workdir(connection) as workdir:
@@ -209,10 +222,12 @@ async def run_database_sql(name: str, sql: str) -> list[dict[str, object]]:
         )
         try:
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=SUBPROCESS_TIMEOUT_SECONDS
+                proc.communicate(), timeout=timeout or SUBPROCESS_TIMEOUT_SECONDS
             )
         except asyncio.TimeoutError:
             logger.warning("database read timed out", connection=name)
+            if timeout is not None:
+                raise DatabaseReadTimeoutError(name, timeout) from None
             raise DatabaseConnectError(name) from None
         finally:
             if proc.returncode is None:
@@ -473,11 +488,14 @@ def _table_dimensions_sql(schema_name: str, table_name: str, column: str) -> str
 
 
 async def probe_table_dimensions(
-    name: str, schema_name: str, table_name: str, column: str
+    name: str, schema_name: str, table_name: str, column: str, *, timeout: float
 ) -> TableDimensions:
-    """Count the values of ``column`` that carry Z and M on connection ``name``."""
+    """Count the values of ``column`` that carry Z and M on connection ``name``.
+
+    The count reads every value, so ``timeout`` is sized like a copy's.
+    """
     rows = await run_database_sql(
-        name, _table_dimensions_sql(schema_name, table_name, column)
+        name, _table_dimensions_sql(schema_name, table_name, column), timeout=timeout
     )
     row = rows[0] if rows else {}
     counts = {key: row.get(key) for key in _COUNTS}

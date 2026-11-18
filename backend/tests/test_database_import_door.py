@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -451,6 +452,81 @@ async def test_copy_keeps_z_only_when_both_counts_agree(
     assert (argv[argv.index("-dim") + 1] if "-dim" in argv else None) == dim
     assert flatten.await_count == int(flattened)
     assert lost == dropped
+
+
+async def test_the_dimension_counts_get_the_copys_budget_and_metadata_the_short_one(
+    monkeypatch,
+):
+    from app.platform import database_sources
+    from app.processing.ingest.ogr import OGR2OGR_FILE_TIMEOUT_SECONDS
+
+    monkeypatch.setattr(settings, "database_sources", {"gis": _connection()})
+    reads = AsyncMock(
+        return_value=[
+            {
+                "column_name": "shape",
+                "srid": 2263,
+                "geometries": 1,
+                "with_z": 0,
+                "with_m": 0,
+                "with_z_or_m": 0,
+                "lossy_curves": 0,
+            }
+        ]
+    )
+    monkeypatch.setattr(database_sources, "run_database_sql", reads)
+    monkeypatch.setattr(
+        database_import.asyncio,
+        "create_subprocess_exec",
+        AsyncMock(return_value=_Proc()),
+    )
+    monkeypatch.setattr(database_import, "_store_single_points_as_point", AsyncMock())
+
+    await database_sources.probe_table_geometry("gis", "dbo", "parcels")
+    metadata_reads = reads.await_count
+    await database_import.copy_database_table(
+        "gis",
+        schema_name="dbo",
+        table_name="parcels",
+        column="shape",
+        target_schema="data",
+        target_table="parcels_copy",
+        srid=2263,
+    )
+
+    timeouts = [call.kwargs.get("timeout") for call in reads.await_args_list]
+    assert timeouts[:metadata_reads] == [None] * metadata_reads
+    assert timeouts[metadata_reads:] == [OGR2OGR_FILE_TIMEOUT_SECONDS] * 2
+
+
+async def test_a_long_read_that_runs_out_of_time_is_not_a_failed_connect(
+    monkeypatch,
+):
+    from app.platform import database_sources
+
+    monkeypatch.setattr(settings, "database_sources", {"gis": _connection()})
+
+    class _Slow(_Proc):
+        async def communicate(self):
+            await asyncio.sleep(1)
+
+        def kill(self):
+            self.returncode = -9
+
+        async def wait(self):
+            return -9
+
+    monkeypatch.setattr(
+        database_sources.asyncio,
+        "create_subprocess_exec",
+        AsyncMock(return_value=_Slow()),
+    )
+    monkeypatch.setattr(database_sources, "SUBPROCESS_TIMEOUT_SECONDS", 0.01)
+
+    with pytest.raises(database_sources.DatabaseReadTimeoutError, match="'gis'"):
+        await database_sources.run_database_sql("gis", "SELECT 1", timeout=0.05)
+    with pytest.raises(DatabaseConnectError):
+        await database_sources.run_database_sql("gis", "SELECT 1")
 
 
 async def _staged_copy(session, values: list[str | None]) -> str:

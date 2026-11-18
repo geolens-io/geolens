@@ -189,7 +189,11 @@ async def _dimensions(
 ) -> TableDimensions:
     try:
         return await probe_table_dimensions(
-            connection_name, schema_name, table_name, column
+            connection_name,
+            schema_name,
+            table_name,
+            column,
+            timeout=OGR2OGR_FILE_TIMEOUT_SECONDS,
         )
     except DatabaseSourceError as exc:
         raise DatabaseImportError(str(exc)) from None

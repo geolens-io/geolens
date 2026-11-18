@@ -841,12 +841,12 @@ def _probe_then(monkeypatch, *, after_first=None, before_second=None):
     real = database_import.probe_table_dimensions
     calls = 0
 
-    async def _probe(*args):
+    async def _probe(*args, **kwargs):
         nonlocal calls
         calls += 1
         if calls == 2 and before_second:
             await before_second()
-        counted = await real(*args)
+        counted = await real(*args, **kwargs)
         if calls == 1 and after_first:
             await after_first()
         return counted
