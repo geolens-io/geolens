@@ -14,6 +14,7 @@ import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
 import { REFRESHABLE_ORIGINS } from '@/components/dataset/SourceRefreshAction';
 import { SourceSyncPanel } from '@/components/dataset/SourceSyncPanel';
 import {
+  useRefreshVrtWhenRebuilt,
   useRegenerateVrt,
   useVrtGenerations,
   useVrtSources,
@@ -41,6 +42,7 @@ import {
 } from '@/lib/status-colors';
 import { ApiError } from '@/api/client';
 import { formatMutationError } from '@/lib/error-map';
+import { useCanMutate } from '@/hooks/use-can-mutate';
 import { useAuthStore } from '@/stores/auth-store';
 import { useDrawingStore } from '@/stores/drawing-store';
 import type {
@@ -674,14 +676,17 @@ function VrtMemberHealth({ status }: { status: VrtSourceHealth['status'] | undef
   );
 }
 
+function isDatasetBusy(err: ApiError): boolean {
+  const body = err.body as { code?: unknown } | null | undefined;
+  return err.status === 409 && body?.code === 'dataset_busy';
+}
+
 function VrtSection({
   dataset,
   isAuthenticated,
-  canEdit,
 }: {
   dataset: DatasetResponse;
   isAuthenticated: boolean;
-  canEdit: boolean;
 }) {
   const { t, i18n } = useTranslation('dataset');
   const isRegenerating = dataset.raster?.status === 'regenerating';
@@ -690,6 +695,9 @@ function VrtSection({
   const { data: statusData } = useVrtStatus(queryId, isRegenerating);
   const { data: generationsData } = useVrtGenerations(queryId);
   const regenerate = useRegenerateVrt(dataset.id);
+  useRefreshVrtWhenRebuilt(queryId, isRegenerating);
+  // The route is owner-or-admin whatever the owner's role, so this is not `canEdit`.
+  const canRegenerate = useCanMutate(dataset);
   const sources = sourcesData?.sources ?? [];
   const healthById = new Map<string, VrtSourceHealth['status']>();
   statusData?.source_health.forEach((health) => healthById.set(health.dataset_id, health.status));
@@ -705,7 +713,7 @@ function VrtSection({
             {t('sourcePanel.vrt.description')}
           </p>
         </div>
-        {canEdit && (
+        {canRegenerate && (
           <Button
             variant="outline"
             size="sm"
@@ -715,7 +723,7 @@ function VrtSection({
                 onSuccess: () => toast.success(t('vrt.regenerateStarted')),
                 onError: (err) => {
                   toast.error(
-                    err instanceof ApiError && err.status === 409
+                    err instanceof ApiError && isDatasetBusy(err)
                       ? t('vrt.regenerateConflict')
                       : formatMutationError('common:errors.requestFailed', err),
                   );
@@ -965,7 +973,7 @@ export function SourcePanel({
       </Card>
 
       {isVrt ? (
-        <VrtSection dataset={dataset} isAuthenticated={isAuthenticated} canEdit={canEdit} />
+        <VrtSection dataset={dataset} isAuthenticated={isAuthenticated} />
       ) : (
         <>
           {hasRemoteSource && (

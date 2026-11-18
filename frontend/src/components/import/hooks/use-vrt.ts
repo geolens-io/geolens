@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import {
@@ -34,14 +35,29 @@ export function useVrtGenerations(datasetId: string, params?: { limit?: number; 
   });
 }
 
+function invalidateVrt(qc: ReturnType<typeof useQueryClient>, datasetId: string) {
+  qc.invalidateQueries({ queryKey: queryKeys.vrt.sources(datasetId) });
+  qc.invalidateQueries({ queryKey: queryKeys.vrt.status(datasetId) });
+  qc.invalidateQueries({ queryKey: queryKeys.vrt.generationsAll(datasetId) });
+}
+
 export function useRegenerateVrt(datasetId: string) {
   const qc = useQueryClient();
   return useMutation({
     mutationFn: () => regenerateVrt(datasetId),
     onSuccess: () => {
       qc.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
-      qc.invalidateQueries({ queryKey: queryKeys.vrt.status(datasetId) });
-      qc.invalidateQueries({ queryKey: queryKeys.vrt.generations(datasetId) });
+      invalidateVrt(qc, datasetId);
     },
   });
+}
+
+/** Refetches the VRT's sources, status and history once a rebuild ends. */
+export function useRefreshVrtWhenRebuilt(datasetId: string, isRegenerating: boolean) {
+  const qc = useQueryClient();
+  const wasRegenerating = useRef(isRegenerating);
+  useEffect(() => {
+    if (wasRegenerating.current && !isRegenerating && datasetId) invalidateVrt(qc, datasetId);
+    wasRegenerating.current = isRegenerating;
+  }, [qc, datasetId, isRegenerating]);
 }

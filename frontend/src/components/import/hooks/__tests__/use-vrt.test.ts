@@ -5,15 +5,21 @@ vi.mock('@/api/vrt', () => ({
   listVrtSources: vi.fn(),
   getVrtStatus: vi.fn(),
   getVrtGenerations: vi.fn(),
+  regenerateVrt: vi.fn(),
 }));
 
 import {
   listVrtSources,
   getVrtStatus,
+  getVrtGenerations,
+  regenerateVrt,
 } from '@/api/vrt';
 import {
   useVrtSources,
   useVrtStatus,
+  useVrtGenerations,
+  useRefreshVrtWhenRebuilt,
+  useRegenerateVrt,
 } from '@/components/import/hooks/use-vrt';
 
 const mockListVrtSources = vi.mocked(listVrtSources);
@@ -68,5 +74,52 @@ describe('useVrtStatus', () => {
     const { result } = renderHook(() => useVrtStatus('ds-1', false));
 
     await waitFor(() => expect(result.current.isError).toBe(true));
+  });
+});
+
+describe('VRT rebuild refresh', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.mocked(getVrtGenerations).mockResolvedValue({ generations: [], total: 0 } as never);
+  });
+
+  it('refetches parameterized generation queries once the rebuild ends', async () => {
+    const { result, rerender } = renderHook(
+      ({ regenerating }) => {
+        useRefreshVrtWhenRebuilt('ds-1', regenerating);
+        return useVrtGenerations('ds-1', { limit: 1 });
+      },
+      { initialProps: { regenerating: true } },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    expect(getVrtGenerations).toHaveBeenCalledTimes(1);
+
+    rerender({ regenerating: false });
+    await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(2));
+  });
+
+  it('does not refetch while the VRT stays ready', async () => {
+    const { result, rerender } = renderHook(
+      ({ regenerating }) => {
+        useRefreshVrtWhenRebuilt('ds-1', regenerating);
+        return useVrtGenerations('ds-1', { limit: 1 });
+      },
+      { initialProps: { regenerating: false } },
+    );
+    await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    rerender({ regenerating: false });
+    expect(getVrtGenerations).toHaveBeenCalledTimes(1);
+  });
+
+  it('refetches parameterized generation queries when a rebuild is accepted', async () => {
+    vi.mocked(regenerateVrt).mockResolvedValue({} as never);
+    const { result } = renderHook(() => ({
+      generations: useVrtGenerations('ds-1', { limit: 1 }),
+      regenerate: useRegenerateVrt('ds-1'),
+    }));
+    await waitFor(() => expect(result.current.generations.isSuccess).toBe(true));
+
+    result.current.regenerate.mutate();
+    await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(2));
   });
 });

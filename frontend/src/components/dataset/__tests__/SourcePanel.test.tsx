@@ -31,6 +31,7 @@ vi.mock('@/components/import/hooks/use-vrt', () => ({
   useVrtStatus: vi.fn(),
   useVrtGenerations: vi.fn(),
   useRegenerateVrt: vi.fn(),
+  useRefreshVrtWhenRebuilt: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
@@ -1664,6 +1665,7 @@ describe('SourcePanel', () => {
 
   describe('VRT regenerate action', () => {
     const vrtDataset = (status: 'ready' | 'regenerating') => makeDataset({
+      created_by: 'owner-1',
       origin: null,
       origin_ref: null,
       source_format: null,
@@ -1675,18 +1677,47 @@ describe('SourcePanel', () => {
         status, vrt_type: 'mosaic', source_count: 1, resolution_strategy: 'finest',
       },
     });
-    const mockMutate = (outcome: 'ok' | 'conflict' | 'error') => {
+    const mockMutate = (outcome: 'ok' | 'busy' | 'lock' | 'error') => {
       const mutate = vi.fn((_v: undefined, opts: { onSuccess?: () => void; onError?: (e: Error) => void }) => {
         if (outcome === 'ok') opts.onSuccess?.();
-        else opts.onError?.(outcome === 'conflict' ? new ApiError('busy', 409, { code: 'dataset_busy' }) : new ApiError('boom', 500));
+        else {
+          const errors = {
+            busy: new ApiError('busy', 409, { code: 'dataset_busy' }),
+            lock: new ApiError('locked', 409, { code: 'catalog_lock_conflict' }),
+            error: new ApiError('boom', 500),
+          };
+          opts.onError?.(errors[outcome]);
+        }
       });
       vi.mocked(useRegenerateVrt).mockReturnValue({ mutate, isPending: false } as unknown as ReturnType<typeof useRegenerateVrt>);
       return mutate;
     };
 
-    beforeEach(() => useAuthStore.setState({ token: 'editor-token' }));
+    const signIn = (id: string, roles: string[]) => useAuthStore.setState({
+      token: 't',
+      user: { id, roles } as never,
+    });
+    beforeEach(() => signIn('owner-1', ['editor']));
+    afterEach(() => useAuthStore.setState({ user: null }));
 
-    it('hides the button from a user who cannot edit', () => {
+    it.each([
+      ['an editor who owns it', 'owner-1', ['editor']],
+      ['an owner whose role is viewer', 'owner-1', ['viewer']],
+      ['an admin', 'admin-1', ['admin']],
+    ])('shows the button to %s', (_label, id, roles) => {
+      signIn(id, roles);
+      render(<SourcePanel dataset={vrtDataset('ready')} />);
+      expect(screen.getByRole('button', { name: 'Regenerate' })).toBeInTheDocument();
+    });
+
+    it('hides the button from a non-owner editor', () => {
+      signIn('other-1', ['editor']);
+      render(<SourcePanel dataset={vrtDataset('ready')} canEdit />);
+      expect(screen.queryByRole('button', { name: 'Regenerate' })).not.toBeInTheDocument();
+    });
+
+    it('hides the button from an anonymous reader', () => {
+      useAuthStore.setState({ token: null, user: null });
       render(<SourcePanel dataset={vrtDataset('ready')} />);
       expect(screen.queryByRole('button', { name: 'Regenerate' })).not.toBeInTheDocument();
     });
@@ -1700,10 +1731,18 @@ describe('SourcePanel', () => {
     });
 
     it('reports a rebuild that is already running', async () => {
-      mockMutate('conflict');
+      mockMutate('busy');
       render(<SourcePanel dataset={vrtDataset('ready')} canEdit />);
       await userEvent.setup().click(screen.getByRole('button', { name: 'Regenerate' }));
       expect(toast.error).toHaveBeenCalledWith('VRT is already regenerating.');
+    });
+
+    it('does not call a catalog lock conflict a running rebuild', async () => {
+      mockMutate('lock');
+      render(<SourcePanel dataset={vrtDataset('ready')} canEdit />);
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Regenerate' }));
+      expect(toast.error).toHaveBeenCalledTimes(1);
+      expect(toast.error).not.toHaveBeenCalledWith('VRT is already regenerating.');
     });
 
     it('shows other failures with the generic message', async () => {
