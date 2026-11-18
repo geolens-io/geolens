@@ -245,10 +245,7 @@ async def add_layer(
     )
     await _admit_layer(session, map_id)
     sort_order = body.sort_order
-    if (
-        "sort_order" not in body.model_fields_set
-        or map_author_key_id(session) is not None
-    ):
+    if body.sort_order is None or map_author_key_id(session) is not None:
         result = await session.execute(
             select(MapLayer.sort_order)
             .where(MapLayer.map_id == map_id)

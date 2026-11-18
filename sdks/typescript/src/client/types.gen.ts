@@ -1071,6 +1071,100 @@ export type ArcgisLossReport = {
 };
 
 /**
+ * ArcgisTranslatedLayer
+ *
+ * A translated layer as the import returns it: its draw order is always set.
+ */
+export type ArcgisTranslatedLayer = {
+    /**
+     * Id
+     *
+     * Existing layer id to update in place (full-save reconcile)
+     */
+    id?: string | null;
+    /**
+     * Dataset Id
+     */
+    dataset_id: string;
+    /**
+     * Sort Order
+     *
+     * Draw order; 0 draws on top
+     */
+    sort_order: number;
+    /**
+     * Visible
+     */
+    visible?: boolean;
+    /**
+     * Opacity
+     *
+     * Layer opacity 0.0-1.0
+     */
+    opacity?: number;
+    /**
+     * Paint
+     *
+     * MapLibre paint properties override
+     */
+    paint?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Layout
+     *
+     * MapLibre layout properties override. `_minzoom` and `_maxzoom` set the zoom range where the layer is visible; the exported style writes them as `minzoom` and `maxzoom`.
+     */
+    layout?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Display Name
+     *
+     * Label shown in the layer list
+     */
+    display_name?: string | null;
+    /**
+     * Filter
+     *
+     * MapLibre filter expression
+     */
+    filter?: Array<unknown> | null;
+    /**
+     * Label Config
+     *
+     * Text label configuration. Accepted keys: allowOverlap, column, fontSize, haloColor, haloWidth, maxZoom, minZoom, placement, textAnchor, textColor, textOffset, textOpacity. Unknown keys are dropped when the map is exported as a MapLibre style. See https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
+     */
+    label_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Popup configuration: {enabled, expression, visible_fields}
+     */
+    popup_config?: PopupConfig | null;
+    /**
+     * Style Config
+     *
+     * Data-driven and builder UI style configuration. Accepted top-level keys: breaks, builder, categories, classCount, colorLabel, colors, column, heatmapPaint, legendLabel, method, mode, ramp, render_mode, reversed, savedCirclePaint, sizeLabel, sizeRange, sizes, symbol, target; other top-level keys are dropped when the map is exported as a MapLibre style. Builder-only state lives under builder, whose interpreted keys are arrow_color, arrow_size, arrow_spacing, cluster_color, cluster_color_ramp, cluster_max_zoom, cluster_radius, cluster_show_counts, cluster_text_color, cluster_text_size, colormap, extrusion_min_zoom, extrusion_opacity, fill_color_saved, fill_disabled, fill_opacity_saved, folder_group_expanded, folder_group_id, folder_group_name, heatmap_ramp, heatmap_reversed, heatmap_weight_column, height_column, height_scale, hypso_enabled, hypso_ramp, hypso_reversed, lineGradient, outline_color, outline_width, outline_width_saved, pmax, pmin, sigma, stretch, stroke_disabled, symbol. Other builder keys are stored and exported unchanged but have no effect. legendLabel replaces the layer's name in the legend and layer list; colorLabel and sizeLabel replace the column name in the title of the color and size legend sections. See https://docs.getgeolens.com/guides/api/publishing-from-desktop-gis/
+     */
+    style_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Layer Type
+     *
+     * Auto-detected from record_type if omitted
+     */
+    layer_type?: string | null;
+    /**
+     * Show In Legend
+     *
+     * Whether to include in the map legend
+     */
+    show_in_legend?: boolean;
+};
+
+/**
  * ArcgisTranslatedView
  */
 export type ArcgisTranslatedView = {
@@ -1201,7 +1295,7 @@ export type ArcgisWebmapImportResponse = {
      *
      * The translated layers, in draw order.
      */
-    layers: Array<MapLayerInput>;
+    layers: Array<ArcgisTranslatedLayer>;
     /**
      * Layer Ids
      *
@@ -8422,9 +8516,9 @@ export type MapLayerInput = {
     /**
      * Sort Order
      *
-     * Draw order; 0 draws on top
+     * Draw order; 0 draws on top. When omitted, a new layer is added after the map's other layers and a full save uses the layer's position in the submitted list.
      */
-    sort_order?: number;
+    sort_order?: number | null;
     /**
      * Visible
      */

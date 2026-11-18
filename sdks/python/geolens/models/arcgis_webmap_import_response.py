@@ -12,12 +12,12 @@ from typing import cast
 
 if TYPE_CHECKING:
     from ..models.arcgis_loss_report import ArcgisLossReport
+    from ..models.arcgis_translated_layer import ArcgisTranslatedLayer
     from ..models.arcgis_translated_view import ArcgisTranslatedView
     from ..models.arcgis_unmatched_layer import ArcgisUnmatchedLayer
     from ..models.arcgis_webmap_import_response_layer_ids import (
         ArcgisWebmapImportResponseLayerIds,
     )
-    from ..models.map_layer_input import MapLayerInput
     from ..models.map_response import MapResponse
 
 
@@ -29,7 +29,7 @@ class ArcgisWebmapImportResponse:
     """
     Attributes:
         map_ (MapResponse | None): The new map; null on a dry run.
-        layers (list[MapLayerInput]): The translated layers, in draw order.
+        layers (list[ArcgisTranslatedLayer]): The translated layers, in draw order.
         loss_report (ArcgisLossReport):
         unmatched_layers (list[ArcgisUnmatchedLayer]):
         layer_ids (ArcgisWebmapImportResponseLayerIds | Unset): Operational layer id to the id of the map layer created
@@ -41,7 +41,7 @@ class ArcgisWebmapImportResponse:
     """
 
     map_: MapResponse | None
-    layers: list[MapLayerInput]
+    layers: list[ArcgisTranslatedLayer]
     loss_report: ArcgisLossReport
     unmatched_layers: list[ArcgisUnmatchedLayer]
     layer_ids: ArcgisWebmapImportResponseLayerIds | Unset = UNSET
@@ -118,12 +118,12 @@ class ArcgisWebmapImportResponse:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.arcgis_loss_report import ArcgisLossReport
+        from ..models.arcgis_translated_layer import ArcgisTranslatedLayer
         from ..models.arcgis_translated_view import ArcgisTranslatedView
         from ..models.arcgis_unmatched_layer import ArcgisUnmatchedLayer
         from ..models.arcgis_webmap_import_response_layer_ids import (
             ArcgisWebmapImportResponseLayerIds,
         )
-        from ..models.map_layer_input import MapLayerInput
         from ..models.map_response import MapResponse
 
         d = dict(src_dict)
@@ -146,7 +146,7 @@ class ArcgisWebmapImportResponse:
         layers = []
         _layers = d.pop("layers")
         for layers_item_data in _layers:
-            layers_item = MapLayerInput.from_dict(layers_item_data)
+            layers_item = ArcgisTranslatedLayer.from_dict(layers_item_data)
 
             layers.append(layers_item)
 

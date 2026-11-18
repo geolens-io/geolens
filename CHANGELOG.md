@@ -15,6 +15,15 @@ and releases use semantic versioning.
 
 - The CLI installs with typer 0.25 through 0.29. A bare `--token` on
   `geolens refresh` still prompts for the token.
+- REST contract: `MapLayerInput.sort_order` no longer defaults to 0 in the
+  OpenAPI schema; it is optional and nullable. A layer sent without it is added
+  after the map's other layers on `POST /maps/{id}/layers` and in `added` on
+  `PATCH /maps/{id}/layers` (as before), and a full-save `PUT /maps/{id}` now
+  uses the layer's position in the submitted list instead of storing 0. The
+  generated Python SDK no longer sends 0 for an unset order. Callers that send a
+  value are unaffected. The ArcGIS web map import response names its `layers`
+  schema `ArcgisTranslatedLayer`; its fields are unchanged and `sort_order` stays a
+  required integer there.
 
 ### Fixed
 - Rendering an indexed-colour raster no longer stretches its class values before the colour table is applied, so 16-bit and other non-8-bit palette rasters keep their table colours in tiles and remote-COG quicklooks. A colormap chosen for the layer still replaces the table and is stretched as before. A remote COG imported before this release keeps the stretch; delete it and import it again to draw it from its colour table.

@@ -660,11 +660,15 @@ class MapLayerInput(BaseModel):
         description="Existing layer id to update in place (full-save reconcile)",
     )
     dataset_id: uuid.UUID
-    sort_order: int = Field(
-        default=0,
+    sort_order: int | None = Field(
+        default=None,
         ge=0,
         le=_MAX_SORT_ORDER,
-        description="Draw order; 0 draws on top",
+        description=(
+            "Draw order; 0 draws on top. When omitted, a new layer is added "
+            "after the map's other layers and a full save uses the layer's "
+            "position in the submitted list."
+        ),
     )
     visible: bool = True
     opacity: float = Field(

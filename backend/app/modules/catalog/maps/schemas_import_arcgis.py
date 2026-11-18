@@ -142,9 +142,17 @@ class ArcgisTranslatedView(BaseModel):
     bearing: float | None = Field(description="Initial rotation in degrees.")
 
 
+class ArcgisTranslatedLayer(MapLayerInput):
+    """A translated layer as the import returns it: its draw order is always set."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    sort_order: int = Field(ge=0, description="Draw order; 0 draws on top")
+
+
 class ArcgisWebmapImportResponse(BaseModel):
     map: MapResponse | None = Field(description="The new map; null on a dry run.")
-    layers: list[MapLayerInput] = Field(
+    layers: list[ArcgisTranslatedLayer] = Field(
         description="The translated layers, in draw order."
     )
     layer_ids: dict[str, uuid.UUID] = Field(
