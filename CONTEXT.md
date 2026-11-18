@@ -43,6 +43,8 @@ _Avoid_: Embed, for a plain share link.
 
 **Embed token**: A credential minted for one map so a site can frame it. The owner can limit it to listed origins, and it can show data that isn't public, limited to each dataset's column allowlist.
 
+**Shared map**: A saved map that someone besides its owner and admins can open: a public map, a restricted map, or a map with an active embed token.
+
 **Column allowlist**: The columns of a dataset that anyone reaching it only through an embed may see. Map tiles carry no others; row lists keep the row id.
 _Avoid_: Tile columns.
 
