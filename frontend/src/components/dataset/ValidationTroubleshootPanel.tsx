@@ -12,6 +12,7 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
+import type { Translator } from '@/i18n/translator';
 
 interface ValidationTroubleshootPanelProps {
   open: boolean;
@@ -95,7 +96,7 @@ function deriveRemediationGroups(issues: ValidationIssue[]): RemediationGroup[] 
 export function deriveLikelyValidationCauses(
   issues: ValidationIssue[],
   limit = 2,
-  t?: (key: string, opts?: Record<string, unknown>) => string,
+  t?: Translator,
 ): string[] {
   const causeCounts = new Map<string, number>();
 

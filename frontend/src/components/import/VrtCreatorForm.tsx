@@ -32,6 +32,7 @@ import { ApiError } from '@/api/client';
 import type { OGCRecordResponse } from '@/types/api';
 import { Textarea } from '@/components/ui/textarea';
 import { formatNumber } from '@/lib/format';
+import type { Translator } from '@/i18n/translator';
 
 const VRT_MAX_SOURCES = 20;
 
@@ -190,7 +191,7 @@ function errorMessage(
   // Must use the same reference (refCrs, the first source with a KNOWN crs) that
   // validateSources compares against, not `first`, which can be crs-unset.
   refCrs: string | null | undefined,
-  t: (key: string, opts?: Record<string, unknown>) => string,
+  t: Translator,
 ): string {
   switch (code) {
     case 'crs_mismatch':

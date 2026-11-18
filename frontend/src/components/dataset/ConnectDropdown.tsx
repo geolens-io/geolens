@@ -14,6 +14,7 @@ import { truncateGraphemes } from '@/lib/text';
 import { useDatasetAccessEndpoints } from '@/components/dataset/hooks/use-dataset-access';
 import { useAuthStore } from '@/stores/auth-store';
 import type { DatasetResponse } from '@/types/api';
+import type { Translator } from '@/i18n/translator';
 
 interface ConnectDropdownProps {
   dataset: DatasetResponse;
@@ -21,7 +22,7 @@ interface ConnectDropdownProps {
   onShowInstructions?: () => void;
 }
 
-async function copyToClipboard(value: string, t: (key: string, opts?: Record<string, unknown>) => string) {
+async function copyToClipboard(value: string, t: Translator) {
   try {
     await navigator.clipboard.writeText(value);
   } catch {
