@@ -19,7 +19,7 @@ from geolens_cli.main import app
 
 from . import test_arcgis_migrate_files as files
 from . import test_arcgis_migrate_layers as layers
-from .arcgis_fake import A1, A2, D3, item_data_path
+from .arcgis_fake import A1, A2, D3, NO_FILE_PAGE, item_data_path
 from .test_arcgis_migrate_layers import (
     FakeImport,
     _layer,
@@ -1300,12 +1300,18 @@ def test_a_stopped_refresh_ends_the_pass_and_marks_no_cutover(
 ):
     token = secrets.token_urlsafe(16)
     _edit_plan(plan_file, (A1, A2))
-    # Both items share the Parcels dataset; give them one visibility.
-    plan = json.loads(plan_file.read_text())
-    for item in plan["items"]:
-        item["target"]["visibility"] = "internal"
-    plan_file.write_text(json.dumps(plan))
-    service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    service = FakeImport(geolens, [])
+    probe = service.probe
+    by_url = {
+        _service_url(plan_file, A1): [_layer(0, "Parcels", has_attachments=False)],
+        _service_url(plan_file, A2): [_layer(0, "Roads", has_attachments=False)],
+    }
+
+    def each_service(seen):
+        service.layers = by_url[seen.json()["url"]]
+        return probe(seen)
+
+    geolens.routes["POST /services/probe/"] = each_service
     result, _ = _migrate(runner, plan_file, "--token", token)
     assert result.exit_code == 0, result.output
     service.fields.setdefault(PARCELS, {}).update(
@@ -2347,3 +2353,290 @@ def test_a_multi_layer_file_whose_previews_list_no_layers_is_reported(
     assert payload["not_up_to_date"][D3] == [
         "couldn't check the file's layers: its previews listed none"
     ]
+
+
+def _loss_notes(plan_file: Path) -> list[str]:
+    return [n for n in _state(plan_file)["items"][A2]["notes"] if "M values" in n]
+
+
+def test_a_refresh_reports_a_property_declared_after_the_import_once(
+    runner, plan_file, geolens
+):
+    service = _migrated(runner, plan_file, geolens)
+    assert _loss_notes(plan_file) == []
+    service.layers[0]["has_m"] = True
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    for _ in range(2):
+        result, _payload = _migrate(runner, plan_file, "--only", A2)
+        assert result.exit_code == 0, result.output
+
+    assert len(_loss_notes(plan_file)) == 1
+
+
+def test_a_refresh_adds_the_note_to_a_state_saved_before_the_notes_existed(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_m=True)])
+    _migrate(runner, plan_file, "--only", A2)
+    _edit_state(plan_file, A2, notes=[])
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, _payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(_loss_notes(plan_file)) == 1
+
+
+def test_a_refresh_whose_probe_lacks_the_metadata_keeps_the_known_loss(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_m=True)])
+    _migrate(runner, plan_file, "--only", A2)
+    service.layers[0].pop("has_m")
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, _payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert len(_loss_notes(plan_file)) == 1
+
+
+def test_same_named_layers_keep_one_note_each_through_a_refresh(
+    runner, plan_file, geolens
+):
+    service = FakeImport(
+        geolens, [_layer(0, "Parcels", has_m=True), _layer(1, "Parcels", has_m=True)]
+    )
+    _migrate(runner, plan_file, "--only", A2)
+    assert len(_loss_notes(plan_file)) == 2
+    _edit_state(plan_file, A2, notes=[], layer_notes={})
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    _migrate(runner, plan_file, "--only", A2)
+
+    assert sorted(_loss_notes(plan_file)) == [
+        "layer Parcels (layer 0): its M values are not carried over; the "
+        "geometries arrive without them",
+        "layer Parcels (layer 1): its M values are not carried over; the "
+        "geometries arrive without them",
+    ]
+
+
+_PROPERTIES = [
+    {"time_fields": ["opened"]},
+    {"subtype_field": "kind"},
+    {"has_m": True},
+    {"time_only_fields": ["opens_at"]},
+    {"timestamp_offset_fields": ["seen"]},
+]
+
+
+@pytest.mark.parametrize("on_import", [True, False], ids=["import", "refresh"])
+@pytest.mark.parametrize(
+    "properties", _PROPERTIES, ids=[next(iter(p)) for p in _PROPERTIES]
+)
+def test_cutover_refuses_dropped_layer_properties_until_accepted(
+    runner, plan_file, geolens, properties, on_import
+):
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(
+        geolens,
+        [
+            _layer(
+                0, "Parcels", has_attachments=False, **(properties if on_import else {})
+            )
+        ],
+    )
+    if not on_import:
+        _migrate(runner, plan_file, "--only", A2)
+        service.layers[0].update(properties)
+        FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, payload = _migrate(runner, plan_file, "--cutover")
+
+    assert result.exit_code == 1
+    assert payload["cutover"]["refused"] == ["layer-property-loss"]
+    [check] = payload["cutover"]["checks"]
+    assert all("not carried over" in i["reason"] for i in check["items"])
+    assert _state(plan_file)["cutover"] is None
+
+    FakeRefresh(geolens, service).allow(PARCELS)
+    result, payload = _migrate(
+        runner, plan_file, "--cutover", "--accept-layer-property-loss"
+    )
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["cutover"]["accepted"] == ["layer-property-loss"]
+
+
+def test_a_rerun_keeps_a_layer_geolens_refused_for_good_out_of_the_new_layers(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
+    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    FakeRefresh(geolens, service).allow(PARCELS)
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert payload["refreshed"] == [A2] and payload["not_up_to_date"] == {}
+    entry = _state(plan_file)["items"][A2]
+    assert entry["stale"] == [] and entry["left_behind"] == [layers.MULTIPATCH_NOTE]
+
+
+@pytest.mark.parametrize(
+    "answer",
+    [
+        NO_FILE_PAGE,
+        (200, {"error": {"code": 500, "message": "Item does not have a file."}}),
+    ],
+    ids=["html_500", "json_200"],
+)
+def test_a_data_file_the_portal_says_is_gone_keeps_its_dataset_and_later_items_refresh(
+    runner, tmp_path, geolens, portal, answer
+):
+    files.FakeFiles(geolens)
+    service = FakeImport(geolens, [_layer(0, "Parcels")])
+    plan_file = files._plan(tmp_path)
+    plan = json.loads(plan_file.read_text())
+    plan["items"].sort(key=lambda item: item["id"] != D3)
+    plan_file.write_text(json.dumps(plan))
+    for item in (D3, A2):
+        assert _migrate(runner, plan_file, "--only", item)[0].exit_code == 0
+    datasets = _state(plan_file)["items"][D3]["dataset_ids"]
+    FakeRefresh(geolens, service).allow(PARCELS)
+    portal.routes[item_data_path(D3)] = answer
+
+    result, payload = _migrate(runner, plan_file, "--only", D3, "--only", A2)
+
+    assert payload is not None, result.output
+    assert payload["refreshed"] == [D3, A2]
+    [reason] = payload["not_up_to_date"][D3]
+    assert reason.startswith("not replaced: the portal says the item has no file now")
+    assert A2 not in payload["not_up_to_date"]
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "done" and entry["dataset_ids"] == datasets
+    assert entry["stale"] == [reason]
+
+
+def test_a_refused_layer_the_portal_no_longer_lists_is_no_longer_a_loss(
+    runner, plan_file, geolens
+):
+    service = FakeImport(
+        geolens, [_layer(0, "Parcels"), _layer(1, "Buildings"), _layer(2, "Annex")]
+    )
+    refuse = service.preview
+
+    def preview(seen):
+        if seen.json()["layer_name"] in ("Buildings", "Annex"):
+            return (422, layers._problem(422, layers.MULTIPATCH))
+        return refuse(seen)
+
+    geolens.routes[layers.PREVIEW] = preview
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    gone = layers.MULTIPATCH_NOTE
+    kept = gone.replace("Buildings:", "Annex:", 1)
+    assert {gone, kept} <= set(_state(plan_file)["items"][A2]["notes"])
+    FakeRefresh(geolens, service).allow(PARCELS)
+    service.layers = [_layer(0, "Parcels"), _layer(2, "Annex")]
+
+    result, payload = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert payload["refreshed"] == [A2]
+    entry = _state(plan_file)["items"][A2]
+    assert set(entry["refused_layers"]) == {"2"} and entry["left_behind"] == [kept]
+    for notes in (entry["notes"], entry["import_pass"]["notes"]):
+        assert gone not in notes and kept in notes
+    report = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    assert [
+        f["text"]
+        for f in report["follow_ups"]
+        if f["item"] == A2 and f["kind"] == "skipped_layer"
+    ] == [kept]
+
+    _edit_state(plan_file, A2, status="failed", error="interrupted", last_update={})
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    notes = _state(plan_file)["items"][A2]["notes"]
+    assert gone not in notes and kept in notes
+
+
+@pytest.mark.parametrize("rerun", ["refresh", "resume"])
+def test_a_rerun_keeps_the_title_a_layer_got_beside_a_refused_one(
+    runner, plan_file, geolens, rerun
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
+    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    title = "Parcels (public view) - Parcels"
+    assert service.fields[PARCELS]["title"] == title
+    FakeRefresh(geolens, service).allow(PARCELS)
+    if rerun == "resume":
+        _edit_state(plan_file, A2, status="failed", error="interrupted", last_update={})
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[PARCELS]["title"] == title
+
+
+def test_a_refused_layer_leaving_the_service_keeps_the_title_beside_it(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
+    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    title = "Parcels (public view) - Parcels"
+    assert service.fields[PARCELS]["title"] == title
+    FakeRefresh(geolens, service).allow(PARCELS)
+    service.layers = [_layer(0, "Parcels")]
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert _state(plan_file)["items"][A2]["refused_layers"] == {}
+    assert service.fields[PARCELS]["title"] == title
+
+
+def test_a_pass_saved_before_titles_were_recorded_keeps_titles_when_the_sibling_leaves(
+    runner, plan_file, geolens
+):
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Buildings")])
+    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    path = plan_file.parent / "arcgis-migration-state.json"
+    state = json.loads(path.read_text())
+    del state["items"][A2]["import_pass"]["named_beside"]
+    path.write_text(json.dumps(state))
+    FakeRefresh(geolens, service).allow(PARCELS)
+    service.layers = [_layer(0, "Parcels")]
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[PARCELS]["title"] == "Parcels (public view) - Parcels"
+
+
+def test_a_kept_refusal_keeps_its_note_when_a_twin_leaves_the_portal(
+    runner, plan_file, geolens
+):
+    twins = [_layer(0, "Parcels"), _layer(1, "Buildings"), _layer(2, "Buildings")]
+    service = FakeImport(geolens, twins)
+    layers._refuse_preview(geolens, service, "Buildings", layers.MULTIPATCH)
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 0
+    note = layers.MULTIPATCH_NOTE
+    FakeRefresh(geolens, service).allow(PARCELS)
+    service.layers = [_layer(0, "Parcels"), _layer(2, "Buildings")]
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][A2]
+    assert set(entry["refused_layers"]) == {"2"} and entry["left_behind"] == [note]
+    assert note in entry["notes"] and note in entry["import_pass"]["notes"]
+    report = json.loads((plan_file.parent / "arcgis-migration-report.json").read_text())
+    assert {"item": A2, "kind": "skipped_layer", "text": note} in report["follow_ups"]

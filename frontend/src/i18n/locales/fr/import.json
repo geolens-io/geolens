@@ -494,6 +494,7 @@
     "rasterSummary": "{{bands}} · {{width}}×{{height}} · {{crs}}",
     "vectorSummary": "{{geometryType}} · {{features}} · {{crs}}",
     "noCrs": "aucun CRS",
+    "pointFromColumns": "Point (depuis les colonnes)",
     "actionSummary": "{{files}} · {{vectors}} · {{rasters}} · {{tables}}",
     "actionHint": "Import par défaut : chaque fichier → nouveau jeu de données dans le Catalogue.",
     "actionHintMultiLayer": "Import par défaut : chaque fichier → nouveau jeu de données dans le Catalogue. Les fichiers multi-couches n'importent que la couche sélectionnée, sauf si vous ingérez toutes les couches.",

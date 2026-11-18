@@ -164,6 +164,13 @@ def _load(account: str) -> list[tuple[str, _Saved]]:
     return [(b, _Saved.parse(v)) for b, v in _auth.load_secrets(account)]
 
 
+def register_stored(root: str, client_id: str, redact: Redactor) -> None:
+    """Add every refresh token stored for *client_id* at *root* to *redact*,
+    without signing in."""
+    for _backend, stored in _load(_account(root, client_id)):
+        redact.add(stored.token)
+
+
 def _try_lock(fd: int) -> bool | None:
     """True when locked, False when another process holds it, None when the
     file system can't lock."""

@@ -28,6 +28,27 @@ const data = {
 };
 
 describe('histogram widget', () => {
+  it('titles the axis with the column and picks a bar by the edges the server sent', () => {
+    const rounded = {
+      ...data,
+      result: {
+        bins: [
+          { lower: 0.5, upper: 1, count: 4 },
+          { lower: 1, upper: 1.5, count: 2 },
+        ],
+      },
+    };
+    const onSelect = vi.fn();
+    const { container } = render(
+      <HistogramRenderer config={config} data={rounded} onSelect={onSelect} columnLabel={() => 'Tree height'} />,
+    );
+    expect(container.querySelector('[data-axis-title]')).toHaveTextContent('Tree height');
+    fireEvent.click(container.querySelectorAll('svg g[data-picked], svg g[aria-hidden="true"]')[0].querySelector('rect')!);
+    expect(onSelect).toHaveBeenLastCalledWith(
+      expect.objectContaining({ range: { lower: 0.5, upper: 1, includeUpper: false } }),
+    );
+  });
+
   it('parses configs as the server does', () => {
     const parse = (raw: unknown) => histogramWidget.parseConfig(raw, 1);
     expect(parse({ column: 'height' })).toEqual({ column: 'height', bins: 20 });
@@ -63,7 +84,7 @@ describe('histogram widget', () => {
 
   it('labels four bin edges under the axis and the tallest count on a gridline', () => {
     const { container } = render(<HistogramRenderer config={config} data={data} />);
-    const ticks = [...container.querySelectorAll('svg text:not([data-peak])')].map((label) => label.textContent);
+    const ticks = [...container.querySelectorAll('svg text:not([data-peak]):not([data-axis-title])')].map((label) => label.textContent);
     expect(ticks).toEqual(['0', '10', '20', '30']);
     expect(container.querySelector('svg text[data-peak]')).toHaveTextContent('12');
     // The gridline sits at the top of the tallest column.
@@ -97,7 +118,7 @@ describe('histogram widget', () => {
       result: { bins: Array.from({ length: 20 }, (_, i) => ({ lower: i * 5, upper: i * 5 + 5, count: i + 1 })) },
     };
     const { container } = render(<HistogramRenderer config={{ ...config, bins: 20 }} data={many} />);
-    const ticks = [...container.querySelectorAll('svg text:not([data-peak])')].map((label) => label.textContent);
+    const ticks = [...container.querySelectorAll('svg text:not([data-peak]):not([data-axis-title])')].map((label) => label.textContent);
     expect(ticks).toEqual(['0', '35', '65', '100']);
   });
 
@@ -237,7 +258,7 @@ describe('histogram widget', () => {
 
     it('labels the axis with whole numbers, ending on the highest', () => {
       const { container } = render(<HistogramRenderer config={visits} data={bins(50, 2)} />);
-      const axis = [...container.querySelectorAll('svg text:not([data-peak])')].map((label) => label.textContent);
+      const axis = [...container.querySelectorAll('svg text:not([data-peak]):not([data-axis-title])')].map((label) => label.textContent);
       expect(axis).toEqual(['0', '50', '99']);
     });
 

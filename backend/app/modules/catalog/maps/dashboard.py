@@ -256,17 +256,41 @@ def shows_widgets(stored: Any, layer_ids: Collection[uuid.UUID | str]) -> bool:
     return False
 
 
+def stored_widgets(stored: Any) -> list[Any]:
+    """The stored widgets a reader of their layers is shown, whatever their client reads."""
+    widgets = read_stored(_stored_widgets(stored), "dashboard").widgets
+    return [widget for widget in widgets if isinstance(widget, _ACCEPTED)]
+
+
+def refuse_widgets(refused: list[dict[str, str | None]]) -> None:
+    """Raise 422 naming each widget a save can't keep (``id``, ``layer_id``, ``reason``)."""
+    if not refused:
+        return
+    refused.sort(key=lambda item: item["id"] or "")
+    raise HTTPException(
+        status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
+        detail={
+            "message": _REFUSED,
+            "widget_ids": [item["id"] for item in refused],
+            "widgets": refused,
+        },
+    )
+
+
 def merge_dashboard(
     sent: DashboardConfigInput | None,
     stored: Any,
     *,
     layer_ids: Collection[uuid.UUID],
     hidden_layer_ids: Collection[uuid.UUID],
+    filter_refusals: Mapping[str, str],
 ) -> dict[str, Any] | None:
     """The dashboard to store for a save; ``sent=None`` removes what the editor sees.
 
     ``layer_ids`` are the map's layers after the save and ``hidden_layer_ids``
-    those among them whose dataset the editor can't read.
+    those among them whose dataset the editor can't read. A sent widget with
+    a reason in ``filter_refusals`` (by widget id, from
+    ``dashboard_filters.widget_filter_refusals``) is refused (422) with it.
 
     A stored widget on a hidden layer, or one the editor's client can't read
     (outside its ``readable`` pairs, by default those of earlier releases),
@@ -318,25 +342,18 @@ def merge_dashboard(
 
     # A missing layer and an unreadable one share a reason so a refusal never
     # tells the editor a hidden layer exists.
-    refused = []
+    refused: list[dict[str, str | None]] = []
     for w in sent_widgets:
         if not _on_layers(w, readable):
             reason = "layer_unavailable"
         elif str(w.id) in locked_ids:
             reason = "id_in_use"
+        elif str(w.id) in filter_refusals:
+            reason = filter_refusals[str(w.id)]
         else:
             continue
         refused.append({"id": str(w.id), "layer_id": _layer_id(w), "reason": reason})
-    refused.sort(key=lambda item: item["id"])
-    if refused:
-        raise HTTPException(
-            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
-            detail={
-                "message": _REFUSED,
-                "widget_ids": [item["id"] for item in refused],
-                "widgets": refused,
-            },
-        )
+    refuse_widgets(refused)
     if sent is None and not kept:
         return None
     widgets = to_store(sent_widgets, kept)

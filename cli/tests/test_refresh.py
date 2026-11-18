@@ -323,6 +323,47 @@ class TestRefreshRequest:
         }
         assert secret not in result.output
 
+    def test_an_empty_token_value_is_refused_without_a_prompt(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        captured: dict = {}
+        _patch_refresh_endpoint(monkeypatch, _accepted(), captured)
+
+        result = runner.invoke(
+            app, ["--json", "refresh", str(DATASET_ID), "--token", ""]
+        )
+
+        assert result.exit_code == 2
+        assert json.loads(result.output) == {
+            "ok": False,
+            "error": "Service token must not be empty",
+        }
+        assert captured == {}
+
+    def test_a_token_flag_given_as_another_options_value_stays_that_value(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch, tmp_path
+    ) -> None:
+        from geolens_cli.main import app
+
+        _seed_login(mock_keyring)
+        captured: dict = {}
+        _patch_refresh_endpoint(monkeypatch, _accepted(), captured)
+        monkeypatch.chdir(tmp_path)
+        (tmp_path / "--token").write_text(
+            json.dumps({"method": "bearer", "token": "file-token"})
+        )
+
+        result = runner.invoke(
+            app, ["refresh", str(DATASET_ID), "--auth-file", "--token"]
+        )
+
+        assert result.exit_code == 0, result.output
+        assert "Service token:" not in result.output
+        assert captured["body"].to_dict()["auth"]["token"] == "file-token"
+
     def test_timeout_without_wait_is_rejected_before_dispatch(
         self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:

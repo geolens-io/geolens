@@ -19,7 +19,7 @@ def test_vector_locations_limit_and_preserve_proxy_inheritance(prefix):
     selected = _select(_tree(), f"/api/tiles/{prefix}data.roads/0/0/0.pbf")
     assert selected is not None
     for directive in (
-        "limit_req zone=vector_anon burst=720 delay=120;",
+        "limit_req zone=vector_anon burst=${TILE_VECTOR_BURST} delay=${TILE_VECTOR_DELAY};",
         "limit_req_status 429;",
         "error_page 429 = @tile_rate_limited;",
         "set $upstream_api",
@@ -30,7 +30,7 @@ def test_vector_locations_limit_and_preserve_proxy_inheritance(prefix):
     for inherited in ("add_header", "proxy_hide_header", "proxy_cache"):
         assert inherited not in selected.own
     assert (
-        "limit_req_zone $geolens_vector_limit_key zone=vector_anon:10m rate=5400r/m;"
+        "limit_req_zone $geolens_vector_limit_key zone=vector_anon:10m rate=${TILE_VECTOR_RATE_PER_MINUTE}r/m;"
         in NGINX_CONF.read_text()
     )
 

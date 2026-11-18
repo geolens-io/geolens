@@ -34,6 +34,9 @@ from app.processing.ingest.ogr import (
 
 logger = structlog.stdlib.get_logger(__name__)
 
+# Indexed by ST_Zmflag: 0 2D, 1 M, 2 Z, 3 ZM.
+_POINT_TYPES = ("Point", "PointM", "PointZ", "PointZM")
+
 # GDAL's line for a table that is missing or that the login can't read.
 _MISSING_LAYER = "Couldn't fetch requested layer"
 
@@ -69,7 +72,8 @@ async def copy_database_table(
 
     ``srid`` is stamped on every geometry: GDAL reports none for a table that
     ``geometry_columns`` doesn't list. The table's primary key stays an
-    ordinary column, and ``gid`` is numbered by PostGIS.
+    ordinary column, and ``gid`` is numbered by PostGIS. A copy whose
+    geometries are all single points is stored as ``Point``.
 
     Raises ``DatabaseImportError`` with a message safe to show.
     """
@@ -159,3 +163,48 @@ async def copy_database_table(
                 f"{connection_name!r} failed."
             )
         raise DatabaseImportError(str(error))
+    await _store_single_points_as_point(target_schema, target_table)
+
+
+async def _store_single_points_as_point(target_schema: str, target_table: str) -> None:
+    """Narrow the copy's column to a point type when every geometry is one point.
+
+    The copy promotes each point to a one-part MultiPoint, because SQL Server
+    declares no geometry type, and clients such as ArcGIS Online cluster only
+    a Point layer. Any other content, or no geometry at all, stays as copied.
+    """
+    from sqlalchemy import text
+
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import _qtable, grant_reader_access
+    from app.processing.ingest.tasks_common import _current_tenant_role
+
+    table = _qtable(target_table, schema=target_schema)
+    async with async_session() as session:
+        # In multi_tenant mode the read runs as the tenant reader.
+        await grant_reader_access(
+            session, target_table, schema=target_schema, role=_current_tenant_role()
+        )
+        row = (
+            await session.execute(
+                text(
+                    # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
+                    "SELECT bool_and(ST_GeometryType(_geolens_geom) = 'ST_MultiPoint' "
+                    "AND ST_NumGeometries(_geolens_geom) = 1) AS single, "
+                    "min(ST_Zmflag(_geolens_geom)) AS zm, "
+                    "max(ST_Zmflag(_geolens_geom)) AS max_zm, "
+                    "max(ST_SRID(_geolens_geom)) AS srid "
+                    f"FROM {table} WHERE _geolens_geom IS NOT NULL"  # noqa: S608
+                )
+            )
+        ).one()
+        if row.single and row.zm == row.max_zm:
+            await session.execute(
+                text(
+                    # codeql[py/sql-injection] table via _qtable (metadata_sql.py); the type is a fixed literal, srid an int()
+                    f"ALTER TABLE {table} ALTER COLUMN _geolens_geom TYPE "
+                    f"geometry({_POINT_TYPES[row.zm]}, {int(row.srid)}) "
+                    "USING ST_GeometryN(_geolens_geom, 1)"
+                )
+            )
+        await session.commit()

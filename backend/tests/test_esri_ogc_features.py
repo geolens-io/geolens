@@ -871,7 +871,7 @@ class TestARefreshRefusedForItsTokenIsACredentialFailure:
             "credential_expired"
         )
         assert _service_refresh_error_code(ServiceErrorResponseError(400)) == (
-            "service_refresh_failed"
+            "service_error"
         )
 
 

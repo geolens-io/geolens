@@ -43,6 +43,7 @@ class ArcgisWebmapImportRequest:
             Every dataset must be one the caller can read, or the request is refused with 404. A layer with no entry is not
             imported and is listed as unmatched.
         dry_run (bool | Unset): Return the translation without creating a map. Default: False.
+        description (None | str | Unset): Description of the new map.
     """
 
     webmap: ArcgisWebmapImportRequestWebmap
@@ -52,6 +53,7 @@ class ArcgisWebmapImportRequest:
     basemap_map: ArcgisWebmapImportRequestBasemapMap | Unset = UNSET
     dataset_matches: ArcgisWebmapImportRequestDatasetMatches | Unset = UNSET
     dry_run: bool | Unset = False
+    description: None | str | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         webmap = self.webmap.to_dict()
@@ -82,6 +84,12 @@ class ArcgisWebmapImportRequest:
 
         dry_run = self.dry_run
 
+        description: None | str | Unset
+        if isinstance(self.description, Unset):
+            description = UNSET
+        else:
+            description = self.description
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -101,6 +109,8 @@ class ArcgisWebmapImportRequest:
             field_dict["dataset_matches"] = dataset_matches
         if dry_run is not UNSET:
             field_dict["dry_run"] = dry_run
+        if description is not UNSET:
+            field_dict["description"] = description
 
         return field_dict
 
@@ -162,6 +172,15 @@ class ArcgisWebmapImportRequest:
 
         dry_run = d.pop("dry_run", UNSET)
 
+        def _parse_description(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        description = _parse_description(d.pop("description", UNSET))
+
         arcgis_webmap_import_request = cls(
             webmap=webmap,
             name=name,
@@ -170,6 +189,7 @@ class ArcgisWebmapImportRequest:
             basemap_map=basemap_map,
             dataset_matches=dataset_matches,
             dry_run=dry_run,
+            description=description,
         )
 
         return arcgis_webmap_import_request

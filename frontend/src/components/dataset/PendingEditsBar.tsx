@@ -1,6 +1,7 @@
 import { Button } from '@/components/ui/button';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
+import type { Translator } from '@/i18n/translator';
 
 interface PendingEditsBarProps {
   pendingCount: number;
@@ -11,7 +12,7 @@ interface PendingEditsBarProps {
 }
 
 function getPendingLabel(
-  t: (key: string, options?: Record<string, unknown>) => string,
+  t: Translator,
   pendingCount: number,
 ): string {
   return t('affordances.pending.count', { count: pendingCount });

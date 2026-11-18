@@ -1189,7 +1189,49 @@ def publish(
         raise typer.Exit(publish_exit_code if publish_failure else EXIT_GENERIC)
 
 
-@app.command()
+_PROMPT_FOR_TOKEN = "\0prompt"
+
+
+class _BareTokenCommand(typer.core.TyperCommand):
+    """Turn a bare ``--token`` into a request for the hidden prompt.
+
+    typer 0.29 dropped click's optional option values, so a bare ``--token``
+    would otherwise take the next argument as its value or fail for lack of
+    one. Bare follows click's rule: last on the line, or followed by another
+    option. Another option's value and anything after ``--`` are left alone.
+    """
+
+    def parse_args(self, ctx, args):  # type: ignore[no-untyped-def]
+        takes_value = {
+            name
+            for param in self.params
+            if param.param_type_name == "option"
+            and not param.is_flag
+            and not getattr(param, "count", False)
+            for name in param.opts
+        }
+        rewritten: list[str] = []
+        i = 0
+        while i < len(args):
+            arg = args[i]
+            follower = args[i + 1] if i + 1 < len(args) else None
+            if arg == "--":
+                rewritten.extend(args[i:])
+                break
+            if arg == "--token" and (
+                follower is None or (follower.startswith("-") and len(follower) > 1)
+            ):
+                rewritten.append(f"--token={_PROMPT_FOR_TOKEN}")
+            elif arg in takes_value and follower is not None:
+                rewritten += [arg, follower]
+                i += 1
+            else:
+                rewritten.append(arg)
+            i += 1
+        return super().parse_args(ctx, rewritten)
+
+
+@app.command(cls=_BareTokenCommand)
 def refresh(
     ctx: typer.Context,
     dataset_id: Annotated[str, typer.Argument(help="Dataset UUID")],
@@ -1197,8 +1239,6 @@ def refresh(
         Optional[str],
         typer.Option(
             "--token",
-            prompt="Service token",
-            prompt_required=False,
             hide_input=True,
             help=(
                 "Transient protected-service token. Pass --token with no value "
@@ -1244,6 +1284,8 @@ def refresh(
     state by default. Pass ``--timeout`` when automation needs a finite bound.
     """
     state: AppState = ctx.obj
+    if token == _PROMPT_FOR_TOKEN:
+        token = typer.prompt("Service token", hide_input=True)
     try:
         from uuid import UUID
 
@@ -2311,6 +2353,15 @@ def arcgis_migrate(
             help="With --cutover, accept that migrated layers' attachments stay behind",
         ),
     ] = False,
+    accept_layer_property_loss: Annotated[
+        bool,
+        typer.Option(
+            "--accept-layer-property-loss",
+            help="With --cutover, accept that migrated layers' time settings, "
+            "subtype names, M values, time-only types and timestamp offsets "
+            "stay behind",
+        ),
+    ] = False,
     accept_unresolved_users: Annotated[
         bool,
         typer.Option(
@@ -2347,6 +2398,7 @@ def arcgis_migrate(
         _arcgis_cutover.UNFINISHED: accept_unfinished_items,
         _arcgis_cutover.INVENTORY: accept_incomplete_inventory,
         _arcgis_cutover.ATTACHMENTS: accept_attachment_loss,
+        _arcgis_cutover.LAYER_PROPERTIES: accept_layer_property_loss,
         _arcgis_cutover.USERS: accept_unresolved_users,
         _arcgis_cutover.SHARING: accept_under_sharing,
     }

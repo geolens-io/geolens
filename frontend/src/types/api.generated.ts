@@ -6746,11 +6746,11 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route.
+             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. A service-account key minted for an application is the usual case for 'read_only'. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers' style and popups on the maps it created.
              * @default full
              * @enum {string}
              */
-            scope: "full" | "read_only" | "publish";
+            scope: "full" | "read_only" | "publish" | "map_author";
         };
         /** AdminApiKeyListItem */
         AdminApiKeyListItem: {
@@ -6788,7 +6788,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset).
              */
             scope: string;
             /**
@@ -7269,11 +7269,11 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route.
+             * @description Privilege scope. 'full' impersonates the owner completely. 'read_only' authenticates GET, HEAD and OPTIONS requests only; any other method is refused with 403. 'publish' also allows uploads, manifest apply, dataset metadata edits and new maps, but no map update, delete, feature write, public visibility, admin or key route. 'map_author' reads, creates private maps and sets the camera, basemap, layers' style and popups on the maps it created.
              * @default full
              * @enum {string}
              */
-            scope: "full" | "read_only" | "publish";
+            scope: "full" | "read_only" | "publish" | "map_author";
         };
         /** ApiKeyCreateResponse */
         ApiKeyCreateResponse: {
@@ -7301,7 +7301,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**
@@ -7338,7 +7338,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**
@@ -7552,6 +7552,11 @@ export interface components {
              * @default false
              */
             dry_run: boolean;
+            /**
+             * Description
+             * @description Description of the new map.
+             */
+            description?: string | null;
         };
         /** ArcgisWebmapImportResponse */
         ArcgisWebmapImportResponse: {
@@ -7951,6 +7956,11 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
@@ -7959,7 +7969,7 @@ export interface components {
              * V
              * @enum {integer}
              */
-            v: 1 | 2;
+            v: 1 | 2 | 3;
             config: components["schemas"]["BarChartConfig"];
         };
         /** BasemapConfig */
@@ -8596,15 +8606,20 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "category_selector";
             /**
              * V
-             * @constant
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["CategorySelectorConfig"];
         };
         /** ChangePasswordRequest */
@@ -9769,7 +9784,7 @@ export interface components {
             expires_at?: string | null;
             /**
              * Scope
-             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
+             * @description Privilege scope: 'full', 'read_only', 'publish' (reads, uploads, manifest apply, dataset metadata edits and new maps, but no map updates, deletes, feature writes or public visibility), 'map_author' (reads, creates maps and styles the maps it created), 'dataset_write' (reads and writes the features of the dataset in dataset_id, and nothing else), or 'dataset_append' (only creates features in that dataset)
              */
             scope: string;
             /**
@@ -11436,15 +11451,20 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "feature_list";
             /**
              * V
-             * @constant
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["FeatureListConfig"];
         };
         /**
@@ -11948,15 +11968,20 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "histogram";
             /**
              * V
-             * @constant
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["HistogramConfig"];
         };
         /** ImageConfig */
@@ -12098,16 +12123,21 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "indicator";
             /**
              * V
-             * @description `2` when the config sets any reference option, else `1`. A `1` that sets one is refused.
+             * @description `3` with a `filter`, else `2` when the config sets any reference option, else `1`. An older `v` that sets one is refused.
              * @enum {integer}
              */
-            v: 1 | 2;
+            v: 1 | 2 | 3;
             config: components["schemas"]["IndicatorConfig"];
         };
         /** InfrastructureConfig */
@@ -12474,6 +12504,36 @@ export interface components {
              * @description Relationship classes the ArcGIS layer takes part in. Empty when the service declares none or does not say, and for other service types.
              */
             relationships?: components["schemas"]["LayerRelationship"][];
+            /**
+             * Time Fields
+             * @description Start and end fields of the ArcGIS layer's time settings (timeInfo), which an import does not carry; empty when the settings name none. Null when the layer has no time settings or the service does not say, and for other service types.
+             */
+            time_fields?: string[] | null;
+            /**
+             * Subtype Field
+             * @description Field the ArcGIS layer's subtypes are keyed on, set only when the layer declares subtypes. An import keeps the field as a plain column without the subtype names. Null otherwise and for other service types.
+             */
+            subtype_field?: string | null;
+            /**
+             * Has M
+             * @description Whether the ArcGIS layer's geometries carry M values, which an import drops. Null when the service does not say, and for other service types.
+             */
+            has_m?: boolean | null;
+            /**
+             * Time Only Fields
+             * @description ArcGIS time-only fields (esriFieldTypeTimeOnly) of the layer, which an import usually stores as text. Empty when there are none or the service does not say.
+             */
+            time_only_fields?: string[];
+            /**
+             * Timestamp Offset Fields
+             * @description ArcGIS timestamp-offset fields (esriFieldTypeTimestampOffset) of the layer, which an import stores as the instant without its UTC offset. Empty when there are none or the service does not say.
+             */
+            timestamp_offset_fields?: string[];
+            /**
+             * Properties Read
+             * @description Whether the ArcGIS layer's own definition was read, so that the time, subtype, M-value and time-field properties above are the layer's. False when that read failed or left the layer out. Null for other service types.
+             */
+            properties_read?: boolean | null;
             /**
              * Layer Id
              * @description Numeric or string layer ID used by ArcGIS services.
@@ -12933,7 +12993,7 @@ export interface components {
             dataset_id: string;
             /**
              * Sort Order
-             * @description Draw order (lower draws first)
+             * @description Draw order; 0 draws on top
              * @default 0
              */
             sort_order: number;
@@ -14488,15 +14548,20 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "pie_chart";
             /**
              * V
-             * @constant
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["PieChartConfig"];
         };
         /**
@@ -17816,15 +17881,20 @@ export interface components {
              */
             scope: "layer" | "view";
             /**
+             * Filter
+             * @description Count only the features this MapLibre filter expression keeps, on top of the layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has` and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer shows.
+             */
+            filter?: unknown[] | null;
+            /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
             type: "table";
             /**
              * V
-             * @constant
+             * @enum {integer}
              */
-            v: 1;
+            v: 1 | 2;
             config: components["schemas"]["TableConfig"];
         };
         /** TerrainConfig */
@@ -26844,7 +26914,7 @@ export interface operations {
     get_collection_items_collections__dataset_id__items_get: {
         parameters: {
             query?: {
-                /** @description Page size for bulk GeoJSON export. The maximum is an admin-configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`) rather than the 200 used by offset-paged list endpoints, because this route pages via the constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-response-1(C) a value above the ceiling is clamped to it, not rejected. A page whose geometries are large may hold fewer features than `limit`; its `next` link continues from the last feature returned. */
+                /** @description Page size for bulk GeoJSON export. The maximum is an admin-configurable ceiling (default 5000; Network settings tab, `ogc_items_max_page_size`) rather than the 200 used by offset-paged list endpoints, because this route pages via the constant-time `after_gid` keyset cursor. Per OGC API Features Core /req/core/fc-limit-response-1(C) a value above the ceiling is clamped to it, not rejected. */
                 limit?: number;
                 /** @description Legacy offset-based pagination. Prefer `after_gid` keyset cursor (via the `next` link) — offset is retained for backward compatibility but is O(N) at high values. */
                 offset?: number;
@@ -46065,6 +46135,15 @@ export interface operations {
             };
             /** @description Internal server error */
             500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/problem+json": components["schemas"]["ProblemDetail"];
+                };
+            };
+            /** @description Bad gateway — an upstream provider failed */
+            502: {
                 headers: {
                     [name: string]: unknown;
                 };

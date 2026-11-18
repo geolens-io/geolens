@@ -174,8 +174,9 @@ function groupStat(config: CategoryBarChartConfig | DateBarChartConfig) {
 
 export const barChartWidget = defineWidget<BarChartConfig>({
   type: 'bar_chart',
-  v: 2,
+  v: 3,
   storedVersion: (config) => (needsVersion2(config) ? 2 : 1),
+  filterVersion: 3,
   surfaces: ['dashboard'],
   labelKey: 'types.bar_chart.label',
   i18nKeys: [

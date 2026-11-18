@@ -310,17 +310,73 @@ def build_aggregate_sql(
                 " count(*) AS _n, _s.w AS _w"
                 " FROM _f CROSS JOIN _s GROUP BY 1, 2, 3, 5 ORDER BY 3"
             )
-        head = (
-            f"WITH _v AS (SELECT {number}::float8 AS x"
+        native = data_type == "numeric"
+        finite = (
+            "x <> 'NaN'::numeric AND x <> 'Infinity'::numeric"
+            " AND x <> '-Infinity'::numeric"
+            if native
+            else "x > '-Infinity'::float8 AND x < 'Infinity'::float8"
+        )
+        # Values enter the decimal arithmetic as their shortest round-trip text.
+        dec = "" if native else "::text::numeric"
+        limit = (
+            "3.4028234663852886e38" if data_type == "real" else "1.7976931348623157e308"
+        )
+        rounded = native or data_type in _FLOAT_TYPES
+
+        def edge(i: str) -> str:
+            return f"(_t.start + ({i}) * _t.st){'' if native else '::float8'}"
+
+        # s1 is the 1-2-5 step nearest above (hi - lo) / bins; one bump to the
+        # next step keeps the bin count in range. Mode 0 marks a request that
+        # takes the rounded path; any other request runs the equal-width query
+        # below, untouched.
+        return (
+            f"WITH _w AS (SELECT {number if native else number + '::float8'} AS x"
             f"{from_where(f'{quoted} IS NOT NULL')}),"
+            f" _nf AS (SELECT x FROM _w WHERE {finite}),"
+            " _nr AS (SELECT min(x) AS flo, max(x) AS fhi FROM _nf),"
+            f" _p AS (SELECT flo{dec} AS lo, fhi{dec} AS hi,"
+            f" (fhi{dec} - flo{dec}) / {bins} AS raw FROM _nr"
+            f" WHERE fhi{dec} > flo{dec}),"
+            " _m AS (SELECT lo, hi, raw, power(10::numeric, floor(log(raw))) AS mag"
+            " FROM _p),"
+            " _k AS (SELECT lo, hi, mag, CASE WHEN raw <= mag THEN 1"
+            " WHEN raw <= 2 * mag THEN 2 WHEN raw <= 5 * mag THEN 5 ELSE 10 END AS k"
+            " FROM _m),"
+            " _s1 AS (SELECT lo, hi, k, mag * k AS s1 FROM _k),"
+            " _s AS (SELECT lo, hi, CASE WHEN ceil(hi / s1) - floor(lo / s1) > "
+            f"{bins} THEN s1 * CASE k WHEN 2 THEN 2.5 ELSE 2 END ELSE s1 END AS st"
+            " FROM _s1),"
+            " _g AS (SELECT lo, hi, st, floor(lo / st) * st AS start,"
+            " ceil(hi / st) - floor(lo / st) AS nb FROM _s),"
+            " _e AS (SELECT st, start, nb, 0 AS mode FROM _g"
+            f" WHERE {'true' if rounded else 'false'}"
+            " AND st >= 1e-300 AND greatest(abs(start), abs(start + nb * st)) <= "
+            f"'{limit}'::numeric AND st >= 1e-15 * greatest(abs(start),"
+            " abs(start + nb * st))"
+            " AND (SELECT flo::float8 <> fhi::float8 FROM _nr)),"
+            " _t AS (SELECT _nf.x, _nr.flo, _nr.fhi, _e.start, _e.st, _e.nb, _e.mode,"
+            f" least(greatest(floor((_nf.x{dec} - _e.start) / _e.st), 0), _e.nb - 1)"
+            " AS b0 FROM _nf CROSS JOIN _nr INNER JOIN _e ON true),"
+            " _v AS (SELECT x::float8 AS x FROM _w"
+            " WHERE NOT EXISTS (SELECT 1 FROM _e)),"
             " _f AS (SELECT x FROM _v"
             " WHERE x > '-Infinity'::float8 AND x < 'Infinity'::float8),"
-        )
-        return (
-            f"{head} _r AS (SELECT min(x) AS lo, max(x) AS hi FROM _f)"
+            " _r AS (SELECT min(x) AS lo, max(x) AS hi FROM _f)"
             " SELECT _r.lo AS _lo, _r.hi AS _hi, CASE WHEN _r.hi = _r.lo THEN 1"
             f" ELSE least(width_bucket(_f.x, _r.lo, _r.hi, {bins}), {bins}) END AS _b,"
-            " count(*) AS _n FROM _f CROSS JOIN _r GROUP BY 1, 2, 3 ORDER BY 3"
+            " count(*) AS _n, NULL::numeric AS _start, NULL::numeric AS _step,"
+            " NULL::numeric AS _nb, NULL::int AS _mode"
+            " FROM _f CROSS JOIN _r GROUP BY 1, 2, 3"
+            " UNION ALL"
+            " SELECT _t.flo::float8, _t.fhi::float8,"
+            " greatest(0, least(_t.nb - 1,"
+            f" _t.b0 + CASE WHEN _t.x < {edge('_t.b0')} THEN -1"
+            f" WHEN _t.b0 < _t.nb - 1 AND _t.x >= {edge('_t.b0 + 1')} THEN 1"
+            " ELSE 0 END))::int,"
+            " count(*), _t.start, _t.st, _t.nb, _t.mode"
+            " FROM _t GROUP BY 1, 2, 3, 5, 6, 7, 8 ORDER BY 3"
         )
     if request.op == "rows":
         return _rows_sql(request, source, predicates, columns, geometry=geometry)
@@ -418,12 +474,26 @@ def _whole_number_histogram(rows: Sequence[Sequence[Any]]) -> HistogramResult:
 
 
 def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
+    """Bins of a non-integer column, with rounded edges.
+
+    The step is the smallest of 1, 2, 5 times a power of ten that covers the
+    range in at most ``bins`` bins; the first edge is the multiple of the step
+    at or below the minimum, the last at or above the maximum, and a maximum on
+    the last edge counts in the last bin. Edges are rounded only for ``real``,
+    ``double precision`` and ``numeric`` columns whose edges are finite and
+    distinct in the column's arithmetic and whose two ends differ as doubles;
+    every other request gets equal-width bins from the minimum, as before.
+    """
     if not rows:
         return HistogramResult(bins=[])
     # An integer column's rows carry a fifth value, the width of its
     # whole-number bins, or NULL when it was binned as floats.
     if len(rows[0]) == 5 and rows[0][4] is not None:
         return _whole_number_histogram(rows)
+    if len(rows[0]) == 8 and rows[0][7] is None:
+        rows = [row[:4] for row in rows]
+    elif len(rows[0]) == 8:
+        return _rounded_histogram(rows, bins)
     low, high = float(rows[0][0]), float(rows[0][1])
     if low == high:
         return HistogramResult(
@@ -439,6 +509,35 @@ def _histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
         bins=[
             HistogramBin(lower=edges[i], upper=edges[i + 1], count=counts.get(i + 1, 0))
             for i in range(bins)
+        ]
+    )
+
+
+def _rounded_histogram(rows: Sequence[Sequence[Any]], bins: int) -> HistogramResult:
+    start, step = Decimal(str(rows[0][4])), Decimal(str(rows[0][5]))
+    count = int(rows[0][6])
+    counts: dict[int, int] = {}
+    for row in rows:
+        counts[int(row[2])] = counts.get(int(row[2]), 0) + int(row[3])
+    if count > bins:
+        # One bin can't be rounded on both sides without straddling a multiple.
+        return HistogramResult(
+            bins=[
+                HistogramBin(
+                    lower=float(start),
+                    upper=float(start + count * step),
+                    count=sum(counts.values()),
+                )
+            ]
+        )
+    return HistogramResult(
+        bins=[
+            HistogramBin(
+                lower=float(start + i * step),
+                upper=float(start + (i + 1) * step),
+                count=counts.get(i, 0),
+            )
+            for i in range(count)
         ]
     )
 
@@ -584,7 +683,7 @@ async def _planned_rows(
 def _row_limit(request: AggregateRequest) -> int:
     """The most rows a request's SQL returns: one past its limit, when it has one."""
     if request.op == "histogram":
-        return request.bins
+        return request.bins + 1
     limit = getattr(request, "limit", None)
     return 1 if limit is None else limit + 1
 

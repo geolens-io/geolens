@@ -6,9 +6,10 @@ interface UseHeroStateOptions {
   datasetId: string | undefined;
   recordType: string | null | undefined;
   hasTileUrl: boolean;
+  tileUrl?: string | null;
 }
 
-export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroStateOptions) {
+export function useHeroState({ datasetId, recordType, hasTileUrl, tileUrl }: UseHeroStateOptions) {
   const isRasterOrVrt = recordType === 'raster_dataset' || recordType === 'vrt_dataset';
   // Vector previews report readiness/errors too (soft-ready immediately, then
   // confirm via sourcedata) — only table datasets have no hero map to track.
@@ -55,6 +56,17 @@ export function useHeroState({ datasetId, recordType, hasTileUrl }: UseHeroState
     setRetryCount(0);
     setMapKey(0);
   }, [datasetId]);
+
+  // New tiles on the same dataset (a VRT rebuild) remount the preview, which
+  // needs a fresh readiness window like any other remount.
+  const tilesRef = useRef({ datasetId, tileUrl });
+  useEffect(() => {
+    const prev = tilesRef.current;
+    tilesRef.current = { datasetId, tileUrl };
+    if (prev.datasetId !== datasetId || prev.tileUrl === tileUrl) return;
+    setHeroState('loading');
+    setMapKey(k => k + 1);
+  }, [datasetId, tileUrl]);
 
   // Raster with no tile_url: skip to 'loaded' immediately (no tiles to wait for)
   useEffect(() => {

@@ -6494,8 +6494,11 @@ class TestAPreviewReportsTheCollectionNotTheScratchFile:
     async def test_an_unprotected_preview_still_reports_ogrinfos_answer(
         self, monkeypatch
     ) -> None:
-        """Nothing is localised without a credential, so nothing changes."""
+        """Nothing is localised without a credential; a WFS count comes from hits."""
         self._ogrinfo(monkeypatch)
+        monkeypatch.setattr(
+            preview_mod, "fetch_arcgis_wfs_hits", AsyncMock(return_value=5)
+        )
 
         result = await preview_mod.run_service_preview(
             f"WFS:{_SVC_WFS}", "topp:parcels", sample_limit=5
@@ -9126,10 +9129,12 @@ class TestAdapterProbeReadsAreBounded:
       from #1758 (byte cap and deadline both native to that module, not
       borrowed from `probe_bounds.py`).
     - `catalog/sources/cog_info.py`'s `fetch_cog_info` (3 sites) and
-      `fetch_cog_nodata` (1 site): both talk to GeoLens's OWN internal,
+      `fetch_cog_header` (1 site): both talk to GeoLens's OWN internal,
       trusted Titiler service (`build_titiler_cog_url`), carrying no
       external credential at all -- see each function's own Gate 1/Gate 2
       docstring.
+    - `platform/storage/remote_quicklook.py`'s `_draw`: the same internal
+      Titiler, asked for a preview no larger than 512 px, with no credential.
     - `catalog/sources/origin_probe.py`'s `probe_remote_uri`/
       `fetch_json_document`: neither attaches a credential header; both
       already run under their own doubled hard deadline and (for the JSON
@@ -9242,7 +9247,8 @@ class TestAdapterProbeReadsAreBounded:
             ("app.modules.auth.oauth.service", "_resolve_github_identity", "get"),
             ("app.modules.catalog.sources.arcgis_signin", "_fetch_json", "stream"),
             ("app.modules.catalog.sources.cog_info", "fetch_cog_info", "get"),
-            ("app.modules.catalog.sources.cog_info", "fetch_cog_nodata", "get"),
+            ("app.modules.catalog.sources.cog_info", "fetch_cog_header", "get"),
+            ("app.platform.storage.remote_quicklook", "_draw", "get"),
             ("app.modules.catalog.sources.origin_probe", "probe_remote_uri", "stream"),
             (
                 "app.modules.catalog.sources.origin_probe",

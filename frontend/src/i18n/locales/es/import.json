@@ -494,6 +494,7 @@
     "rasterSummary": "{{bands}} · {{width}}×{{height}} · {{crs}}",
     "vectorSummary": "{{geometryType}} · {{features}} · {{crs}}",
     "noCrs": "sin CRS",
+    "pointFromColumns": "Punto (desde columnas)",
     "actionSummary": "{{files}} · {{vectors}} · {{rasters}} · {{tables}}",
     "actionHint": "Importación predeterminada: cada archivo → nuevo conjunto de datos en el Catálogo.",
     "actionHintMultiLayer": "Importación predeterminada: cada archivo → nuevo conjunto de datos en el Catálogo. Los archivos con varias capas solo importan la capa seleccionada, a menos que ingieras todas las capas.",

@@ -153,7 +153,21 @@ ORIGIN_REF_KEYS: dict[str, frozenset[str]] = {
             "auth_required",
         }
     ),
-    "upload": frozenset({"filename", "file_hash", "item_id", "portal_url"}),
+    # `x_column`/`y_column` or `geom_column`: the source columns the geometry
+    # was built from, and `column_srid` the CRS of their coordinates, so a
+    # replacement file builds it the same way.
+    "upload": frozenset(
+        {
+            "filename",
+            "file_hash",
+            "item_id",
+            "portal_url",
+            "x_column",
+            "y_column",
+            "geom_column",
+            "column_srid",
+        }
+    ),
     # Gate 2: GeoLens-internal table only. No host/port/DSN/credential key.
     #
     # `managed` is the one bit separating the two callers of
@@ -580,11 +594,24 @@ class SourceBinding:
 
     @classmethod
     def upload(
-        cls, source_format: str, *, filename: str | None, file_hash: str | None = None
+        cls,
+        source_format: str,
+        *,
+        filename: str | None,
+        file_hash: str | None = None,
+        geometry_fields: dict[str, Any] | None = None,
     ) -> SourceBinding:
-        """An uploaded file: no remote pointer, only its name and hash."""
+        """An uploaded file: no remote pointer, only its name and hash.
+
+        ``geometry_fields`` are the columns its geometry was built from.
+        """
         return cls._of(
-            "upload", source_format, None, filename=filename, file_hash=file_hash
+            "upload",
+            source_format,
+            None,
+            filename=filename,
+            file_hash=file_hash,
+            **(geometry_fields or {}),
         )
 
     @classmethod

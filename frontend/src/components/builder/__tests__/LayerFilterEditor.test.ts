@@ -406,6 +406,39 @@ describe('LayerFilterEditor - value input debounce (PB-04)', () => {
     act(() => { vi.advanceTimersByTime(200); });
     expect(onFilterChange.mock.calls.length).toBeGreaterThanOrEqual(callsBefore);
   });
+
+  it('keeps a raw Apply when a value change was still waiting', () => {
+    const onFilterChange = vi.fn();
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: ['all', ['==', ['get', 'name'], 'foo']] as FilterSpecification,
+      onFilterChange,
+    }));
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'bar' } });
+    fireEvent.click(screen.getByRole('button', { name: 'JSON' }));
+    fireEvent.change(screen.getByRole('textbox', { name: 'JSON' }), {
+      target: { value: '["==", ["get", "name"], "raw"]' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Apply' }));
+    act(() => { vi.advanceTimersByTime(200); });
+
+    expect(onFilterChange).toHaveBeenLastCalledWith(['==', ['get', 'name'], 'raw']);
+  });
+
+  it('reports each value change at once when `immediate`', () => {
+    const onFilterChange = vi.fn();
+    render(createElement(LayerFilterEditor, {
+      columnInfo: columns,
+      filter: ['all', ['==', ['get', 'name'], 'foo']] as FilterSpecification,
+      onFilterChange,
+      immediate: true,
+    }));
+
+    fireEvent.change(screen.getByRole('textbox', { name: 'Value' }), { target: { value: 'bar' } });
+
+    expect(onFilterChange).toHaveBeenLastCalledWith(['all', ['==', ['get', 'name'], 'bar']]);
+  });
 });
 
 // ---------------------------------------------------------------------------

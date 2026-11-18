@@ -1,5 +1,6 @@
 import { lazy, type ComponentType, type LazyExoticComponent } from 'react';
 import type { TFunction } from 'i18next';
+import type { FilterSpecification } from 'maplibre-gl';
 import type { AggregateRequest } from '@/api/aggregate';
 import type { Bbox } from '@/lib/bbox';
 
@@ -23,6 +24,8 @@ export interface WidgetInstance<C = unknown> {
   title?: string;
   layer_id?: string;
   scope?: 'layer' | 'view';
+  /** A dashboard widget's own MapLibre filter, which narrows its layer's features for this widget only. */
+  filter?: FilterSpecification;
   /** The uploaded image a story image block shows. */
   asset_id?: string;
   config: C;
@@ -133,6 +136,8 @@ export interface WidgetDefinition<C> {
    * config that uses no newer option stays at the version older clients read.
    */
   storedVersion?: (config: C) => number;
+  /** The version that may carry a dashboard instance's own `filter`; a type without it takes none. */
+  filterVersion?: number;
   surfaces: readonly WidgetSurface[];
   /** Each instance names an image uploaded to its host in `asset_id`. */
   asset?: true;

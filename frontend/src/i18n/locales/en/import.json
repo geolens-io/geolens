@@ -566,6 +566,7 @@
     "rasterSummary": "{{bands}} · {{width}}×{{height}} · {{crs}}",
     "vectorSummary": "{{geometryType}} · {{features}} · {{crs}}",
     "noCrs": "no CRS",
+    "pointFromColumns": "Point (from columns)",
     "actionSummary": "{{files}} · {{vectors}} · {{rasters}} · {{tables}}",
     "actionHint": "Default import: each file → new dataset in the Catalog.",
     "actionHintMultiLayer": "Default import: each file → new dataset in the Catalog. Multi-layer files import only the selected layer unless you ingest all layers.",

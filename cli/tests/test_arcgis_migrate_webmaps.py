@@ -77,6 +77,18 @@ def _map(owner: str = OPERATOR) -> dict[str, Any]:
     }
 
 
+def _translated_layer() -> dict[str, Any]:
+    return {
+        "dataset_id": dataset_id("Parcels"),
+        "sort_order": 0,
+        "opacity": 1.0,
+        "paint": {"fill-color": "#336699"},
+        "layout": {},
+        "style_config": {},
+        "layer_type": "vector_geolens",
+    }
+
+
 def _response(*, lost: int = 0, unmatched: list[dict] | None = None) -> dict:
     items = [
         {"path": f"$.p{n}", "kind": "popup_expression", "detail": ""}
@@ -84,7 +96,7 @@ def _response(*, lost: int = 0, unmatched: list[dict] | None = None) -> dict:
     ]
     return {
         "map": _map(),
-        "layers": [],
+        "layers": [_translated_layer()],
         "layer_ids": {"parcels_0": LAYER_ID.format(1), "view_0": LAYER_ID.format(2)},
         "loss_report": {"items": items, "summary": {"popup_expression": lost}},
         "unmatched_layers": unmatched or [],
@@ -92,7 +104,19 @@ def _response(*, lost: int = 0, unmatched: list[dict] | None = None) -> dict:
 
 
 def _services(geolens) -> None:
-    FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners", "Table")])
+    service = FakeImport(geolens, [])
+    probe = service.probe
+
+    def each_service(seen):
+        # The public view is a service of its own, with datasets of its own.
+        view = "Parcels_view" in seen.json()["url"]
+        service.layers = [
+            _layer(0, "View parcels" if view else "Parcels"),
+            _layer(1, "View owners" if view else "Owners", "Table"),
+        ]
+        return probe(seen)
+
+    geolens.routes["POST /services/probe/"] = each_service
     geolens.routes["PATCH /maps/" + MAP_ID] = lambda seen: _map(
         seen.json().get("owner_id", OPERATOR)
     )
@@ -106,7 +130,17 @@ def _services(geolens) -> None:
 
 
 def _sent(geolens) -> list[Any]:
-    return [s for s in geolens.seen if s.url.endswith("/maps/import/arcgis-webmap/")]
+    """The import requests, without the dry run that precedes each create."""
+    sent = [s for s in geolens.seen if s.url.endswith("/maps/import/arcgis-webmap/")]
+    return [
+        s
+        for n, s in enumerate(sent)
+        if not (
+            s.json().get("dry_run")
+            and n + 1 < len(sent)
+            and not sent[n + 1].json().get("dry_run")
+        )
+    ]
 
 
 @pytest.fixture(autouse=True)
@@ -134,7 +168,7 @@ def test_a_web_map_is_imported_with_the_datasets_of_its_services(
     [request] = [s.json() for s in _sent(geolens)]
     assert request["dataset_matches"] == {
         "parcels_0": dataset_id("Parcels"),
-        "view_0": dataset_id("Parcels"),
+        "view_0": dataset_id("View parcels"),
     }
     assert request["webmap"]["operationalLayers"][0]["id"] == "parcels_0"
     state = _state(plan_file)["items"][B1]
@@ -699,7 +733,42 @@ def test_matches_are_capped_at_the_request_limit_not_the_map_limit():
 
     matches = match_datasets(ctx, webmap)
 
-    assert len(matches) == 1000 and "l999" in matches and "l1000" not in matches
+    # The server keeps a map's top layers, so the window is taken from the top.
+    assert len(matches) == 1000 and "l500" in matches and "l499" not in matches
+
+
+def test_the_match_window_counts_a_duplicate_id_once_at_its_first_place():
+    ctx = SimpleNamespace(
+        aliases={},
+        items={
+            "low": _state_item(dataset_ids=["ds-low"]),
+            "svc": _state_item(dataset_ids=["ds"]),
+        },
+    )
+    webmap = {
+        "operationalLayers": [
+            {"layerType": "FeatureLayer", "id": "dup", "itemId": "low"},
+            *(
+                {"layerType": "FeatureLayer", "id": f"l{n}", "itemId": "svc"}
+                for n in range(1004)
+            ),
+            {"layerType": "FeatureLayer", "id": "dup", "itemId": "svc"},
+        ]
+    }
+
+    matches = match_datasets(ctx, webmap)
+
+    assert len(matches) == 1000 and "l4" in matches and "l3" not in matches
+    assert "dup" not in matches
+
+
+@pytest.mark.parametrize(("depth", "read"), [(16, True), (17, False)])
+def test_layers_nested_deeper_than_the_server_reads_have_no_place(depth, read):
+    layer: dict[str, Any] = {"id": "deep", "layerType": "FeatureLayer"}
+    for n in range(depth):
+        layer = {"id": f"g{n}", "layerType": "GroupLayer", "layers": [layer]}
+
+    assert ("deep" in webmaps._layer_order({"operationalLayers": [layer]})) is read
 
 
 def test_dropped_layers_do_not_use_up_the_cap():
@@ -978,6 +1047,32 @@ def test_a_loss_report_a_rerun_couldnt_write_is_written_by_the_next_one(
     ]
     loss = json.loads((plan_file.parent / entry["loss_report_path"]).read_text())
     assert loss["loss_report"]["summary"] == {"popup_expression": 1}
+
+
+def test_a_translated_map_is_saved_with_the_web_maps_top_layer_first(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    translated = _translated(dataset_id("Parcels"))
+    # A server that keeps the web map's bottom-first order.
+    geolens.routes[IMPORT] = (
+        201,
+        {
+            **translated,
+            "layers": translated["layers"][:2],
+            "layer_sources": ["parcels_0", "view_0"],
+        },
+    )
+
+    result, _ = _migrate(runner, plan_file, "--token", token)
+
+    assert result.exit_code == 0, result.output
+    [sent] = _puts(geolens)
+    # view_0 sits above parcels_0 in the web map, and sort_order 0 draws on top.
+    assert [(layer.get("id"), layer["sort_order"]) for layer in sent["layers"]] == [
+        (LAYER_ID.format(2), 0),
+        (LAYER_ID.format(1), 1),
+    ]
 
 
 def test_a_lost_view_note_fits_notes_near_their_limit(
@@ -1270,7 +1365,74 @@ def test_hidden_rows_count_against_the_map_layer_cap(
     assert result.exit_code == 0, result.output
     [sent] = _puts(geolens)
     assert len(sent["layers"]) == 198
-    assert "- operationalLayers[id=y199]: layer_cap (y199)" in sent["notes"]
+    assert (
+        "- operationalLayers[id=y199]: layer_cap "
+        "(y199: left out with the map's bottom layers past 200)" in sent["notes"]
+    )
+
+
+def test_a_rerun_keeps_the_top_layer_a_too_deep_duplicate_shadows(
+    runner, plan_file, geolens, portal
+):
+    _services(geolens)
+    parcels = dataset_id("Parcels")
+    # Bottom to top: a copy of view_0's id 17 groups deep, which the server
+    # skips, 199 more layers, then the item's own layers with view_0 on top.
+    below = [f"y{n}" for n in range(199)]
+    deep: dict[str, Any] = {
+        "id": "view_0",
+        "layerType": "ArcGISFeatureLayer",
+        "title": "deep",
+    }
+    for depth in range(17):
+        deep = {"id": f"g{depth}", "layerType": "GroupLayer", "layers": [deep]}
+    data = f"content/items/{B1}/data"
+    webmap = copy.deepcopy(portal.routes[data])
+    layers = webmap["operationalLayers"]
+    views = next(x for x in layers if x.get("layerType") == "GroupLayer")
+    layers.remove(views)
+    webmap["operationalLayers"] = [
+        deep,
+        *({"id": y, "layerType": "ArcGISFeatureLayer", "title": y} for y in below),
+        *layers,
+        views,
+    ]
+    portal.routes[data] = webmap
+    # The translation of that web map: the server's top layer first, the
+    # deep copy reported as too deep, parcels_0 not translated.
+    full = ["view_0", *reversed(below)]
+
+    def translate(seen):
+        if not seen.json().get("dry_run"):
+            return (201, _response())
+        layer = {"dataset_id": parcels, "sort_order": 0, "opacity": 1}
+        return (
+            201,
+            {
+                **_translated(parcels),
+                "layers": [{**layer, "display_name": x} for x in full],
+                "layer_sources": full,
+            },
+        )
+
+    geolens.routes[IMPORT] = translate
+    geolens.routes["PUT /maps/" + MAP_ID] = lambda seen: _saved(seen.json())
+    assert _run(runner, plan_file)[0].exit_code == 0
+    listed = portal.routes[f"content/items/{B1}"]
+    portal.routes[f"content/items/{B1}"] = {
+        **listed,
+        "modified": listed["modified"] + 60_000,
+    }
+
+    result, _ = _run(runner, plan_file)
+
+    assert result.exit_code == 0, result.output
+    [sent] = _puts(geolens)
+    # parcels_0's hidden row fills the place the cut frees at the bottom.
+    assert [layer.get("id") for layer in sent["layers"]][0] == LAYER_ID.format(2)
+    assert len(sent["layers"]) == 199
+    assert "layer_cap (y0: " in sent["notes"]
+    assert "operationalLayers[id=view_0]: layer_cap" not in sent["notes"]
 
 
 def test_a_hidden_layer_cut_at_the_cap_counts_as_kept(
@@ -1278,9 +1440,17 @@ def test_a_hidden_layer_cut_at_the_cap_counts_as_kept(
 ):
     _services(geolens)
     parcels = dataset_id("Parcels")
-    # parcels_0 is gone from the portal and view_0 comes last; both of their
-    # map layers are hidden from the run's account.
-    full = [*(f"y{n}" for n in range(199)), "view_0"]
+    # parcels_0 is gone from the translation and view_0 is its bottom layer,
+    # under 199 layers added above it; both of their map layers are hidden
+    # from the run's account.
+    above = [f"y{n}" for n in range(199)]
+    full = [*reversed(above), "view_0"]
+    data = f"content/items/{B1}/data"
+    webmap = copy.deepcopy(portal.routes[data])
+    webmap["operationalLayers"] += [
+        {"id": y, "layerType": "ArcGISFeatureLayer", "title": y} for y in above
+    ]
+    portal.routes[data] = webmap
 
     def translate(seen):
         body = seen.json()
@@ -1311,7 +1481,10 @@ def test_a_hidden_layer_cut_at_the_cap_counts_as_kept(
     [sent] = _puts(geolens)
     # 198 sent and the two hidden rows GeoLens keeps make 200.
     assert len(sent["layers"]) == 198
-    assert "- operationalLayers[id=view_0]: layer_cap (view_0)" in sent["notes"]
+    assert (
+        "- operationalLayers[id=view_0]: layer_cap "
+        "(view_0: left out with the map's bottom layers past 200)" in sent["notes"]
+    )
 
 
 def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
@@ -1320,6 +1493,7 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     _services(geolens)
     parcels = dataset_id("Parcels")
     unreadable: set[str] = set()
+    created: list[int] = []
 
     def translate(seen):
         body = seen.json()
@@ -1327,6 +1501,9 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
         if set(body["dataset_matches"].values()) & unreadable:
             return (404, {"title": "Not Found", "status": 404, "detail": "nope"})
         if not body.get("dry_run"):
+            created.append(1)
+            return (201, _response())
+        if not created:
             return (201, _response())
         return (201, {**_translated(parcels), "layers": [], "layer_sources": []})
 
@@ -1334,13 +1511,15 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
     geolens.routes["PUT /maps/" + MAP_ID] = lambda seen: _saved(seen.json())
     assert _run(runner, plan_file)[0].exit_code == 0
     recorded = _state(plan_file)["items"][B1]["layer_ids"]
-    # The dataset now belongs to someone the run's account can't read for.
-    unreadable.add(parcels)
-    readable = geolens.routes.get(f"GET /datasets/{parcels}")
-    geolens.routes[f"GET /datasets/{parcels}"] = (
-        404,
-        {"title": "Not Found", "status": 404, "detail": "Dataset not found"},
-    )
+    # The datasets now belong to someone the run's account can't read for.
+    view = dataset_id("View parcels")
+    unreadable.update({parcels, view})
+    readable = {d: geolens.routes.get(f"GET /datasets/{d}") for d in (parcels, view)}
+    for gone in (parcels, view):
+        geolens.routes[f"GET /datasets/{gone}"] = (
+            404,
+            {"title": "Not Found", "status": 404, "detail": "Dataset not found"},
+        )
     listed = portal.routes[f"content/items/{B1}"]
     portal.routes[f"content/items/{B1}"] = {
         **listed,
@@ -1362,7 +1541,8 @@ def test_a_layer_whose_dataset_the_account_cant_read_is_left_as_it_is(
 
     # Access comes back; the portal hasn't changed since.
     unreadable.clear()
-    geolens.routes[f"GET /datasets/{parcels}"] = readable
+    for dataset, route in readable.items():
+        geolens.routes[f"GET /datasets/{dataset}"] = route
     read = geolens.routes["GET /maps/" + MAP_ID]
     geolens.routes["GET /maps/" + MAP_ID] = lambda seen: {
         **read(seen),
@@ -1393,6 +1573,15 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
             {"id": ["y"], "layerType": "ArcGISFeatureLayer", "title": "Array"},
         ]
         portal.routes[data] = webmap
+    extra = [f"x{n}" for n in range(199)] if variant == "at-the-cap" else []
+    if extra:
+        # Layers below the rest of the web map, which fill it to the cap.
+        data = f"content/items/{B1}/data"
+        webmap = copy.deepcopy(portal.routes[data])
+        webmap["operationalLayers"][:0] = [
+            {"id": x, "layerType": "ArcGISFeatureLayer", "title": x} for x in extra
+        ]
+        portal.routes[data] = webmap
     parcels = dataset_id("Parcels")
     elsewhere = "00000000-0000-0000-0009-000000000001"
 
@@ -1403,14 +1592,15 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
         if not body.get("dry_run"):
             return (201, _response())
         view = {"dataset_id": parcels, "sort_order": 0, "opacity": 0.5}
-        # At the cap, the translation already fills the map.
-        extra = [f"x{n}" for n in range(199)] if variant == "at-the-cap" else []
+        # At the cap, the translation already fills the map; it lists the web
+        # map's top layer first.
+        below = extra[::-1]
         return (
             201,
             {
                 **_translated(parcels),
-                "layers": [view, *({**view, "display_name": x} for x in extra)],
-                "layer_sources": ["view_0", *extra],
+                "layers": [view, *({**view, "display_name": x} for x in below)],
+                "layer_sources": ["view_0", *below],
             },
         )
 
@@ -1469,9 +1659,15 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
     entry = _state(plan_file)["items"][B1]
     assert entry["layer_ids"]["parcels_0"] == parcels_row
     if variant == "at-the-cap":
-        # The kept row takes the place of the translation's last layer.
+        # The kept row takes the place of the web map's bottom layer, the one
+        # the translator's own cap gives up first, so the top layers stay.
         assert len(sent["layers"]) == 200
-        assert "- operationalLayers[id=x198]: layer_cap (x198)" in sent["notes"]
+        assert (
+            "- operationalLayers[id=x0]: layer_cap "
+            "(x0: left out with the map's bottom layers past 200)" in sent["notes"]
+        )
+        sent_ids = {layer.get("id") for layer in sent["layers"]}
+        assert entry["layer_ids"]["view_0"] in sent_ids
         loss = json.loads((plan_file.parent / entry["loss_report_path"]).read_text())
         assert loss["loss_report"]["summary"]["layer_cap"] == 1
 
@@ -1486,7 +1682,7 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
                 ("b", "ArcGISFeatureLayer"),
                 ("a", "ArcGISFeatureLayer"),
             ],
-            ["a", "b"],
+            ["b", "a"],
         ),
         # An unsupported layer doesn't take the id's place.
         (
@@ -1495,7 +1691,7 @@ def test_a_layer_repointed_to_a_dataset_the_account_cant_read_keeps_its_row(
                 ("b", "ArcGISFeatureLayer"),
                 ("a", "ArcGISFeatureLayer"),
             ],
-            ["b", "a"],
+            ["a", "b"],
         ),
     ],
     ids=["supported-duplicate", "unsupported-duplicate"],
@@ -2025,6 +2221,52 @@ def test_a_layer_whose_service_imports_later_is_added_without_a_portal_change(
 
     assert B1 not in payload["not_up_to_date"]
     assert len(_puts(geolens)) == 2
+
+
+def test_a_layer_geolens_refused_for_good_is_not_waited_on_by_its_web_map(
+    runner, plan_file, geolens, portal
+):
+    token = _changed_in_the_portal(runner, plan_file, geolens, portal)
+    _committing_save(geolens, commits=True, failure=None)
+    FakeImport(geolens, [_layer(0, "Parcels")])._serve_dataset(dataset_id("Parcels"))
+    roads = "a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3a3"
+    reason = "Roads: This layer holds multipatch geometry; layer not imported"
+
+    def import_roads_layers(plan):
+        for item in plan["items"]:
+            if item["id"] == roads:
+                item["action"] = "import_layers"
+
+    inventory = json.loads((plan_file.parent / "arcgis-inventory.json").read_text())
+    roads_url = next(r["url"] for r in inventory["items"] if r["id"] == roads)
+
+    def roads_refused(state):
+        state["items"][roads].update(
+            status="skipped",
+            error=None,
+            service_url=roads_url,
+            left_behind=[reason],
+            refused_layers={"0": {"label": "Roads", "layer_id": "0", "reason": reason}},
+        )
+
+    _edit_json(plan_file, import_roads_layers)
+    _edit_json(plan_file.parent / "arcgis-migration-state.json", roads_refused)
+    new_layer = {
+        "id": "roads_new_0",
+        "itemId": roads,
+        "layerType": "ArcGISFeatureLayer",
+        "url": "https://services1.arcgis.com/ExAmPlEoRg0123/arcgis/rest/services/Roads/FeatureServer/0",
+    }
+    _edit_webmap(portal, lambda layers: layers.append(new_layer))
+
+    for _run in range(2):
+        result, payload = _migrate(runner, plan_file, "--token", token, "--only", B1)
+
+        assert result.exit_code == 0, result.output
+        assert B1 not in payload["not_up_to_date"]
+        assert _state(plan_file)["items"][B1]["pending_layers"] == []
+    assert len(_puts(geolens)) == 1
+    assert _state(plan_file)["items"][roads]["status"] == "skipped"
 
 
 DEFAULT_PAINT = {"fill-color": "#999999"}
@@ -2887,7 +3129,7 @@ def test_only_a_web_map_imports_an_exported_service_whose_action_became_an_impor
     [request] = [s.json() for s in _sent(geolens)]
     assert request["dataset_matches"] == {
         "parcels_0": dataset_id("Parcels"),
-        "view_0": dataset_id("Parcels"),
+        "view_0": dataset_id("View parcels"),
     }
 
 

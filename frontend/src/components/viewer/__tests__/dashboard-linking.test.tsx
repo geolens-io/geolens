@@ -375,6 +375,39 @@ describe('dashboard linking', () => {
     expect(bodiesFor('count').every((body) => JSON.stringify(body.filter ?? null).length <= 10_000)).toBe(true);
   });
 
+  it("refuses a pick that would take a widget's own filter past what the server takes", async () => {
+    const user = userEvent.setup();
+    const long = (letter: string) => letter.repeat(2600);
+    fetchMock.mockImplementation(async (_dataset, body) =>
+      (body.op === 'value_counts'
+        ? {
+            op: 'value_counts',
+            approximate: false,
+            cached: false,
+            result: { values: ['a', 'b', 'c'].map((letter) => ({ value: long(letter), count: 1 })), other_count: 0 },
+          }
+        : respond(body)) as never,
+    );
+    const own = ['==', ['get', 'land_use'], long('z')];
+    const selector = {
+      version: 1,
+      widgets: [
+        { id: chartId, type: 'category_selector', v: 1, title: 'Land use', layer_id: parcelsId, config: { column: 'land_use', multiple: true } },
+        { id: countId, type: 'indicator', v: 3, title: 'Parcels', layer_id: parcelsId, filter: own, config: { stat: 'count' } },
+      ],
+    } as DashboardConfig;
+    renderViewer([layer(parcelsId, 'Parcels'), layer(roadsId, 'Roads')], selector);
+    const boxes = await screen.findAllByRole('checkbox');
+
+    await user.click(boxes[0]);
+    await user.click(boxes[1]);
+    // Three picks fit a widget without a filter of its own; with the indicator's they don't.
+    await user.click(boxes[2]);
+    await waitFor(() => expect(screen.getByRole('status')).toHaveTextContent('Too many values to filter by. Pick fewer.'));
+    expect(boxes[2]).not.toBeChecked();
+    expect(bodiesFor('count').every((body) => JSON.stringify(body.filter ?? null).length <= 10_000)).toBe(true);
+  });
+
   it('refuses a pick whose cluster tile URL would overflow a request line with the columns it also carries', async () => {
     const user = userEvent.setup();
     const long = (letter: string) => letter.repeat(1200);

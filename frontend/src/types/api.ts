@@ -255,7 +255,8 @@ export type JobCancelResponse = components['schemas']['JobCancelResponse'];
 
 /**
  * 'read_only' keys authenticate GET/HEAD/OPTIONS only; 'publish' keys also
- * upload and write metadata and maps, but never delete or write features.
+ * upload and write metadata and maps, but never delete or write features;
+ * 'map_author' keys also create maps and style the maps they created.
  */
 export type ApiKeyScope = components['schemas']['ApiKeyCreateRequest']['scope'];
 
@@ -847,6 +848,7 @@ export type VrtSourceHealth = components['schemas']['VrtSourceHealth'];
 export type VrtStatusResponse = components['schemas']['VrtStatusResponse'];
 
 export type VrtGenerationListResponse = components['schemas']['VrtGenerationListResponse'];
+export type VrtMutationResponse = components['schemas']['VrtMutationResponse'];
 
 // STAC import types
 export type StacConnectResponse = components['schemas']['StacConnectResponse'];

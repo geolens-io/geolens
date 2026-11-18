@@ -19,8 +19,9 @@ import { useEdition } from '@/hooks/use-edition';
 import { isSafeHttpUrl } from '@/lib/safe-http-url';
 import { postSignInPath } from '@/lib/post-sign-in-path';
 import { writeSessionStorage } from '@/lib/storage';
+import type { Translator } from '@/i18n/translator';
 
-function getOAuthErrorMessage(error: string, t: (key: string, opts?: Record<string, string>) => string): string {
+function getOAuthErrorMessage(error: string, t: Translator): string {
   if (error.includes('invalid_grant')) {
     return t('oauthErrors.invalidGrant');
   }

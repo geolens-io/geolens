@@ -1,3 +1,4 @@
+import type { FilterSpecification } from 'maplibre-gl';
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { createElement, type ReactNode } from 'react';
 import { dashboardReadableTypes } from '@/components/widgets/registry';
@@ -365,7 +366,6 @@ describe('buildLayerDiff', () => {
 
     const result = buildLayerDiff([], [added]);
 
-    expect(result.unsupported).toBe(false);
     expect(result.diff.added).toEqual([
       expect.objectContaining({ dataset_id: 'dataset-new', sort_order: 0 }),
     ]);
@@ -1076,14 +1076,17 @@ describe('useBuilderSave', () => {
     expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
   });
 
-  it('falls back to full layer replacement when PATCH returns a structural error', async () => {
-    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
-      // 405 is now the only shape that escalates to a full PUT. A
-      // 400 with a diff-integrity detail is a conflict, covered separately below.
-      new ApiError('Method Not Allowed', 405, 'Method Not Allowed'),
-    );
-    const baseline = makeLayer({ paint: { 'fill-color': '#000000' } });
-    let state = makeSaveState({ localLayers: [baseline] });
+  // A full layer PUT would overwrite layers another session added, removed or
+  // restyled, so no PATCH failure may turn into one.
+  it.each([
+    ['a 404 with no JSON detail', new ApiError('Not found', 404, undefined)],
+    ["FastAPI's route-missing 404", new ApiError('Not Found', 404, 'Not Found')],
+    ['405', new ApiError('Method Not Allowed', 405, 'Method Not Allowed')],
+    ['501', new ApiError('Not Implemented', 501, 'Not Implemented')],
+  ])('fails the save and keeps the draft when the layer-diff route answers %s', async (_, error) => {
+    const { toast } = await import('sonner');
+    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(error);
+    let state = makeSaveState({ localLayers: [makeLayer({ paint: { 'fill-color': '#000000' } })] });
     const { result, rerender } = renderHook(() => useBuilderSave(state));
     state = makeSaveState({
       localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
@@ -1095,59 +1098,11 @@ describe('useBuilderSave', () => {
       await result.current.handleSave();
     });
 
-    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledTimes(1);
-    expect(mockUpdateMapMutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({
-        id: 'map-1',
-        data: expect.objectContaining({
-          layers: [expect.objectContaining({ dataset_id: 'dataset-1', paint: { 'fill-color': '#ff0000' } })],
-        }),
-      }),
-    );
-    expect(state.setHasUnsavedChanges).toHaveBeenCalledWith(false);
-  });
-
-  it('omits virtual folder rows from full replacement fallback payloads', async () => {
-    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
-      // 405 is now the only shape that escalates to a full PUT. A
-      // 400 with a diff-integrity detail is a conflict, covered separately below.
-      new ApiError('Method Not Allowed', 405, 'Method Not Allowed'),
-    );
-    const baseline = makeLayer({ id: 'layer-1' });
-    const group = {
-      ...makeLayer({ id: 'group-1', display_name: 'Field layers' }),
-      layer_type: 'group:folder',
-    } as unknown as MapLayerResponse;
-    const child = {
-      ...baseline,
-      parent_group_id: 'group-1',
-    } as MapLayerResponse & { parent_group_id: string };
-    let state = makeSaveState({ localLayers: [baseline] });
-    const { result, rerender } = renderHook(() => useBuilderSave(state));
-    state = makeSaveState({
-      localLayers: [group, child],
-      groupMeta: { 'group-1': { expanded: true } },
-      hasUnsavedChanges: true,
-    });
-    rerender();
-
-    await act(async () => {
-      await result.current.handleSave();
-    });
-
-    const fallbackPayload = mockUpdateMapMutateAsync.mock.calls[0][0].data;
-    expect(fallbackPayload.layers).toHaveLength(1);
-    expect(fallbackPayload.layers[0]).toMatchObject({
-      dataset_id: 'dataset-1',
-      layer_type: 'vector_geolens',
-      style_config: {
-        builder: {
-          folderGroupId: 'group-1',
-          folderGroupName: 'Field layers',
-          folderGroupExpanded: true,
-        },
-      },
-    });
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledOnce();
+    expect(mockUpdateMapMutateAsync).not.toHaveBeenCalled();
+    expect(state.setHasUnsavedChanges).not.toHaveBeenCalledWith(false);
+    expect(result.current.saveStatus).toBe('failed');
+    expect(toast.error).toHaveBeenCalledWith('toasts.saveFailed');
   });
 
   // -------------------------------------------------------------------------
@@ -1200,6 +1155,44 @@ describe('useBuilderSave', () => {
     // The metadata PUT carries NO layers array, so nothing is overwritten.
     expect(mockUpdateMapMutateAsync).toHaveBeenCalledTimes(1);
     expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeUndefined();
+  });
+
+  // A layer list in PUT /maps/{id} replaces every layer, including ones
+  // another session added, so no save path may send one.
+  it('never sends a layer list in the map PUT, on a plain or a recovered save', async () => {
+    const stale = new ApiError(
+      'Layer diff references layer ids outside this map',
+      400,
+      'Layer diff references layer ids outside this map',
+    );
+    const layerA = makeLayer({ id: 'layer-a', sort_order: 0 });
+    const layerB = makeLayer({ id: 'layer-b', dataset_id: 'dataset-b', sort_order: 1 });
+    const layerC = makeLayer({ id: 'layer-c', dataset_id: 'dataset-c', sort_order: 2 });
+    const edited = [
+      { ...layerB, sort_order: 0 },
+      { ...layerA, sort_order: 1, paint: { 'fill-color': '#ff0000' } },
+      makeLayer({ id: 'layer-new', dataset_id: 'dataset-new', sort_order: 2 }),
+    ];
+    for (const recovered of [false, true]) {
+      if (recovered) {
+        mockPatchMapLayersMutateAsync.mockRejectedValueOnce(stale);
+        mockGetMap.mockResolvedValueOnce({ id: 'map-1', layers: [layerA, layerB] });
+      }
+      let state = makeSaveState({ localLayers: [layerA, layerB, layerC] });
+      const { result, rerender } = renderHook(() => useBuilderSave(state));
+      state = makeSaveState({ localLayers: edited, hasUnsavedChanges: true });
+      rerender();
+
+      await act(async () => {
+        await result.current.handleSave();
+      });
+    }
+
+    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledTimes(3);
+    expect(mockUpdateMapMutateAsync).toHaveBeenCalledTimes(2);
+    for (const [{ data }] of mockUpdateMapMutateAsync.mock.calls) {
+      expect(data).not.toHaveProperty('layers');
+    }
   });
 
   // The retry must not move a layer this session
@@ -1293,7 +1286,6 @@ describe('useBuilderSave', () => {
     });
 
     expect(toast.warning).toHaveBeenCalledWith('toasts.mapSavedAfterRemoteChange');
-    expect(toast.warning).not.toHaveBeenCalledWith('toasts.mapSavedFullResync');
     expect(state.setHasUnsavedChanges).toHaveBeenCalledWith(false);
   });
 
@@ -1323,65 +1315,8 @@ describe('useBuilderSave', () => {
     expect(result.current.saveStatus).toBe('failed');
   });
 
-  // 404 is the compatibility case the full PUT
-  // exists for. A backend predating PATCH /maps/{id}/layers answers 404 for the
-  // unknown route, so narrowing "unsupported" to 405/501 alone would have made
-  // every layer-edit save fail against such a deployment.
-  // Counterfactual: drop 404 from ROUTE_LEVEL_UNSUPPORTED_STATUSES and the two
-  // route-missing cases stop reaching updateMap.
-  it('falls back to a full PUT when the layer-diff route answers 404 with no JSON detail', async () => {
-    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
-      // An edge proxy in front of the API: no JSON body at all, so apiFetch
-      // leaves `body` undefined and only the localized message remains.
-      new ApiError('Not found', 404, undefined),
-    );
-    let state = makeSaveState({ localLayers: [makeLayer({ paint: { 'fill-color': '#000000' } })] });
-    const { result, rerender } = renderHook(() => useBuilderSave(state));
-    state = makeSaveState({
-      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
-      hasUnsavedChanges: true,
-    });
-    rerender();
-
-    await act(async () => {
-      await result.current.handleSave();
-    });
-
-    // No stale-diff recovery: the only read is the full PUT's read-back.
-    expect(mockPatchMapLayersMutateAsync).toHaveBeenCalledOnce();
-    expect(mockGetMap).toHaveBeenCalledOnce();
-    expect(mockUpdateMapMutateAsync).toHaveBeenCalledWith(
-      expect.objectContaining({
-        data: expect.objectContaining({
-          layers: [expect.objectContaining({ paint: { 'fill-color': '#ff0000' } })],
-        }),
-      }),
-    );
-  });
-
-  it('falls back to a full PUT on FastAPI\'s own route-missing 404 detail', async () => {
-    mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
-      new ApiError('Not Found', 404, 'Not Found'),
-    );
-    let state = makeSaveState({ localLayers: [makeLayer({ paint: { 'fill-color': '#000000' } })] });
-    const { result, rerender } = renderHook(() => useBuilderSave(state));
-    state = makeSaveState({
-      localLayers: [makeLayer({ paint: { 'fill-color': '#ff0000' } })],
-      hasUnsavedChanges: true,
-    });
-    rerender();
-
-    await act(async () => {
-      await result.current.handleSave();
-    });
-
-    expect(mockUpdateMapMutateAsync.mock.calls[0][0].data.layers).toBeDefined();
-  });
-
-  // The route's OWN 404: the map is gone, not the route. A full PUT would only
-  // 404 again, so this has to surface instead of pretending the endpoint is
-  // missing. There is no 404 for a stale layer id; the backend raises 400.
-  it('surfaces a map-not-found 404 instead of escalating to a full PUT', async () => {
+  // There is no 404 for a stale layer id; the backend raises 400.
+  it('surfaces a map-not-found 404 as a save failure', async () => {
     const { toast } = await import('sonner');
     mockPatchMapLayersMutateAsync.mockRejectedValueOnce(
       new ApiError('Map not found', 404, 'Map not found'),
@@ -1631,6 +1566,78 @@ describe('useBuilderSave', () => {
         }),
       );
       expect(toast.error).toHaveBeenCalledWith('toasts.saveFailed');
+    });
+
+    it("holds a save whose layer filter takes an unedited widget's filter past the aggregate's size", async () => {
+      const { toast } = await import('sonner');
+      const values = Array.from({ length: 450 }, (_, i) => `value-${i}`);
+      const half = ['in', ['get', 'kind'], ['literal', values]] as FilterSpecification;
+      const filtered = { ...barChart({}), v: 3, filter: half };
+      const dashboard = { panel: 'right' as const, widgets: [filtered] };
+      await save(
+        makeSaveState({
+          hasUnsavedChanges: true,
+          localLayers: [{ ...widgetLayer(), filter: half }],
+          dashboard,
+          savedDashboard: dashboard,
+          dashboardEdited: false,
+        }),
+      );
+
+      expect(toast.error).toHaveBeenCalledWith(
+        'toasts.dashboardWidgetFilterTooLarge',
+        expect.objectContaining({ id: 'dashboard-widget-invalid' }),
+      );
+      expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
+    });
+
+    const listing = (count: number) =>
+      ['in', ['get', 'kind'], ['literal', Array.from({ length: count }, (_, i) => `v${i}`)]] as FilterSpecification;
+
+    /** Renders a clean builder, then applies `edit` as an unsaved change and saves with `how`. */
+    async function saveAfter(clean: Partial<SaveState>, edit: Partial<SaveState>, how: 'button' | 'shortcut') {
+      let state = makeSaveState(clean);
+      const { result, rerender } = renderHook(() => useBuilderSave(state));
+      state = makeSaveState({ ...clean, ...edit, hasUnsavedChanges: true });
+      rerender();
+      await act(async () => {
+        if (how === 'button') await result.current.handleSave();
+        else window.dispatchEvent(new KeyboardEvent('keydown', { key: 's', ctrlKey: true, bubbles: true }));
+      });
+    }
+
+    it.each(['button', 'shortcut'] as const)(
+      'saves an unrelated edit when a plain widget\'s layer filter was already past the limits (%s)',
+      async (how) => {
+        const { toast } = await import('sonner');
+        const plain = { ...barChart({}), title: 'Land use' };
+        const dashboard = { panel: 'right' as const, widgets: [plain] };
+        const clean = {
+          localLayers: [{ ...widgetLayer(), filter: listing(1001) }],
+          dashboard,
+          savedDashboard: dashboard,
+        };
+
+        await saveAfter(clean, { localName: 'Renamed' }, how);
+
+        expect(toast.error).not.toHaveBeenCalled();
+        await vi.waitFor(() => expect(mockUpdateMapMutateAsync).toHaveBeenCalled());
+      },
+    );
+
+    it("holds a save that takes a plain widget's layer filter past the limits", async () => {
+      const { toast } = await import('sonner');
+      const plain = { ...barChart({}), title: 'Land use' };
+      const dashboard = { panel: 'right' as const, widgets: [plain] };
+      const clean = { localLayers: [widgetLayer()], dashboard, savedDashboard: dashboard };
+
+      await saveAfter(clean, { localLayers: [{ ...widgetLayer(), filter: listing(1001) }] }, 'button');
+
+      expect(toast.error).toHaveBeenCalledWith(
+        'toasts.dashboardWidgetFilterTooLarge',
+        expect.objectContaining({ id: 'dashboard-widget-invalid' }),
+      );
+      expect(mockPatchMapLayersMutateAsync).not.toHaveBeenCalled();
     });
 
     it.each([

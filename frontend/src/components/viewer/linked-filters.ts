@@ -187,17 +187,26 @@ export function selectionCql2(layer: SharedLayerResponse, selection: WidgetSelec
 
 /**
  * The CQL2 filter a widget on `layer` sends: the layer's saved filter, unless
- * the server can't take it (`savedIgnored`), and the picks on the other widgets
- * on the layer. A widget's own pick is left out, so it keeps showing every value.
+ * the server can't take it (`savedIgnored`), the widget's own filter (`own`),
+ * and the picks on the other widgets on the layer. A widget's own pick is left
+ * out, so it keeps showing every value. An own filter the server can't take is
+ * never dropped: `ownUnsupported` tells the caller to ask for nothing.
  */
 export function widgetFilter(
   layer: SharedLayerResponse,
   otherPicks: readonly Cql2Expression[],
-): { filter: Cql2Expression | null; savedIgnored: boolean } {
+  own?: FilterSpecification | null,
+): { filter: Cql2Expression | null; savedIgnored: boolean; ownUnsupported: boolean } {
   const saved = layerFilterToServerCql2(layer.filter, layer.column_info);
-  const parts: Cql2Expression[] = [...(saved && saved !== 'unsupported' ? [saved] : []), ...otherPicks];
+  const mine = own ? layerFilterToServerCql2(own, layer.column_info) : null;
+  const parts: Cql2Expression[] = [
+    ...(saved && saved !== 'unsupported' ? [saved] : []),
+    ...(mine && mine !== 'unsupported' ? [mine] : []),
+    ...otherPicks,
+  ];
   return {
     filter: parts.length === 0 ? null : parts.length === 1 ? parts[0] : { op: 'and', args: parts },
     savedIgnored: saved === 'unsupported',
+    ownUnsupported: mine === 'unsupported',
   };
 }

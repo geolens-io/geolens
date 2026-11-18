@@ -23,10 +23,11 @@ import type {
 import { normalizeBasemapConfig } from '@/lib/basemap-utils';
 import i18n from '@/i18n/i18n';
 import { getClusterSourceStrategy, isClusterRenderMode, type ClusterSourceStrategyKind, type ClusterSourceStatus } from './cluster-source';
+import type { Translator } from '@/i18n/translator';
 
-type BuilderTranslator = (key: string, options?: Record<string, unknown>) => string;
+type BuilderTranslator = Translator;
 
-const defaultBuilderTranslator: BuilderTranslator = (key, options) =>
+const defaultBuilderTranslator: BuilderTranslator = (key: string, options?: Record<string, unknown>) =>
   i18n.t(key, { ns: 'builder', ...options }) as string;
 
 export const MAP_STACK_GROUP_ORDER = [

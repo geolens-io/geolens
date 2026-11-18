@@ -96,6 +96,18 @@ class TestCreate:
         assert got.status_code == 200
         assert len(got.json()["layers"]) == 1
 
+    async def test_the_description_is_saved_on_the_new_map(
+        self, client: AsyncClient, editor
+    ) -> None:
+        headers, _ = editor
+
+        resp = await client.post(
+            URL, json=_body(_webmap(), description="Tax parcels"), headers=headers
+        )
+
+        assert resp.status_code == 201, resp.text
+        assert resp.json()["map"]["description"] == "Tax parcels"
+
     async def test_no_slash_path_is_served(self, client: AsyncClient, editor) -> None:
         headers, _ = editor
         resp = await client.post(
@@ -197,7 +209,7 @@ class TestDryRun:
 
         assert resp.status_code == 201, resp.text
         data = resp.json()
-        assert data["layer_sources"] == ["b", "a"]
+        assert data["layer_sources"] == ["a", "b"]
         assert data["notes"] == created["notes"]
         assert data["view"]["basemap_style"] == created["basemap_style"]
         assert data["view"]["center_lng"] == pytest.approx(-74)
@@ -218,10 +230,10 @@ class TestDryRun:
         assert saved.status_code == 200, saved.text
         result = saved.json()
         assert [layer["id"] for layer in result["layers"]] == [
-            layer_ids["b"],
             layer_ids["a"],
+            layer_ids["b"],
         ]
-        assert result["layers"][0]["display_name"] == "Renamed b"
+        assert result["layers"][0]["display_name"] == "Renamed a"
         assert result["center_lng"] == pytest.approx(-74)
 
 
@@ -556,8 +568,8 @@ class TestResponseShape:
         )
         assert resp.status_code == 201, resp.text
         data = resp.json()
-        assert [x["dataset_id"] for x in data["map"]["layers"]] == [str(second.id)]
-        assert data["layer_ids"] == {"b": data["map"]["layers"][0]["id"]}
+        assert [x["dataset_id"] for x in data["map"]["layers"]] == [str(first.id)]
+        assert data["layer_ids"] == {"a": data["map"]["layers"][0]["id"]}
 
     @pytest.mark.parametrize(
         "hidden", [{"visibility": "private"}, {"record_status": "draft"}]
@@ -645,3 +657,22 @@ class TestViewpoint:
         resp = await client.post(URL, json=_body(webmap), headers=headers)
         assert resp.status_code == 201, resp.text
         assert resp.json()["map"]["bearing"] == -90
+
+
+def test_the_import_request_keeps_its_published_field_order() -> None:
+    """A field declared among the published ones moves their positional slots
+    in the generated SDK constructor."""
+    from app.modules.catalog.maps.schemas_import_arcgis import (
+        ArcgisWebmapImportRequest,
+    )
+
+    published = [
+        "webmap",
+        "name",
+        "title",
+        "visibility",
+        "basemap_map",
+        "dataset_matches",
+        "dry_run",
+    ]
+    assert list(ArcgisWebmapImportRequest.model_fields)[:7] == published

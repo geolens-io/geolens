@@ -31,7 +31,14 @@ from app.processing.ingest.publication import (
 )
 from app.processing.ingest.previous_version import (
     record_live_version,
+    version_geometry_columns,
     stamp_kept_versions,
+)
+from app.platform.source_geometry_columns import (
+    COLUMN_SRID_KEY,
+    GEOMETRY_COLUMN_KEYS,
+    geometry_selection,
+    selection_fields,
 )
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
@@ -47,19 +54,22 @@ _CHANGED = "previous_version_changed"
 _NOT_APPLICABLE = "restore_not_applicable"
 
 
-def _reinstate_source(dataset, source) -> None:
+def _reinstate_source(dataset, source, geometry_fields: dict | None) -> None:
     """Point the dataset's source fields back at the kept version's.
 
     The source CRS always follows the kept data. The binding follows it only
     for an upload or a layer drawn in the app: version fields cannot describe
-    another origin, so that binding is left as it is. A version kept before
-    its row was recorded has none to read, and changes nothing.
+    another origin, so that binding is left as it is, less any columns an
+    upload's geometry was built from, which the restored data was not. A
+    version kept before its row was recorded has none to read, and changes
+    nothing.
     """
     if source is None:
         return
     dataset.original_srid = source.original_srid
     kind = classify_origin(source.source_format) if source.source_format else None
     if kind not in ("upload", "created"):
+        _drop_geometry_selection(dataset)
         return
     dataset.source_filename = source.source_filename
     binding = (
@@ -67,12 +77,30 @@ def _reinstate_source(dataset, source) -> None:
             source.source_format,
             filename=source.source_filename,
             file_hash=source.file_hash,
+            geometry_fields=geometry_fields,
         )
         if kind == "upload"
         else SourceBinding.created()
     )
     # The caller already dated freshness from the restored version.
     restamp(dataset, binding, contacted_at=None, refreshed_at=KEEP)
+
+
+def _drop_geometry_selection(dataset) -> None:
+    ref = dataset.origin_ref or {}
+    if geometry_selection(ref) is None:
+        return
+    kept = {
+        key: value
+        for key, value in ref.items()
+        if key not in ("kind", COLUMN_SRID_KEY, *GEOMETRY_COLUMN_KEYS)
+    }
+    restamp(
+        dataset,
+        SourceBinding.from_ref(dataset.source_format, kept),
+        contacted_at=dataset.last_checked_at,
+        refreshed_at=KEEP,
+    )
 
 
 class RestoreRefused(Exception):
@@ -188,7 +216,13 @@ class _RestorePreviousVersion:
         # Freshness describes the data that is live again, as the swap that
         # kept it recorded.
         dataset.last_refreshed_at = restored_refreshed_at
-        _reinstate_source(dataset, source)
+        geometry_fields = (
+            None
+            if source is None
+            else selection_fields(source.geometry_columns)
+            or await version_geometry_columns(session, dataset.id, restored)
+        )
+        _reinstate_source(dataset, source, geometry_fields)
 
         version = DatasetVersion(
             dataset_id=dataset.id,
@@ -201,6 +235,7 @@ class _RestorePreviousVersion:
             geometry_type=self.measurement.geometry_type,
             original_srid=None if source is None else source.original_srid,
             column_info=dataset.column_info,
+            geometry_columns=geometry_fields,
             is_3d=self.measurement.three_d.get("is_3d"),
             n_dims=self.measurement.three_d.get("n_dims"),
             restored_from_version=restored,

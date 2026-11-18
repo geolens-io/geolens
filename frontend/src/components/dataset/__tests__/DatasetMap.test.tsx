@@ -18,6 +18,7 @@ const mapSpy = vi.hoisted(() => ({
   // Opt-in: driving onLoad instantiates the whole tile/recovery wiring, which
   // the other blocks in this file neither need nor mock.
   attachMapInstance: false,
+  onLoad: null as ((e: { target: unknown }) => void) | null,
   reset() {
     this.initialViewState = null;
     this.sourceData = null;
@@ -25,6 +26,7 @@ const mapSpy = vi.hoisted(() => ({
     this.fitBounds.mockReset();
     this.flyTo.mockReset();
     this.attachMapInstance = false;
+    this.onLoad = null;
   },
 }));
 
@@ -79,6 +81,7 @@ vi.mock('@vis.gl/react-maplibre', async () => {
       onLoad?: (e: { target: unknown }) => void;
     }) => {
       mapSpy.initialViewState = initialViewState ?? null;
+      mapSpy.onLoad = onLoad ?? null;
       useEffect(() => {
         if (mapSpy.attachMapInstance) onLoad?.({ target: fakeMap });
       }, [onLoad]);
@@ -2055,6 +2058,111 @@ describe('DatasetMap antimeridian extent (fix #1004)', () => {
       ],
       expect.objectContaining({ padding: 60 }),
     );
+  });
+});
+
+describe('DatasetMap extent change after mount', () => {
+  const OLD_BBOX: [number, number, number, number] = [-74.0, 40.7, -73.9, 40.8];
+  const NEW_BBOX: [number, number, number, number] = [-73.8, 40.9, -73.7, 41.0];
+
+  beforeEach(() => {
+    drawingState.isDrawing = false;
+    drawingState.activeMode = null;
+    mapSpy.reset();
+    mapSpy.attachMapInstance = true;
+  });
+
+  function renderMap(bbox: [number, number, number, number] | null, dataRevision = '1') {
+    return (
+      <DatasetMap
+        bbox={bbox}
+        tableName="reupload_points"
+        geometryType="Point"
+        datasetId="dataset-reupload"
+        dataRevision={dataRevision}
+      />
+    );
+  }
+
+  it('fits the new extent and redraws its outline when a re-upload moves the data', () => {
+    const { rerender } = render(renderMap(OLD_BBOX));
+    expect(mapSpy.fitBounds).not.toHaveBeenCalled();
+
+    rerender(renderMap(NEW_BBOX, '2'));
+
+    expect(mapSpy.fitBounds).toHaveBeenCalledTimes(1);
+    expect(mapSpy.fitBounds).toHaveBeenCalledWith(
+      [[-73.8, 40.9], [-73.7, 41.0]],
+      expect.objectContaining({ padding: 60 }),
+    );
+    expect(mapSpy.sourceData!.features[0].geometry.coordinates[0][0][0]).toEqual([-73.8, 40.9]);
+  });
+
+  it('leaves the camera alone when an in-place feature edit changes the extent', () => {
+    const { rerender } = render(renderMap(OLD_BBOX));
+
+    rerender(renderMap(NEW_BBOX));
+
+    expect(mapSpy.fitBounds).not.toHaveBeenCalled();
+    expect(mapSpy.flyTo).not.toHaveBeenCalled();
+    expect(mapSpy.sourceData!.features[0].geometry.coordinates[0][0][0]).toEqual([-73.8, 40.9]);
+  });
+
+  it('refits a replacement that arrives before the map has loaded, once it loads', () => {
+    mapSpy.attachMapInstance = false;
+    const { rerender } = render(renderMap(OLD_BBOX));
+    rerender(renderMap(NEW_BBOX, '2'));
+    expect(mapSpy.fitBounds).not.toHaveBeenCalled();
+
+    act(() => {
+      mapSpy.onLoad!({ target: fakeMap });
+    });
+
+    expect(mapSpy.fitBounds).toHaveBeenCalledTimes(1);
+    expect(mapSpy.fitBounds).toHaveBeenCalledWith(
+      [[-73.8, 40.9], [-73.7, 41.0]],
+      expect.objectContaining({ padding: 60 }),
+    );
+  });
+
+  it('does not refit a replacement that lands on the extent an edit already reached', () => {
+    const { rerender } = render(renderMap(OLD_BBOX));
+    rerender(renderMap(NEW_BBOX));
+
+    rerender(renderMap(NEW_BBOX, '2'));
+
+    expect(mapSpy.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it('refits a replacement that returns to the original extent after an edit moved it', () => {
+    const { rerender } = render(renderMap(OLD_BBOX));
+    rerender(renderMap(NEW_BBOX));
+
+    rerender(renderMap(OLD_BBOX, '2'));
+
+    expect(mapSpy.fitBounds).toHaveBeenCalledTimes(1);
+    expect(mapSpy.fitBounds).toHaveBeenCalledWith(
+      [[-74.0, 40.7], [-73.9, 40.8]],
+      expect.objectContaining({ padding: 60 }),
+    );
+  });
+
+  it('leaves the camera alone when an edit gives a dataset emptied by a replacement its first extent', () => {
+    const { rerender } = render(renderMap(OLD_BBOX));
+    rerender(renderMap(null, '2'));
+
+    rerender(renderMap(NEW_BBOX, '2'));
+
+    expect(mapSpy.fitBounds).not.toHaveBeenCalled();
+  });
+
+  it('leaves the camera alone when a refetch returns the same extent', () => {
+    const { rerender } = render(renderMap(OLD_BBOX));
+
+    rerender(renderMap([...OLD_BBOX] as [number, number, number, number], '2'));
+
+    expect(mapSpy.fitBounds).not.toHaveBeenCalled();
+    expect(mapSpy.flyTo).not.toHaveBeenCalled();
   });
 });
 

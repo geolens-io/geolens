@@ -29,11 +29,17 @@ class IndicatorWidget:
         id (UUID): Made by the client and stable across saves.
         layer_id (UUID): A layer of the host's map.
         type_ (Literal['indicator']):
-        v (IndicatorWidgetV): `2` when the config sets any reference option, else `1`. A `1` that sets one is refused.
+        v (IndicatorWidgetV): `3` with a `filter`, else `2` when the config sets any reference option, else `1`. An
+            older `v` that sets one is refused.
         config (IndicatorConfig):
         title (None | str | Unset):
         scope (IndicatorWidgetScope | Unset): Summarize the whole layer, or only what the map view shows. Default:
             'layer'.
+        filter_ (list[Any] | None | Unset): Count only the features this MapLibre filter expression keeps, on top of the
+            layer's own filter. It takes the conditions the filter editor writes: comparisons, value lists, contains, `has`
+            and is-empty tests on columns named with `get`, joined by `all` or `any`, or the legacy forms of those. Each
+            column must be one of the layer's. Needs the type's filter version; left out, the widget covers what its layer
+            shows.
     """
 
     id: UUID
@@ -43,6 +49,7 @@ class IndicatorWidget:
     config: IndicatorConfig
     title: None | str | Unset = UNSET
     scope: IndicatorWidgetScope | Unset = "layer"
+    filter_: list[Any] | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         id = str(self.id)
@@ -65,6 +72,15 @@ class IndicatorWidget:
         if not isinstance(self.scope, Unset):
             scope = self.scope
 
+        filter_: list[Any] | None | Unset
+        if isinstance(self.filter_, Unset):
+            filter_ = UNSET
+        elif isinstance(self.filter_, list):
+            filter_ = self.filter_
+
+        else:
+            filter_ = self.filter_
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -80,6 +96,8 @@ class IndicatorWidget:
             field_dict["title"] = title
         if scope is not UNSET:
             field_dict["scope"] = scope
+        if filter_ is not UNSET:
+            field_dict["filter"] = filter_
 
         return field_dict
 
@@ -116,6 +134,23 @@ class IndicatorWidget:
         else:
             scope = check_indicator_widget_scope(_scope)
 
+        def _parse_filter_(data: object) -> list[Any] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                filter_type_0 = cast(list[Any], data)
+
+                return filter_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[Any] | None | Unset, data)
+
+        filter_ = _parse_filter_(d.pop("filter", UNSET))
+
         indicator_widget = cls(
             id=id,
             layer_id=layer_id,
@@ -124,6 +159,7 @@ class IndicatorWidget:
             config=config,
             title=title,
             scope=scope,
+            filter_=filter_,
         )
 
         return indicator_widget

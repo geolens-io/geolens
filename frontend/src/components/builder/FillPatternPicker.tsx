@@ -1,11 +1,12 @@
 import { cn } from '@/lib/utils';
 import { FILL_PATTERN_IDS } from './layer-adapters/fill-pattern-images';
 import { patternPreviewStyle } from '@/lib/fill-pattern-preview';
+import type { Translator } from '@/i18n/translator';
 
 interface FillPatternPickerProps {
   value: string | undefined;
   onChange: (id: string | undefined) => void;
-  t: (key: string, opts?: Record<string, unknown>) => string;
+  t: Translator;
   /**
    * Recovery-only mode: render just the None swatch. A data-driven or extruded
    * layer can arrive carrying a pattern (Advanced JSON, the AI set_style

@@ -48,6 +48,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Checkbox } from '@/components/ui/checkbox';
+import type { Translator } from '@/i18n/translator';
 
 // The four-way choice the backend's CredentialMethod enum names. A copy rather
 // than a shared component, as ServiceCredentialBlock.
@@ -120,7 +121,7 @@ function assetAvailability(
 
 /** The reason text for a disabled item's row, one per `AssetAvailability.reason`. */
 function assetUnavailableReasonText(
-  t: (key: string, opts?: Record<string, unknown>) => string,
+  t: Translator,
   availability: AssetAvailability,
 ): string {
   switch (availability.reason) {

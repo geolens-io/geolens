@@ -13,10 +13,11 @@ import {
 } from '@/lib/basemap-utils';
 import { normalizeTerrainExaggeration } from '@/components/builder/map-sync';
 import i18n from '@/i18n/i18n';
+import type { Translator } from '@/i18n/translator';
 
-type BuilderTranslator = (key: string, options?: Record<string, unknown>) => string;
+type BuilderTranslator = Translator;
 
-const defaultBuilderTranslator: BuilderTranslator = (key, options) =>
+const defaultBuilderTranslator: BuilderTranslator = (key: string, options?: Record<string, unknown>) =>
   i18n.t(key, { ns: 'builder', ...options }) as string;
 
 type BuilderBasemapSublayerId =

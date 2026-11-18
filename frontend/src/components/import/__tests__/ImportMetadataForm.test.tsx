@@ -253,6 +253,26 @@ describe('ImportMetadataForm', () => {
     expect(screen.queryByLabelText('metadata.xColumn')).not.toBeInTheDocument();
   });
 
+  it('reports the geometry and SRID it would commit as the draft changes', async () => {
+    const onGeometryDraftChange = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <ImportMetadataForm
+        {...defaultProps}
+        previewColumns={sampleColumns}
+        detectedGeometryColumns={detectedLatLng}
+        onGeometryDraftChange={onGeometryDraftChange}
+      />,
+    );
+    expect(onGeometryDraftChange).toHaveBeenLastCalledWith({ geometry: 'point', srid: null });
+
+    await user.type(screen.getByLabelText('metadata.crsLabel'), '27700');
+    expect(onGeometryDraftChange).toHaveBeenLastCalledWith({ geometry: 'point', srid: 27700 });
+
+    await selectGeomMode(user, 'metadata.nonSpatial');
+    expect(onGeometryDraftChange).toHaveBeenLastCalledWith({ geometry: null, srid: 27700 });
+  });
+
   // ---------------------------------------------------------------------------
   // Form submission
   // ---------------------------------------------------------------------------

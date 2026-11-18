@@ -25,6 +25,12 @@ HYDRANTS = "e9" * 16
 PORTAL_DATE = "Wed, 30 Sep 2026 23:00:00 GMT"
 EMPTY_GROUPS = {"admin": [], "member": [], "other": []}
 NO_RELATED = {"total": 0, "relatedItems": []}
+# What ArcGIS Online answers for the data of an item added by URL.
+NO_FILE_PAGE = (
+    500,
+    b"<html><head><title>Error: Item does not have a file.</title></head></html>",
+    {"Content-Type": "text/html"},
+)
 
 
 def load(name: str) -> dict:

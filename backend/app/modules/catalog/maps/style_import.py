@@ -520,7 +520,10 @@ def parse_maplibre_style_import(  # noqa: C901 - coordinates independent parsers
         imported_layers.append(
             MapLayerInput(
                 dataset_id=dataset_id,
-                sort_order=int(geolens.get("sort_order", index)),
+                # A style lists its bottom layer first; sort_order 0 draws on top.
+                sort_order=int(
+                    geolens.get("sort_order", len(primary_layers) - 1 - index)
+                ),
                 visible=((style_layer.get("layout") or {}).get("visibility") != "none")
                 if isinstance(style_layer.get("layout"), dict)
                 else True,

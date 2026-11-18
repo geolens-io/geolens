@@ -1,4 +1,6 @@
-type Translate = (key: string, options?: Record<string, unknown>) => unknown;
+import type { Translator } from './translator';
+
+type Translate = Translator;
 
 const GEOMETRY_TYPE_KEYS = {
   POINT: 'common:enums.geometryType.point',

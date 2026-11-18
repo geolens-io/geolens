@@ -10,7 +10,7 @@ import { getSourceIdForLayer, TERRAIN_SOURCE_ID } from '@/components/builder/map
 import { readMapCamera, sameMapCamera, type BuilderCamera } from '@/components/builder/builder-camera';
 import { hasGlobeSpaceBackdrop } from '@/components/builder/map-composition-sync';
 import { ApiError } from '@/api/client';
-import { mapDetailQuery, useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
+import { useUpdateMap, useDuplicateMap, usePatchMapLayers } from '@/hooks/use-maps';
 import { useEnabledPlugins } from '@/hooks/use-settings';
 import { useEdition } from '@/hooks/use-edition';
 import { demChipGlyph, getLayerColors } from '@/components/map/layer-icons';
@@ -682,33 +682,10 @@ function hasDiff(diff: MapLayerDiffRequest): boolean {
   );
 }
 
-// Only a status meaning "this deployment has no layer-diff endpoint" may
-// escalate to the lossy full PUT. Status-plus-prose matching would catch the
-// shape the backend uses for a stale diff (see isStaleLayerDiffError).
-//
-// 404 is the compatibility case the PUT fallback exists for: a backend
-// predating PATCH /maps/{id}/layers answers 404 for the unknown route
-// (FastAPI sends {"detail": "Not Found"}; an edge proxy may send no JSON), and
-// without it every layer-edit save there would fail. 405 and 501 are the other
-// route-level answers.
-const ROUTE_LEVEL_UNSUPPORTED_STATUSES = new Set([404, 405, 501]);
-// The one legitimate 404 the route produces for itself: the map is gone, not
-// the route. A full PUT would 404 again, so it surfaces as a save failure.
-// A stale layer id is a 400 (apply_layer_diff raises ValueError), which
-// isStaleLayerDiffError matches by detail, not status alone.
-const MAP_NOT_FOUND_DETAIL = /^Map\b.*\bnot found$/i;
-
 /** The backend detail string, preferring the raw `detail` apiFetch stored on
  *  the error; `message` may be localized, so it is only a fallback. */
 function apiErrorDetailText(error: ApiError): string {
   return typeof error.body === 'string' ? error.body : error.message;
-}
-
-function isUnsupportedLayerPatchError(error: unknown): boolean {
-  if (!(error instanceof ApiError)) return false;
-  if (!ROUTE_LEVEL_UNSUPPORTED_STATUSES.has(error.status)) return false;
-  if (error.status !== 404) return true;
-  return !MAP_NOT_FOUND_DETAIL.test(apiErrorDetailText(error));
 }
 
 // The details apply_layer_diff raises when the diff names layer ids the map no
@@ -803,7 +780,6 @@ function mergeOrderWithServerSequence(
 
 interface LayerDiffResult {
   diff: MapLayerDiffRequest;
-  unsupported: boolean;
 }
 
 type BuilderSaveStatus = 'saved' | 'unsaved' | 'saving' | 'failed';
@@ -836,11 +812,9 @@ function applyBaselineRegistration(
 }
 
 /**
- * Pair each sent layer that a full replacement stored under a new id with its
- * new row. The PUT keeps a listed id the map still has and creates a row for
- * one it doesn't, such as a layer deleted while the PUT was in flight. Rows
- * created during the save are never paired; sent layers and new rows of the
- * same dataset pair in stack order.
+ * Pair each sent layer the server stored under a new id with its new row.
+ * Rows created during the save are never paired; sent layers and new rows of
+ * the same dataset pair in stack order.
  */
 function pairReplacedLayerIds(
   sent: readonly MapLayerResponse[],
@@ -868,22 +842,17 @@ function pairReplacedLayerIds(
 }
 
 /**
- * The save-diff baseline after a full replacement: what the server stored of
- * this save's layers. The PUT deletes layers created while it was in flight
- * and recreates layers deleted meanwhile under new ids, so the next save sends
- * those creates again and removes the recreated rows. A create recorded before
- * `stored` was read and missing from it is left out of the baseline: sending
- * it again is safer than losing it. Registrations from `readFrom` on landed
- * after the read, so they are replayed. `renamed` maps each sent layer the
- * server stored under a new id to that id; `pairable`, when given, limits that
- * pairing to the layers a PATCH added, and rows in `existingIds`, which the
- * map held before the save, are never paired.
+ * The save-diff baseline after a PATCH that added layers: what the server
+ * stored of this save's layers, with the creates and deletes made during the
+ * save replayed. `renamed` maps each sent layer the server stored under a new
+ * id to that id; `pairable`, when given, limits that pairing to the layers the
+ * PATCH added, and rows in `existingIds`, which the map held before the save,
+ * are never paired.
  */
 function replacedBaseline(
   sent: readonly MapLayerResponse[],
   stored: MapLayerResponse[],
   registrations: readonly BaselineRegistration[],
-  readFrom: number,
   pairable: ReadonlySet<string> | null,
   existingIds: ReadonlySet<string>,
 ): { renamed: Map<string, string>; baseline: MapLayerResponse[] } {
@@ -898,13 +867,10 @@ function replacedBaseline(
   const deletedElsewhere = sent.filter((l) => !storedIds.has(l.id) && !renamed.has(l.id));
   return {
     renamed,
-    // A DELETE that committed after the read-back isn't in `stored`.
-    baseline: registrations
-      .filter((r, i) => 'remove' in r || i >= readFrom)
-      .reduce(applyBaselineRegistration, [
-        ...hydrateFolderGroupLayers(stored.filter((l) => known.has(l.id))).layers,
-        ...deletedElsewhere,
-      ]),
+    baseline: registrations.reduce(applyBaselineRegistration, [
+      ...hydrateFolderGroupLayers(stored.filter((l) => known.has(l.id))).layers,
+      ...deletedElsewhere,
+    ]),
   };
 }
 
@@ -1012,7 +978,7 @@ export function buildLayerDiff(
   if (removed.length > 0) diff.removed = removed;
   if (orderChanged) diff.order = currentExistingOrder;
 
-  return { diff, unsupported: false };
+  return { diff };
 }
 
 interface SaveState {
@@ -1067,6 +1033,7 @@ const DASHBOARD_SAVE_ERRORS = new Set([
   'errors.dashboardTooNew',
   'errors.dashboardTooManyWidgets',
   'errors.dashboardWidgetsRefused',
+  'errors.dashboardWidgetFilterRefused',
 ]);
 
 /** The state fields handleSave snapshots into its payloads. If any changes
@@ -1218,12 +1185,20 @@ export function useBuilderSave(state: SaveState) {
       toast.error(t('toasts.popupConfigInvalidNamed', { layerName }), { id: 'popup-config-invalid', duration: 6000 });
       return;
     }
-    const widgetIssue = sendDashboard ? firstWidgetProblem(dashboard, localLayers) : null;
+    // A layer filter counts toward each widget's request, so an unedited dashboard is checked for size too.
+    const widgetIssue = firstWidgetProblem(dashboard, localLayers, sendDashboard ? undefined : ['filterTooLarge'], {
+      dashboard: savedDashboard,
+      layers: baselineLayersRef.current,
+    });
     if (widgetIssue) {
       toast.error(
         widgetIssue.kind === 'viewWithoutGeometry'
           ? t('toasts.dashboardViewWithoutGeometry')
-          : t('toasts.dashboardWidgetInvalid', { column: widgetIssue.column }),
+          : widgetIssue.kind === 'filterUnsupported'
+            ? t('toasts.dashboardWidgetFilterUnsupported')
+            : widgetIssue.kind === 'filterTooLarge'
+              ? t('toasts.dashboardWidgetFilterTooLarge')
+              : t('toasts.dashboardWidgetInvalid', { column: widgetIssue.column }),
         { id: 'dashboard-widget-invalid', duration: 6000 },
       );
       return;
@@ -1240,7 +1215,6 @@ export function useBuilderSave(state: SaveState) {
       (queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(id))?.layers ?? []).map((l) => l.id),
     );
     let replacedLayers: MapLayerResponse[] | null = null;
-    let replacedReadFrom = 0;
     // The layers a PATCH added, the only ones it stored under new ids.
     let patchedAdds: ReadonlySet<string> | null = null;
     // Layers the server stored under new ids, which the metadata PUT's
@@ -1259,7 +1233,6 @@ export function useBuilderSave(state: SaveState) {
           persistableLayers,
           replacedLayers,
           registrations,
-          replacedReadFrom,
           patchedAdds,
           existingIds,
         );
@@ -1312,10 +1285,6 @@ export function useBuilderSave(state: SaveState) {
         : {}),
     };
     const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);
-    const fullReplacementPayload: MapUpdateRequest = {
-      ...metadataPayload,
-      layers: persistableLayers.map(toLayerInput),
-    };
 
     const settleDashboard = sendDashboard
       ? state.onDashboardSave?.(canonicalDashboard(dashboard, localLayers))
@@ -1327,95 +1296,57 @@ export function useBuilderSave(state: SaveState) {
       dashboardStored = true;
       return saved;
     };
-    const replaceLayers = async () => {
-      const saved = await putMap(fullReplacementPayload);
-      replacedReadFrom = registrations.length;
-      try {
-        // Joins the detail refetch the PUT started, if one is running. Unlike
-        // the PUT response, it includes creates and deletes that landed after
-        // the PUT.
-        const stored = await queryClient.fetchQuery({ ...mapDetailQuery(id), staleTime: 0 });
-        replacedLayers = stored.layers ?? [];
-      } catch {
-        replacedLayers = saved.layers ?? [];
-      }
-    };
-    // The server stores added layers under new ids, so reconcile from a
-    // PATCH's rows as after a replacement. A PATCH deletes nothing it doesn't
-    // name, so every create made during the save is kept.
+    // The server stores added layers under new ids, so reconcile from the
+    // PATCH's rows. A PATCH deletes nothing it doesn't name, so every create
+    // made during the save is kept.
     const adoptPatched = (layerDiff: MapLayerDiffRequest, patched: MapResponse) => {
       if (!layerDiff.added?.length) return;
       replacedLayers = patched.layers ?? [];
-      replacedReadFrom = 0;
       patchedAdds = new Set(layerDiff.added.flatMap((l) => (l.id ? [l.id] : [])));
     };
     saveFence.begin(id);
     inFlightRegistrationsRef.current.add(registrations);
     try {
-      const { diff, unsupported } = buildLayerDiff(baselineLayersRef.current, localLayers, groupMeta);
-      // The DEM hillshade overlay (style_config.render_mode) and the 3D terrain
-      // binding (terrain_config) are independent authorities. A save that
-      // persists only one (layer PATCH commits, metadata PUT fails) is an
-      // incomplete save of two independent settings, coherent on reload and
-      // recoverable by re-toggling, so the split PATCH+PUT path is safe. That
-      // avoids forcing every combined save through the lossy full-replacement
-      // PUT (see below). The failed-save toast prompts a retry.
-      if (unsupported) {
-        await replaceLayers();
-      } else {
-        if (hasDiff(diff)) {
+      const { diff } = buildLayerDiff(baselineLayersRef.current, localLayers, groupMeta);
+      // A layer PATCH that commits before its metadata PUT fails leaves, say,
+      // the hillshade overlay saved without terrain_config. That is coherent on
+      // reload, and the failed-save toast prompts a retry.
+      if (hasDiff(diff)) {
+        try {
+          adoptPatched(diff, await patchMapLayers.mutateAsync({ id, diff }));
+          commitLayerBaseline();
+        } catch (error) {
+          // Any failure but a stale diff, a 404/405/501 included, fails the
+          // save and keeps the draft: a full layer PUT would overwrite layers
+          // another session changed.
+          if (!isStaleLayerDiffError(error)) throw error;
+          // A stale diff is a conflict. Refetch, drop the ids the server no
+          // longer has, and retry the PATCH; a failure here goes to the outer
+          // catch with a dedicated message.
           try {
-            adoptPatched(diff, await patchMapLayers.mutateAsync({ id, diff }));
-            commitLayerBaseline();
-          } catch (error) {
-            // A stale diff is a conflict, not a missing endpoint. Refetch, drop
-            // the ids the server no longer has, and retry the PATCH. A failure
-            // here goes to the outer catch with a dedicated message and must
-            // never reach the full PUT below.
-            if (isStaleLayerDiffError(error)) {
-              try {
-                const fresh = await getMap(id);
-                // GET /maps/{id} orders layers by sort_order: the server's
-                // current sequence, which the order merge needs.
-                const serverLayerIds = (fresh.layers ?? []).map((l) => l.id);
-                const reconciled = reconcileLayerDiffWithServer(diff, serverLayerIds);
-                if (hasDiff(reconciled)) {
-                  adoptPatched(reconciled, await patchMapLayers.mutateAsync({ id, diff: reconciled }));
-                }
-              } catch {
-                throw new StaleLayerDiffError();
-              }
-              commitLayerBaseline();
-              await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
-              commitSaved();
-              toast.warning(t('toasts.mapSavedAfterRemoteChange'));
-              if (!editedDuringSave(state, sentPluginSet, camera)) {
-                state.setHasUnsavedChanges(false);
-              }
-              if (map && id) captureThumbnail(map, id, queryClient, localLayers, undefined, undefined, 'save', captureIsStale);
-              return;
+            const fresh = await getMap(id);
+            // GET /maps/{id} orders layers by sort_order: the server's
+            // current sequence, which the order merge needs.
+            const serverLayerIds = (fresh.layers ?? []).map((l) => l.id);
+            const reconciled = reconcileLayerDiffWithServer(diff, serverLayerIds);
+            if (hasDiff(reconciled)) {
+              adoptPatched(reconciled, await patchMapLayers.mutateAsync({ id, diff: reconciled }));
             }
-            if (!isUnsupportedLayerPatchError(error)) throw error;
-            // Falling back from a rejected partial PATCH to a full PUT
-            // re-serializes every layer via toLayerInput (a lossy
-            // style_config/paint round-trip, fresh layer-row UUIDs). It is
-            // surfaced to the user rather than reported as a plain "Map saved",
-            // so they double-check layer styling.
-            await replaceLayers();
-            commitSaved();
-            toast.warning(t('toasts.mapSavedFullResync', {
-              defaultValue: 'Map saved, but required a full re-sync. Please double-check layer styling.',
-            }));
-            // Clear the dirty flag only when nothing was edited during the await.
-            if (!editedDuringSave(state, sentPluginSet, camera)) {
-              state.setHasUnsavedChanges(false);
-            }
-            if (map && id) captureThumbnail(map, id, queryClient, localLayers, undefined, undefined, 'save', captureIsStale);
-            return;
+          } catch {
+            throw new StaleLayerDiffError();
           }
+          commitLayerBaseline();
+          await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
+          commitSaved();
+          toast.warning(t('toasts.mapSavedAfterRemoteChange'));
+          if (!editedDuringSave(state, sentPluginSet, camera)) {
+            state.setHasUnsavedChanges(false);
+          }
+          if (map && id) captureThumbnail(map, id, queryClient, localLayers, undefined, undefined, 'save', captureIsStale);
+          return;
         }
-        await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
       }
+      await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
 
       commitSaved();
       toast.success(t('toasts.mapSaved'));

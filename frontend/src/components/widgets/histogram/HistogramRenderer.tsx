@@ -2,7 +2,7 @@ import { useId } from 'react';
 import { useTranslation } from 'react-i18next';
 import { cn } from '@/lib/utils';
 import { useChartMarks } from '../chart-marks';
-import type { WidgetRenderProps } from '../contract';
+import { columnName, type WidgetRenderProps } from '../contract';
 import { PICKED_GLYPH } from '../PickedMark';
 import { ValueTable } from '../ValueTable';
 import type { HistogramConfig } from './definition';
@@ -17,6 +17,7 @@ const PLOT_HEIGHT = 100;
 // Room above the columns for a picked bin's check mark, and below for the axis labels.
 const TOP = 12;
 const AXIS_HEIGHT = 18;
+const TITLE_HEIGHT = 14;
 const GAP = 1;
 
 /**
@@ -62,7 +63,7 @@ export default function HistogramRenderer({
   return (
     <figure className="space-y-2">
       <svg
-        viewBox={`0 0 ${WIDTH} ${baseline + AXIS_HEIGHT}`}
+        viewBox={`0 0 ${WIDTH} ${baseline + AXIS_HEIGHT + TITLE_HEIGHT}`}
         role="group"
         aria-roledescription={t('types.histogram.roleDescription')}
         aria-label={text.summary}
@@ -116,6 +117,9 @@ export default function HistogramRenderer({
               </g>
             );
           })}
+          <text x={(LEFT + WIDTH) / 2} y={baseline + AXIS_HEIGHT + 10} textAnchor="middle" data-axis-title="">
+            {(columnLabel ?? columnName)(config.column)}
+          </text>
         </g>
       </svg>
       <p id={hintId} className="sr-only">
