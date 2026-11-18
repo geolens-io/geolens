@@ -26,7 +26,6 @@ from pathlib import Path
 from typing import Any
 from uuid import UUID
 
-import click
 import typer
 
 from . import arcgis_oauth
@@ -1845,7 +1844,7 @@ def run_cli(
     fmt.mask = redact.mask
     try:
         return _run(fmt, opts, redact, sdk_factory, instance)
-    except (typer.Exit, click.ClickException):
+    except (typer.Exit, typer.BadParameter):
         raise
     except CredentialRefused as exc:
         # A request outside any item; it names the path and key, not the value.

@@ -7,6 +7,11 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Changed
+
+- The CLI installs with typer 0.25 through 0.29. A bare `--token` on
+  `geolens refresh` still prompts for the token.
+
 ### Fixed
 - DEM mosaics now build with bilinear resampling instead of nearest-neighbour, so a coarse fill member no longer repeats its pixels as blocks in the hillshade at close zoom. Categorical rasters still build with nearest, so their values stay exact. A mosaic built from elevation members gets bilinear at creation time, and an existing DEM mosaic picks it up when it is next rebuilt, so run Regenerate on it. A rebuild derives the choice from the current members, so a mixed mosaic keeps nearest.
 - A map builder save whose layer changes the server refused with 404, 405 or 501 no longer falls back to replacing the map's whole layer list, which deleted layers another session had added and overwrote its changes without a warning. The save now fails, keeps the unsaved changes and asks for a retry.
