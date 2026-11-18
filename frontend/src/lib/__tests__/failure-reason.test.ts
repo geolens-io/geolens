@@ -30,6 +30,7 @@ describe('describeFailureReason', () => {
   it.each([
     ['arcgis_wfs_count_unavailable', "Couldn't count the features this ArcGIS WFS holds"],
     ['arcgis_wfs_short', 'fewer features than the layer holds'],
+    ['wfs_short', 'fewer features than the layer holds'],
     ['arcgis_wfs_repeated', 'the same features more than once'],
     ['service_auth_refused', "the token is valid and hasn't expired"],
     ['service_error', 'answered with an error'],
