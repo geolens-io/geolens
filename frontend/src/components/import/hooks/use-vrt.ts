@@ -7,6 +7,7 @@ import {
   getVrtGenerations,
   regenerateVrt,
 } from '@/api/vrt';
+import type { VrtGenerationListResponse } from '@/types/api';
 
 export function useVrtSources(datasetId: string) {
   return useQuery({
@@ -26,13 +27,37 @@ export function useVrtStatus(datasetId: string, isRegenerating: boolean) {
   });
 }
 
+const IN_PROGRESS_GENERATION = new Set(['pending', 'running']);
+
+function newestInProgress(data: VrtGenerationListResponse | undefined): boolean {
+  const newest = data?.generations[0];
+  return !!newest && IN_PROGRESS_GENERATION.has(newest.status);
+}
+
 export function useVrtGenerations(datasetId: string, params?: { limit?: number; offset?: number }) {
-  return useQuery({
+  const qc = useQueryClient();
+  const query = useQuery({
     queryKey: queryKeys.vrt.generations(datasetId, params),
     queryFn: () => getVrtGenerations(datasetId, params),
     enabled: !!datasetId,
     staleTime: 120_000,
+    // A cached in-progress row must not outlive the rebuild it described.
+    refetchOnMount: 'always',
+    refetchInterval: (q) => (newestInProgress(q.state.data) ? 3_000 : false),
   });
+
+  // Member health can change when a rebuild ends.
+  const wasInProgress = useRef(false);
+  const inProgress = newestInProgress(query.data);
+  useEffect(() => {
+    if (wasInProgress.current && !inProgress && datasetId) {
+      qc.invalidateQueries({ queryKey: queryKeys.vrt.sources(datasetId) });
+      qc.invalidateQueries({ queryKey: queryKeys.vrt.status(datasetId) });
+    }
+    wasInProgress.current = inProgress;
+  }, [qc, datasetId, inProgress]);
+
+  return query;
 }
 
 function invalidateVrt(qc: ReturnType<typeof useQueryClient>, datasetId: string) {
@@ -50,14 +75,4 @@ export function useRegenerateVrt(datasetId: string) {
       invalidateVrt(qc, datasetId);
     },
   });
-}
-
-/** Refetches the VRT's sources, status and history once a rebuild ends. */
-export function useRefreshVrtWhenRebuilt(datasetId: string, isRegenerating: boolean) {
-  const qc = useQueryClient();
-  const wasRegenerating = useRef(isRegenerating);
-  useEffect(() => {
-    if (wasRegenerating.current && !isRegenerating && datasetId) invalidateVrt(qc, datasetId);
-    wasRegenerating.current = isRegenerating;
-  }, [qc, datasetId, isRegenerating]);
 }

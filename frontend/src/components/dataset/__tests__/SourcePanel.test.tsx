@@ -31,7 +31,6 @@ vi.mock('@/components/import/hooks/use-vrt', () => ({
   useVrtStatus: vi.fn(),
   useVrtGenerations: vi.fn(),
   useRegenerateVrt: vi.fn(),
-  useRefreshVrtWhenRebuilt: vi.fn(),
 }));
 
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));

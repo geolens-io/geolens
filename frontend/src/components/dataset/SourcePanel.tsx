@@ -14,7 +14,6 @@ import { OriginBadge, datasetOrigin } from '@/components/dataset/OriginBadge';
 import { REFRESHABLE_ORIGINS } from '@/components/dataset/SourceRefreshAction';
 import { SourceSyncPanel } from '@/components/dataset/SourceSyncPanel';
 import {
-  useRefreshVrtWhenRebuilt,
   useRegenerateVrt,
   useVrtGenerations,
   useVrtSources,
@@ -695,7 +694,6 @@ function VrtSection({
   const { data: statusData } = useVrtStatus(queryId, isRegenerating);
   const { data: generationsData } = useVrtGenerations(queryId);
   const regenerate = useRegenerateVrt(dataset.id);
-  useRefreshVrtWhenRebuilt(queryId, isRegenerating);
   // The route is owner-or-admin whatever the owner's role, so this is not `canEdit`.
   const canRegenerate = useCanMutate(dataset);
   const sources = sourcesData?.sources ?? [];

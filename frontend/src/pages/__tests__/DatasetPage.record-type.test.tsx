@@ -71,7 +71,8 @@ const mapInstances = vi.hoisted(() => ({ count: 0 }));
 vi.mock('@/components/dataset/DatasetMap', async () => {
   const { useState } = await import('react');
   return {
-    DatasetMap: ({ canEdit, bbox, shortcutsEnabled, viewer3d }: {
+    DatasetMap: ({ canEdit, bbox, shortcutsEnabled, viewer3d, rasterTileUrl }: {
+      rasterTileUrl?: string | null;
       canEdit?: boolean;
       viewer3d?: { kind: string; url: string } | null;
       bbox?: [number, number, number, number] | null;
@@ -82,6 +83,7 @@ vi.mock('@/components/dataset/DatasetMap', async () => {
         <div
           data-testid="dataset-map"
           data-can-edit={String(Boolean(canEdit))}
+          data-raster-tile-url={rasterTileUrl ?? ''}
           data-instance={instance}
           data-bbox={bbox ? JSON.stringify(bbox) : ''}
           data-shortcuts-enabled={String(shortcutsEnabled !== false)}
@@ -544,6 +546,35 @@ describe('DatasetPage actions by record type', () => {
     expect(screen.getByRole('region', { name: 'Map Preview' })).not.toHaveClass('hidden');
     expect(screen.getByTestId('dataset-map')).toHaveAttribute('data-instance', instanceBefore);
     expect(screen.getByTestId('dataset-map')).toHaveAttribute('data-shortcuts-enabled', 'true');
+  });
+
+  it('remounts the raster preview on the new tiles when a rebuild changes the tile URL', async () => {
+    const withTiles = (url: string) => {
+      const base = makeDataset('raster_dataset');
+      return { ...base, raster: { ...base.raster!, tile_url: url } };
+    };
+    vi.mocked(useDataset).mockReturnValue({
+      data: withTiles('/tiles/ds.vrt?v=1'),
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useDataset>);
+    const { rerender } = render(<DatasetPage />, { route: '/datasets/dataset-1' });
+    const map = await screen.findByTestId('dataset-map');
+    const before = map.getAttribute('data-instance');
+    expect(map).toHaveAttribute('data-raster-tile-url', '/tiles/ds.vrt?v=1');
+
+    vi.mocked(useDataset).mockReturnValue({
+      data: withTiles('/tiles/ds.vrt?v=2'),
+      isLoading: false,
+      error: null,
+    } as unknown as ReturnType<typeof useDataset>);
+    rerender(<DatasetPage />);
+
+    await waitFor(() => {
+      const next = screen.getByTestId('dataset-map');
+      expect(next).toHaveAttribute('data-raster-tile-url', '/tiles/ds.vrt?v=2');
+      expect(next).not.toHaveAttribute('data-instance', before);
+    });
   });
 
   it('gives an unknown record type its own map after a vector dataset', async () => {

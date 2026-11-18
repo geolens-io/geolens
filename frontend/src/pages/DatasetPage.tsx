@@ -685,7 +685,7 @@ export function DatasetPage() {
                   // A map keeps every source it was given, so each dataset needs
                   // its own instance (for raster/VRT also per tile kind, DEM or
                   // imagery source type, and DEM extent).
-                  key={`${dataset.id}:${isRasterOrVrt ? `${mapKey}:${dataset.raster?.is_dem ? `dem:${mapBbox?.join(',')}` : 'img'}` : tileKind ?? 'no-tiles'}`}
+                  key={`${dataset.id}:${isRasterOrVrt ? `${mapKey}:${dataset.raster?.tile_url ?? ''}:${dataset.raster?.is_dem ? `dem:${mapBbox?.join(',')}` : 'img'}` : tileKind ?? 'no-tiles'}`}
                   bbox={mapBbox}
                   tableName={dataset.table_name}
                   geometryType={dataset.geometry_type ?? null}

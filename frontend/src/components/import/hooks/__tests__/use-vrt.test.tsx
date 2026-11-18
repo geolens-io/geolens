@@ -1,5 +1,9 @@
 import { renderHook, waitFor } from '@/test/test-utils';
 import { vi } from 'vitest';
+import type { ReactNode } from 'react';
+import { renderHook as rtlRenderHook } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { queryKeys } from '@/lib/query-keys';
 
 vi.mock('@/api/vrt', () => ({
   listVrtSources: vi.fn(),
@@ -18,7 +22,6 @@ import {
   useVrtSources,
   useVrtStatus,
   useVrtGenerations,
-  useRefreshVrtWhenRebuilt,
   useRegenerateVrt,
 } from '@/components/import/hooks/use-vrt';
 
@@ -78,40 +81,48 @@ describe('useVrtStatus', () => {
 });
 
 describe('VRT rebuild refresh', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    vi.mocked(getVrtGenerations).mockResolvedValue({ generations: [], total: 0 } as never);
-  });
+  const gens = (status: string) => ({ generations: [{ id: 'g1', status }], total: 1 }) as never;
 
-  it('refetches parameterized generation queries once the rebuild ends', async () => {
-    const { result, rerender } = renderHook(
-      ({ regenerating }) => {
-        useRefreshVrtWhenRebuilt('ds-1', regenerating);
-        return useVrtGenerations('ds-1', { limit: 1 });
-      },
-      { initialProps: { regenerating: true } },
-    );
+  beforeEach(() => vi.clearAllMocks());
+
+  it('polls while the newest generation is in progress, then stops and refreshes members', async () => {
+    vi.mocked(getVrtGenerations)
+      .mockResolvedValueOnce(gens('running'))
+      .mockResolvedValue(gens('completed'));
+    renderHook(() => ({
+      generations: useVrtGenerations('ds-1', { limit: 1 }),
+      sources: useVrtSources('ds-1'),
+      status: useVrtStatus('ds-1', false),
+    }));
+
+    await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(2), { timeout: 6000 });
+    // Sources and status were fetched once at mount and once more at the transition.
+    await waitFor(() => expect(mockListVrtSources).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(mockGetVrtStatus).toHaveBeenCalledTimes(2));
+  }, 10000);
+
+  it('does not poll once the newest generation is terminal', async () => {
+    vi.mocked(getVrtGenerations).mockResolvedValue(gens('completed'));
+    const { result } = renderHook(() => useVrtGenerations('ds-1', { limit: 1 }));
     await waitFor(() => expect(result.current.isSuccess).toBe(true));
+    await new Promise((r) => setTimeout(r, 3500));
     expect(getVrtGenerations).toHaveBeenCalledTimes(1);
+  }, 10000);
 
-    rerender({ regenerating: false });
-    await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(2));
-  });
-
-  it('does not refetch while the VRT stays ready', async () => {
-    const { result, rerender } = renderHook(
-      ({ regenerating }) => {
-        useRefreshVrtWhenRebuilt('ds-1', regenerating);
-        return useVrtGenerations('ds-1', { limit: 1 });
-      },
-      { initialProps: { regenerating: false } },
+  it('refetches on remount instead of showing a cached in-progress row', async () => {
+    vi.mocked(getVrtGenerations).mockResolvedValue(gens('completed'));
+    const client = new QueryClient();
+    client.setQueryData(queryKeys.vrt.generations('ds-1', { limit: 1 }), gens('running'));
+    const wrapper = ({ children }: { children: ReactNode }) => (
+      <QueryClientProvider client={client}>{children}</QueryClientProvider>
     );
-    await waitFor(() => expect(result.current.isSuccess).toBe(true));
-    rerender({ regenerating: false });
-    expect(getVrtGenerations).toHaveBeenCalledTimes(1);
+    const { result } = rtlRenderHook(() => useVrtGenerations('ds-1', { limit: 1 }), { wrapper });
+    await waitFor(() => expect(getVrtGenerations).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(result.current.data?.generations[0].status).toBe('completed'));
   });
 
   it('refetches parameterized generation queries when a rebuild is accepted', async () => {
+    vi.mocked(getVrtGenerations).mockResolvedValue(gens('completed'));
     vi.mocked(regenerateVrt).mockResolvedValue({} as never);
     const { result } = renderHook(() => ({
       generations: useVrtGenerations('ds-1', { limit: 1 }),
