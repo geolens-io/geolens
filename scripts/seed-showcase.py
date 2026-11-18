@@ -2515,12 +2515,12 @@ def _replace_map_layers(api: Api, map_id: str, layers: list[dict]) -> int:
     geolens-examples addresses them. Delete-then-add is the only shape that
     rebinds the stack without a new map row.
 
-    Deleting the scene datasets already cascades their layers away
-    (MapLayer.dataset_id is ON DELETE CASCADE), so the delete pass here is not
-    usually the one doing the work - it is what catches the layers that did NOT
-    cascade, i.e. the ones whose scene was deliberately kept because another
-    map shares it. Skipping the pass would leave those beside the fresh stack
-    as duplicates.
+    The force path has already cleared the old scenes' layers, by the
+    MapLayer.dataset_id ON DELETE CASCADE or by removing them from a kept row,
+    so the delete pass here is not usually the one doing the work - it is what
+    catches the layers whose scene was deliberately kept because another map
+    shares it. Skipping the pass would leave those beside the fresh stack as
+    duplicates.
 
     Returns the number of layers added.
     """
@@ -7533,6 +7533,87 @@ def _sentinel2_items() -> list[dict]:
     return items
 
 
+def _shared_only_by(response: "httpx.Response", map_ids: set) -> bool:
+    """Whether *response* refuses a delete only for maps in *map_ids*."""
+    if response.status_code != 422:
+        return False
+    try:
+        body = response.json()
+    except ValueError:
+        return False
+    if not isinstance(body, dict) or body.get("code") != "dataset_in_shared_maps":
+        return False
+    held_by = {m.get("id") for m in body.get("shared_maps") or []}
+    return bool(held_by) and held_by <= map_ids
+
+
+def _clear_stale_sentinel(
+    api: Api,
+    name: str,
+    doomed: dict[str, str],
+    stale_maps: list[str],
+    force: bool,
+    force_pinned: bool,
+) -> list[str]:
+    """Delete the doomed scenes and the stale rows under *name*; return the rows kept.
+
+    The scenes are tried first, so a dependent-VRT 409 aborts with every stale
+    map standing. A scene one of those maps shares is refused with 422
+    dataset_in_shared_maps instead, and the server asks that only after its
+    VRT check, so the 422 also proves no VRT holds the scene. Those scenes are
+    deleted once the stale rows are cleared: a deleted row takes its layers
+    with it, and a kept (pinned) row has just their layers removed.
+    """
+    stale = set(stale_maps)
+    held: dict[str, str] = {}
+    for ds_id, title in doomed.items():
+        try:
+            api.delete_dataset(ds_id, title)
+        except httpx.HTTPStatusError as e:
+            if _shared_only_by(e.response, stale):
+                held[ds_id] = title
+                continue
+            blockers = ""
+            if e.response.status_code == 409:
+                try:
+                    det = e.response.json().get("detail")
+                    if isinstance(det, dict) and det.get("dependent_vrts"):
+                        blockers = f" (dependent VRTs: {det['dependent_vrts']})"
+                except ValueError:
+                    pass
+            raise RuntimeError(
+                f"force recreate aborted: scene {title!r} could not be "
+                f"deleted{blockers}; the stale showcase maps were NOT "
+                f"deleted - resolve the dependency and rerun"
+            ) from e
+    retained: list[str] = []
+    for map_id in stale_maps:
+        # This delete destroys the uuid the examples gallery links, so the
+        # pin is asked per row here; it is why the --force-pinned help singles
+        # this map out.
+        if _keep_existing_map(name, True, force, force_pinned):
+            retained.append(map_id)
+            for layer in api.get_map(map_id).get("layers", []):
+                if layer.get("dataset_id") in held:
+                    api.delete_layer(map_id, layer["id"])
+            print(f"  [pinned] keeping map {map_id} - rebound in place below")
+            continue
+        api.delete_map(map_id)
+        print(f"  [force] deleted existing map {map_id}")
+    for ds_id, title in held.items():
+        try:
+            api.delete_dataset(ds_id, title)
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(
+                f"force recreate stopped: scene {title!r} could not be deleted "
+                f"after the stale showcase maps were cleared ({e}); rerun "
+                f"--force once the scene's other references are gone"
+            ) from e
+    if doomed:
+        print(f"  [force] deleted {len(doomed)} attached scene datasets")
+    return retained
+
+
 def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -> str:
     """The by-reference hero: recent low-cloud Sentinel-2 true color over NYC,
     streamed straight from the AWS open-data COGs - zero download at seed
@@ -7597,9 +7678,9 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
         # and they run unchanged; the map row is kept and rebound in place
         # (see _replace_map_layers at the end of this function), so the uuid
         # and share token geolens-examples links survive the repair. Only
-        # --force-pinned goes back to deleting the row. Deleting a scene
-        # cascades its layers away (MapLayer.dataset_id is ON DELETE CASCADE),
-        # so the kept row is left layer-less in between rather than dangling.
+        # --force-pinned goes back to deleting the row. The kept row loses
+        # the scene layers along with the scenes, so it is left layer-less in
+        # between rather than dangling.
         #
         # Three deliberate shapes here:
         #
@@ -7626,13 +7707,14 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
         #   dedupe-skip into a missing scene or an all-conflict raise after
         #   the maps were already gone. Keyed the same way the backend guard
         #   is: origin_ref.asset_href, source_url as fallback.
-        # * Deletes datasets BEFORE maps: a scene serving a
+        # * Tries the datasets BEFORE the maps: a scene serving a
         #   committed VRT or an in-progress generation makes its DELETE 409
         #   DependentVrtError, and that check is server-side only (origin_ref
         #   and derived_from expose no VRT sources client-side) - the delete
         #   itself is the only authoritative probe. Failing on it aborts with
         #   every stale map still standing, instead of discovering the block
-        #   after the showcase is gone.
+        #   after the showcase is gone. See _clear_stale_sentinel for the
+        #   scenes the stale maps themselves hold.
         stale_maps = [
             m["id"]
             for m in api.list_all_maps()
@@ -7710,42 +7792,9 @@ def build_sentinel2(api: Api, force: bool = False, force_pinned: bool = False) -
                 f"ownerless, or own-but-renamed/manual) - they would "
                 f"dedupe-skip and leave the rebuilt map incomplete: {names}"
             )
-        for ds_id, title in doomed.items():
-            try:
-                api.delete_dataset(ds_id, title)
-            except httpx.HTTPStatusError as e:
-                blockers = ""
-                if e.response.status_code == 409:
-                    try:
-                        det = e.response.json().get("detail")
-                        if isinstance(det, dict) and det.get("dependent_vrts"):
-                            blockers = (
-                                f" (dependent VRTs: {det['dependent_vrts']})"
-                            )
-                    except ValueError:
-                        pass
-                raise RuntimeError(
-                    f"force recreate aborted: scene {title!r} could not be "
-                    f"deleted{blockers}; the stale showcase maps were NOT "
-                    f"deleted - resolve the dependency and rerun"
-                ) from e
-        if doomed:
-            print(f"  [force] deleted {len(doomed)} attached scene datasets")
-        for map_id in stale_maps:
-            # This loop is the line that actually destroys the uuid
-            # the examples gallery links, so the decision is asked here rather
-            # than inherited from a caller 250 lines up. Under a pinned repair
-            # the row is kept and rebound below; --force-pinned is what turns
-            # this back into a delete-and-recreate, and this delete is why the
-            # --force-pinned help singles this map out: for the other three
-            # pinned maps the override leaves the old row standing, and here it
-            # does not.
-            if _keep_existing_map(name, True, force, force_pinned):
-                retained_rows.append(map_id)
-                print(f"  [pinned] keeping map {map_id} - rebound in place below")
-                continue
-            api.delete_map(map_id)
-            print(f"  [force] deleted existing map {map_id}")
+        retained_rows.extend(
+            _clear_stale_sentinel(api, name, doomed, stale_maps, force, force_pinned)
+        )
     print(f"  importing {len(items)} TCI COGs by reference (no download)...")
     results = api.stac_import(SENTINEL_STAC, items, visibility="public")
     errored = [x for x in results if x.get("status") == "error"]
