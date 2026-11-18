@@ -179,6 +179,7 @@ async def copy_database_table(
             )
         raise DatabaseImportError(str(error))
     after = await _dimensions(connection_name, schema_name, table_name, column)
+    await _grant_reader(target_schema, target_table)
     kept = dim is not None and after.shared_dimension() == dim
     lost = 0 if kept else max(before.with_z_or_m, after.with_z_or_m)
     if dim is not None and not kept:
@@ -204,6 +205,20 @@ async def _dimensions(
         )
     except DatabaseSourceError as exc:
         raise DatabaseImportError(str(exc)) from None
+
+
+async def _grant_reader(target_schema: str, target_table: str) -> None:
+    """Let the reader role read the copy, as the reads of it that follow do
+    in multi_tenant mode, where a tenant schema grants its reader nothing."""
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import grant_reader_access
+    from app.processing.ingest.tasks_common import _current_tenant_role
+
+    async with async_session() as session:
+        await grant_reader_access(
+            session, target_table, schema=target_schema, role=_current_tenant_role()
+        )
+        await session.commit()
 
 
 async def _store_2d(
@@ -276,15 +291,10 @@ async def _store_single_points_as_point(target_schema: str, target_table: str) -
     from sqlalchemy import text
 
     from app.core.db import async_session
-    from app.processing.ingest.metadata import _qtable, grant_reader_access
-    from app.processing.ingest.tasks_common import _current_tenant_role
+    from app.processing.ingest.metadata import _qtable
 
     table = _qtable(target_table, schema=target_schema)
     async with async_session() as session:
-        # In multi_tenant mode the read runs as the tenant reader.
-        await grant_reader_access(
-            session, target_table, schema=target_schema, role=_current_tenant_role()
-        )
         row = (
             await session.execute(
                 text(

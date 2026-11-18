@@ -1175,3 +1175,31 @@ async def test_a_2d_copy_of_a_measured_table_past_the_limit_still_refreshes(
         assert _warnings(job)[0] == {"kind": "zm_dropped", "details": {"features": 1}}
     finally:
         await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+async def test_the_reader_is_granted_the_copy_before_anything_reads_it(
+    client: AsyncClient, editor_auth_header, configured, test_db_session, monkeypatch
+):
+    """In multi_tenant mode every read of the copy runs as the tenant reader,
+    which holds no grant until one is made."""
+    order: list[str] = []
+
+    def recording(name):
+        real = getattr(database_import, name)
+
+        async def call(*args, **kwargs):
+            order.append(name)
+            return await real(*args, **kwargs)
+
+        monkeypatch.setattr(database_import, name, call)
+
+    for name in ("_grant_reader", "_mercator_refuses_m", "_store_2d"):
+        recording(name)
+    name = await _spatial_table("gr", ["LINESTRING (0 84 NULL 10, 0 86 NULL 20)"])
+    try:
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        assert order == ["_grant_reader", "_mercator_refuses_m", "_store_2d"]
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
