@@ -112,8 +112,9 @@
     },
     "zmDropped": {
       "title": "Valeurs Z ou M non conservées",
-      "description": "La source mélange des géométries avec et sans valeurs Z ou M : GeoLens a donc enregistré toutes les géométries en 2D. X et Y sont inchangés. Pour conserver Z et M, donnez les mêmes dimensions à toutes les géométries dans la source.",
+      "description": "GeoLens n'a pas conservé les valeurs Z ou M de ces entités. X et Y sont inchangés. Cela arrive lorsque la source mélange des géométries avec et sans Z ou M, lorsqu'elle contient des courbes dont les valeurs Z ou M ne survivent pas à la conversion en lignes (M sur les courbes circulaires et composées, Z et M sur les polygones courbes), ou lorsque des entités avec M franchissent la limite de latitude Web Mercator de ±85,06°, ce qui supprime leur M. Pour les conserver, donnez les mêmes dimensions à toutes les géométries, enregistrez ces courbes comme des lignes et rognez les données avec M à cette limite dans la source.",
       "features_one": "{{count}} entité a perdu ses valeurs Z ou M",
+      "features_many": "{{count}} d'entités ont perdu leurs valeurs Z ou M",
       "features_other": "{{count}} entités ont perdu leurs valeurs Z ou M"
     },
     "archiveFailed": {

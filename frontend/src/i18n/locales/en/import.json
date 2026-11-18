@@ -112,8 +112,9 @@
     },
     "zmDropped": {
       "title": "Z or M values not kept",
-      "description": "The source mixes geometries with and without Z or M values, so GeoLens stored every geometry in 2D. X and Y are unchanged. To keep Z and M, give every geometry the same dimensions in the source.",
+      "description": "GeoLens didn't keep these features' Z or M values. X and Y are unchanged. This happens when the source mixes geometries with and without Z or M, when it holds curves whose Z or M can't survive conversion to lines (M on circular and compound curves, Z and M on curve polygons), or when measured features cross the Web Mercator latitude limit of ±85.06°, which drops their M. To keep them, give every geometry the same dimensions, store those curves as lines, and trim measured data to that limit in the source.",
       "features_one": "{{count}} feature lost its Z or M values",
+      "features_many": "{{count}} features lost their Z or M values",
       "features_other": "{{count}} features lost their Z or M values"
     },
     "archiveFailed": {

@@ -993,6 +993,10 @@ _ARC = "CIRCULARSTRING ({arc})"
 _COMPOUND = "COMPOUNDCURVE (CIRCULARSTRING ({arc}), ({seg}))"
 _CURVE_POLYGON = "CURVEPOLYGON (CIRCULARSTRING ({ring}))"
 _COLLECTION = "GEOMETRYCOLLECTION (CIRCULARSTRING ({arc}), POINT ({point}))"
+_COLLECTED_CURVE_POLYGON = "GEOMETRYCOLLECTION (CURVEPOLYGON (CIRCULARSTRING ({ring})))"
+_COLLECTED_COMPOUND = (
+    "GEOMETRYCOLLECTION (COMPOUNDCURVE (CIRCULARSTRING ({arc}), ({seg})))"
+)
 
 
 @pytest.mark.parametrize(
@@ -1010,6 +1014,12 @@ _COLLECTION = "GEOMETRYCOLLECTION (CIRCULARSTRING ({arc}), POINT ({point}))"
         (_COLLECTION, "XYZ", True),
         (_COLLECTION, "XYM", True),
         (_COLLECTION, "XYZM", True),
+        (_COLLECTED_CURVE_POLYGON, "XYZ", True),
+        (_COLLECTED_CURVE_POLYGON, "XYM", True),
+        (_COLLECTED_CURVE_POLYGON, "XYZM", True),
+        (_COLLECTED_COMPOUND, "XYZ", True),
+        (_COLLECTED_COMPOUND, "XYM", True),
+        (_COLLECTED_COMPOUND, "XYZM", True),
     ],
 )
 async def test_a_curve_keeps_only_the_ordinates_gdal_carries_through(
@@ -1079,4 +1089,89 @@ async def test_an_invalid_curve_polygon_with_z_is_stored_2d(
     finally:
         await test_db_session.execute(text(f'DROP TABLE IF EXISTS data."{target}"'))
         await test_db_session.commit()
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+@pytest.mark.parametrize(
+    ("line", "crosses", "stored", "warned"),
+    [
+        (
+            "LINESTRING (0 84 NULL 10, 0 86 NULL 20)",
+            True,
+            "LINESTRING(0 84,0 85.06)",
+            True,
+        ),
+        (
+            "LINESTRING (0 84 1 10, 0 86 1 20)",
+            True,
+            "LINESTRING Z (0 84 1,0 85.06 1)",
+            True,
+        ),
+        (
+            "LINESTRING (0 80 NULL 10, 0 84 NULL 20)",
+            False,
+            "LINESTRING M (0 80 10,0 84 20)",
+            False,
+        ),
+        (
+            "LINESTRING (0 80 1 10, 0 84 1 20)",
+            False,
+            "LINESTRING ZM (0 80 1 10,0 84 1 20)",
+            False,
+        ),
+    ],
+    ids=["xym-crossing", "xyzm-crossing", "xym-inside", "xyzm-inside"],
+)
+async def test_m_past_the_mercator_limit_is_dropped_with_a_warning(
+    client: AsyncClient,
+    editor_auth_header,
+    configured,
+    test_db_session,
+    line,
+    crosses,
+    stored,
+    warned,
+):
+    """A measured file layer past the limit is refused; a database table imports."""
+    name = await _spatial_table("mm", [line])
+    try:
+        kwargs = await _import(client, editor_auth_header, name)
+        job = await _job(test_db_session, kwargs["job_id"])
+        assert job.status == "complete", job.error_message
+        assert [w["kind"] for w in _warnings(job)] == (
+            ["zm_dropped", "mercator_clip"] if crosses else []
+        )
+        if warned:
+            assert _warnings(job)[0]["details"] == {"features": 1}
+        dataset = await _dataset(test_db_session, job.dataset_id)
+        [(wkt,)] = await _rows(
+            test_db_session, dataset, "SELECT ST_AsText(ST_GeometryN(geom, 1)) FROM {t}"
+        )
+        assert wkt == stored
+    finally:
+        await _admin(f"DROP TABLE IF EXISTS dbo.{name}")
+
+
+async def test_a_2d_copy_of_a_measured_table_past_the_limit_still_refreshes(
+    client: AsyncClient, editor_auth_header, configured, test_db_session, monkeypatch
+):
+    from app.platform.database_sources import TableDimensions
+
+    name = await _spatial_table("mr", ["LINESTRING (0 84 NULL 10, 0 86 NULL 20)"])
+    try:
+        with monkeypatch.context() as before_the_fix:
+            before_the_fix.setattr(
+                database_import,
+                "probe_table_dimensions",
+                AsyncMock(return_value=TableDimensions(1, 0, 0, 0, 0)),
+            )
+            kwargs = await _import(client, editor_auth_header, name)
+        dataset_id = (await _job(test_db_session, kwargs["job_id"])).dataset_id
+
+        run = await _refresh(client, editor_auth_header, test_db_session, dataset_id)
+
+        assert run.status == "succeeded", run.error_message
+        job = await _job(test_db_session, run.ingest_job_id)
+        assert _warnings(job)[0] == {"kind": "zm_dropped", "details": {"features": 1}}
+    finally:
         await _admin(f"DROP TABLE IF EXISTS dbo.{name}")

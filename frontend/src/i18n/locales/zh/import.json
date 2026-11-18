@@ -112,8 +112,9 @@
     },
     "zmDropped": {
       "title": "未保留 Z 或 M 值",
-      "description": "数据源中的几何有的带 Z 或 M 值，有的不带，因此 GeoLens 以二维方式存储了所有几何。X 和 Y 保持不变。若要保留 Z 和 M，请在数据源中让所有几何使用相同的维度。",
+      "description": "GeoLens 未保留这些要素的 Z 或 M 值。X 和 Y 保持不变。以下情况会导致这一结果：数据源中的几何有的带 Z 或 M 值、有的不带；其中的曲线在转换为线时无法保留 Z 或 M 值（圆弧和复合曲线会丢失 M，曲线多边形会丢失 Z 和 M）；或带 M 值的要素超出了 Web Mercator 的纬度上限 ±85.06°，其 M 值会被丢弃。若要保留这些值，请让所有几何使用相同的维度，将这些曲线存储为线，并在数据源中将带 M 值的数据裁剪到该上限以内。",
       "features_one": "{{count}} 个要素丢失了 Z 或 M 值",
+      "features_many": "{{count}} 个要素丢失了 Z 或 M 值",
       "features_other": "{{count}} 个要素丢失了 Z 或 M 值"
     },
     "archiveFailed": {

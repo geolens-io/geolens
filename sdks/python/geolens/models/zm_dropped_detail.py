@@ -11,10 +11,13 @@ T = TypeVar("T", bound="ZmDroppedDetail")
 
 @_attrs_define
 class ZmDroppedDetail:
-    """How many features were stored without the Z or M values they had.
+    """How many source features had Z or M values that the copy doesn't keep.
 
-    A source whose geometries mix dimensions is stored in 2D, so the features
-    that had Z or M lose those values; X and Y are unchanged.
+    Z and M are dropped when the source mixes dimensions or holds curves that
+    lose them when linearized, and M alone when measured features cross the
+    Web Mercator latitude limit; X and Y are unchanged. The count is taken on
+    the source just before and after the copy, so a row written during the
+    copy can be counted.
 
         Attributes:
             features (int):

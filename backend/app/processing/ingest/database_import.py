@@ -81,9 +81,11 @@ async def copy_database_table(
     GDAL writes every value in the dimensions the copy is told, filling a
     missing Z or M with 0, so the values of ``column`` are counted before and
     after it. Z and M are kept only when every value had them both times and
-    GDAL carries them through; otherwise the copy is stored 2D. Returns how
-    many values lost a Z or M: the larger of the two counts, since the copy
-    read the table between them.
+    GDAL carries them through; otherwise the copy is stored 2D. M is also
+    dropped, keeping any Z, when the staging pipeline would refuse it at the
+    Web Mercator limit. Returns how many values lost a Z or M: the larger of
+    the two counts, since the copy read the table between them, or the values
+    that lost their M.
 
     Raises ``DatabaseImportError`` with a message safe to show.
     """
@@ -178,10 +180,15 @@ async def copy_database_table(
         raise DatabaseImportError(str(error))
     after = await _dimensions(connection_name, schema_name, table_name, column)
     kept = dim is not None and after.shared_dimension() == dim
+    lost = 0 if kept else max(before.with_z_or_m, after.with_z_or_m)
     if dim is not None and not kept:
         await _store_2d(target_schema, target_table, srid)
+    elif dim in ("XYM", "XYZM") and await _mercator_refuses_m(
+        target_schema, target_table
+    ):
+        lost = await _store_2d(target_schema, target_table, srid, keep_z=dim == "XYZM")
     await _store_single_points_as_point(target_schema, target_table)
-    return 0 if kept else max(before.with_z_or_m, after.with_z_or_m)
+    return lost
 
 
 async def _dimensions(
@@ -199,23 +206,64 @@ async def _dimensions(
         raise DatabaseImportError(str(exc)) from None
 
 
-async def _store_2d(target_schema: str, target_table: str, srid: int) -> None:
-    """Drop every Z and M from the copy, the filled-in zeros among them."""
+async def _store_2d(
+    target_schema: str, target_table: str, srid: int, *, keep_z: bool = False
+) -> int:
+    """Drop every M, and every Z unless ``keep_z``, filled-in zeros among them.
+
+    Returns how many values the copy holds.
+    """
     from sqlalchemy import text
 
     from app.core.db import async_session
     from app.processing.ingest.metadata import _qtable
 
     table = _qtable(target_table, schema=target_schema)
+    column_type, force = (
+        ("GeometryZ", "ST_Force3DZ") if keep_z else ("Geometry", "ST_Force2D")
+    )
     async with async_session() as session:
         await session.execute(
             text(
-                # codeql[py/sql-injection] table via _qtable (metadata_sql.py); srid an int()
+                # codeql[py/sql-injection] table via _qtable (metadata_sql.py); type and function fixed literals, srid an int()
                 f"ALTER TABLE {table} ALTER COLUMN _geolens_geom TYPE "
-                f"geometry(Geometry, {int(srid)}) USING ST_Force2D(_geolens_geom)"
+                f"geometry({column_type}, {int(srid)}) USING {force}(_geolens_geom)"
+            )
+        )
+        values = await session.scalar(
+            text(
+                # codeql[py/sql-injection] table via _qtable (metadata_sql.py)
+                f"SELECT count(_geolens_geom) FROM {table}"  # noqa: S608
             )
         )
         await session.commit()
+    return int(values or 0)
+
+
+async def _mercator_refuses_m(target_schema: str, target_table: str) -> bool:
+    """Whether the staging pipeline would refuse the copy's M values.
+
+    Runs the pipeline's own first steps and Mercator check on the copy, then
+    rolls them back.
+    """
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import (
+        clip_to_mercator_bounds,
+        ensure_geom_column,
+        rename_reserved_columns,
+    )
+    from app.processing.ingest.metadata_mercator import MeasuredLayerCrossesMercator
+
+    async with async_session() as session:
+        try:
+            await rename_reserved_columns(session, target_table, schema=target_schema)
+            await ensure_geom_column(session, target_table, schema=target_schema)
+            await clip_to_mercator_bounds(session, target_table, schema=target_schema)
+        except MeasuredLayerCrossesMercator:
+            return True
+        finally:
+            await session.rollback()
+    return False
 
 
 async def _store_single_points_as_point(target_schema: str, target_table: str) -> None:

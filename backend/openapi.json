@@ -27326,7 +27326,7 @@
       },
       "ZmDroppedDetail": {
         "additionalProperties": false,
-        "description": "How many features were stored without the Z or M values they had.\n\nA source whose geometries mix dimensions is stored in 2D, so the features\nthat had Z or M lose those values; X and Y are unchanged.",
+        "description": "How many source features had Z or M values that the copy doesn't keep.\n\nZ and M are dropped when the source mixes dimensions or holds curves that\nlose them when linearized, and M alone when measured features cross the\nWeb Mercator latitude limit; X and Y are unchanged. The count is taken on\nthe source just before and after the copy, so a row written during the\ncopy can be counted.",
         "properties": {
           "features": {
             "minimum": 1.0,
