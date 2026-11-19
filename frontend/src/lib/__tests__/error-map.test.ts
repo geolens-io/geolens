@@ -143,6 +143,15 @@ describe('API error localization boundary', () => {
     });
   });
 
+  it('asks for a reload when another status change overtook this one', () => {
+    const detail = {
+      code: 'publication_status_changed',
+      message: "The dataset's publication status changed while this request was running.",
+    };
+    expect(classifyApiError(detail, 409)).toEqual({ key: 'errors.publicationStatusChanged' });
+    expect(translateApiErrorDetail(detail, 409)).toContain('Reload the dataset');
+  });
+
   it('does not render unknown backend prose', () => {
     const backendDetail = 'Name is required according to an internal rule';
     const rendered = translateApiErrorDetail(backendDetail, 400);

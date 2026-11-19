@@ -205,6 +205,7 @@
     "datasetVisibilityBlockedByMaps": "Diese Karten teilen den Datensatz mit einem Publikum, das ihn verlieren würde: {{maps}}. Entfernen Sie dort den Layer oder schränken Sie zuerst diese Karten ein.",
     "datasetDeleteBlockedByMaps": "Diese Karten teilen den Datensatz mit einem Publikum, das ihn verlieren würde, wenn er gelöscht wird: {{maps}}. Entfernen Sie dort den Layer oder beenden Sie zuerst die Freigabe dieser Karten.",
     "workflowTransitionDeniedNoneAllowed": "Dieser Datensatz kann im Veröffentlichungs-Workflow nicht von „{{from}}“ zu „{{to}}“ wechseln, und für Sie ist kein anderer Schritt offen. Wenden Sie sich an eine Prüfperson oder einen Administrator mit der nötigen Rolle.",
+    "publicationStatusChanged": "Jemand anderes hat den Veröffentlichungsstatus dieses Datensatzes geändert, während Ihre Änderung gespeichert wurde. Laden Sie den Datensatz neu und versuchen Sie es erneut.",
     "workflowTransitionDenied": "Dieser Datensatz kann im Veröffentlichungs-Workflow nicht von „{{from}}“ zu „{{to}}“ wechseln. Für Sie offene Schritte von hier aus: {{allowed}}.",
     "analysisUnknownDissolveColumn": "Die Spalte „{{column}}“ existiert in diesem Datensatz nicht. Wähle ein anderes Gruppierungsfeld.",
     "columnsNeedRefresh": "Die Spalten {{columns}} gibt es in der Tabelle, GeoLens kennt sie aber noch nicht. Aktualisiere den Datensatz und versuche es dann erneut.",

@@ -600,6 +600,9 @@ export function classifyApiError(detail: unknown, status = 0): ApiErrorDescripto
           }
         : { key: 'errors.workflowTransitionDeniedNoneAllowed', values };
     }
+    if (value.code === 'publication_status_changed') {
+      return { key: 'errors.publicationStatusChanged' };
+    }
     // A map save refusing dashboard widgets names them by id, which a reader can't act on.
     if (Array.isArray(value.widget_ids)) {
       const refused = Array.isArray(value.widgets) ? (value.widgets as { reason?: unknown }[]) : [];
