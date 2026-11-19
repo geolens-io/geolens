@@ -583,6 +583,24 @@ _DISTRIBUTION_TEMPLATES = [
         False,
     ),
     (
+        "download",
+        "kml",
+        "/datasets/{dataset_id}/export?format=kml",
+        "KML Download",
+        "HTTP",
+        "application/vnd.google-earth.kml+xml",
+        False,
+    ),
+    (
+        "download",
+        "kmz",
+        "/datasets/{dataset_id}/export?format=kmz",
+        "KMZ Download",
+        "HTTP",
+        "application/vnd.google-earth.kmz",
+        False,
+    ),
+    (
         "ogc_features",
         "geojson",
         "/collections/{dataset_id}/items",
@@ -659,7 +677,7 @@ async def generate_distributions(
 ) -> list[RecordDistribution]:
     """Generate standard distribution records for a dataset.
 
-    Spatial datasets get 9 rows; non-spatial get 2 (csv + OGC features).
+    Spatial datasets get 11 rows; non-spatial get 2 (csv + OGC features).
     All auto_generated=True, merged via ``ON CONFLICT DO NOTHING``.
 
     ``is_primary`` is inserted only when no row already holds it. The

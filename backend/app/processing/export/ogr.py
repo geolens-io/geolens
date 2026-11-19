@@ -147,7 +147,21 @@ FORMAT_MAP: dict[str, dict[str, str]] = {
         "ext": ".pmtiles",
         "media": "application/vnd.pmtiles",
     },
+    # LIBKML picks KMZ from the .kmz extension. KML is always WGS 84, so the
+    # export reprojects to EPSG:4326 itself (see export_dataset).
+    "kml": {
+        "driver": "LIBKML",
+        "ext": ".kml",
+        "media": "application/vnd.google-earth.kml+xml",
+    },
+    "kmz": {
+        "driver": "LIBKML",
+        "ext": ".kmz",
+        "media": "application/vnd.google-earth.kmz",
+    },
 }
+
+KML_FORMATS = frozenset({"kml", "kmz"})
 
 # PMTiles' MAXZOOM defaults to 5, too coarse for anything but a world
 # overview; MINZOOM is fixed at 0, MAXZOOM capped per export by extent (see

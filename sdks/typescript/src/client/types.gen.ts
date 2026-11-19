@@ -6127,7 +6127,7 @@ export type EnterpriseTabsResponse = {
 /**
  * ExportFormat
  */
-export type ExportFormat = 'gpkg' | 'geojson' | 'shp' | 'csv' | 'parquet' | 'fgb' | 'pmtiles';
+export type ExportFormat = 'gpkg' | 'geojson' | 'shp' | 'csv' | 'parquet' | 'fgb' | 'pmtiles' | 'kml' | 'kmz';
 
 /**
  * FacetCountResponse

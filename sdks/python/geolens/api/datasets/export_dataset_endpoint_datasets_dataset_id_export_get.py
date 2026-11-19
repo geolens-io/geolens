@@ -169,9 +169,10 @@ def sync_detailed(
      Export a dataset as a downloadable file.
 
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
-    FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
-    filtering, and attribute filtering. GeoParquet is always emitted in
-    EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
+    FlatGeobuf, PMTiles, KML, and KMZ formats. Optional CRS reprojection,
+    spatial filtering, and attribute filtering. GeoParquet, KML and KMZ are
+    always emitted in EPSG:4326 (OGC:CRS84); KML styling is not exported. PMTiles renders zooms 0..N
+    where N is extent-budgeted (ceiling 14).
 
     Args:
         dataset_id (UUID):
@@ -223,9 +224,10 @@ def sync(
      Export a dataset as a downloadable file.
 
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
-    FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
-    filtering, and attribute filtering. GeoParquet is always emitted in
-    EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
+    FlatGeobuf, PMTiles, KML, and KMZ formats. Optional CRS reprojection,
+    spatial filtering, and attribute filtering. GeoParquet, KML and KMZ are
+    always emitted in EPSG:4326 (OGC:CRS84); KML styling is not exported. PMTiles renders zooms 0..N
+    where N is extent-budgeted (ceiling 14).
 
     Args:
         dataset_id (UUID):
@@ -272,9 +274,10 @@ async def asyncio_detailed(
      Export a dataset as a downloadable file.
 
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
-    FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
-    filtering, and attribute filtering. GeoParquet is always emitted in
-    EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
+    FlatGeobuf, PMTiles, KML, and KMZ formats. Optional CRS reprojection,
+    spatial filtering, and attribute filtering. GeoParquet, KML and KMZ are
+    always emitted in EPSG:4326 (OGC:CRS84); KML styling is not exported. PMTiles renders zooms 0..N
+    where N is extent-budgeted (ceiling 14).
 
     Args:
         dataset_id (UUID):
@@ -324,9 +327,10 @@ async def asyncio(
      Export a dataset as a downloadable file.
 
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
-    FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
-    filtering, and attribute filtering. GeoParquet is always emitted in
-    EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
+    FlatGeobuf, PMTiles, KML, and KMZ formats. Optional CRS reprojection,
+    spatial filtering, and attribute filtering. GeoParquet, KML and KMZ are
+    always emitted in EPSG:4326 (OGC:CRS84); KML styling is not exported. PMTiles renders zooms 0..N
+    where N is extent-budgeted (ceiling 14).
 
     Args:
         dataset_id (UUID):

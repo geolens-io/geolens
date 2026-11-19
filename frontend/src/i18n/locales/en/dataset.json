@@ -214,6 +214,8 @@
     "parquet": "GeoParquet",
     "fgb": "FlatGeobuf",
     "pmtiles": "PMTiles",
+    "kml": "KML",
+    "kmz": "KMZ",
     "duckdbHint": "Query with DuckDB",
     "failed": "Export failed"
   },

@@ -2485,9 +2485,9 @@ export interface paths {
          * @description Export a dataset as a downloadable file.
          *
          *     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
-         *     FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
-         *     filtering, and attribute filtering. GeoParquet is always emitted in
-         *     EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
+         *     FlatGeobuf, PMTiles, KML, and KMZ formats. Optional CRS reprojection,
+         *     spatial filtering, and attribute filtering. GeoParquet, KML and KMZ are
+         *     always emitted in EPSG:4326 (OGC:CRS84); KML styling is not exported. PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
          */
         get: operations["export_dataset_endpoint_datasets__dataset_id__export_get"];
         put?: never;
@@ -11282,7 +11282,7 @@ export interface components {
          * ExportFormat
          * @enum {string}
          */
-        ExportFormat: "gpkg" | "geojson" | "shp" | "csv" | "parquet" | "fgb" | "pmtiles";
+        ExportFormat: "gpkg" | "geojson" | "shp" | "csv" | "parquet" | "fgb" | "pmtiles" | "kml" | "kmz";
         /**
          * FacetCountResponse
          * @description Multi-group facet counts for the search sidebar.
@@ -30985,6 +30985,8 @@ export interface operations {
                     "application/geopackage+sqlite3": string;
                     "application/vnd.apache.parquet": string;
                     "application/vnd.flatgeobuf": string;
+                    "application/vnd.google-earth.kml+xml": string;
+                    "application/vnd.google-earth.kmz": string;
                     "application/vnd.pmtiles": string;
                     "application/zip": string;
                     "text/csv": string;
@@ -30999,6 +31001,8 @@ export interface operations {
                     "application/geopackage+sqlite3": string;
                     "application/vnd.apache.parquet": string;
                     "application/vnd.flatgeobuf": string;
+                    "application/vnd.google-earth.kml+xml": string;
+                    "application/vnd.google-earth.kmz": string;
                     "application/vnd.pmtiles": string;
                     "application/zip": string;
                     "text/csv": string;

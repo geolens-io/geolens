@@ -53,6 +53,8 @@ _FORMAT_MEDIA = {
     "parquet": "application/vnd.apache.parquet",
     "fgb": "application/vnd.flatgeobuf",
     "pmtiles": "application/vnd.pmtiles",
+    "kml": "application/vnd.google-earth.kml+xml",
+    "kmz": "application/vnd.google-earth.kmz",
 }
 
 _RASTER_FORMAT_MEDIA = {

@@ -8,6 +8,7 @@ and releases use semantic versioning.
 ## [Unreleased]
 
 ### Added
+- Vector datasets export as KML and KMZ (`format=kml`, `format=kmz`), written by GDAL's LIBKML driver with attributes in `ExtendedData`. The output is always EPSG:4326 and a dataset stored in another CRS is reprojected; a `target_crs` other than `EPSG:4326` is refused with 400, as for GeoParquet. Map styling is not exported. KML and KMZ also appear as download distributions on new datasets, and on existing ones after their next re-upload or refresh, and the export enum in the API and SDKs gains `kml` and `kmz`.
 - The dataset page's Source tab has a Regenerate button on VRT mosaics and band stacks for owners and admins. It rebuilds the VRT and is disabled while a rebuild is running.
 - A 422 refusing a dataset narrowing or unpublish because the owner's shared maps show it now carries top-level `code` of `dataset_in_shared_maps`, `action` and `shared_maps` beside `detail`, so a client can name the blocking maps without parsing the sentence; `ProblemDetail` declares `action` and `shared_maps` as optional members, present only on errors that carry them. The `detail` sentence is unchanged.
 

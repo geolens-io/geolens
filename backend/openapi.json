@@ -10534,7 +10534,9 @@
           "csv",
           "parquet",
           "fgb",
-          "pmtiles"
+          "pmtiles",
+          "kml",
+          "kmz"
         ],
         "title": "ExportFormat",
         "type": "string"
@@ -45833,7 +45835,7 @@
     },
     "/datasets/{dataset_id}/export": {
       "get": {
-        "description": "Export a dataset as a downloadable file.\n\nSupports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,\nFlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial\nfiltering, and attribute filtering. GeoParquet is always emitted in\nEPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).",
+        "description": "Export a dataset as a downloadable file.\n\nSupports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,\nFlatGeobuf, PMTiles, KML, and KMZ formats. Optional CRS reprojection,\nspatial filtering, and attribute filtering. GeoParquet, KML and KMZ are\nalways emitted in EPSG:4326 (OGC:CRS84); KML styling is not exported. PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).",
         "operationId": "export_dataset_endpoint_datasets__dataset_id__export_get",
         "parameters": [
           {
@@ -45945,6 +45947,18 @@
                   "type": "string"
                 }
               },
+              "application/vnd.google-earth.kml+xml": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.google-earth.kmz": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
               "application/vnd.pmtiles": {
                 "schema": {
                   "format": "binary",
@@ -45981,6 +45995,18 @@
                 }
               },
               "application/vnd.flatgeobuf": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.google-earth.kml+xml": {
+                "schema": {
+                  "format": "binary",
+                  "type": "string"
+                }
+              },
+              "application/vnd.google-earth.kmz": {
                 "schema": {
                   "format": "binary",
                   "type": "string"

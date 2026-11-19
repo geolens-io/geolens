@@ -633,6 +633,84 @@ class TestExportFormats:
         )
         assert resp.status_code == 200
 
+    @pytest.mark.anyio
+    @pytest.mark.parametrize(
+        ("fmt", "media"),
+        [
+            ("kml", "application/vnd.google-earth.kml+xml"),
+            ("kmz", "application/vnd.google-earth.kmz"),
+        ],
+    )
+    async def test_export_format_kml_kmz(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        fmt: str,
+        media: str,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session, created_by=admin_id, name=f"{fmt}DS"
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": fmt},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200
+        assert resp.headers["content-type"].startswith(media)
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("fmt", ["kml", "kmz"])
+    async def test_export_kml_kmz_refuse_other_target_crs(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        fmt: str,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session, created_by=admin_id, name=f"{fmt}CrsDS"
+        )
+        refused = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": fmt, "target_crs": "EPSG:3857"},
+            headers=admin_auth_header,
+        )
+        assert refused.status_code == 400
+        assert "4326" in refused.json()["detail"]
+        allowed = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": fmt, "target_crs": "EPSG:4326"},
+            headers=admin_auth_header,
+        )
+        assert allowed.status_code == 200
+
+    @pytest.mark.anyio
+    @pytest.mark.parametrize("fmt", ["kml", "kmz"])
+    async def test_export_non_spatial_dataset_kml_kmz_returns_400(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        fmt: str,
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        ds = await _create_dataset(
+            test_db_session,
+            created_by=admin_id,
+            name=f"NonSpatial{fmt}DS",
+            geometry_type=None,
+        )
+        resp = await client.get(
+            f"/datasets/{ds.id}/export",
+            params={"format": fmt},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 400
+
 
 # ---------------------------------------------------------------------------
 # Audit tests

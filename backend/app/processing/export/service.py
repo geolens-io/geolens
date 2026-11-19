@@ -14,6 +14,7 @@ from app.core.config import settings
 from app.core.csv_safety import numeric_column_names
 from app.processing.export.ogr import (
     FORMAT_MAP,
+    KML_FORMATS,
     PARQUET_MEDIA_TYPE,
     run_ogr2ogr_export,
 )
@@ -83,6 +84,33 @@ def _zip_export_files(temp_dir: str, zip_path: str) -> None:
             with open(member, "rb") as src, zf.open(info, "w") as dest:
                 # Streamed rather than read whole, for the same size reason.
                 shutil.copyfileobj(src, dest)
+
+
+def normalize_kmz_archive(path: str) -> None:
+    """Rewrite a KMZ so its zip directory carries no conversion-time stamps.
+
+    LIBKML records each member's mtime; sorted order, a fixed date and mode
+    make unchanged data hash the same. Blocking; call via
+    ``run_in_thread_draining``.
+    """
+    rewritten = path + ".normalized"
+    try:
+        with (
+            zipfile.ZipFile(path) as src,
+            zipfile.ZipFile(rewritten, "w", zipfile.ZIP_DEFLATED) as dst,
+        ):
+            for name in sorted(src.namelist()):
+                info = zipfile.ZipInfo(name, date_time=_ZIP_FIXED_DATE_TIME)
+                info.compress_type = zipfile.ZIP_DEFLATED
+                info.external_attr = _ZIP_FIXED_EXTERNAL_ATTR
+                info.file_size = src.getinfo(name).file_size
+                with src.open(name) as member, dst.open(info, "w") as out:
+                    shutil.copyfileobj(member, out)
+        os.replace(rewritten, path)
+    except BaseException:
+        if os.path.exists(rewritten):
+            os.unlink(rewritten)
+        raise
 
 
 # The timestamp ogr2ogr stamps into every GeoPackage is rewritten to this. Any
@@ -390,6 +418,7 @@ async def export_dataset(
     fmt = FORMAT_MAP[format_key]
     driver = fmt["driver"]
     ext = fmt["ext"]
+    target_srs = "EPSG:4326" if format_key in KML_FORMATS else target_srs
     filename, media_type = export_descriptor(dataset_name, format_key)
 
     exports_root = ensure_staging_ready(
@@ -455,6 +484,9 @@ async def export_dataset(
             # Off the event loop: a SQLite write over a file that can be
             # gigabytes.
             await run_in_thread_draining(normalize_gpkg_timestamps, output_path)
+
+        if format_key == "kmz":
+            await run_in_thread_draining(normalize_kmz_archive, output_path)
 
         return output_path, filename, media_type
     except BaseException:

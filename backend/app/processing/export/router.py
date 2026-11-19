@@ -207,6 +207,13 @@ def _validated_bbox(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="GeoParquet export is emitted in EPSG:4326; omit target_crs.",
             )
+        if format in (ExportFormat.kml, ExportFormat.kmz) and (
+            target_crs.upper() != "EPSG:4326"
+        ):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="KML and KMZ export is emitted in EPSG:4326; omit target_crs.",
+            )
         # ogr2ogr ignores -t_srs for PMTiles and exits 0, so another CRS would
         # silently come back as EPSG:3857.
         if format == ExportFormat.pmtiles and target_crs.upper() != "EPSG:3857":
@@ -236,6 +243,8 @@ def _validated_bbox(
         "parquet",
         "fgb",
         "pmtiles",
+        "kml",
+        "kmz",
     ):
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -501,9 +510,9 @@ async def export_dataset_endpoint(
     """Export a dataset as a downloadable file.
 
     Supports GeoPackage, GeoJSON, Shapefile (zipped), CSV, GeoParquet,
-    FlatGeobuf, and PMTiles formats. Optional CRS reprojection, spatial
-    filtering, and attribute filtering. GeoParquet is always emitted in
-    EPSG:4326 (OGC:CRS84). PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
+    FlatGeobuf, PMTiles, KML, and KMZ formats. Optional CRS reprojection,
+    spatial filtering, and attribute filtering. GeoParquet, KML and KMZ are
+    always emitted in EPSG:4326 (OGC:CRS84); KML styling is not exported. PMTiles renders zooms 0..N where N is extent-budgeted (ceiling 14).
     """
     request_deadline = _request_deadline(request)
     port = get_processing_port()

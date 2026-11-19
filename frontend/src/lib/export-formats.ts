@@ -6,6 +6,8 @@ const EXPORT_FORMATS = [
   { value: 'parquet', labelKey: 'export.parquet', ext: 'parquet' },
   { value: 'fgb', labelKey: 'export.fgb', ext: 'fgb' },
   { value: 'pmtiles', labelKey: 'export.pmtiles', ext: 'pmtiles' },
+  { value: 'kml', labelKey: 'export.kml', ext: 'kml' },
+  { value: 'kmz', labelKey: 'export.kmz', ext: 'kmz' },
 ] as const;
 
 export type ExportFormat = (typeof EXPORT_FORMATS)[number]['value'];
