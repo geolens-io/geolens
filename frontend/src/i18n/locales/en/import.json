@@ -110,6 +110,13 @@
       "clipped_one": "{{count}} feature was trimmed at the boundary",
       "clipped_other": "{{count}} features were trimmed at the boundary"
     },
+    "zmDropped": {
+      "title": "Z or M values not kept",
+      "description": "GeoLens didn't keep these features' Z or M values. X and Y are unchanged. This happens when the source mixes geometries with and without Z or M, when it holds curves whose Z or M can't survive conversion to lines (M on circular and compound curves, Z and M on curve polygons), or when measured features cross the Web Mercator latitude limit of ±85.06°, which drops their M. To keep them, give every geometry the same dimensions, store those curves as lines, and trim measured data to that limit in the source. The count is taken on the source just before and after the copy, so it can include a row written while the import ran.",
+      "features_one": "{{count}} feature lost its Z or M values",
+      "features_many": "{{count}} features lost their Z or M values",
+      "features_other": "{{count}} features lost their Z or M values"
+    },
     "archiveFailed": {
       "title": "Original file archive failed",
       "description": "The dataset was imported successfully, but copying the original source file to durable storage failed. The dataset is still queryable; re-upload if you need the original file restored."

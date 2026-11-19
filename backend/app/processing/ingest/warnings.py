@@ -62,8 +62,20 @@ class MercatorClipCounts(TypedDict):
     polar_only: NotRequired[bool]
 
 
+class ZmDroppedDetail(TypedDict):
+    features: int
+
+
+class ZmDroppedWarning(TypedDict):
+    kind: Literal["zm_dropped"]
+    details: ZmDroppedDetail
+
+
 IngestJobWarning = (
-    ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning
+    ReservedRenameWarning
+    | DbfTruncationCollisionWarning
+    | MercatorClipWarning
+    | ZmDroppedWarning
 )
 
 
@@ -128,3 +140,12 @@ def make_mercator_clip_warning(
     if clip.get("polar_only"):
         details["polar_only"] = True
     return MercatorClipWarning(kind="mercator_clip", details=details)
+
+
+def make_zm_dropped_warning(features: int) -> ZmDroppedWarning | None:
+    """Build a ``zm_dropped`` warning, or None when no feature lost Z or M."""
+    if features <= 0:
+        return None
+    return ZmDroppedWarning(
+        kind="zm_dropped", details=ZmDroppedDetail(features=features)
+    )

@@ -69,8 +69,33 @@ class MercatorClipWarning(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ZmDroppedDetail(BaseModel):
+    """How many source features had Z or M values that the copy doesn't keep.
+
+    Z and M are dropped when the source mixes dimensions or holds curves that
+    lose them when linearized, and M alone when measured features cross the
+    Web Mercator latitude limit; X and Y are unchanged. The count is taken on
+    the source just before and after the copy, so a row written during the
+    copy can be counted.
+    """
+
+    features: int = Field(ge=1)
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ZmDroppedWarning(BaseModel):
+    kind: Literal["zm_dropped"]
+    details: ZmDroppedDetail
+
+    model_config = ConfigDict(extra="forbid")
+
+
 IngestJobWarning = Annotated[
-    ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning,
+    ReservedRenameWarning
+    | DbfTruncationCollisionWarning
+    | MercatorClipWarning
+    | ZmDroppedWarning,
     Field(discriminator="kind"),
 ]
 

@@ -106,10 +106,10 @@ def _session_secret(settings_obj) -> str:
 
 
 _TILE_KEY_REFUSAL = (
-    "GeoLens 1.33.0, not before 2027-02-10, will refuse to start with it. "
-    "Set a new value of at least 32 characters (`openssl rand -hex 32`), the "
-    "same on every API replica. Signed tile URLs issued under the old key stop "
-    "verifying until the page reloads them."
+    "The first GeoLens release on or after 2027-02-10 will refuse to start "
+    "with it. Set a new value of at least 32 characters (`openssl rand -hex "
+    "32`), the same on every API replica. Signed tile URLs issued under the "
+    "old key stop verifying until the page reloads them."
 )
 
 
@@ -118,8 +118,8 @@ def _warn_on_weak_signing_keys(settings_obj, log) -> None:
 
     An unset SESSION_SECRET_KEY shares the JWT secret. A configured
     TILE_SIGNING_SECRET that is short, known-public or equal to the JWT secret
-    still boots; the short and known-public cases name the release that will
-    refuse them. Unset TILE_SIGNING_SECRET warns in signing.py.
+    still boots; the short and known-public cases give the date from which a
+    release refuses them. Unset TILE_SIGNING_SECRET warns in signing.py.
     """
     if not settings_obj.is_production:
         return

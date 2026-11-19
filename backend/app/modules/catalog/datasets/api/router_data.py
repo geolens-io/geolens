@@ -497,7 +497,15 @@ async def _roll_publication_version(db: AsyncSession, dataset: DatasetModel) -> 
 async def _refuse_stranding(
     db: AsyncSession, dataset: DatasetModel, target: str
 ) -> None:
-    """422 when moving to ``target`` strands one of the owner's shared maps."""
+    """422 when moving to ``target`` strands one of the owner's shared maps.
+
+    Asked holding the catalog rows, which a map write that widens the map
+    waits on, so a map shared meanwhile is either seen here or waits.
+    """
+    from app.modules.catalog.features.service import lock_catalog_rows_for_write
+
+    await lock_catalog_rows_for_write(db, dataset)
+    await db.refresh(dataset.record, ["visibility", "record_status", "created_by"])
     try:
         await refuse_stranding_shared_maps(
             db, dataset.record, dataset.id, record_status=target

@@ -110,6 +110,13 @@
       "clipped_one": "{{count}} Objekt wurde an der Grenze beschnitten",
       "clipped_other": "{{count}} Objekte wurden an der Grenze beschnitten"
     },
+    "zmDropped": {
+      "title": "Z- oder M-Werte nicht übernommen",
+      "description": "GeoLens hat die Z- oder M-Werte dieser Objekte nicht übernommen. X und Y bleiben unverändert. Das passiert, wenn die Quelle Geometrien mit und ohne Z oder M mischt, wenn sie Kurven enthält, deren Z- oder M-Werte die Umwandlung in Linien nicht überstehen (M bei Kreisbögen und zusammengesetzten Kurven, Z und M bei Kurvenpolygonen), oder wenn Objekte mit M die Web-Mercator-Breitengrenze von ±85,06° überschreiten, wodurch ihr M entfällt. Damit sie erhalten bleiben, geben Sie allen Geometrien dieselben Dimensionen, speichern Sie diese Kurven als Linien und beschneiden Sie Daten mit M in der Quelle auf diese Grenze. Die Anzahl wird unmittelbar vor und nach dem Kopieren in der Quelle ermittelt und kann daher eine Zeile enthalten, die während des Imports geschrieben wurde.",
+      "features_one": "{{count}} Objekt hat seine Z- oder M-Werte verloren",
+      "features_many": "{{count}} Objekte haben ihre Z- oder M-Werte verloren",
+      "features_other": "{{count}} Objekte haben ihre Z- oder M-Werte verloren"
+    },
     "archiveFailed": {
       "title": "Archivierung der Originaldatei fehlgeschlagen",
       "description": "Der Datensatz wurde erfolgreich importiert, aber das Kopieren der Originalquelldatei in den dauerhaften Speicher ist fehlgeschlagen. Der Datensatz ist weiterhin abfragbar; laden Sie die Datei erneut hoch, wenn das Original wiederhergestellt werden soll."

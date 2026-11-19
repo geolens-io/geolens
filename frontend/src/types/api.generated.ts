@@ -12358,7 +12358,7 @@ export interface components {
             /** Error Code */
             error_code?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"])[];
             /**
              * Can Retry
              * @default false
@@ -12410,7 +12410,7 @@ export interface components {
             /** Warning Message */
             warning_message?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"])[];
             /** Progress */
             progress?: number | null;
             /** Current Step */
@@ -18786,6 +18786,29 @@ export interface components {
             active_generation?: components["schemas"]["VrtActiveGeneration"] | null;
             /** Source Health */
             source_health: components["schemas"]["VrtSourceHealth"][];
+        };
+        /**
+         * ZmDroppedDetail
+         * @description How many source features had Z or M values that the copy doesn't keep.
+         *
+         *     Z and M are dropped when the source mixes dimensions or holds curves that
+         *     lose them when linearized, and M alone when measured features cross the
+         *     Web Mercator latitude limit; X and Y are unchanged. The count is taken on
+         *     the source just before and after the copy, so a row written during the
+         *     copy can be counted.
+         */
+        ZmDroppedDetail: {
+            /** Features */
+            features: number;
+        };
+        /** ZmDroppedWarning */
+        ZmDroppedWarning: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "zm_dropped";
+            details: components["schemas"]["ZmDroppedDetail"];
         };
     };
     responses: never;
