@@ -147,7 +147,56 @@ FORMAT_MAP: dict[str, dict[str, str]] = {
         "ext": ".pmtiles",
         "media": "application/vnd.pmtiles",
     },
+    # LIBKML picks KMZ from the .kmz extension. KML is always WGS 84, so the
+    # export reprojects to EPSG:4326 itself (see export_dataset).
+    "kml": {
+        "driver": "LIBKML",
+        "ext": ".kml",
+        "media": "application/vnd.google-earth.kml+xml",
+    },
+    "kmz": {
+        "driver": "LIBKML",
+        "ext": ".kmz",
+        "media": "application/vnd.google-earth.kmz",
+    },
 }
+
+KML_FORMATS = frozenset({"kml", "kmz"})
+
+# LIBKML's column-to-element mappings (GDAL 3.13), all but name and description.
+# Pointed at a name no column can have, those columns stay ExtendedData attributes.
+_KML_CONTROL_OPTIONS = (
+    "ID", "TIMESTAMP", "BEGIN", "END", "ALTITUDEMODE", "TESSELLATE", "EXTRUDE",
+    "VISIBILITY", "ICON", "DRAWORDER", "SNIPPET", "HEADING", "TILT", "ROLL",
+    "MODEL", "SCALE_X", "SCALE_Y", "SCALE_Z", "NETWORKLINK",
+    "NETWORKLINK_REFRESHVISIBILITY", "NETWORKLINK_FLYTOVIEW",
+    "NETWORKLINK_REFRESHMODE", "NETWORKLINK_REFRESHINTERVAL",
+    "NETWORKLINK_VIEWREFRESHMODE", "NETWORKLINK_VIEWREFRESHTIME",
+    "NETWORKLINK_VIEWBOUNDSCALE", "NETWORKLINK_VIEWFORMAT",
+    "NETWORKLINK_HTTPQUERY", "CAMERA_LONGITUDE", "CAMERA_LATITUDE",
+    "CAMERA_ALTITUDE", "CAMERA_ALTITUDEMODE", "PHOTOOVERLAY", "LEFTFOV",
+    "RIGHTFOV", "BOTTOMFOV", "TOPFOV", "NEARFOV", "PHOTOOVERLAY_SHAPE",
+)  # fmt: skip
+_KML_IMAGEPYRAMID_OPTIONS = ("TILESIZE", "MAXWIDTH", "MAXHEIGHT", "GRIDORIGIN")
+
+# A PostgreSQL identifier is at most 63 bytes, so no column has this name.
+_KML_NO_SUCH_FIELD = "x" * 64
+
+
+def _format_specific_args(format_key: str) -> list[str]:
+    """Extra ogr2ogr arguments a format needs; empty for most."""
+    if format_key not in KML_FORMATS:
+        return []
+    options = [f"LIBKML_{name}_FIELD" for name in _KML_CONTROL_OPTIONS]
+    options += [f"LIBKML_IMAGEPYRAMID_{name}" for name in _KML_IMAGEPYRAMID_OPTIONS]
+    args = [a for key in options for a in ("--config", key, _KML_NO_SUCH_FIELD)]
+    # An array written as an int SimpleField reads back as 0; a string field
+    # keeps its text.
+    return args + [
+        "-mapFieldType",
+        "IntegerList=String,Integer64List=String,RealList=String,StringList=String",
+    ]
+
 
 # PMTiles' MAXZOOM defaults to 5, too coarse for anything but a world
 # overview; MINZOOM is fixed at 0, MAXZOOM capped per export by extent (see
@@ -393,6 +442,7 @@ async def run_ogr2ogr_export(
         output_path,
         pg_conn,
     ]
+    cmd.extend(_format_specific_args(format_key))
     use_xy = xy and format_key == "csv"
 
     if target_srs:

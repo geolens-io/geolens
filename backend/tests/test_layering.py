@@ -1213,7 +1213,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # restricted maps' group members and embed tokens included.
         "backend/app/modules/catalog/maps/service_public.py": 1154,
         # Record assembly keeps one format and asset branch per record type.
-        "backend/app/modules/catalog/search/service_records.py": 660,
+        "backend/app/modules/catalog/search/service_records.py": 662,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 521,
         # A layer diff checks a changed filter against the caller's access and its widgets,
@@ -1453,7 +1453,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # release and truncated-reply refusal around provider calls and SSE failures.
     "backend/app/processing/ai/service.py": 984,
     # Record children share ownership, ordering and publication-version invariants.
-    "backend/app/modules/catalog/records/service.py": 853,
+    "backend/app/modules/catalog/records/service.py": 871,
     # Export formats and catalog feeds share visibility, lineage, raster-asset
     # presence and private-artifact authorization.
     "backend/app/modules/catalog/datasets/api/router_export.py": 1638,

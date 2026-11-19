@@ -6,6 +6,11 @@ describe('export formats', () => {
     expect(exportFilename('Manhattan Building Heights', 'parquet')).toBe('Manhattan Building Heights.parquet');
   });
 
+  it('names kml and kmz exports by their extension', () => {
+    expect(exportFilename('Parks', 'kml')).toBe('Parks.kml');
+    expect(exportFilename('Parks', 'kmz')).toBe('Parks.kmz');
+  });
+
   it('replaces path separators and recognizes only export formats', () => {
     expect(exportFilename('a/b\\c', 'csv')).toBe('a_b_c.csv');
     expect(isExportFormat('html')).toBe(false);
@@ -14,6 +19,6 @@ describe('export formats', () => {
 
   it('limits datasets without a geometry column to csv, as the server does', () => {
     expect(exportFormatsFor(null).map((f) => f.value)).toEqual(['csv']);
-    expect(exportFormatsFor('Polygon')).toHaveLength(7);
+    expect(exportFormatsFor('Polygon')).toHaveLength(9);
   });
 });

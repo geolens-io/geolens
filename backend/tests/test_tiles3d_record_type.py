@@ -128,7 +128,7 @@ async def test_only_a_feature_table_advertises_vector_exports(
     assert tileset.status_code == 200, tileset.text
 
     vector_formats = vector.json()["properties"]["formats"]
-    assert len(vector_formats) == 7
+    assert len(vector_formats) == 9
     assert "download_gpkg" in vector.json()["assets"]
     assert not set(vector_formats) & set(tileset.json()["properties"]["formats"])
     vector_assets = {"vector_tiles", "ogc_features"}

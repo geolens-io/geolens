@@ -11,3 +11,5 @@ class ExportFormat(StrEnum):
     parquet = "parquet"
     fgb = "fgb"
     pmtiles = "pmtiles"
+    kml = "kml"
+    kmz = "kmz"

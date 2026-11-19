@@ -3113,7 +3113,7 @@ def _build_export(
 
     Goes through the real writers — the driver named in ``FORMAT_MAP``, then
     that format's production post-step (`normalize_gpkg_timestamps` for GPKG,
-    `_zip_export_files` for shapefile, none for the rest). A test that packaged
+    `_zip_export_files` for shapefile, `normalize_kmz_archive` for KMZ, none for the rest). A test that packaged
     the bytes its own way would be pinning its own mirror of the export path
     rather than the export path.
 
@@ -3124,6 +3124,7 @@ def _build_export(
     """
     from app.processing.export.service import _zip_export_files
     from app.processing.export.service import normalize_gpkg_timestamps
+    from app.processing.export.service import normalize_kmz_archive
 
     stage = work_dir / tag
     stage.mkdir()
@@ -3169,6 +3170,8 @@ def _build_export(
         archive = stage / "export.zip"
         _zip_export_files(str(stage), str(archive))
         return archive
+    if format_key == "kmz":
+        normalize_kmz_archive(str(ogr_output))
     return ogr_output
 
 

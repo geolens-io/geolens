@@ -129,7 +129,7 @@ async def test_a_point_cloud_record_advertises_no_vector_export(
     assert pointcloud.status_code == 200, pointcloud.text
 
     vector_formats = vector.json()["properties"]["formats"]
-    assert len(vector_formats) == 7
+    assert len(vector_formats) == 9
     assert "download_gpkg" in vector.json()["assets"]
     assert not set(vector_formats) & set(pointcloud.json()["properties"]["formats"])
     vector_assets = {"vector_tiles", "ogc_features"}

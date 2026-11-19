@@ -1386,6 +1386,8 @@ class TestPostgisRefreshExecution:
             ("download", "csv"),
             ("download", "fgb"),
             ("download", "pmtiles"),
+            ("download", "kml"),
+            ("download", "kmz"),
             ("ogc_features", "geojson"),
             ("vector_tiles", "pbf"),
         }
