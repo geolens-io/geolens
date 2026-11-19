@@ -479,6 +479,26 @@ class TestGetJobStatus:
 
         assert resp.json()["warnings"][0]["details"]["polar_only"] is True
 
+    async def test_get_job_surfaces_the_features_that_lost_z_or_m(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        from app.processing.ingest.tasks_common import _append_job_warning
+        from app.processing.ingest.warnings import make_zm_dropped_warning
+
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
+        job.user_metadata = {"title": "Survey points"}
+        assert make_zm_dropped_warning(0) is None
+        _append_job_warning(job, make_zm_dropped_warning(7))
+        await test_db_session.commit()
+
+        resp = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+
+        assert resp.status_code == 200
+        assert resp.json()["warnings"] == [
+            {"kind": "zm_dropped", "details": {"features": 7}}
+        ]
+
     async def test_get_job_surfaces_archive_failed(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

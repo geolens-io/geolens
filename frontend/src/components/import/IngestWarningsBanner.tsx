@@ -97,6 +97,29 @@ function MercatorClipBody({
   );
 }
 
+function ZmDroppedBody({
+  warning,
+}: {
+  warning: Extract<IngestJobWarning, { kind: 'zm_dropped' }>;
+}) {
+  const { t } = useTranslation('import');
+  return (
+    <div className="space-y-1">
+      <p className="font-medium">{t('warnings.zmDropped.title')}</p>
+      <p className="text-xs text-muted-foreground">
+        {t('warnings.zmDropped.description')}
+      </p>
+      <ul className="mt-1 list-disc ps-4 text-xs">
+        <li>
+          {t('warnings.zmDropped.features', {
+            count: warning.details.features,
+          })}
+        </li>
+      </ul>
+    </div>
+  );
+}
+
 export function IngestWarningsBanner({
   job,
   className,
@@ -113,6 +136,7 @@ export function IngestWarningsBanner({
   const count = warnings.length + Number(!!job.archive_failed) + Number(hasTemporalErrors);
   const hasDataLoss = warnings.some((warning) =>
     warning.kind === 'dbf_truncation_collision' ||
+    warning.kind === 'zm_dropped' ||
     (warning.kind === 'mercator_clip' && warning.details.dropped_features > 0),
   ) || hasTemporalErrors;
 
@@ -169,6 +193,9 @@ export function IngestWarningsBanner({
                 return (
                   <MercatorClipBody key={`mercator-${idx}`} warning={warning} />
                 );
+              }
+              if (warning.kind === 'zm_dropped') {
+                return <ZmDroppedBody key={`zm-${idx}`} warning={warning} />;
               }
               return null;
             })}

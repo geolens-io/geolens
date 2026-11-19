@@ -32,6 +32,18 @@ describe('IngestWarningsBanner', () => {
     expect(screen.getByRole('button', { name: /Original file unavailable/ })).toBeInTheDocument();
   });
 
+  it('counts the features that lost Z or M and summarizes it as data loss', async () => {
+    const user = userEvent.setup();
+    render(<IngestWarningsBanner compact job={job([{
+      kind: 'zm_dropped',
+      details: { features: 4 },
+    }])} />);
+
+    await user.click(screen.getByRole('button', { name: /Some data may have changed/ }));
+    expect(screen.getByText('Z or M values not kept')).toBeVisible();
+    expect(screen.getByText('4 features lost their Z or M values')).toBeVisible();
+  });
+
   it('renders nothing when the job has no warnings', () => {
     const { container } = render(<IngestWarningsBanner job={job([])} />);
     expect(container).toBeEmptyDOMElement();
