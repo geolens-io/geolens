@@ -141,8 +141,8 @@ affected.
 Earlier `.env.example` files set `POSTGRES_PASSWORD=geolens`. An install whose
 database was created from such a file, without `install.sh` generating a value,
 still uses that published password. Its API and worker log
-`postgres_password_published_default` at startup, and GeoLens 1.33.0 refuses to
-start with it. The value that matters is `POSTGRES_PASSWORD` in `.env`. This
+`postgres_password_published_default` at startup, and the first release on or
+after 2027-02-10 refuses to start with it. The value that matters is `POSTGRES_PASSWORD` in `.env`. This
 check from your install directory finds the line as earlier templates wrote it,
 bare or quoted, and not other spellings such as an `export` prefix:
 
@@ -181,8 +181,8 @@ worker don't see it, so they don't log the warning; change it the same way.
 ## Replace a weak TILE_SIGNING_SECRET
 
 A `TILE_SIGNING_SECRET` shorter than 32 characters or equal to a known-public
-value logs `tile_signing_secret_weak` at startup, and GeoLens 1.33.0 (not before
-2027-02-10) refuses to start with it. An unset value, or one equal to
+value logs `tile_signing_secret_weak` at startup, and the first release on or
+after 2027-02-10 refuses to start with it. An unset value, or one equal to
 `JWT_SECRET_KEY`, is not refused. Set a new value from `openssl rand -hex 32` in
 `.env`, the same on every API replica, then run `docker compose up -d api worker`.
 Signed tile URLs issued under the old key stop verifying until the page reloads

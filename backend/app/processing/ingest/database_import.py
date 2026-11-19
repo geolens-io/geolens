@@ -16,11 +16,13 @@ import structlog
 from app.platform.database_sources import (
     DatabaseSourceError,
     DatabaseTableError,
+    TableDimensions,
     classify_gdal_failure,
     database_gdal_source,
     freetds_workdir,
     get_database_connection,
     importable_identifier,
+    probe_table_dimensions,
     safe_gdal_stderr,
 )
 from app.platform.gdal_env import gdal_database_safe_env
@@ -64,16 +66,25 @@ async def copy_database_table(
     *,
     schema_name: str,
     table_name: str,
+    column: str,
     target_schema: str,
     target_table: str,
     srid: int,
-) -> None:
+) -> int:
     """Load ``schema_name.table_name`` into ``target_schema.target_table``.
 
     ``srid`` is stamped on every geometry: GDAL reports none for a table that
     ``geometry_columns`` doesn't list. The table's primary key stays an
     ordinary column, and ``gid`` is numbered by PostGIS. A copy whose
     geometries are all single points is stored as ``Point``.
+
+    GDAL writes every value in the dimensions the copy is told, filling a
+    missing Z or M with 0, so the values of ``column`` are counted before and
+    after it. Z and M are kept only when every value had them both times and
+    GDAL carries them through; otherwise the copy is stored 2D. M is also
+    dropped, keeping any Z, when the staging pipeline would refuse it at the
+    Web Mercator limit. Returns how many values lost a Z or M: the larger of
+    the two counts, since the copy read the table between them.
 
     Raises ``DatabaseImportError`` with a message safe to show.
     """
@@ -87,6 +98,8 @@ async def copy_database_table(
         connection = get_database_connection(connection_name)
     except DatabaseSourceError as exc:
         raise DatabaseImportError(str(exc)) from None
+    before = await _dimensions(connection_name, schema_name, table_name, column)
+    dim = before.shared_dimension()
 
     with freetds_workdir(connection) as workdir:
         env = gdal_database_safe_env(
@@ -132,6 +145,7 @@ async def copy_database_table(
             "SPATIAL_INDEX=NONE",
             "-a_srs",
             f"EPSG:{int(srid)}",
+            *(("-dim", dim) if dim else ()),
             f"{schema_name}.{table_name}",
         ]
         proc = await asyncio.create_subprocess_exec(
@@ -163,7 +177,99 @@ async def copy_database_table(
                 f"{connection_name!r} failed."
             )
         raise DatabaseImportError(str(error))
+    after = await _dimensions(connection_name, schema_name, table_name, column)
+    await _grant_reader(target_schema, target_table)
+    kept = dim is not None and after.shared_dimension() == dim
+    if dim is not None and not kept:
+        await _store_2d(target_schema, target_table, srid)
+    elif dim in ("XYM", "XYZM") and await _mercator_refuses_m(
+        target_schema, target_table
+    ):
+        await _store_2d(target_schema, target_table, srid, keep_z=dim == "XYZM")
+        kept = False
     await _store_single_points_as_point(target_schema, target_table)
+    return 0 if kept else max(before.with_z_or_m, after.with_z_or_m)
+
+
+async def _dimensions(
+    connection_name: str, schema_name: str, table_name: str, column: str
+) -> TableDimensions:
+    try:
+        return await probe_table_dimensions(
+            connection_name,
+            schema_name,
+            table_name,
+            column,
+            timeout=OGR2OGR_FILE_TIMEOUT_SECONDS,
+        )
+    except DatabaseSourceError as exc:
+        raise DatabaseImportError(str(exc)) from None
+
+
+async def _grant_reader(target_schema: str, target_table: str) -> None:
+    """Let the reader role read the copy, as the reads of it that follow do
+    in multi_tenant mode, where a tenant schema grants its reader nothing."""
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import grant_reader_access
+    from app.processing.ingest.tasks_common import _current_tenant_role
+
+    async with async_session() as session:
+        await grant_reader_access(
+            session, target_table, schema=target_schema, role=_current_tenant_role()
+        )
+        await session.commit()
+
+
+async def _store_2d(
+    target_schema: str, target_table: str, srid: int, *, keep_z: bool = False
+) -> None:
+    """Drop every M, and every Z unless ``keep_z``, filled-in zeros among them."""
+    from sqlalchemy import text
+
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import _qtable
+
+    table = _qtable(target_table, schema=target_schema)
+    column_type, force = (
+        ("GeometryZ", "ST_Force3DZ") if keep_z else ("Geometry", "ST_Force2D")
+    )
+    async with async_session() as session:
+        await session.execute(
+            text(
+                # codeql[py/sql-injection] table via _qtable (metadata_sql.py); type and function fixed literals, srid an int()
+                f"ALTER TABLE {table} ALTER COLUMN _geolens_geom TYPE "
+                f"geometry({column_type}, {int(srid)}) USING {force}(_geolens_geom)"
+            )
+        )
+        await session.commit()
+
+
+async def _mercator_refuses_m(target_schema: str, target_table: str) -> bool:
+    """Whether the staging pipeline would refuse the copy's M values.
+
+    Runs the pipeline's own first steps and Mercator check on the copy, then
+    rolls them back.
+    """
+    from app.core.db import async_session
+    from app.processing.ingest.metadata import (
+        clip_to_mercator_bounds,
+        ensure_geom_column,
+        rename_reserved_columns,
+    )
+    from app.processing.ingest.metadata_mercator import MeasuredLayerCrossesMercator
+
+    async with async_session() as session:
+        try:
+            await rename_reserved_columns(
+                session, target_table, schema=target_schema, commit=False
+            )
+            await ensure_geom_column(session, target_table, schema=target_schema)
+            await clip_to_mercator_bounds(session, target_table, schema=target_schema)
+        except MeasuredLayerCrossesMercator:
+            return True
+        finally:
+            await session.rollback()
+    return False
 
 
 async def _store_single_points_as_point(target_schema: str, target_table: str) -> None:
@@ -176,15 +282,10 @@ async def _store_single_points_as_point(target_schema: str, target_table: str) -
     from sqlalchemy import text
 
     from app.core.db import async_session
-    from app.processing.ingest.metadata import _qtable, grant_reader_access
-    from app.processing.ingest.tasks_common import _current_tenant_role
+    from app.processing.ingest.metadata import _qtable
 
     table = _qtable(target_table, schema=target_schema)
     async with async_session() as session:
-        # In multi_tenant mode the read runs as the tenant reader.
-        await grant_reader_access(
-            session, target_table, schema=target_schema, role=_current_tenant_role()
-        )
         row = (
             await session.execute(
                 text(

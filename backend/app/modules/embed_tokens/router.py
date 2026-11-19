@@ -45,6 +45,7 @@ from app.modules.embed_tokens.service import (
 from app.modules.catalog.maps.service import (
     check_map_ownership,
     get_map,
+    lock_layer_datasets,
     lock_map_layers,
 )
 from app.standards.ogc.errors import ERROR_RESPONSES_WRITE
@@ -130,6 +131,9 @@ async def create_embed_token_endpoint(
     # Before the scope read, so the token freezes the layers the map has now,
     # and before the revocation's cache denials, which no rollback undoes.
     await lock_map_layers(db, map_id)
+    # Waits out a change to the layers' datasets, so the scope leaves out a
+    # dataset deleted meanwhile.
+    await lock_layer_datasets(db, map_id)
     # Read under the lock that sharing with groups and visibility changes also
     # take, so a map going restricted can't gain a token after that revoked its
     # others.

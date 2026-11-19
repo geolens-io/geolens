@@ -7465,7 +7465,7 @@ export type JobStatusBatchEntry = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning>;
     /**
      * Can Retry
      */
@@ -7543,7 +7543,7 @@ export type JobStatusResponse = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning>;
     /**
      * Progress
      */
@@ -15971,6 +15971,35 @@ export type VrtStatusResponse = {
      * Source Health
      */
     source_health: Array<VrtSourceHealth>;
+};
+
+/**
+ * ZmDroppedDetail
+ *
+ * How many source features had Z or M values that the copy doesn't keep.
+ *
+ * Z and M are dropped when the source mixes dimensions or holds curves that
+ * lose them when linearized, and M alone when measured features cross the
+ * Web Mercator latitude limit; X and Y are unchanged. The count is taken on
+ * the source just before and after the copy, so a row written during the
+ * copy can be counted.
+ */
+export type ZmDroppedDetail = {
+    /**
+     * Features
+     */
+    features: number;
+};
+
+/**
+ * ZmDroppedWarning
+ */
+export type ZmDroppedWarning = {
+    /**
+     * Kind
+     */
+    kind: 'zm_dropped';
+    details: ZmDroppedDetail;
 };
 
 export type LandingPageGetData = {

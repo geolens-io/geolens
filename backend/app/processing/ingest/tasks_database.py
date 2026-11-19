@@ -146,6 +146,14 @@ async def _rename_reserved(session, job, table: str) -> None:
         _append_job_warning(job, make_reserved_rename_warning(renames))
 
 
+def _append_zm_dropped_warning(job, features: int) -> None:
+    from app.processing.ingest.warnings import make_zm_dropped_warning
+
+    warning = make_zm_dropped_warning(features)
+    if warning is not None:
+        _append_job_warning(job, warning)
+
+
 def chosen_srid(probed: int | None, fallback: int | None) -> int | None:
     """The table's own SRID; ``fallback`` only when its geometries carry none.
 
@@ -237,10 +245,11 @@ async def ingest_database(
                 progress_job.progress = 0.1
                 await progress_session.commit()
 
-        await copy_database_table(
+        zm_dropped = await copy_database_table(
             source.connection,
             schema_name=source.schema,
             table_name=source.table,
+            column=probed.column,
             target_schema=_current_tenant_schema(),
             target_table=staging_table_name,
             srid=effective_srid,
@@ -258,6 +267,7 @@ async def ingest_database(
                 return
             job.current_step = "finalize"
             job.progress = 0.7
+            _append_zm_dropped_warning(job, zm_dropped)
             await _rename_reserved(session, job, staging_table_name)
             await _publish_attempt_staging_table(
                 session,
@@ -337,6 +347,7 @@ class _DatabaseRefresh(_LiveComparison):
         self.measured_feature_count: int | None = None
         self.measured_schema_diff: dict | None = None
         self.verification: dict | None = None
+        self.zm_dropped = 0
 
     def prepare(self, job, dataset, staging_table: str) -> None:
         self.staging_table = staging_table
@@ -374,10 +385,11 @@ class _DatabaseRefresh(_LiveComparison):
         if self.srid is None:
             raise DatabaseRefusal(MISSING_CRS_DATABASE)
         schema = _current_tenant_schema()
-        await copy_database_table(
+        self.zm_dropped = await copy_database_table(
             source.connection,
             schema_name=source.schema,
             table_name=source.table,
+            column=probed.column,
             target_schema=schema,
             target_table=self.staging_table,
             srid=self.srid,
@@ -403,6 +415,7 @@ class _DatabaseRefresh(_LiveComparison):
         )
 
         schema = _current_tenant_schema()
+        _append_zm_dropped_warning(job, self.zm_dropped)
         await _rename_reserved(session, job, self.staging_table)
         staged = await _run_staging_pipeline(
             session,

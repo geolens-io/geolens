@@ -305,6 +305,8 @@ async def rename_reserved_columns(
     session: AsyncSession,
     table_name: str,
     schema: str = "data",
+    *,
+    commit: bool = True,
 ) -> list[dict]:
     """Rename any source column colliding with a GeoLens-internal PostGIS
     column (gid, geom, geometry, geom_4326, fid, ogc_fid) to ``src_<name>``.
@@ -326,7 +328,8 @@ async def rename_reserved_columns(
       creates these).
 
     Returns rename records (``{"original": ..., "renamed": ...}``) for
-    ``job.user_metadata['warnings']``.
+    ``job.user_metadata['warnings']``. Commits them unless ``commit`` is
+    false, which leaves the renames to the caller's transaction.
     """
     _validate_table_name(table_name)
     _validate_table_name(schema)
@@ -414,7 +417,7 @@ async def rename_reserved_columns(
         )
         raise
 
-    if renames:
+    if renames and commit:
         await session.commit()
     return renames
 

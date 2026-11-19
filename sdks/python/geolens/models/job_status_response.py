@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     )
     from ..models.mercator_clip_warning import MercatorClipWarning
     from ..models.reserved_rename_warning import ReservedRenameWarning
+    from ..models.zm_dropped_warning import ZmDroppedWarning
 
 
 T = TypeVar("T", bound="JobStatusResponse")
@@ -50,7 +51,8 @@ class JobStatusResponse:
         error_code (None | str | Unset): Stable code for a fixed failure reason, so a client can show it in the reader's
             language; `error_message` keeps its English text. Null when the reason is free text.
         warning_message (None | str | Unset):
-        warnings (list[DbfTruncationCollisionWarning | MercatorClipWarning | ReservedRenameWarning] | Unset):
+        warnings (list[DbfTruncationCollisionWarning | MercatorClipWarning | ReservedRenameWarning | ZmDroppedWarning] |
+            Unset):
         progress (float | None | Unset):
         current_step (JobStatusResponseCurrentStepType0 | None | Unset):
         rows_processed (int | None | Unset):
@@ -75,7 +77,10 @@ class JobStatusResponse:
     warning_message: None | str | Unset = UNSET
     warnings: (
         list[
-            DbfTruncationCollisionWarning | MercatorClipWarning | ReservedRenameWarning
+            DbfTruncationCollisionWarning
+            | MercatorClipWarning
+            | ReservedRenameWarning
+            | ZmDroppedWarning
         ]
         | Unset
     ) = UNSET
@@ -92,6 +97,7 @@ class JobStatusResponse:
         from ..models.dbf_truncation_collision_warning import (
             DbfTruncationCollisionWarning,
         )
+        from ..models.mercator_clip_warning import MercatorClipWarning
         from ..models.reserved_rename_warning import ReservedRenameWarning
 
         id = str(self.id)
@@ -149,6 +155,8 @@ class JobStatusResponse:
                 if isinstance(warnings_item_data, ReservedRenameWarning):
                     warnings_item = warnings_item_data.to_dict()
                 elif isinstance(warnings_item_data, DbfTruncationCollisionWarning):
+                    warnings_item = warnings_item_data.to_dict()
+                elif isinstance(warnings_item_data, MercatorClipWarning):
                     warnings_item = warnings_item_data.to_dict()
                 else:
                     warnings_item = warnings_item_data.to_dict()
@@ -238,6 +246,7 @@ class JobStatusResponse:
         )
         from ..models.mercator_clip_warning import MercatorClipWarning
         from ..models.reserved_rename_warning import ReservedRenameWarning
+        from ..models.zm_dropped_warning import ZmDroppedWarning
 
         d = dict(src_dict)
         id = UUID(d.pop("id"))
@@ -338,6 +347,7 @@ class JobStatusResponse:
                 DbfTruncationCollisionWarning
                 | MercatorClipWarning
                 | ReservedRenameWarning
+                | ZmDroppedWarning
             ]
             | Unset
         ) = UNSET
@@ -351,6 +361,7 @@ class JobStatusResponse:
                     DbfTruncationCollisionWarning
                     | MercatorClipWarning
                     | ReservedRenameWarning
+                    | ZmDroppedWarning
                 ):
                     try:
                         if not isinstance(data, dict):
@@ -370,11 +381,19 @@ class JobStatusResponse:
                         return warnings_item_type_1
                     except (TypeError, ValueError, AttributeError, KeyError):
                         pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        warnings_item_type_2 = MercatorClipWarning.from_dict(data)
+
+                        return warnings_item_type_2
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
                     if not isinstance(data, dict):
                         raise TypeError()
-                    warnings_item_type_2 = MercatorClipWarning.from_dict(data)
+                    warnings_item_type_3 = ZmDroppedWarning.from_dict(data)
 
-                    return warnings_item_type_2
+                    return warnings_item_type_3
 
                 warnings_item = _parse_warnings_item(warnings_item_data)
 

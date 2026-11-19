@@ -12690,7 +12690,8 @@
                 "mapping": {
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
-                  "reserved_rename": "#/components/schemas/ReservedRenameWarning"
+                  "reserved_rename": "#/components/schemas/ReservedRenameWarning",
+                  "zm_dropped": "#/components/schemas/ZmDroppedWarning"
                 },
                 "propertyName": "kind"
               },
@@ -12703,6 +12704,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/MercatorClipWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ZmDroppedWarning"
                 }
               ]
             },
@@ -12866,7 +12870,8 @@
                 "mapping": {
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
-                  "reserved_rename": "#/components/schemas/ReservedRenameWarning"
+                  "reserved_rename": "#/components/schemas/ReservedRenameWarning",
+                  "zm_dropped": "#/components/schemas/ZmDroppedWarning"
                 },
                 "propertyName": "kind"
               },
@@ -12879,6 +12884,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/MercatorClipWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ZmDroppedWarning"
                 }
               ]
             },
@@ -27478,6 +27486,41 @@
           "source_health"
         ],
         "title": "VrtStatusResponse",
+        "type": "object"
+      },
+      "ZmDroppedDetail": {
+        "additionalProperties": false,
+        "description": "How many source features had Z or M values that the copy doesn't keep.\n\nZ and M are dropped when the source mixes dimensions or holds curves that\nlose them when linearized, and M alone when measured features cross the\nWeb Mercator latitude limit; X and Y are unchanged. The count is taken on\nthe source just before and after the copy, so a row written during the\ncopy can be counted.",
+        "properties": {
+          "features": {
+            "minimum": 1.0,
+            "title": "Features",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "features"
+        ],
+        "title": "ZmDroppedDetail",
+        "type": "object"
+      },
+      "ZmDroppedWarning": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "const": "zm_dropped",
+            "title": "Kind",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ZmDroppedDetail"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "ZmDroppedWarning",
         "type": "object"
       }
     },
