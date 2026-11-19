@@ -1861,7 +1861,7 @@ async def _wfs_expected_features(
         )
     if not await arcgis_wfs_pages_by_count(url, layer_name, version=version, **reads):
         cmd.extend(["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"])
-    return expected, True, True
+    return expected, True, not url_subset(url)
 
 
 async def _wfs_stated_floor(

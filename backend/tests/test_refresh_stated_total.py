@@ -16,6 +16,7 @@ from app.processing.ingest.tasks_reupload import reupload_service
 
 from tests.factories import create_dataset, get_user_id
 from tests.test_esri_ogc_features import (
+    _ARCGIS_WFS,
     _OTHER_WFS,
     _SERVICE,
     _counting_only,
@@ -218,6 +219,47 @@ async def test_a_wfs_refresh(
     else:
         assert run.verification["source_count"] == 5
         assert run.verification["review_reasons"] == []
+
+
+@pytest.mark.parametrize("query", ["?COUNT=5", "?STARTINDEX=1", "?MAXFEATURES=5"])
+async def test_a_narrowed_arcgis_wfs_refresh_stays_held(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch, query
+) -> None:
+    dataset = await _service_dataset(
+        test_db_session,
+        source_format="wfs",
+        url=_ARCGIS_WFS + query,
+        layer="glTrial2Ogc:pts",
+    )
+    _serve(
+        monkeypatch,
+        _counting_only("2.0.0", "glTrial2Ogc:pts", endpoint=_ARCGIS_WFS, stated="5"),
+    )
+    _gdal_staging(monkeypatch, 5)
+
+    await _refresh(client, admin_auth_header, dataset.id)
+
+    (run,) = await _runs_ordered(test_db_session, dataset.id)
+    assert run.status == "blocked"
+    assert run.verification["review_reasons"] == ["source_count_unavailable"]
+
+
+async def test_an_arcgis_wfs_refresh_of_the_whole_layer_publishes(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+) -> None:
+    dataset = await _service_dataset(
+        test_db_session, source_format="wfs", url=_ARCGIS_WFS, layer="glTrial2Ogc:pts"
+    )
+    _serve(
+        monkeypatch,
+        _counting_only("2.0.0", "glTrial2Ogc:pts", endpoint=_ARCGIS_WFS, stated="5"),
+    )
+    _gdal_staging(monkeypatch, 5)
+
+    await _refresh(client, admin_auth_header, dataset.id)
+
+    (run,) = await _runs_ordered(test_db_session, dataset.id)
+    assert (run.status, run.verification["source_count"]) == ("succeeded", 5)
 
 
 async def test_a_wfs_refresh_shortfall_fails_as_an_import_does(
