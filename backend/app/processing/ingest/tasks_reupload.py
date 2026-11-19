@@ -1194,7 +1194,6 @@ async def _fetch_service_layer_with_paging_guard(
         schema=schema,
         on_spawn=on_spawn,
         keep_z=return_z,
-        reviews_count=reviews_unknown_count,
     )
     if service_type != "arcgis_featureserver":
         feature_count = stated_total

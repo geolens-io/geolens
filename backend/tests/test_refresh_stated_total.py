@@ -11,7 +11,7 @@ from sqlalchemy import text
 
 from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.service_items import materialise_oapif_items
-from app.processing.ingest.ogr import run_ogr2ogr_service
+from app.processing.ingest.ogr import WfsCountMismatchError, run_ogr2ogr_service
 from app.processing.ingest.tasks_reupload import reupload_service
 
 from tests.factories import create_dataset, get_user_id
@@ -140,64 +140,73 @@ class TestTheWalkSaysWhetherTheServiceStatedItsTotal:
         assert (extract.total, extract.stated_total) == (9, None)
 
 
-class TestAReviewedWFSCountIsReturned:
-    """With ``reviews_count`` the count check is the caller's: nothing fails,
-    and only a total the staged rows can be held to comes back."""
-
-    async def _read(self, monkeypatch, url: str, *, stated: str, staged: int):
-        _serve(monkeypatch, _counting_only("2.0.0", "topp:pts", stated=stated))
+class TestOnlyAWFSLayersWholeTotalIsReturned:
+    async def _read(self, monkeypatch, url: str, version: str, stated: str, staged):
+        _serve(
+            monkeypatch,
+            _counting_only(version, "topp:pts", advertised=version, stated=stated),
+        )
         _spawn_reading_the_source(monkeypatch)
         monkeypatch.setattr(
             "app.processing.ingest.ogr.staged_row_count",
             AsyncMock(return_value=staged),
         )
         return await run_ogr2ogr_service(
-            f"WFS:{url}",
-            "topp:pts",
-            "t",
-            "PG:dbname=x",
-            "wfs",
-            schema="data",
-            reviews_count=True,
+            f"WFS:{url}", "topp:pts", "t", "PG:dbname=x", "wfs", schema="data"
         )
 
-    @pytest.mark.parametrize(("staged", "total"), [(25, 25), (10, 25), (30, None)])
-    async def test_against_the_stated_total(self, monkeypatch, staged, total) -> None:
-        assert (
-            await self._read(monkeypatch, _OTHER_WFS, stated="25", staged=staged)
-            == total
-        )
-
-    @pytest.mark.parametrize("query", ["?COUNT=25", "?STARTINDEX=10", "?MAXFEATURES=5"])
-    async def test_a_url_that_narrows_the_read(self, monkeypatch, query) -> None:
+    @pytest.mark.parametrize(
+        ("query", "version", "stated", "staged", "total"),
+        [
+            ("", "2.0.0", "25", 25, 25),
+            ("", "2.0.0", "25", 30, None),
+            ("?COUNT=25", "2.0.0", "25", 25, None),
+            ("?STARTINDEX=10", "2.0.0", "25", 25, None),
+            ("?MAXFEATURES=25", "1.1.0", "5000", 25, None),
+        ],
+        ids=["equal", "more", "count", "startindex", "1.1-maxfeatures"],
+    )
+    async def test_the_total_returned(
+        self, monkeypatch, query, version, stated, staged, total
+    ) -> None:
         url = f"{_OTHER_WFS}{query}"
-        assert await self._read(monkeypatch, url, stated="25", staged=25) is None
+        assert await self._read(monkeypatch, url, version, stated, staged) == total
+
+    async def test_a_shortfall_still_fails(self, monkeypatch) -> None:
+        with pytest.raises(WfsCountMismatchError, match="returned 10 of 25"):
+            await self._read(monkeypatch, _OTHER_WFS, "2.0.0", "25", 10)
 
 
 @pytest.mark.parametrize(
-    ("stated", "rows", "status", "code"),
+    ("query", "version", "stated", "rows", "status", "code"),
     [
-        ("5", 5, "succeeded", None),
-        ("5", 3, "failed", "source_count_mismatch"),
-        ("5", 7, "blocked", "review_required"),
-        ("unknown", 5, "blocked", "review_required"),
+        ("", "2.0.0", "5", 5, "succeeded", None),
+        ("", "2.0.0", "5", 7, "blocked", "review_required"),
+        ("", "2.0.0", "unknown", 5, "blocked", "review_required"),
+        ("?COUNT=5", "2.0.0", "5", 5, "blocked", "review_required"),
+        ("?MAXFEATURES=25", "1.1.0", "5000", 25, "blocked", "review_required"),
     ],
-    ids=["equal", "fewer", "more", "none"],
+    ids=["equal", "more", "none", "2.0-count", "1.1-maxfeatures"],
 )
 async def test_a_wfs_refresh(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
     monkeypatch,
+    query,
+    version,
     stated,
     rows,
     status,
     code,
 ) -> None:
     dataset = await _service_dataset(
-        test_db_session, source_format="wfs", url=_OTHER_WFS, layer="topp:pts"
+        test_db_session, source_format="wfs", url=_OTHER_WFS + query, layer="topp:pts"
     )
-    _serve(monkeypatch, _counting_only("2.0.0", "topp:pts", stated=stated))
+    _serve(
+        monkeypatch,
+        _counting_only(version, "topp:pts", advertised=version, stated=stated),
+    )
     _gdal_staging(monkeypatch, rows)
 
     await _refresh(client, admin_auth_header, dataset.id)
@@ -211,21 +220,20 @@ async def test_a_wfs_refresh(
         assert run.verification["review_reasons"] == []
 
 
-async def test_a_wfs_refresh_through_a_narrowing_url_stays_held(
+async def test_a_wfs_refresh_shortfall_fails_as_an_import_does(
     client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
 ) -> None:
-    url = f"{_OTHER_WFS}?COUNT=5"
     dataset = await _service_dataset(
-        test_db_session, source_format="wfs", url=url, layer="topp:pts"
+        test_db_session, source_format="wfs", url=_OTHER_WFS, layer="topp:pts"
     )
     _serve(monkeypatch, _counting_only("2.0.0", "topp:pts", stated="5"))
-    _gdal_staging(monkeypatch, 5)
+    _gdal_staging(monkeypatch, 3)
 
-    await _refresh(client, admin_auth_header, dataset.id)
+    with pytest.raises(WfsCountMismatchError):
+        await _refresh(client, admin_auth_header, dataset.id)
 
     (run,) = await _runs_ordered(test_db_session, dataset.id)
-    assert run.status == "blocked"
-    assert run.verification["review_reasons"] == ["source_count_unavailable"]
+    assert (run.status, run.error_code) == ("failed", "wfs_short")
 
 
 @pytest.mark.parametrize(

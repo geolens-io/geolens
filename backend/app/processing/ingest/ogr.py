@@ -1467,12 +1467,11 @@ async def run_ogr2ogr_service(
     schema: str,
     on_spawn: "Callable[[], None] | None" = None,
     keep_z: bool = False,
-    reviews_count: bool = False,
 ) -> int | None:
     """Run ogr2ogr to load a remote service layer into PostGIS.
 
-    Returns the total the service stated for the layer that the staged count
-    should equal, or None when it stated none it can be held to.
+    Returns the total the service stated for the whole layer when the staged
+    count can be held to it, else None.
 
     Args:
         gdal_source: GDAL-prefixed source string (e.g. "WFS:https://...")
@@ -1496,8 +1495,6 @@ async def run_ogr2ogr_service(
         keep_z: When True, stage a 3D geometry column. ``-nlt GEOMETRY``
             drops Z; ``GEOMETRYZ`` keeps it and gives a feature without Z a
             zero.
-        reviews_count: When True, a WFS count that fails its check is
-            returned for the caller to verify instead of failing the import.
     """
     from app.processing.ingest.metadata import _validate_table_name
 
@@ -1609,10 +1606,14 @@ async def run_ogr2ogr_service(
         cmd.append(layer_name)
 
     expected_features: int | None = None
-    expected_strict = False
+    expected_strict = whole_layer = False
     if service_type == "wfs":
         cmd.extend(["--config", "OGR_WFS_PAGE_SIZE", "1000"])
-        expected_features, expected_strict = await _wfs_expected_features(
+        (
+            expected_features,
+            expected_strict,
+            whole_layer,
+        ) = await _wfs_expected_features(
             cmd, gdal_source, layer_name, token, arm_origin_contact
         )
 
@@ -1774,12 +1775,14 @@ async def run_ogr2ogr_service(
             service_error=service_error,
         )
     if expected_features is not None:
-        return await _refuse_short_wfs_import(
-            table_name,
-            schema,
-            expected_features,
-            expected_strict,
-            reviews_count=reviews_count,
+        staged = await _refuse_short_wfs_import(
+            table_name, schema, expected_features, expected_strict
+        )
+        # Only the whole layer's total, met exactly, verifies a refresh: more
+        # than a floor may be a server's stated cap, and a URL's limit isn't
+        # the layer.
+        return (
+            expected_features if whole_layer and staged == expected_features else None
         )
     return stated_total
 
@@ -1789,23 +1792,16 @@ async def _refuse_short_wfs_import(
     schema: str,
     expected: int,
     strict: bool,
-    *,
-    reviews_count: bool,
-) -> int | None:
+) -> int:
     """Fail a WFS import whose staged count fails the check against the
     layer's total: any difference for an ArcGIS WFS, only a shortfall for
-    any other. Returns the total the staged count should equal.
-
-    With ``reviews_count`` nothing fails here. A floor exceeded is no total
-    to hold the count to, since the server may have stated its cap."""
+    any other. Returns the staged count."""
     staged = await staged_row_count(table_name, schema)
-    if reviews_count:
-        return None if staged > expected and not strict else expected
     if strict:
         refuse_short_arcgis_wfs(staged, expected)
     else:
         refuse_short_wfs(staged, expected)
-    return expected
+    return staged
 
 
 async def _wfs_expected_features(
@@ -1814,13 +1810,14 @@ async def _wfs_expected_features(
     layer_name: str,
     token: str | None,
     arm_origin_contact: "Callable[[], None] | None",
-) -> tuple[int | None, bool]:
+) -> tuple[int | None, bool, bool]:
     """For a WFS, read the layer's total from ``resultType=hits`` in the
     version GDAL settles on, and for a non-ArcGIS WFS under its advertised
     type name.
 
-    Returns the total and whether the count is strict. An ArcGIS WFS turns
-    GDAL's paging off unless ``COUNT`` is a page size there, and any
+    Returns the total, whether the count is strict, and whether the total is
+    the one stated for the whole layer rather than a URL's limit. An ArcGIS
+    WFS turns GDAL's paging off unless ``COUNT`` is a page size there, and any
     difference from the total fails the import, since a repeated page is
     possible too. Any other WFS keeps the total as a floor: only fewer
     staged than stated fails, since some servers state their cap, not the
@@ -1829,7 +1826,7 @@ async def _wfs_expected_features(
     import goes ahead unchecked."""
     url = gdal_source_url(gdal_source)
     if url is None:
-        return None, False
+        return None, False, False
     credential_line = (
         _sanitize_authorization_token(token, service_format="wfs") if token else None
     )
@@ -1847,9 +1844,10 @@ async def _wfs_expected_features(
             )
         ) from None
     if service is None:
-        return None, False
+        return None, False, False
     if service.evidence is None:
-        return await _wfs_stated_floor(url, service, layer_name, reads), False
+        floor, whole_layer = await _wfs_stated_floor(url, service, layer_name, reads)
+        return floor, False, whole_layer
     version = service.version
     expected = await fetch_arcgis_wfs_hits(url, layer_name, version=version, **reads)
     if expected is None:
@@ -1863,14 +1861,15 @@ async def _wfs_expected_features(
         )
     if not await arcgis_wfs_pages_by_count(url, layer_name, version=version, **reads):
         cmd.extend(["--config", "OGR_WFS_PAGING_ALLOWED", "OFF"])
-    return expected, True
+    return expected, True, True
 
 
 async def _wfs_stated_floor(
     url: str, service: WfsService, layer_name: str, reads: dict
-) -> int | None:
+) -> tuple[int | None, bool]:
     """A non-ArcGIS WFS layer's total under its advertised name, or None
-    when the hits read can't describe the features the import gets.
+    when the hits read can't describe the features the import gets, and
+    whether it is the layer's whole total rather than capped by the URL.
 
     WFS 1.0 has no ``resultType``. The hits read drops the URL's
     `url_subset`, so a URL that narrows the import with any of it goes
@@ -1881,12 +1880,12 @@ async def _wfs_stated_floor(
     subset = url_subset(url)
     capped = not version.startswith("2") and subset.keys() == {"MAXFEATURES"}
     if version.startswith("1.0") or (subset and not capped):
-        return None
+        return None, False
     layer = service.type_name(layer_name)
     total = await fetch_arcgis_wfs_hits(url, layer, version=version, **reads)
     if total is None or not capped:
-        return total
-    return min(total, subset["MAXFEATURES"])
+        return total, not capped
+    return min(total, subset["MAXFEATURES"]), False
 
 
 async def staged_row_count(table_name: str, schema: str) -> int:
