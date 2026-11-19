@@ -25,6 +25,9 @@ and releases use semantic versioning.
   schema `ArcgisTranslatedLayer`; its fields are unchanged and `sort_order` stays a
   required integer there.
 
+### Deprecated
+- The two startup refusals that 1.32.0 announced for 1.33.0 are not in this release. A `POSTGRES_PASSWORD` of `geolens` and a `TILE_SIGNING_SECRET` shorter than 32 characters or equal to a known-public value still start with a warning. The first release on or after 2027-02-10 refuses to start with either, so change them before then; UPGRADING.md has the steps.
+
 ### Fixed
 - Rendering an indexed-colour raster no longer stretches its class values before the colour table is applied, so 16-bit and other non-8-bit palette rasters keep their table colours in tiles and remote-COG quicklooks. A colormap chosen for the layer still replaces the table and is stretched as before. A remote COG imported before this release keeps the stretch; delete it and import it again to draw it from its colour table.
 - DEM mosaics now build with bilinear resampling instead of nearest-neighbour, so a coarse fill member no longer repeats its pixels as blocks in the hillshade at close zoom. Categorical rasters still build with nearest, so their values stay exact. A mosaic built from elevation members gets bilinear at creation time, and an existing DEM mosaic picks it up when it is next rebuilt, so run Regenerate on it. A rebuild derives the choice from the current members, so a mixed mosaic keeps nearest.
