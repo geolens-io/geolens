@@ -13,6 +13,16 @@ and releases use semantic versioning.
 
 ### Changed
 
+- A WFS refresh, and a refresh of an OGC API Features collection read with a
+  credential, now publishes without review when the staged row count equals
+  the total the service states. A refresh that stages fewer features than
+  that total, or an ArcGIS WFS refresh that stages more, fails with
+  `source_count_mismatch`; a WFS refresh used to fail with `wfs_short` or
+  `arcgis_wfs_repeated`. These are still held for review: a service that
+  states no total, a WFS URL that narrows the read, a WFS not served by
+  ArcGIS that stages more features than its stated total, an OGC API
+  Features collection read without a credential, and any collection ArcGIS
+  serves, since its pages state no total for the whole collection.
 - The CLI installs with typer 0.25 through 0.29. A bare `--token` on
   `geolens refresh` still prompts for the token.
 - REST contract: `MapLayerInput.sort_order` no longer defaults to 0 in the

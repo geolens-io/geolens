@@ -1184,7 +1184,7 @@ async def _fetch_service_layer_with_paging_guard(
         order_field=pagination_order_field,
         return_z=return_z,
     )
-    await run_ogr2ogr_service(
+    stated_total = await run_ogr2ogr_service(
         gdal_source,
         layer_arg,
         staging_table,
@@ -1194,7 +1194,10 @@ async def _fetch_service_layer_with_paging_guard(
         schema=schema,
         on_spawn=on_spawn,
         keep_z=return_z,
+        reviews_count=reviews_unknown_count,
     )
+    if service_type != "arcgis_featureserver":
+        feature_count = stated_total
     return feature_count, id_plan, pagination_order_field
 
 

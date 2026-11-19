@@ -1467,8 +1467,12 @@ async def run_ogr2ogr_service(
     schema: str,
     on_spawn: "Callable[[], None] | None" = None,
     keep_z: bool = False,
-) -> None:
+    reviews_count: bool = False,
+) -> int | None:
     """Run ogr2ogr to load a remote service layer into PostGIS.
+
+    Returns the total the service stated for the layer that the staged count
+    should equal, or None when it stated none it can be held to.
 
     Args:
         gdal_source: GDAL-prefixed source string (e.g. "WFS:https://...")
@@ -1492,6 +1496,8 @@ async def run_ogr2ogr_service(
         keep_z: When True, stage a 3D geometry column. ``-nlt GEOMETRY``
             drops Z; ``GEOMETRYZ`` keeps it and gives a feature without Z a
             zero.
+        reviews_count: When True, a WFS count that fails its check is
+            returned for the caller to verify instead of failing the import.
     """
     from app.processing.ingest.metadata import _validate_table_name
 
@@ -1508,6 +1514,7 @@ async def run_ogr2ogr_service(
     # without a credential, since GDAL keeps only its last page. WFS is
     # untouched: its driver pages by startIndex and ignores `next`.
     items_path: str | None = None
+    stated_total: int | None = None
     # One clock over the materialisation and the subprocess, or a service
     # trickling pages inside the per-read timeout could hold a worker for
     # hours and still get the full timeout to convert.
@@ -1525,23 +1532,22 @@ async def run_ogr2ogr_service(
             on_first_request=arm_origin_contact,
         )
     ):
-        items_path = (
-            await materialise_oapif_items(
-                gdal_source.split(":", 1)[1],
-                layer_name,
-                credential_line=_sanitize_authorization_token(
-                    token, service_format=service_type
-                )
-                if token
-                else None,
-                staging_dir=ensure_staging_ready(settings.upload_staging_dir),
-                deadline=deadline,
-                # Here the walk, not the subprocess, contacts the origin, so
-                # a materialisation failing on its first page still reached
-                # the service. Spawn below skips it if the walk already fired.
-                on_first_request=arm_origin_contact,
+        extract = await materialise_oapif_items(
+            gdal_source.split(":", 1)[1],
+            layer_name,
+            credential_line=_sanitize_authorization_token(
+                token, service_format=service_type
             )
-        ).path
+            if token
+            else None,
+            staging_dir=ensure_staging_ready(settings.upload_staging_dir),
+            deadline=deadline,
+            # Here the walk, not the subprocess, contacts the origin, so
+            # a materialisation failing on its first page still reached
+            # the service. Spawn below skips it if the walk already fired.
+            on_first_request=arm_origin_contact,
+        )
+        items_path, stated_total = extract.path, extract.stated_total
         gdal_source, layer_name, token = items_path, "", None
 
     if layer_name:
@@ -1768,9 +1774,14 @@ async def run_ogr2ogr_service(
             service_error=service_error,
         )
     if expected_features is not None:
-        await _refuse_short_wfs_import(
-            table_name, schema, expected_features, expected_strict
+        return await _refuse_short_wfs_import(
+            table_name,
+            schema,
+            expected_features,
+            expected_strict,
+            reviews_count=reviews_count,
         )
+    return stated_total
 
 
 async def _refuse_short_wfs_import(
@@ -1778,15 +1789,23 @@ async def _refuse_short_wfs_import(
     schema: str,
     expected: int,
     strict: bool,
-) -> None:
+    *,
+    reviews_count: bool,
+) -> int | None:
     """Fail a WFS import whose staged count fails the check against the
     layer's total: any difference for an ArcGIS WFS, only a shortfall for
-    any other."""
+    any other. Returns the total the staged count should equal.
+
+    With ``reviews_count`` nothing fails here. A floor exceeded is no total
+    to hold the count to, since the server may have stated its cap."""
     staged = await staged_row_count(table_name, schema)
+    if reviews_count:
+        return None if staged > expected and not strict else expected
     if strict:
         refuse_short_arcgis_wfs(staged, expected)
     else:
         refuse_short_wfs(staged, expected)
+    return expected
 
 
 async def _wfs_expected_features(
