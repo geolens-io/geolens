@@ -11,6 +11,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.datasets.api import router_data
+from app.modules.catalog.datasets.domain.helpers import DatasetInSharedMapsError
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.platform.extensions.defaults import DefaultWorkflowExtension
 from tests.factories import create_dataset, get_user_id
@@ -54,6 +55,7 @@ async def _stored(session: AsyncSession, dataset_id: uuid.UUID) -> tuple[str, in
     return row.record_status, row.publication_version
 
 
+@pytest.mark.parametrize("strands_a_shared_map", [False, True])
 @pytest.mark.parametrize(
     ("path", "requested", "committed_meanwhile"),
     [("status", "internal", "draft"), ("target-status", "draft", "internal")],
@@ -67,24 +69,36 @@ async def test_status_change_overtaken_before_the_lock_is_refused(
     path: str,
     requested: str,
     committed_meanwhile: str,
+    strands_a_shared_map: bool,
 ) -> None:
     dataset = await _published_dataset(test_db_session)
     dataset_id, record_id = dataset.id, dataset.record_id
-    original = router_data._refuse_stranding
+    original = router_data.check_vrt_audiences_after_change
 
     # Runs after the handler has planned from `published`, before it locks the rows.
-    async def commit_another_change_then_continue(db, ds, target):
+    async def commit_another_change_then_continue(db, ds, **kwargs):
         await test_db_session.execute(
             update(Record)
             .where(Record.id == record_id)
             .values(record_status=committed_meanwhile)
         )
         await test_db_session.commit()
-        await original(db, ds, target)
+        await original(db, ds, **kwargs)
+
+    async def strand_a_shared_map(*args, **kwargs):
+        raise DatasetInSharedMapsError(
+            action="unpublish", shared_maps=[{"id": str(uuid.uuid4()), "name": "Roads"}]
+        )
 
     monkeypatch.setattr(
-        router_data, "_refuse_stranding", commit_another_change_then_continue
+        router_data,
+        "check_vrt_audiences_after_change",
+        commit_another_change_then_continue,
     )
+    if strands_a_shared_map:
+        monkeypatch.setattr(
+            router_data, "refuse_stranding_shared_maps", strand_a_shared_map
+        )
     _, version_before = await _stored(test_db_session, dataset_id)
 
     resp = await client.patch(

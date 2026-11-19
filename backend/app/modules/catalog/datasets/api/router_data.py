@@ -507,17 +507,21 @@ async def _roll_publication_version(
 
 
 async def _refuse_stranding(
-    db: AsyncSession, dataset: DatasetModel, target: str
+    db: AsyncSession, dataset: DatasetModel, target: str, planned_from: str
 ) -> None:
     """422 when moving to ``target`` strands one of the owner's shared maps.
 
     Asked holding the catalog rows, which a map write that widens the map
     waits on, so a map shared meanwhile is either seen here or waits.
+    Raises :class:`PublicationStatusChanged` first when the locked record is
+    no longer in ``planned_from``.
     """
     from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
     await lock_catalog_rows_for_write(db, dataset)
     await db.refresh(dataset.record, ["visibility", "record_status", "created_by"])
+    if dataset.record.record_status != planned_from:
+        raise PublicationStatusChanged()
     try:
         await refuse_stranding_shared_maps(
             db, dataset.record, dataset.id, record_status=target
@@ -605,7 +609,7 @@ async def update_publication_status(
             detail=WorkflowTransitionDenied(current, target, allowed).detail,
         )
     await check_vrt_audiences_after_change(db, dataset, record_status=target)
-    await _refuse_stranding(db, dataset, target)
+    await _refuse_stranding(db, dataset, target, current)
 
     # The transition rolls the signed-scope counter, so this handler dirties the
     # datasets row too and must take both in house order: after the workflow
@@ -713,7 +717,7 @@ async def set_target_status(
     enters_published = any(next_status == "published" for next_status, _ in chain)
 
     await check_vrt_audiences_after_change(db, dataset, record_status=target)
-    await _refuse_stranding(db, dataset, target)
+    await _refuse_stranding(db, dataset, target, current)
 
     # Once for the whole chain, immediately before its writes.
     await _roll_publication_version(db, dataset, current)
