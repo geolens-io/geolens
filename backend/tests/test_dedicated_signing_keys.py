@@ -5,6 +5,7 @@ Every key is generated inside the test; none is printed.
 
 import os
 import pathlib
+import re
 import secrets
 import subprocess
 import sys
@@ -220,13 +221,15 @@ def _tile_messages(tile):
 
 
 @pytest.mark.parametrize("tile", ["tiny-key", sorted(KNOWN_PUBLIC_CREDENTIALS)[-1]])
-def test_short_or_public_tile_key_warning_names_release_and_date(tile):
+def test_short_or_public_tile_key_warning_names_a_date_not_a_release(tile):
     messages = _tile_messages(tile)
     assert messages
-    assert all("1.33.0" in m and "2027-02-10" in m for m in messages)
+    assert all("refuse" in m and "2027-02-10" in m for m in messages)
+    # A release number can ship before the date and then names the running version.
+    assert not any(re.search(r"\d+\.\d+\.\d+", m) for m in messages)
 
 
 def test_equal_to_jwt_tile_key_warning_does_not_announce_a_refusal():
     messages = _tile_messages(JWT)
     assert messages
-    assert not any("refuse" in m or "1.33.0" in m for m in messages)
+    assert not any("refuse" in m or "2027-02-10" in m for m in messages)
