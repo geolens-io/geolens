@@ -6,18 +6,7 @@
 // an expired entry stops suppressing, forcing a revisit.
 import { execFileSync } from 'node:child_process';
 
-const ALLOWLIST = [
-  {
-    id: 'GHSA-fc5q-39xc-vjpf', // picomatch ReDoS through repeated extglobs (high)
-    reason:
-      'Reached only through vite, vitest and knip, all devDependencies, so ' +
-      'picomatch is never in the shipped bundle; exploiting it needs an ' +
-      'attacker-controlled glob, and ours come from repo-authored config. ' +
-      'Every release up to 4.0.7 (the latest) is affected and no patched ' +
-      'version exists yet. Drop this entry when picomatch ships the fix.',
-    expires: '2026-12-08',
-  },
-];
+const ALLOWLIST = [];
 
 let raw;
 try {
