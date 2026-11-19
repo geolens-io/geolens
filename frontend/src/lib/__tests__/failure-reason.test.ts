@@ -35,6 +35,7 @@ describe('describeFailureReason', () => {
     ['service_auth_refused', "the token is valid and hasn't expired"],
     ['service_error', 'answered with an error'],
     ['service_empty_page', 'Retry in a few minutes'],
+    ['source_count_mismatch', 'a different number of features than the source states'],
   ])('shows the import refusal %s as its own guidance', (code, text) => {
     expect(describeFailureReason('English text the worker stored', 'Something went wrong', code)).toContain(
       text,

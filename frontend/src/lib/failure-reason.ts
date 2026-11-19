@@ -53,6 +53,7 @@ const FIXED_FAILURE_CODE_KEYS: Record<string, `errors.${string}`> = {
   service_auth_refused: 'errors.serviceAuthRefused',
   service_empty_page: 'errors.serviceEmptyPage',
   service_error: 'errors.serviceAnsweredError',
+  source_count_mismatch: 'errors.jobFailureSourceCountMismatch',
   stale_never_committed: 'errors.jobFailureStaleNeverCommitted',
   stale_never_queued: 'errors.jobFailureStaleNeverQueued',
   upload_abandoned: 'errors.jobFailureUploadAbandoned',

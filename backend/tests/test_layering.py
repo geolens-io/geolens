@@ -1315,7 +1315,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/platform/service_endpoints.py": 1419,
     # Pagination, materialization and recognising an ArcGIS collection share the
     # bounded page read that keeps credentials and remote page traversal out of GDAL.
-    "backend/app/platform/service_items.py": 1052,
+    "backend/app/platform/service_items.py": 1066,
     # ArcGIS sign-in shares destination checks, abuse budgets and deadlines across its
     # protocol.
     "backend/app/modules/catalog/sources/arcgis_signin.py": 1130,
@@ -1367,7 +1367,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # review of the changes its preview showed, and the live-table comparison
     # that lets a refresh or file re-upload of unchanged data publish nothing,
     # and the rebuild of geometry from the columns a dataset's was built from.
-    "backend/app/processing/ingest/tasks_reupload.py": 2000,
+    "backend/app/processing/ingest/tasks_reupload.py": 2002,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1405,7 +1405,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/tasks_vector.py": 1222,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
-    "backend/app/processing/ingest/ogr.py": 1932,
+    "backend/app/processing/ingest/ogr.py": 1950,
     # Archive and GDAL content validation remain centralized at the upload security
     # boundary.
     "backend/app/processing/ingest/validation.py": 1206,

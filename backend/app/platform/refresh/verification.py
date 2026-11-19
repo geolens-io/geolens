@@ -8,6 +8,8 @@ from collections.abc import Callable, Iterable
 from dataclasses import asdict, dataclass
 from typing import Any
 
+from app.core.failure_reason import FixedReason
+
 # Why a held file replacement can no longer be accepted: its acceptance would
 # publish an upload over data that replaced what the run was compared with.
 REVIEW_SUPERSEDED = (
@@ -497,10 +499,11 @@ def verify_service_refresh(
 def refresh_rejection_diagnostic(verification: dict[str, Any]) -> tuple[str, str]:
     """Describe the highest-priority hard verification failure."""
     if verification.get("count_status") == "mismatched":
-        return (
-            "source_count_mismatch",
+        reason = FixedReason(
             "The staged row count did not match the source count.",
+            code="source_count_mismatch",
         )
+        return reason.code, reason
 
     coverage = verification.get("arcgis_id_coverage")
     if isinstance(coverage, dict):

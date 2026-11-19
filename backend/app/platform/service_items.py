@@ -110,11 +110,15 @@ class MaterialisedCollection(NamedTuple):
     ``numberMatched`` if published, else the features written when the
     walk ran to the end. ``None`` when the walk stopped at a sample limit
     and the service said nothing.
+
+    ``stated_total`` is the whole query's ``numberMatched`` as the service
+    stated it, ``None`` when it stated none or only a last page's remainder.
     """
 
     path: str
     features: int
     total: int | None
+    stated_total: int | None = None
 
 
 class ItemFetchFailedError(EndpointCheckFailedError):
@@ -670,13 +674,14 @@ async def _walk_pages(
     headers: dict,
     feature_limit: int | None,
     on_first_request: Callable[[], None] | None,
-) -> tuple[int, int, int | None, bool | None]:
+) -> tuple[int, int, int | None, bool | None, bool]:
     """Follow the chain, writing features.
 
     Returns pages read, features written, what the service said the whole
-    collection holds, and whether the walk stopped SHORT — `True`,
+    collection holds, whether the walk stopped SHORT — `True`,
     `False`, or `None` where the last page proved neither, in which case
-    the total is unknown rather than short.
+    the total is unknown rather than short — and whether that total was
+    summed from a later page's remainder rather than stated.
 
     The count-shaped invariants, complete: the OGC items schema has
     exactly two integer members, ``numberMatched`` and ``numberReturned``,
@@ -709,6 +714,7 @@ async def _walk_pages(
     pages = 0
     on_disk = 0
     number_matched: int | None = None
+    summed = False
     # Whether the walk STOPPED SHORT, tri-state. Only the
     # breaking site knows; a FULL walk never touches it; `None` means the
     # page proved neither, so the total is unknown.
@@ -772,6 +778,8 @@ async def _walk_pages(
                 # ArcGIS counts from the page's own offset, so the whole
                 # query matched everything read so far.
                 reported = observed
+                # A first page's remainder is the whole query, as stated.
+                summed = pages > 1
             if number_matched is None:
                 number_matched = reported
             elif reported != number_matched:
@@ -836,7 +844,7 @@ async def _walk_pages(
         if feature_limit is None and observed != number_matched:
             raise ItemFetchFailedError("collection is shorter than reported")
     out.write(b"]}")
-    return pages, written, number_matched, truncated
+    return pages, written, number_matched, truncated, summed
 
 
 async def materialise_oapif_items(
@@ -907,7 +915,7 @@ async def materialise_oapif_items(
                 # Binary: the features are encoded once, so the count that
                 # bounds the file is the count that is written.
                 with open(path, "wb") as out:
-                    pages, written, number_matched, truncated = await _walk_pages(
+                    walked = await _walk_pages(
                         client,
                         out,
                         url=url,
@@ -925,6 +933,7 @@ async def materialise_oapif_items(
         _discard(path)
         raise
 
+    pages, written, number_matched, truncated, summed = walked
     logger.info(
         "materialised a protected OGC API collection locally",
         pages=pages,
@@ -937,7 +946,12 @@ async def materialise_oapif_items(
         total: int | None = None
     else:
         total = number_matched if number_matched is not None else written
-    return MaterialisedCollection(path=path, features=written, total=total)
+    return MaterialisedCollection(
+        path=path,
+        features=written,
+        total=total,
+        stated_total=None if summed else number_matched,
+    )
 
 
 async def _recognise_once(
