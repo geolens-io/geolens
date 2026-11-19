@@ -362,6 +362,7 @@
     "datasetVisibilityBlockedByMaps": "These maps share the dataset with an audience that would lose it: {{maps}}. Remove the layer there, or narrow those maps first.",
     "datasetDeleteBlockedByMaps": "These maps share the dataset with an audience that would lose it if it were deleted: {{maps}}. Remove the layer there, or stop sharing those maps first.",
     "workflowTransitionDeniedNoneAllowed": "This dataset can't move from “{{from}}” to “{{to}}” under the publication workflow, and no other step is open to you. Ask a reviewer or an administrator with the required role.",
+    "publicationStatusChanged": "Someone else changed this dataset's publication status while your change was being saved. Reload the dataset and try again.",
     "workflowTransitionDenied": "This dataset can't move from “{{from}}” to “{{to}}” under the publication workflow. Steps open to you from here: {{allowed}}.",
     "analysisUnknownDissolveColumn": "The column “{{column}}” does not exist on this dataset. Pick a different group-by field.",
     "columnsNeedRefresh": "The table has columns GeoLens doesn't know yet: {{columns}}. Refresh the dataset, then try again.",

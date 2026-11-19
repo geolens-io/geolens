@@ -390,6 +390,23 @@ class WorkflowTransitionDenied(ValueError):
         }
 
 
+class PublicationStatusChanged(Exception):
+    """A status change refused because another one committed after it was planned.
+
+    Nothing was written, so a retry plans again from the committed status. The
+    API answers 409 with ``code`` on the problem and in ``detail``; see the
+    handler in ``app/api/main.py``.
+    """
+
+    code = "publication_status_changed"
+
+    def __init__(self) -> None:
+        super().__init__(
+            "The dataset's publication status changed while this request was "
+            "running. Reload the dataset and try again."
+        )
+
+
 class DatasetInSharedMapsError(ValueError):
     """A narrowing or delete refused because the owner's shared maps show it.
 

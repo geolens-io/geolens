@@ -205,6 +205,7 @@
     "datasetVisibilityBlockedByMaps": "Estos mapas comparten el conjunto de datos con un público que lo perdería: {{maps}}. Quita la capa allí o restringe primero esos mapas.",
     "datasetDeleteBlockedByMaps": "Estos mapas comparten el conjunto de datos con un público que lo perdería al eliminarlo: {{maps}}. Quita la capa allí o deja de compartir primero esos mapas.",
     "workflowTransitionDeniedNoneAllowed": "Este conjunto de datos no puede pasar de «{{from}}» a «{{to}}» con el flujo de publicación, y no tienes otro paso disponible. Pide ayuda a un revisor o administrador con el rol necesario.",
+    "publicationStatusChanged": "Otra persona cambió el estado de publicación de este conjunto de datos mientras se guardaba tu cambio. Vuelve a cargar el conjunto de datos e inténtalo de nuevo.",
     "workflowTransitionDenied": "Este conjunto de datos no puede pasar de «{{from}}» a «{{to}}» con el flujo de publicación. Pasos disponibles para ti desde aquí: {{allowed}}.",
     "analysisUnknownDissolveColumn": "La columna «{{column}}» no existe en este conjunto de datos. Elige otro campo de agrupación.",
     "columnsNeedRefresh": "Las columnas {{columns}} existen en la tabla, pero GeoLens aún no las conoce. Actualiza el conjunto de datos y vuelve a intentarlo.",

@@ -39,9 +39,10 @@ from app.modules.catalog.authorization import (
 )
 from app.modules.catalog.datasets.domain.helpers import (
     DatasetInSharedMapsError,
+    PublicationStatusChanged,
     WorkflowTransitionDenied,
 )
-from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel
+from app.modules.catalog.datasets.domain.models import Dataset as DatasetModel, Record
 from app.modules.catalog.datasets.domain.schemas import (
     DatasetRowsResponse,
     RelatedDatasetsResponse,
@@ -478,7 +479,9 @@ def _fill_quality_cache(dataset: DatasetModel, quality: dict) -> None:
     dataset.quality_detail = quality
 
 
-async def _roll_publication_version(db: AsyncSession, dataset: DatasetModel) -> None:
+async def _roll_publication_version(
+    db: AsyncSession, dataset: DatasetModel, planned_from: str
+) -> None:
     """Retire the tile signatures minted under the status being left.
 
     A signed tile template binds the dataset's ``publication_version``, so
@@ -486,26 +489,39 @@ async def _roll_publication_version(db: AsyncSession, dataset: DatasetModel) -> 
     reach the stateless tile path. Takes both catalog rows in house
     order first, since the roll makes the caller a two-row writer; call it
     immediately before the writes, with every workflow query already done.
+
+    Raises :class:`PublicationStatusChanged` before any write when the locked
+    record is no longer in ``planned_from``, the status the workflow plan and
+    its transition contexts were built from.
     """
     from app.modules.catalog.features.service import lock_catalog_rows_for_write
     from app.platform.catalog_locks import bump_publication_version_on
 
     await lock_catalog_rows_for_write(db, dataset)
+    locked_status = await db.scalar(
+        select(Record.record_status).where(Record.id == dataset.record_id)
+    )
+    if locked_status != planned_from:
+        raise PublicationStatusChanged()
     await bump_publication_version_on(db, dataset)
 
 
 async def _refuse_stranding(
-    db: AsyncSession, dataset: DatasetModel, target: str
+    db: AsyncSession, dataset: DatasetModel, target: str, planned_from: str
 ) -> None:
     """422 when moving to ``target`` strands one of the owner's shared maps.
 
     Asked holding the catalog rows, which a map write that widens the map
     waits on, so a map shared meanwhile is either seen here or waits.
+    Raises :class:`PublicationStatusChanged` first when the locked record is
+    no longer in ``planned_from``.
     """
     from app.modules.catalog.features.service import lock_catalog_rows_for_write
 
     await lock_catalog_rows_for_write(db, dataset)
     await db.refresh(dataset.record, ["visibility", "record_status", "created_by"])
+    if dataset.record.record_status != planned_from:
+        raise PublicationStatusChanged()
     try:
         await refuse_stranding_shared_maps(
             db, dataset.record, dataset.id, record_status=target
@@ -593,12 +609,12 @@ async def update_publication_status(
             detail=WorkflowTransitionDenied(current, target, allowed).detail,
         )
     await check_vrt_audiences_after_change(db, dataset, record_status=target)
-    await _refuse_stranding(db, dataset, target)
+    await _refuse_stranding(db, dataset, target, current)
 
     # The transition rolls the signed-scope counter, so this handler dirties the
     # datasets row too and must take both in house order: after the workflow
     # query, immediately before the writes.
-    await _roll_publication_version(db, dataset)
+    await _roll_publication_version(db, dataset, current)
     if target == "published" and current != "published":
         await _require_publishable(db, dataset)
         dataset.record.published_at = func.now()
@@ -701,10 +717,10 @@ async def set_target_status(
     enters_published = any(next_status == "published" for next_status, _ in chain)
 
     await check_vrt_audiences_after_change(db, dataset, record_status=target)
-    await _refuse_stranding(db, dataset, target)
+    await _refuse_stranding(db, dataset, target, current)
 
     # Once for the whole chain, immediately before its writes.
-    await _roll_publication_version(db, dataset)
+    await _roll_publication_version(db, dataset, current)
     if enters_published:
         await _require_publishable(db, dataset)
 
