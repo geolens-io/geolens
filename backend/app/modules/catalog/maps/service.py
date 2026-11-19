@@ -24,6 +24,7 @@ from app.modules.catalog.maps.service_group_gaps import (
     LayersHiddenFromGroupsError,
 )
 from app.modules.catalog.maps.service_groups import (
+    lock_layer_datasets,
     map_groups,
     map_group_layer_gaps,
     RestrictedWithoutGroupsError,
@@ -106,6 +107,7 @@ __all__ = [
     "apply_layer_diff",
     "remove_layer",
     "remove_layers_bulk",
+    "lock_layer_datasets",
     "lock_map_layers",
     "lock_maps_for_admin_write",
     "validate_public_visibility",
