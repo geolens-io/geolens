@@ -110,6 +110,13 @@
       "clipped_one": "{{count}} entidad se recortó en el límite",
       "clipped_other": "{{count}} entidades se recortaron en el límite"
     },
+    "zmDropped": {
+      "title": "No se conservaron los valores Z o M",
+      "description": "GeoLens no conservó los valores Z o M de estas entidades. X e Y no cambian. Ocurre cuando el origen mezcla geometrías con y sin Z o M, cuando contiene curvas cuyos valores Z o M no se conservan al convertirlas en líneas (M en curvas circulares y compuestas, Z y M en polígonos curvos) o cuando entidades con M cruzan el límite de latitud de Web Mercator de ±85,06°, lo que elimina su M. Para conservarlos, dé a todas las geometrías las mismas dimensiones, guarde esas curvas como líneas y recorte los datos con M a ese límite en el origen. El recuento se toma en el origen justo antes y después de la copia, por lo que puede incluir una fila escrita durante la importación.",
+      "features_one": "{{count}} entidad perdió sus valores Z o M",
+      "features_many": "{{count}} de entidades perdieron sus valores Z o M",
+      "features_other": "{{count}} entidades perdieron sus valores Z o M"
+    },
     "archiveFailed": {
       "title": "Error al archivar el archivo original",
       "description": "El conjunto de datos se importó correctamente, pero la copia del archivo fuente original al almacenamiento duradero falló. El conjunto de datos sigue siendo consultable; vuelva a subirlo si necesita restaurar el archivo original."

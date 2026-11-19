@@ -68,6 +68,15 @@ class DatabaseConnectError(DatabaseSourceError):
         )
 
 
+class DatabaseReadTimeoutError(DatabaseSourceError):
+    def __init__(self, connection: str, seconds: float) -> None:
+        super().__init__(
+            connection,
+            f"Reading from the database connection {connection!r} timed out "
+            f"after {int(seconds)}s.",
+        )
+
+
 class DatabaseTableError(DatabaseSourceError):
     def __init__(self, connection: str) -> None:
         super().__init__(
@@ -176,10 +185,14 @@ async def _kill_and_reap(proc: asyncio.subprocess.Process) -> None:
         await await_draining(asyncio.wait_for(proc.wait(), timeout=_REAP_WAIT_SECONDS))
 
 
-async def run_database_sql(name: str, sql: str) -> list[dict[str, object]]:
+async def run_database_sql(
+    name: str, sql: str, *, timeout: float | None = None
+) -> list[dict[str, object]]:
     """Run one GeoLens-built SELECT on connection ``name`` and return its rows.
 
-    Raises a ``DatabaseSourceError`` subclass whose message is safe to show.
+    ``timeout`` is for a read that scans a whole table; running out of it is a
+    ``DatabaseReadTimeoutError``, not a failed connect. Raises a ``DatabaseSourceError`` subclass whose message is safe
+    to show.
     """
     connection = get_database_connection(name)
     with freetds_workdir(connection) as workdir:
@@ -209,10 +222,12 @@ async def run_database_sql(name: str, sql: str) -> list[dict[str, object]]:
         )
         try:
             stdout, stderr = await asyncio.wait_for(
-                proc.communicate(), timeout=SUBPROCESS_TIMEOUT_SECONDS
+                proc.communicate(), timeout=timeout or SUBPROCESS_TIMEOUT_SECONDS
             )
         except asyncio.TimeoutError:
             logger.warning("database read timed out", connection=name)
+            if timeout is not None:
+                raise DatabaseReadTimeoutError(name, timeout) from None
             raise DatabaseConnectError(name) from None
         finally:
             if proc.returncode is None:
@@ -417,3 +432,73 @@ async def probe_table_geometry(
     return TableGeometry(
         column=column, srid=srid if isinstance(srid, int) and srid != 0 else None
     )
+
+
+@dataclass(frozen=True)
+class TableDimensions:
+    """How many of a spatial column's non-null values carry Z, M, or either.
+
+    ``lossy_curves`` counts curves whose Z or M GDAL drops when it linearizes
+    them: M on a circular or compound curve, Z or M on a curve polygon.
+    """
+
+    geometries: int
+    with_z: int
+    with_m: int
+    with_z_or_m: int
+    lossy_curves: int
+
+    def shared_dimension(self) -> Literal["XYZ", "XYM", "XYZM"] | None:
+        """The ``-dim`` the copy keeps on every value, else ``None`` for 2D."""
+        total = self.geometries
+        if total == 0 or self.lossy_curves:
+            return None
+        if self.with_z == total and self.with_m == total:
+            return "XYZM"
+        if self.with_z == total and self.with_m == 0:
+            return "XYZ"
+        if self.with_m == total and self.with_z == 0:
+            return "XYM"
+        return None
+
+
+_COUNTS = ("geometries", "with_z", "with_m", "with_z_or_m", "lossy_curves")
+
+
+def _table_dimensions_sql(schema_name: str, table_name: str, column: str) -> str:
+    # HasZ, HasM and STAsText answer on an invalid value; STGeometryType raises.
+    col = quote_identifier(column)
+    table = f"{quote_identifier(schema_name)}.{quote_identifier(table_name)}"
+    kind = (
+        f"CASE WHEN {col}.HasZ = 1 OR {col}.HasM = 1 THEN "
+        f"CASE WHEN {col}.STIsValid() = 1 THEN UPPER({col}.STGeometryType()) "
+        f"ELSE {col}.STAsText() END END"
+    )
+    return (
+        "SELECT COUNT_BIG(CASE WHEN g IS NOT NULL THEN 1 END) AS geometries, "
+        "COUNT_BIG(CASE WHEN z = 1 THEN 1 END) AS with_z, "
+        "COUNT_BIG(CASE WHEN m = 1 THEN 1 END) AS with_m, "
+        "COUNT_BIG(CASE WHEN z = 1 OR m = 1 THEN 1 END) AS with_z_or_m, "
+        "COUNT_BIG(CASE WHEN kind LIKE 'CURVEPOLYGON%' OR (m = 1 AND "
+        "(kind LIKE 'CIRCULARSTRING%' OR kind LIKE 'COMPOUNDCURVE%')) "
+        "THEN 1 END) AS lossy_curves "
+        f"FROM (SELECT {col} AS g, {col}.HasZ AS z, {col}.HasM AS m, "
+        f"{kind} AS kind FROM {table}) AS s"
+    )
+
+
+async def probe_table_dimensions(
+    name: str, schema_name: str, table_name: str, column: str, *, timeout: float
+) -> TableDimensions:
+    """Count the values of ``column`` that carry Z and M on connection ``name``.
+
+    The count reads every value, so ``timeout`` is sized like a copy's.
+    """
+    rows = await run_database_sql(
+        name, _table_dimensions_sql(schema_name, table_name, column), timeout=timeout
+    )
+    row = rows[0] if rows else {}
+    counts = {key: row.get(key) for key in _COUNTS}
+    if not all(isinstance(value, int) for value in counts.values()):
+        raise DatabaseTableError(name)
+    return TableDimensions(**counts)

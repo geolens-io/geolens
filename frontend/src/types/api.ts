@@ -173,10 +173,13 @@ type IngestDbfTruncationWarning = components['schemas']['DbfTruncationCollisionW
 
 type IngestMercatorClipWarning = components['schemas']['MercatorClipWarning'];
 
+type IngestZmDroppedWarning = components['schemas']['ZmDroppedWarning'];
+
 export type IngestJobWarning =
   | IngestReservedRenameWarning
   | IngestDbfTruncationWarning
-  | IngestMercatorClipWarning;
+  | IngestMercatorClipWarning
+  | IngestZmDroppedWarning;
 
 // The API declares these as plain strings or open dicts; the frontend narrows them to the shapes it reads.
 /** @public Mirrored by the backend drift checker (backend/scripts/check_fe_type_drift.py). */

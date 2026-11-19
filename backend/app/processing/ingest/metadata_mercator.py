@@ -27,6 +27,10 @@ if TYPE_CHECKING:
 logger = structlog.stdlib.get_logger(__name__)
 
 
+class MeasuredLayerCrossesMercator(ValueError):
+    """A measured feature crosses the envelope, so the clip would lose its M."""
+
+
 # Web Mercator (EPSG:3857) can't represent latitudes beyond ±85.06°;
 # geometries past this (e.g. Antarctica at -90°) cause a ST_Transform
 # tolerance error.
@@ -299,7 +303,7 @@ async def clip_to_mercator_bounds(
             noun, verb = (
                 ("feature", "extends") if crossing == 1 else ("features", "extend")
             )
-            raise ValueError(
+            raise MeasuredLayerCrossesMercator(
                 f"{crossing} {noun} in this measured (M) layer {verb} past Web "
                 "Mercator's latitude limit (±85.06°), and clipping would lose the "
                 "measure values. Trim the data to that limit, then import again."

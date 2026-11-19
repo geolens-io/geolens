@@ -27,6 +27,7 @@ if TYPE_CHECKING:
     from ..models.job_refresh_run_summary import JobRefreshRunSummary
     from ..models.mercator_clip_warning import MercatorClipWarning
     from ..models.reserved_rename_warning import ReservedRenameWarning
+    from ..models.zm_dropped_warning import ZmDroppedWarning
 
 
 T = TypeVar("T", bound="JobStatusBatchEntry")
@@ -43,7 +44,8 @@ class JobStatusBatchEntry:
         progress (float | None | Unset):
         current_step (JobStatusBatchEntryCurrentStepType0 | None | Unset):
         error_code (None | str | Unset):
-        warnings (list[DbfTruncationCollisionWarning | MercatorClipWarning | ReservedRenameWarning] | Unset):
+        warnings (list[DbfTruncationCollisionWarning | MercatorClipWarning | ReservedRenameWarning | ZmDroppedWarning] |
+            Unset):
         can_retry (bool | Unset):  Default: False.
         refresh_run (JobRefreshRunSummary | None | Unset): The refresh run bound to a reupload or manifest update job.
     """
@@ -56,7 +58,10 @@ class JobStatusBatchEntry:
     error_code: None | str | Unset = UNSET
     warnings: (
         list[
-            DbfTruncationCollisionWarning | MercatorClipWarning | ReservedRenameWarning
+            DbfTruncationCollisionWarning
+            | MercatorClipWarning
+            | ReservedRenameWarning
+            | ZmDroppedWarning
         ]
         | Unset
     ) = UNSET
@@ -69,6 +74,7 @@ class JobStatusBatchEntry:
             DbfTruncationCollisionWarning,
         )
         from ..models.job_refresh_run_summary import JobRefreshRunSummary
+        from ..models.mercator_clip_warning import MercatorClipWarning
         from ..models.reserved_rename_warning import ReservedRenameWarning
 
         id = str(self.id)
@@ -115,6 +121,8 @@ class JobStatusBatchEntry:
                 if isinstance(warnings_item_data, ReservedRenameWarning):
                     warnings_item = warnings_item_data.to_dict()
                 elif isinstance(warnings_item_data, DbfTruncationCollisionWarning):
+                    warnings_item = warnings_item_data.to_dict()
+                elif isinstance(warnings_item_data, MercatorClipWarning):
                     warnings_item = warnings_item_data.to_dict()
                 else:
                     warnings_item = warnings_item_data.to_dict()
@@ -164,6 +172,7 @@ class JobStatusBatchEntry:
         from ..models.job_refresh_run_summary import JobRefreshRunSummary
         from ..models.mercator_clip_warning import MercatorClipWarning
         from ..models.reserved_rename_warning import ReservedRenameWarning
+        from ..models.zm_dropped_warning import ZmDroppedWarning
 
         d = dict(src_dict)
         id = UUID(d.pop("id"))
@@ -250,6 +259,7 @@ class JobStatusBatchEntry:
                 DbfTruncationCollisionWarning
                 | MercatorClipWarning
                 | ReservedRenameWarning
+                | ZmDroppedWarning
             ]
             | Unset
         ) = UNSET
@@ -263,6 +273,7 @@ class JobStatusBatchEntry:
                     DbfTruncationCollisionWarning
                     | MercatorClipWarning
                     | ReservedRenameWarning
+                    | ZmDroppedWarning
                 ):
                     try:
                         if not isinstance(data, dict):
@@ -282,11 +293,19 @@ class JobStatusBatchEntry:
                         return warnings_item_type_1
                     except (TypeError, ValueError, AttributeError, KeyError):
                         pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        warnings_item_type_2 = MercatorClipWarning.from_dict(data)
+
+                        return warnings_item_type_2
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
                     if not isinstance(data, dict):
                         raise TypeError()
-                    warnings_item_type_2 = MercatorClipWarning.from_dict(data)
+                    warnings_item_type_3 = ZmDroppedWarning.from_dict(data)
 
-                    return warnings_item_type_2
+                    return warnings_item_type_3
 
                 warnings_item = _parse_warnings_item(warnings_item_data)
 

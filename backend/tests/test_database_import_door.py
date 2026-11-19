@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import secrets
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -20,6 +21,7 @@ from app.platform.database_sources import (
     TableGeometry,
     SpatialTable,
     SpatialTableListing,
+    TableDimensions,
 )
 from app.platform.dataset_origin import KEEP, SourceBinding, restamp
 from app.platform.jobs.models import IngestJob
@@ -335,6 +337,18 @@ async def test_retry_of_a_failed_import_routes_to_the_database_task(
     assert deferred.await_args.kwargs["job_id"] == str(job.id)
 
 
+_FLAT = TableDimensions(geometries=3, with_z=0, with_m=0, with_z_or_m=0, lossy_curves=0)
+_ALL_Z = TableDimensions(
+    geometries=3, with_z=3, with_m=0, with_z_or_m=3, lossy_curves=0
+)
+_ONE_Z = TableDimensions(
+    geometries=3, with_z=1, with_m=0, with_z_or_m=1, lossy_curves=0
+)
+_Z_ARCS = TableDimensions(
+    geometries=3, with_z=3, with_m=3, with_z_or_m=3, lossy_curves=1
+)
+
+
 class _Proc:
     def __init__(self, stderr: bytes = b"", returncode: int = 0):
         self._stderr = stderr
@@ -358,13 +372,18 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
         return _Proc()
 
     monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
+    monkeypatch.setattr(
+        database_import, "probe_table_dimensions", AsyncMock(return_value=_FLAT)
+    )
     narrow = AsyncMock()
     monkeypatch.setattr(database_import, "_store_single_points_as_point", narrow)
+    monkeypatch.setattr(database_import, "_grant_reader", AsyncMock())
 
     await database_import.copy_database_table(
         "gis",
         schema_name="dbo",
         table_name="parcels",
+        column="shape",
         target_schema="data",
         target_table="parcels_copy",
         srid=2263,
@@ -372,6 +391,7 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
 
     narrow.assert_awaited_once_with("data", "parcels_copy")
     [(argv, kwargs)] = spawned
+    assert "-dim" not in argv
     assert argv[:3] == ("ogr2ogr", "-if", "MSSQLSpatial")
     assert argv[-1] == "dbo.parcels"
     assert "EPSG:2263" in argv
@@ -385,6 +405,131 @@ async def test_copy_names_the_table_as_a_layer_and_keeps_the_login_off_argv(
     assert env["MSSQLSPATIAL_PWD"] == PASSWORD
     assert env["CPL_DEBUG"] == "OFF"
     assert "MSSQLSpatial" not in env["GDAL_SKIP"].split()
+
+
+@pytest.mark.parametrize(
+    ("before", "after", "dim", "flattened", "dropped"),
+    [
+        (_ALL_Z, _ALL_Z, "XYZ", False, 0),
+        (_ALL_Z, _ONE_Z, "XYZ", True, 3),
+        (_ONE_Z, _ALL_Z, None, False, 3),
+        (_FLAT, _FLAT, None, False, 0),
+        (_ALL_Z, _FLAT, "XYZ", True, 3),
+        (_Z_ARCS, _Z_ARCS, None, False, 3),
+    ],
+    ids=["kept", "mixed-after", "mixed-before", "flat", "cleared-after", "arcs-with-m"],
+)
+async def test_copy_keeps_z_only_when_both_counts_agree(
+    monkeypatch, before, after, dim, flattened, dropped
+):
+    monkeypatch.setattr(settings, "database_sources", {"gis": _connection()})
+    spawned: list[tuple] = []
+
+    async def _spawn(*argv, **kwargs):
+        spawned.append(argv)
+        return _Proc()
+
+    monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
+    monkeypatch.setattr(
+        database_import,
+        "probe_table_dimensions",
+        AsyncMock(side_effect=[before, after]),
+    )
+    flatten = AsyncMock()
+    monkeypatch.setattr(database_import, "_store_2d", flatten)
+    monkeypatch.setattr(database_import, "_store_single_points_as_point", AsyncMock())
+    monkeypatch.setattr(database_import, "_grant_reader", AsyncMock())
+
+    lost = await database_import.copy_database_table(
+        "gis",
+        schema_name="dbo",
+        table_name="parcels",
+        column="shape",
+        target_schema="data",
+        target_table="parcels_copy",
+        srid=2263,
+    )
+
+    [argv] = spawned
+    assert (argv[argv.index("-dim") + 1] if "-dim" in argv else None) == dim
+    assert flatten.await_count == int(flattened)
+    assert lost == dropped
+
+
+async def test_the_dimension_counts_get_the_copys_budget_and_metadata_the_short_one(
+    monkeypatch,
+):
+    from app.platform import database_sources
+    from app.processing.ingest.ogr import OGR2OGR_FILE_TIMEOUT_SECONDS
+
+    monkeypatch.setattr(settings, "database_sources", {"gis": _connection()})
+    reads = AsyncMock(
+        return_value=[
+            {
+                "column_name": "shape",
+                "srid": 2263,
+                "geometries": 1,
+                "with_z": 0,
+                "with_m": 0,
+                "with_z_or_m": 0,
+                "lossy_curves": 0,
+            }
+        ]
+    )
+    monkeypatch.setattr(database_sources, "run_database_sql", reads)
+    monkeypatch.setattr(
+        database_import.asyncio,
+        "create_subprocess_exec",
+        AsyncMock(return_value=_Proc()),
+    )
+    monkeypatch.setattr(database_import, "_store_single_points_as_point", AsyncMock())
+    monkeypatch.setattr(database_import, "_grant_reader", AsyncMock())
+
+    await database_sources.probe_table_geometry("gis", "dbo", "parcels")
+    metadata_reads = reads.await_count
+    await database_import.copy_database_table(
+        "gis",
+        schema_name="dbo",
+        table_name="parcels",
+        column="shape",
+        target_schema="data",
+        target_table="parcels_copy",
+        srid=2263,
+    )
+
+    timeouts = [call.kwargs.get("timeout") for call in reads.await_args_list]
+    assert timeouts[:metadata_reads] == [None] * metadata_reads
+    assert timeouts[metadata_reads:] == [OGR2OGR_FILE_TIMEOUT_SECONDS] * 2
+
+
+async def test_a_long_read_that_runs_out_of_time_is_not_a_failed_connect(
+    monkeypatch,
+):
+    from app.platform import database_sources
+
+    monkeypatch.setattr(settings, "database_sources", {"gis": _connection()})
+
+    class _Slow(_Proc):
+        async def communicate(self):
+            await asyncio.sleep(1)
+
+        def kill(self):
+            self.returncode = -9
+
+        async def wait(self):
+            return -9
+
+    monkeypatch.setattr(
+        database_sources.asyncio,
+        "create_subprocess_exec",
+        AsyncMock(return_value=_Slow()),
+    )
+    monkeypatch.setattr(database_sources, "SUBPROCESS_TIMEOUT_SECONDS", 0.01)
+
+    with pytest.raises(database_sources.DatabaseReadTimeoutError, match="'gis'"):
+        await database_sources.run_database_sql("gis", "SELECT 1", timeout=0.05)
+    with pytest.raises(DatabaseConnectError):
+        await database_sources.run_database_sql("gis", "SELECT 1")
 
 
 async def _staged_copy(session, values: list[str | None]) -> str:
@@ -526,12 +671,16 @@ async def test_copy_failures_name_only_the_connection(monkeypatch, stderr, messa
         return _Proc(stderr=(leak + stderr).encode(), returncode=1)
 
     monkeypatch.setattr(database_import.asyncio, "create_subprocess_exec", _spawn)
+    monkeypatch.setattr(
+        database_import, "probe_table_dimensions", AsyncMock(return_value=_FLAT)
+    )
 
     with pytest.raises(database_import.DatabaseImportError) as raised:
         await database_import.copy_database_table(
             "gis",
             schema_name="dbo",
             table_name="parcels",
+            column="shape",
             target_schema="data",
             target_table="parcels_copy",
             srid=2263,
@@ -551,6 +700,7 @@ async def test_copy_refuses_a_stored_name_gdal_could_misread(
             "gis",
             schema_name=schema,
             table_name=table,
+            column="shape",
             target_schema="data",
             target_table="t",
             srid=4326,
@@ -596,6 +746,9 @@ async def test_a_multi_word_postgis_password_never_reaches_the_log_or_the_job(
         "probe_table_geometry",
         AsyncMock(return_value=TableGeometry(column="shape", srid=2263)),
     )
+    monkeypatch.setattr(
+        database_import, "probe_table_dimensions", AsyncMock(return_value=_FLAT)
+    )
     resp = await client.post(
         URL,
         json={"schema_name": "dbo", "table_name": "parcels"},
@@ -612,3 +765,36 @@ async def test_a_multi_word_postgis_password_never_reaches_the_log_or_the_job(
     assert any(log["event"] == "database import failed" for log in logs)
     for text in (repr(logs), str(raised.value), job.error_message or ""):
         assert tail not in text
+
+
+async def test_the_mercator_probe_leaves_the_copy_as_it_found_it(test_db_session):
+    """Staging renames a reserved source column and reports it, so the probe
+    must not rename it first."""
+    table = await _staged_copy(
+        test_db_session, ["SRID=4326;LINESTRING M (0 84 10, 0 86 20)"]
+    )
+    try:
+        await test_db_session.execute(
+            sql(
+                f'ALTER TABLE data."{table}" ADD COLUMN fid integer, '
+                "ALTER COLUMN _geolens_geom TYPE geometry(LineStringM, 4326)"
+            )
+        )
+        await test_db_session.commit()
+
+        assert await database_import._mercator_refuses_m("data", table)
+
+        columns = await test_db_session.scalars(
+            sql(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_schema = 'data' AND table_name = :t "
+                "ORDER BY ordinal_position"
+            ),
+            {"t": table},
+        )
+        assert list(columns) == ["gid", "_geolens_geom", "fid"]
+        await test_db_session.commit()
+    finally:
+        await test_db_session.rollback()
+        await test_db_session.execute(sql(f'DROP TABLE data."{table}"'))
+        await test_db_session.commit()
