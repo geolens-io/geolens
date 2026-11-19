@@ -7,6 +7,15 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.33.0] - 2026-11-19
+
+1.33.0 adds no migrations, so instances still on 1.32.0 keep serving through a
+rolling upgrade. `EXTENSION_API_VERSION` stays 23. Upgrade the Python SDK to
+1.33 before reading job status with it: the 1.32 SDK raises on the new
+`zm_dropped` warning kind. The startup refusals for the published default
+database password and a weak tile signing secret, which 1.32.0 announced for
+this release, come with the first release on or after 2027-02-10 instead.
+
 ### Added
 - Vector datasets export as KML and KMZ (`format=kml`, `format=kmz`), written by GDAL's LIBKML driver with attributes in `ExtendedData`. The output is always EPSG:4326 and a dataset stored in another CRS is reprojected; a `target_crs` other than `EPSG:4326` is refused with 400, as for GeoParquet. Map styling is not exported. Only columns named `name` and `description` become the placemark name and description; every other column, including ones named like KML elements such as `visibility` or `timestamp`, is written as an attribute, and array columns are written as text such as `(3:1,2,3)`. KML and KMZ also appear as download distributions on new datasets, and on existing ones after their next re-upload or refresh, and the export enum in the API and SDKs gains `kml` and `kmz`.
 - The dataset page's Source tab has a Regenerate button on VRT mosaics and band stacks for owners and admins. It rebuilds the VRT and is disabled while a rebuild is running.
@@ -29,6 +38,7 @@ and releases use semantic versioning.
   total for the whole collection.
 - The CLI installs with typer 0.25 through 0.29. A bare `--token` on
   `geolens refresh` still prompts for the token.
+- The bundled Titiler image moves from 2.4.0 to 2.4.1.
 - REST contract: `MapLayerInput.sort_order` no longer defaults to 0 in the
   OpenAPI schema; it is optional and nullable. A layer sent without it is added
   after the map's other layers on `POST /maps/{id}/layers` and in `added` on
@@ -53,6 +63,7 @@ and releases use semantic versioning.
 - A map made public or internal, shared with a group, transferred or given an embed token while one of its datasets is being deleted, narrowed or unpublished now waits for that change and then runs its usual layer checks. If the map write goes first, the dataset change waits for it and then runs its own check against the map as shared, refusing with `dataset_in_shared_maps` when that check applies. Both writes used to succeed and could leave a shared map without its layer, or a new embed token scoped to a deleted dataset. The publication-status endpoints now make that refusal while holding the dataset's rows.
 - A WFS import from a server other than ArcGIS is now checked against the total the server states for the layer (`resultType=hits`) and fails with `wfs_short` when it staged fewer features, so a server-side cap no longer passes for the whole layer. The total is read in the WFS version the capabilities negotiate, as GDAL reads it, under the type name the server advertises. Staging more than the total passes, since some servers state their cap rather than the layer size while GDAL pages past it, and a server that states no total is imported unchecked as before. A URL that narrows the import with `STARTINDEX`, `COUNT` or `MAXFEATURES` is imported unchecked too, except a WFS 1.x URL with only `MAXFEATURES`, whose limit caps the expected count. ArcGIS WFS imports keep their exact-count check.
 - Deleting a dataset is now also refused while one of its owner's maps shows it and holds an active embed token, even when the map and the dataset are private: the embed would lose the layer. A revoked or expired token doesn't block, and narrowing or unpublishing a dataset an embed token serves is still allowed.
+- A service import that fails because the server sent malformed XML or GML is no longer reported as an authentication failure. The check for a refused credential matched the XML parser's own wording, `not well-formed (invalid token)`. The job now shows the plain failure reason, and a service that answers "Invalid token" or "invalid credentials" is still reported as an authentication failure.
 - `geolens arcgis migrate` no longer overwrites a dataset title you changed in GeoLens when it reruns an item that stopped before its handover, whether a later step failed, a sibling layer failed or the import was interrupted, for service and file items. Later refreshes keep that title too, and the run notes each title it keeps. The state file records the title each import gave its dataset; where it has no record, from an older CLI or because the title held a credential, a title that differs from the plan's is kept. Visibility still follows the plan.
 - `PATCH /datasets/{id}/status/` and `/target-status/` now answer 409 with `code` `publication_status_changed` when another status change commits after the request has checked its transition and before it writes. Nothing is written and the workflow's `on_transition` is not called; retrying plans from the new status. Such a request used to apply its transition from the old status, which could skip a step the workflow requires and tell `on_transition` the wrong starting status.
 
@@ -7580,7 +7591,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.32.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.33.0...HEAD
+[1.33.0]: https://github.com/geolens-io/geolens/compare/v1.32.0...v1.33.0
 [1.32.0]: https://github.com/geolens-io/geolens/compare/v1.31.0...v1.32.0
 [1.31.0]: https://github.com/geolens-io/geolens/compare/v1.30.1...v1.31.0
 [1.30.1]: https://github.com/geolens-io/geolens/compare/v1.30.0...v1.30.1

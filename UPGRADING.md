@@ -136,6 +136,19 @@ recovers on reload. After a rollback to 1.31 the same happens for up to 16
 minutes, until the URLs signed by 1.32 expire. Single-instance installs are not
 affected.
 
+1.33 has no migrations. Upgrade the Python SDK to 1.33 before you read job
+status with it: a SQL Server import or refresh can now report a `zm_dropped`
+warning, and the 1.32 SDK raises on a warning kind it doesn't know. A SQL
+Server dataset imported earlier gains its Z and M values, and a point table
+its `Point` type, at its next refresh, which publishes without a review. A
+remote COG with a colour table imported before 1.33 keeps its stretched
+rendering; delete it and import it again to draw it from the table. The new
+import is a new dataset, so add it back to the maps that showed the old one:
+the delete is refused while one of your own shared maps shows it, and it
+removes the layer from other users' maps. An
+existing DEM mosaic keeps nearest-neighbour resampling until you run
+**Regenerate** on its Source tab.
+
 ## Change the published default database password
 
 Earlier `.env.example` files set `POSTGRES_PASSWORD=geolens`. An install whose
