@@ -142,7 +142,10 @@ warning, and the 1.32 SDK raises on a warning kind it doesn't know. A SQL
 Server dataset imported earlier gains its Z and M values, and a point table
 its `Point` type, at its next refresh, which publishes without a review. A
 remote COG with a colour table imported before 1.33 keeps its stretched
-rendering; delete it and import it again to draw it from the table. An
+rendering; delete it and import it again to draw it from the table. The new
+import is a new dataset, so add it back to the maps that showed the old one:
+the delete is refused while one of your own shared maps shows it, and it
+removes the layer from other users' maps. An
 existing DEM mosaic keeps nearest-neighbour resampling until you run
 **Regenerate** on its Source tab.
 
