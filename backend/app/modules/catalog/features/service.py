@@ -955,21 +955,21 @@ async def _geom_column_is_measured(session: AsyncSession, table_name: str) -> bo
 
 async def _geom_4326_is_generated(session: AsyncSession, table_name: str) -> bool:
     """True when the table's geom_4326 is a stored generated column.
-    
-        Registration creates it that way, so it re-derives itself from geom
-            and rejects a direct write; feature edits must write geom only and
-                let the column follow. A plain column still takes the write pair.
-                    """
-        from app.core.db.tenant_schema import tenant_data_schema
+
+    Registration creates it that way, so it re-derives itself from geom
+    and rejects a direct write; feature edits must write geom only and
+    let the column follow. A plain column still takes the write pair.
+    """
+    from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
 
     schema = tenant_data_schema(current_tenant_var.get())
     result = await session.execute(
-                text(
-                                "SELECT is_generated FROM information_schema.columns "
-                                "WHERE table_schema =:schema AND table_name =:t "
-                                "AND column_name = 'geom_4326'"
-                ).bindparams(schema=schema, t=table_name)
+        text(
+            "SELECT is_generated FROM information_schema.columns "
+            "WHERE table_schema = :schema AND table_name = :t "
+            "AND column_name = 'geom_4326'"
+        ).bindparams(schema=schema, t=table_name)
     )
     return result.scalar_one_or_none() == "ALWAYS"
 
@@ -1246,7 +1246,7 @@ async def insert_features(
     """
     if await _geom_column_is_measured(db, table_name):
         raise ValueError(_MEASURED_LAYER_EDIT_ERROR)
-        generated_4326 = await _geom_4326_is_generated(db, table_name)
+    generated_4326 = await _geom_4326_is_generated(db, table_name)
     gids: list[int] = []
     for index, (geometry, properties) in enumerate(features):
         try:
@@ -1288,11 +1288,11 @@ async def _insert_row(
     geom_expr, geom_4326_expr = _geom_write_exprs(dataset_geometry_type, dataset_srid)
     cols = ["geom"]
     vals = [geom_expr]
-if not generated_4326:
-    # A stored generated geom_4326 derives itself from geom and
-    # rejects a direct write; naming it here would fail the insert.
-    cols.append("geom_4326")
-vals.append(geom_4326_expr)
+    if not generated_4326:
+        # A stored generated geom_4326 derives itself from geom and
+        # rejects a direct write; naming it here would fail the insert.
+        cols.append("geom_4326")
+        vals.append(geom_4326_expr)
     params: dict = {"geojson": geojson_str}
 
     if properties:
@@ -1340,10 +1340,10 @@ async def replace_feature(
     geom_expr, geom_4326_expr = _geom_write_exprs(dataset_geometry_type, dataset_srid)
 
     sets = [f"geom = {geom_expr}"]
-if not await _geom_4326_is_generated(db, table_name):
-    # A stored generated geom_4326 derives itself from geom and
-    # rejects a direct write; naming it here would fail the update.
-    sets.append(f"geom_4326 = {geom_4326_expr}")
+    if not await _geom_4326_is_generated(db, table_name):
+        # A stored generated geom_4326 derives itself from geom and
+        # rejects a direct write; naming it here would fail the update.
+        sets.append(f"geom_4326 = {geom_4326_expr}")
     params: dict = {"geojson": geojson_str, "gid": gid}
 
     allowed = {c["name"] for c in column_info}

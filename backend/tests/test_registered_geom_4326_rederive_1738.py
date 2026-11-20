@@ -115,13 +115,13 @@ async def _create_source_table(session, table_name: str, *, lon: float, lat: flo
         ),
         {"lon": lon, "lat": lat},
     )
-  await session.execute(
-    text(
-      f'ALTER TABLE data."{table_name}" '
-      f"ADD COLUMN geom_4326 geometry(Geometry, 4326)"
+    await session.execute(
+        text(
+            f'ALTER TABLE data."{table_name}" '
+            f"ADD COLUMN geom_4326 geometry(Geometry, 4326)"
+        )
     )
-  )
-await session.execute(text(f'UPDATE data."{table_name}" SET geom_4326 = geom'))
+    await session.execute(text(f'UPDATE data."{table_name}" SET geom_4326 = geom'))
     await session.commit()
 
 
@@ -474,10 +474,10 @@ async def test_a_refresh_that_finds_no_drift_rewrites_no_rows(
         await test_db_session.commit()
 
         # The column was filled with the same expression registration
-      # writes, so even the FIRST repair has nothing to do to the rows.
-      # The index is the exception: the column pre-existed, so
-      # registration never created it (it only creates the index
-      # alongside a column it adds), and this first repair restores it.
+        # writes, so even the FIRST repair has nothing to do to the rows.
+        # The index is the exception: the column pre-existed, so
+        # registration never created it (it only creates the index
+        # alongside a column it adds), and this first repair restores it.
         first = await tasks_postgis_refresh._repair_geom_4326(
             dataset.id, Dataset, schema="data", role="geolens_reader"
         )

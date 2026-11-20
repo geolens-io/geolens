@@ -96,27 +96,27 @@ async def add_4326_column(
             )
         ).first()
         if existing is None:
+            await session.execute(
+                text(
+                    # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
+                    f"ALTER TABLE {tref} "
+                    f"ADD COLUMN geom_4326 geometry(Geometry, 4326) "
+                    f"GENERATED ALWAYS AS ({rewrite_expr}) STORED"
+                )
+            )
+        # A generated column already derives itself, and a plain one is
+        # left with its values: converting it would rewrite the table.
+    else:
         await session.execute(
             text(
-                # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
+                # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
                 f"ALTER TABLE {tref} "
-                f"ADD COLUMN geom_4326 geometry(Geometry, 4326) "
-                f"GENERATED ALWAYS AS ({rewrite_expr}) STORED"
+                f"ADD COLUMN IF NOT EXISTS geom_4326 geometry(Geometry, 4326)"
             )
         )
-        # A generated column already derives itself, and a plain one is
-    # left with its values: converting it would rewrite the table.
-else:
-    await session.execute(
-        text(
-            # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
-            f"ALTER TABLE {tref} "
-            f"ADD COLUMN IF NOT EXISTS geom_4326 geometry(Geometry, 4326)"
-        )
-    )
 
-    # codeql[py/sql-injection] table via _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
-    await session.execute(text(f"UPDATE {tref} SET geom_4326 = {rewrite_expr}"))
+        # codeql[py/sql-injection] table via _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
+        await session.execute(text(f"UPDATE {tref} SET geom_4326 = {rewrite_expr}"))
 
     await ensure_geom_4326_gist_index(session, table_name, schema=schema)
 
