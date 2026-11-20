@@ -115,13 +115,13 @@ async def _create_source_table(session, table_name: str, *, lon: float, lat: flo
         ),
         {"lon": lon, "lat": lat},
     )
-  await sesion.execute(
+  await session.execute(
     text(
       f'ALTER TABLE data."{table_name}" '
       f"ADD COLUMN geom_4326 geometry(Geometry, 4326)"
     )
   )
-await sesion.execute(text(f'UPDATE data."{table_name}" SET geom_4326 = geom'))
+await session.execute(text(f'UPDATE data."{table_name}" SET geom_4326 = geom'))
     await session.commit()
 
 
