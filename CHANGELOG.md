@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+- Registering an existing table no longer rewrites every row to fill `geom_4326`. Registration adds it as a stored generated column with the same expression the fill used, so PostgreSQL derives it as rows are written: one table rewrite with no dead tuples, and later writes made outside GeoLens stay visible without a refresh. Feature edits on a registered table write `geom` only and let the column derive itself. Tables that already carry a plain `geom_4326` keep it unchanged.
+
 ## [1.33.0] - 2026-11-19
 
 1.33.0 adds no migrations, so instances still on 1.32.0 keep serving through a
