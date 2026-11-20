@@ -1,8 +1,11 @@
 """Out-of-band writes to a registered table have to become visible.
 
 Registering an existing table copies no data: the catalog points at the live
-relation and every read is served from it. ``geom_4326`` is the exception —
-it is a plain column that ``register_existing_table`` populates ONCE, and
+relation and every read is served from it. ``geom_4326`` is the exception on
+a table whose render column is plain: it was populated ONCE at registration
+(registration now creates a stored generated column instead, which
+re-derives itself; the tables staged here carry a plain column, as a table
+registered before that change or a column its owner wrote would), and
 nothing re-derives it afterwards. So the owner's own writes, which are the
 entire reason to register a table rather than upload one, land in ``geom``
 and are never rendered:
@@ -85,10 +88,16 @@ def _tile_xy(lon: float, lat: float, z: int) -> tuple[int, int]:
 
 
 async def _create_source_table(session, table_name: str, *, lon: float, lat: float):
-    """A table exactly as an owner would leave it: `geom`, and no `geom_4326`.
+    """A table exactly as an owner would leave it: `geom`, and a plain `geom_4326`.
 
-    This is what registration is handed. The render column, its index and the
-    reader grant are all things GeoLens adds on the way in.
+    The plain render column is the shape this suite's repair path serves.
+    Registration now creates a stored generated column instead, so a table
+    handed to registration without one no longer produces a plain column
+    for the repair to re-derive. Tables registered before that change, and
+    columns an owner wrote themselves, stay plain, and the repair still
+    re-derives those. The generated registration path is covered by
+    ``test_register_generated_geom_4326_3533``. The index and the reader
+    grant are still things GeoLens adds on the way in.
     """
     await session.execute(
         text(
@@ -106,6 +115,13 @@ async def _create_source_table(session, table_name: str, *, lon: float, lat: flo
         ),
         {"lon": lon, "lat": lat},
     )
+  await sesion.execute(
+    text(
+      f'ALTER TABLE data."{table_name}" '
+      f"ADD COLUMN geom_4326 geometry(Geometry, 4326)"
+    )
+  )
+await sesion.execute(text(f'UPDATE data."{table_name}" SET geom_4326 = geom'))
     await session.commit()
 
 
@@ -457,8 +473,11 @@ async def test_a_refresh_that_finds_no_drift_rewrites_no_rows(
         dataset = await _register(test_db_session, table_name, admin_id)
         await test_db_session.commit()
 
-        # Registration has just written the column with the same expression,
-        # so even the FIRST repair has nothing to do.
+        # The column was filled with the same expression registration
+      # writes, so even the FIRST repair has nothing to do to the rows.
+      # The index is the exception: the column pre-existed, so
+      # registration never created it (it only creates the index
+      # alongside a column it adds), and this first repair restores it.
         first = await tasks_postgis_refresh._repair_geom_4326(
             dataset.id, Dataset, schema="data", role="geolens_reader"
         )
@@ -466,7 +485,7 @@ async def test_a_refresh_that_finds_no_drift_rewrites_no_rows(
         assert (first.rows_rewritten, first.column_added, first.index_added) == (
             0,
             False,
-            False,
+            True,
         )
 
         await _refresh(test_db_session, client, admin_auth_header, dataset.id)
