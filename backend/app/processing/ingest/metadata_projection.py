@@ -94,7 +94,7 @@ async def add_4326_column(
                     "  AND column_name = 'geom_4326'"
                 ).bindparams(schema=schema, table=table_name)
             )
-        ).first()            
+        ).first()
         if existing is None:
         await session.execute(
             text(
@@ -204,16 +204,16 @@ async def rederive_geom_4326(
 ) -> Geom4326Repair:
     """Re-apply the geom_4326 invariant to a table written to outside GeoLens.
 
-     On a table whose ``geom_4326`` is a plain column, it was populated
-      once at registration and afterwards only by GeoLens's own feature-edit
-       writes. Registration now creates a stored generated column instead,
-        which re-derives itself on every write, so this function skips those
-         (see ``REPAIR_GENERATED``). A registered table's owner keeps writing
-          to it directly, and nothing re-derives the plain column for those
-           writes: an ``UPDATE geom``, a ``DELETE``+re-``INSERT``, or
-            ``ogr2ogr -overwrite`` (which drops and recreates the table without
-             the column, index, or reader grant) leaves rows whose render geometry
-              is stale or NULL. Every reader filters on
+    On a table whose ``geom_4326`` is a plain column, it was populated
+    once at registration and afterwards only by GeoLens's own feature-edit
+    writes. Registration now creates a stored generated column instead,
+    which re-derives itself on every write, so this function skips those
+    (see ``REPAIR_GENERATED``). A registered table's owner keeps writing
+    to it directly, and nothing re-derives the plain column for those
+    writes: an ``UPDATE geom``, a ``DELETE``+re-``INSERT``, or
+    ``ogr2ogr -overwrite`` (which drops and recreates the table without
+    the column, index, or reader grant) leaves rows whose render geometry
+    is stale or NULL. Every reader filters on
     ``geom_4326 && <envelope>``, and ``NULL && anything`` is NULL, so
     those rows go silently invisible rather than visibly wrong.
 
