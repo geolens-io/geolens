@@ -79,6 +79,7 @@ async def add_4326_column(
     feature-edit writes expect to update directly.
     """
     tref = _qtable(table_name, schema=schema)
+
     # The expression, and why it linearizes before it reprojects, live on
     # _geom_4326_expr: the repair path writes the same column and must write
     # it the same way.
