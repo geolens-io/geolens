@@ -945,10 +945,17 @@ async def register_existing_table(
             srid = await get_table_srid(session, table_name, schema=_schema)
             # Savepoint so a partial failure (column added, index creation
             # failed) rolls back cleanly instead of a half-indexed table.
+            # A stored generated column: adding it costs one table rewrite
+            # with no dead tuples instead of a full-table UPDATE, and later
+            # out-of-band writes to geom stay visible without a refresh.
             try:
                 async with session.begin_nested():
                     await add_4326_column(
-                        session, table_name, srid or 4326, schema=_schema
+                        session,
+                        table_name,
+                        srid or 4326,
+                        schema=_schema,
+                        generated=True,
                     )
             except Exception as exc:  # broad: ALTER TABLE/CREATE INDEX inside savepoint can fail for schema/permission reasons
                 raise _step_refusal(
