@@ -1197,6 +1197,7 @@ async def insert_feature(
     dataset_srid: int | None = None,
 ) -> dict:
     """Insert a GeoJSON feature into a PostGIS data table.
+
     Writes geom and, unless geom_4326 is a stored generated column that
     derives itself from geom, geom_4326. Only inserts property columns
     that exist in column_info. Returns the full inserted feature via
