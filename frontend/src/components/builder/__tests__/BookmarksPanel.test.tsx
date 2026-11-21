@@ -15,6 +15,7 @@ function stubMap() {
     getPitch: () => 0,
     getContainer: () => ({ clientWidth: 1000, clientHeight: 500 }),
     fitBounds: vi.fn(),
+    cameraForBounds: () => ({ zoom: 4 }),
   } as unknown as MaplibreMap & { fitBounds: ReturnType<typeof vi.fn> };
 }
 

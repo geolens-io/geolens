@@ -76,6 +76,7 @@ function useCombinedBuilder(mapData: MapResponse, mapId = 'map-1') {
     dashboardEdited: layers.dashboardEdited,
     bookmarks: layers.bookmarks,
     bookmarksEdited: layers.bookmarksEdited,
+    onBookmarksSave: layers.beginBookmarksSave,
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
@@ -182,6 +183,42 @@ describe('Builder bookmarks', () => {
     expect(result.current.bookmarks).toEqual([]);
     rerender({ mapData: mapWith([a]), mapId: 'map-1' });
     expect(result.current.bookmarks).toEqual([a]);
+    expect(result.current.bookmarksEdited).toBe(false);
+  });
+
+  it('keeps a bookmark deleted while the save that adds it is still going', async () => {
+    const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), { initialProps: { mapData: mapWith([a]) } });
+    act(() => result.current.handleBookmarksChange([a, b]));
+    let finish: (value: unknown) => void = () => {};
+    mockUpdateMapMutateAsync.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    let saving: Promise<unknown> = Promise.resolve();
+    act(() => {
+      saving = result.current.handleSave();
+    });
+    await waitFor(() => expect(mockUpdateMapMutateAsync).toHaveBeenCalledOnce());
+
+    // Back to the list as it was before the save, which is not what the save stores.
+    act(() => result.current.handleBookmarksChange([a]));
+    expect(result.current.bookmarksEdited).toBe(true);
+    await act(async () => {
+      finish({ id: 'map-1' });
+      await saving;
+    });
+    rerender({ mapData: mapWith([a, b]) });
+    expect(result.current.bookmarks).toEqual([a]);
+    expect(result.current.bookmarksEdited).toBe(true);
+    expect(result.current.hasUnsavedChanges).toBe(true);
+  });
+
+  it('measures edits against the saved list again after a save fails', async () => {
+    const { result } = renderHook(({ mapData }) => useCombinedBuilder(mapData), { initialProps: { mapData: mapWith([a]) } });
+    act(() => result.current.handleBookmarksChange([a, b]));
+    mockUpdateMapMutateAsync.mockRejectedValueOnce(new Error('offline'));
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    expect(result.current.bookmarksEdited).toBe(true);
+    act(() => result.current.handleBookmarksChange([a]));
     expect(result.current.bookmarksEdited).toBe(false);
   });
 

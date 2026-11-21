@@ -192,14 +192,26 @@ export function useBuilderLayers(
   // overwrite what someone else saves later.
   const savedBookmarks = useMemo(() => mapData?.bookmarks ?? [], [mapData?.bookmarks]);
   const [bookmarkEdit, setBookmarkEdit] = useState<{ mapId?: string; list: MapBookmark[] } | null>(null);
+  // The list a save sent that the saved list doesn't show yet. Until it does,
+  // that list is what an edit is measured against: one put back to the older
+  // saved list is still a change to what the save stores.
+  const [sentBookmarks, setSentBookmarks] = useState<MapBookmark[] | null>(null);
   const editedBookmarks = bookmarkEdit && bookmarkEdit.mapId === mapId ? bookmarkEdit.list : null;
   useEffect(() => {
+    setSentBookmarks(null);
     setBookmarkEdit((edit) =>
       edit && (edit.mapId !== mapId || sameBookmarks(edit.list, savedBookmarks)) ? null : edit,
     );
   }, [savedBookmarks, mapId]);
   const bookmarks = editedBookmarks ?? savedBookmarks;
-  const bookmarksEdited = editedBookmarks !== null && !sameBookmarks(editedBookmarks, savedBookmarks);
+  const bookmarksEdited =
+    editedBookmarks !== null && !sameBookmarks(editedBookmarks, sentBookmarks ?? savedBookmarks);
+  const beginBookmarksSave = useCallback((sent: MapBookmark[]) => {
+    setSentBookmarks(sent);
+    return (stored: boolean) => {
+      if (!stored) setSentBookmarks((current) => (current === sent ? null : current));
+    };
+  }, []);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
@@ -1101,10 +1113,10 @@ export function useBuilderLayers(
   }, [setDashboard, requestCleanRecheck]);
 
   const handleBookmarksChange = useCallback((next: MapBookmark[]) => {
-    setBookmarkEdit(sameBookmarks(next, savedBookmarks) ? null : { mapId, list: next });
+    setBookmarkEdit(!sentBookmarks && sameBookmarks(next, savedBookmarks) ? null : { mapId, list: next });
     setHasUnsavedChanges(true);
     requestCleanRecheck();
-  }, [mapId, savedBookmarks, requestCleanRecheck]);
+  }, [mapId, savedBookmarks, sentBookmarks, requestCleanRecheck]);
 
   // A visibility toggle is the only edit a user routinely undoes by repeating
   // it, so each one asks whether the map is back to the saved state.
@@ -1293,6 +1305,7 @@ export function useBuilderLayers(
     bookmarks,
     bookmarksEdited,
     handleBookmarksChange,
+    beginBookmarksSave,
     localLayers,
     layersMapId,
     freshLayerId,

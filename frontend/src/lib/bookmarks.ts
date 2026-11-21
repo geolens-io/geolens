@@ -37,6 +37,8 @@ interface ExtentView {
   width: number;
   height: number;
   bearing?: number;
+  /** Grows or shrinks the box about its center; see `bookmarkFromMap`. */
+  scale?: number;
 }
 
 /**
@@ -47,14 +49,14 @@ interface ExtentView {
  * which needs more room than the box itself, so a rotated view's box is
  * shrunk about its center by the factor that makes the fit land on the same zoom.
  */
-export function extentOfView({ center, zoom, width, height, bearing = 0 }: ExtentView): [number, number, number, number] {
+export function extentOfView({ center, zoom, width, height, bearing = 0, scale = 1 }: ExtentView): [number, number, number, number] {
   const worldSize = TILE_SIZE * 2 ** zoom;
   const angle = (bearing * Math.PI) / 180;
   const cos = Math.abs(Math.cos(angle));
   const sin = Math.abs(Math.sin(angle));
   const k = Math.min(width / (width * cos + height * sin), height / (width * sin + height * cos));
-  const halfW = (width * k) / 2;
-  const halfH = (height * k) / 2;
+  const halfW = (width * k * scale) / 2;
+  const halfH = (height * k * scale) / 2;
 
   const cx = lngToX(center.lng, worldSize);
   const cy = latToY(center.lat, worldSize);
@@ -87,34 +89,51 @@ export function bookmarkFromMap(map: MaplibreMap, name: string): MapBookmark {
   const container = map.getContainer();
   const bearing = round6(map.getBearing());
   const pitch = round6(map.getPitch());
+  const zoom = map.getZoom();
+  const view = {
+    center: map.getCenter(),
+    zoom,
+    width: container.clientWidth,
+    height: container.clientHeight,
+    bearing,
+  };
+  // The box is exact on a flat Mercator map. A globe fits a box its own way,
+  // so the map is asked where the box would land and the box is resized until
+  // that is this zoom.
+  let scale = 1;
+  let extent = extentOfView(view);
+  for (let pass = 0; pass < 6; pass++) {
+    const fit = map.cameraForBounds(fitCorners(extent), { bearing, padding: 0 });
+    const off = (fit?.zoom ?? zoom) - zoom;
+    if (!Number.isFinite(off) || Math.abs(off) < 0.002) break;
+    scale *= 2 ** off;
+    extent = extentOfView({ ...view, scale });
+  }
   return {
     name,
-    extent: extentOfView({
-      center: map.getCenter(),
-      zoom: map.getZoom(),
-      width: container.clientWidth,
-      height: container.clientHeight,
-      bearing,
-    }),
+    extent,
     ...(bearing !== 0 ? { bearing } : {}),
     ...(pitch !== 0 ? { pitch } : {}),
   };
 }
 
+/** The corners `fitBounds` takes; an area across the antimeridian runs east past 180. */
+function fitCorners(extent: readonly number[]): [[number, number], [number, number]] {
+  const [west, south, east, north] = extent;
+  return [
+    [west, south],
+    [east < west ? east + 360 : east, north],
+  ];
+}
+
 export function goToBookmark(map: MaplibreMap, bookmark: MapBookmark): void {
   const [west, south, east, north] = bookmark.extent;
-  map.fitBounds(
-    [
-      [west, south],
-      [east < west ? east + 360 : east, north],
-    ],
-    {
-      bearing: bookmark.bearing ?? 0,
-      pitch: bookmark.pitch ?? 0,
-      padding: 0,
-      // An area with no width or height would otherwise fit at the map's deepest zoom.
-      ...(west === east || south === north ? { maxZoom: 16 } : {}),
-      duration: motionDuration(800),
-    },
-  );
+  map.fitBounds(fitCorners(bookmark.extent), {
+    bearing: bookmark.bearing ?? 0,
+    pitch: bookmark.pitch ?? 0,
+    padding: 0,
+    // An area with no width or height would otherwise fit at the map's deepest zoom.
+    ...(west === east || south === north ? { maxZoom: 16 } : {}),
+    duration: motionDuration(800),
+  });
 }

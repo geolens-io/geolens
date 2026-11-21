@@ -327,6 +327,7 @@ export function MapBuilderPage() {
     bookmarks: layers.bookmarks,
     bookmarksEdited: layers.bookmarksEdited,
     onDashboardSave: layers.beginDashboardSave,
+    onBookmarksSave: layers.beginBookmarksSave,
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,

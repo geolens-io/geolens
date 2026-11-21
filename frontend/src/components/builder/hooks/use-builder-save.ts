@@ -1008,6 +1008,8 @@ interface SaveState {
    * another editor's; the returned callback hears whether the server stored it.
    */
   onDashboardSave?: (draft: DashboardDraft) => (stored: boolean) => void;
+  /** Told the bookmarks a save sends; the returned callback hears whether the server stored them. */
+  onBookmarksSave?: (sent: MapBookmark[]) => (stored: boolean) => void;
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
   setHasUnsavedChanges: (v: boolean) => void;
   hasUnsavedChanges: boolean;
@@ -1296,7 +1298,8 @@ export function useBuilderSave(state: SaveState) {
     const settleDashboard = sendDashboard
       ? state.onDashboardSave?.(canonicalDashboard(dashboard, localLayers))
       : undefined;
-    // Set once a PUT carrying the dashboard succeeds; every PUT below does.
+    const settleBookmarks = sendBookmarks && bookmarks ? state.onBookmarksSave?.(bookmarks) : undefined;
+    // Set once a PUT carrying the dashboard and bookmarks succeeds; every PUT below does.
     let dashboardStored = false;
     const putMap = async (data: MapUpdateRequest) => {
       const saved = await updateMap.mutateAsync({ id, data });
@@ -1405,6 +1408,7 @@ export function useBuilderSave(state: SaveState) {
       toast.error(t('toasts.saveFailed'));
     } finally {
       settleDashboard?.(dashboardStored);
+      settleBookmarks?.(dashboardStored);
       inFlightRegistrationsRef.current.delete(registrations);
       saveFence.settle(id);
     }

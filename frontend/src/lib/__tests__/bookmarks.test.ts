@@ -53,10 +53,22 @@ function stubMap(camera: { bearing: number; pitch: number }) {
     getPitch: () => camera.pitch,
     getContainer: () => ({ clientWidth: 1000, clientHeight: 500 }),
     fitBounds: vi.fn(),
+    // A flat map: the box fits back at the zoom it was taken at.
+    cameraForBounds: () => ({ zoom: 4 }),
   } as unknown as MaplibreMap & { fitBounds: ReturnType<typeof vi.fn> };
 }
 
 describe('bookmarkFromMap', () => {
+  it('resizes the box until the map fits it at the zoom it was taken at', () => {
+    // A map whose fit lands 0.3 levels deeper than the flat-map box implies, as a globe's can.
+    const fitZoom = ([[west], [east]]: number[][]) => Math.log2((1000 * 360) / (512 * (east - west))) + 0.3;
+    const map = { ...stubMap({ bearing: 0, pitch: 0 }), cameraForBounds: (corners: number[][]) => ({ zoom: fitZoom(corners) }) };
+    const { extent } = bookmarkFromMap(map as unknown as MaplibreMap, 'a');
+    expect(fitZoom([[extent[0]], [extent[2]]])).toBeCloseTo(4, 2);
+    const flat = bookmarkFromMap(stubMap({ bearing: 0, pitch: 0 }), 'a').extent;
+    expect(extent[2] - extent[0]).toBeGreaterThan(flat[2] - flat[0]);
+  });
+
   it('leaves out a bearing and pitch of zero', () => {
     const bookmark = bookmarkFromMap(stubMap({ bearing: 0, pitch: 0 }), 'Flat');
     expect(bookmark).not.toHaveProperty('bearing');
