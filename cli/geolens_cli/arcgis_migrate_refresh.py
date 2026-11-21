@@ -844,8 +844,9 @@ def _apply_visibility(
     it since this command last wrote it; the dataset as this left it.
 
     A visibility that isn't the one this command last wrote was set in
-    GeoLens: it is kept and noted on the item, and so is a difference a state
-    file without the record can't tell the origin of.
+    GeoLens: it is kept, even when the plan has come to match it, and noted
+    on the item when it differs, and so is a difference a state file without
+    the record can't tell the origin of.
     """
     from geolens.api.datasets import (
         update_dataset_metadata_datasets_dataset_id_patch as patch,
@@ -855,7 +856,6 @@ def _apply_visibility(
     wanted = item["target"]["visibility"]
     current = _value(dataset.visibility)
     if current == wanted:
-        entry.visibility[dataset_id] = wanted
         return dataset
     if current != entry.visibility.get(dataset_id):
         note = kept_visibility_note(dataset_id)

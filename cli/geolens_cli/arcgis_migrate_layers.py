@@ -388,10 +388,12 @@ def _import_layer(
             ) from None
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
-        adopt = existing not in entry.reused
-        if adopt:
+        _apply_target(
+            ctx, entry, existing, title_visibility, adopt=existing not in entry.reused
+        )
+        # One this item may not write was left unread.
+        if existing not in entry.reused:
             entry.reused.append(existing)
-        _apply_target(ctx, entry, existing, title_visibility, adopt=adopt)
         entry.layer_datasets[key] = existing
         return True
     # Recorded before the commit is sent: if its answer is lost, a rerun
@@ -619,15 +621,15 @@ def _apply_target(
     One this command imported is refused when somebody else wrote it last, so
     this write doesn't make their edit the operator's. A reused dataset
     predates the migration, and *adopt*, its first adoption, takes what it
-    holds then as its owner's from before: that is recorded before the write,
-    so a retry after a refused write still replaces it.
+    holds then as its owner's from before: that is recorded once it is read
+    and before the write, so a retry after a refused write still replaces it.
 
     Otherwise each of the two is written only over the value this command
     last gave it (``entry.title_baseline``, ``entry.visibility``): any other
-    was set in GeoLens, whoever by, and is kept, and noted when it differs
-    from the plan's. A visibility that already equals the plan's counts as
-    this command's, and so does the one a dataset nobody has written since
-    its import holds.
+    was set in GeoLens, whoever by, and is kept, even when the plan has come
+    to match it, and noted when it differs from the plan's. The visibility a
+    dataset nobody has written since its import holds counts as the
+    import's.
     """
     if dataset in entry.last_update or not writable(ctx, entry, [dataset]):
         return
@@ -639,18 +641,21 @@ def _apply_target(
 
     try:
         read = ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset))
-        if dataset not in entry.reused and not operator_or_nobody_wrote_last(ctx, read):
-            raise changed_before_handover(dataset)
         held = _nfc(read.title)
         shown = getattr(read.visibility, "value", read.visibility)
         if adopt:
+            entry.reused.append(dataset)
             _record_target(entry, dataset, held, shown)
-        elif dataset not in entry.reused and wrote_last(read) is None:
-            # Nobody has written it since its import, so it still holds the
-            # visibility the import gave it, which a fan-out doesn't take.
-            entry.visibility.setdefault(dataset, shown)
+        elif dataset not in entry.reused:
+            if not operator_or_nobody_wrote_last(ctx, read):
+                raise changed_before_handover(dataset)
+            if wrote_last(read) is None:
+                # Nobody has written it since its import, so it still holds
+                # the visibility the import gave it, which a fan-out or a
+                # commit whose answer was lost left unrecorded.
+                entry.visibility.setdefault(dataset, shown)
         ours = held == entry.title_baseline.get(dataset, {}).get("title")
-        ours_visibility = shown in (entry.visibility.get(dataset), target.visibility)
+        ours_visibility = shown == entry.visibility.get(dataset)
         if ours or ours_visibility:
             ctx.geolens.write(
                 patch_dataset.sync_detailed,
@@ -676,7 +681,7 @@ def _apply_target(
             kept.append(
                 f"kept the title dataset {dataset} has in GeoLens, not the plan's"
             )
-        if not ours_visibility:
+        if not ours_visibility and shown != target.visibility:
             kept.append(kept_visibility_note(dataset))
         for note in kept:
             ctx.kept_notes.append(note)

@@ -1278,6 +1278,33 @@ def test_a_dataset_made_private_in_geolens_is_not_shared_and_the_sharing_is_owed
     assert puts == [] and entry.groups == {} and entry.granted == {}
 
 
+def test_a_share_records_no_visibility_it_did_not_move(monkeypatch):
+    """A group write leaves an internal or public dataset's visibility alone. One that turns internal between this command's read and its write was changed in GeoLens, so the record keeps what this command last wrote."""
+    from geolens_cli import arcgis_migrate_refresh as refresh
+
+    ds = DATASETS[0]
+    monkeypatch.setattr(
+        refresh,
+        "get_dataset",
+        lambda ctx, dataset_id: SimpleNamespace(groups=[], visibility="restricted"),
+    )
+    ctx = SimpleNamespace(
+        shared_layers=None,
+        geolens=SimpleNamespace(
+            call=lambda fn, **kw: SimpleNamespace(visibility="internal")
+        ),
+        save=lambda: None,
+        operator_id=OPERATOR,
+        sharing=None,
+    )
+    entry = ItemState(dataset_ids=[ds], visibility={ds: "restricted"})
+    target = {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]}
+
+    assert share(ctx, {"id": "i1", "target": target}, entry) == []
+
+    assert entry.visibility == {ds: "restricted"} and entry.groups == {ds: [C]}
+
+
 def test_a_share_that_moves_a_dataset_to_restricted_records_that_visibility(
     monkeypatch,
 ):

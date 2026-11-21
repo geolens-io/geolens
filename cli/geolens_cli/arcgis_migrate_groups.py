@@ -798,11 +798,12 @@ def share(
                     ),
                 )
                 # The write itself moves a dataset between private and
-                # restricted, and that visibility is then this command's.
+                # restricted, and only that move is this command's.
                 moved = getattr(put, "visibility", None)
-                if isinstance(moved, str) and moved != getattr(
-                    again, "visibility", None
-                ):
+                if {moved, getattr(again, "visibility", None)} == {
+                    "private",
+                    RESTRICTED,
+                }:
                     entry.visibility[dataset_id] = moved
                 if baseline:
                     _record_share(ctx, entry, dataset_id, before)

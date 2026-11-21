@@ -946,6 +946,25 @@ def test_a_visibility_set_in_geolens_is_kept_and_its_data_still_refreshed(
     ]
 
 
+def test_a_visibility_the_plan_came_to_match_stays_as_geolens_has_it(
+    runner, plan_file, geolens
+):
+    """Import public, set internal in GeoLens, plan internal, plan private: a plan that matches a kept visibility doesn't make it this command's, so the next plan change still leaves it."""
+    _edit_plan(plan_file, (A2,))
+    service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
+    _migrate(runner, plan_file)
+    FakeRefresh(geolens, service).allow(PARCELS)
+    service.fields[PARCELS]["visibility"] = "internal"
+
+    for planned in ("internal", "private"):
+        _set_visibility(plan_file, A2, planned)
+        result, _ = _migrate(runner, plan_file)
+
+        assert result.exit_code == 0, result.output
+        assert service.fields[PARCELS]["visibility"] == "internal"
+        assert _state(plan_file)["items"][A2]["visibility"] == {PARCELS: "public"}
+
+
 def test_a_visibility_edited_before_the_handover_survives_the_resume_and_later_runs(
     runner, tmp_path, geolens
 ):

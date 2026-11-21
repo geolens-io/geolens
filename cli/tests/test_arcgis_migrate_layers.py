@@ -1242,12 +1242,13 @@ def test_a_commit_whose_answer_was_lost_is_not_repeated(runner, plan_file, geole
     entry = _state(plan_file)["items"][A2]
     assert entry["layer_datasets"] == {"0": dataset_id("Parcels")}
     assert entry["layer_jobs"] == {}
-    # The lost commit's title isn't recorded, so it is left, already the plan's.
-    assert {
-        "visibility": "public",
-        "expected_updated_at": "2026-10-01T00:00:00+00:00",
-    } in [s.json() for s in geolens.seen if s.method == "PATCH"]
-    assert service.fields[dataset_id("Parcels")]["title"] == "Parcels (public view)"
+    # The lost commit's title and visibility aren't recorded, so they are
+    # left, already the plan's.
+    patches = [s.json() for s in geolens.seen if s.method == "PATCH"]
+    assert not [p for p in patches if "title" in p or "visibility" in p]
+    fields = service.fields[dataset_id("Parcels")]
+    assert fields["title"] == "Parcels (public view)"
+    assert fields["visibility"] == "public"
 
 
 @pytest.mark.parametrize("edited", [True, False])
@@ -1881,6 +1882,54 @@ def _adopt(geolens, **held) -> tuple[FakeImport, str]:
     service.duplicates["Parcels"] = earlier
     service.fields[earlier] = {"title": "Old title", "visibility": "internal", **held}
     return service, earlier
+
+
+def test_a_visibility_the_plan_came_to_match_before_the_handover_stays_the_operators(
+    runner, tmp_path, geolens
+):
+    """Import public, edit to internal, plan internal, plan private: a plan that matches a kept visibility doesn't make it this command's, so the edit survives the next plan change."""
+    plan_file, service = _fail_after_the_import(runner, tmp_path, geolens)
+    parcels = dataset_id("Parcels")
+    _edit_in_geolens(service, visibility="internal")
+    _set_plan_target(plan_file, visibility="internal")
+    result, _ = _resume(runner, plan_file, service, geolens, fixed=False)
+    assert result.exit_code == 1
+    assert _state(plan_file)["items"][A2]["visibility"] == {parcels: "public"}
+    _set_plan_target(plan_file, visibility="private")
+
+    result, _ = _resume(runner, plan_file, service, geolens)
+
+    assert result.exit_code == 0, result.output
+    assert service.fields[parcels]["visibility"] == "internal"
+    entry = _state(plan_file)["items"][A2]
+    assert entry["visibility"] == {parcels: "public"}
+    assert entry["notes"].count(session.kept_visibility_note(parcels)) == 1
+
+
+def test_a_reused_dataset_whose_first_read_failed_is_still_adopted_on_the_retry(
+    runner, plan_file, geolens
+):
+    """A dataset GeoLens already held counts as adopted only once it has been read, so a retry after that read failed still gives it the plan's title and visibility."""
+    service, earlier = _adopt(geolens)
+    serve = service._serve_dataset
+
+    def serve_unreadable(dataset: str) -> None:
+        serve(dataset)
+        unavailable = (500, _problem(500, "database unavailable"))
+        geolens.routes[f"GET /datasets/{dataset}"] = unavailable
+
+    service._serve_dataset = serve_unreadable
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+    assert _state(plan_file)["items"][A2]["reused"] == []
+    service._serve_dataset = serve
+
+    result, _ = _migrate(runner, plan_file, "--only", A2)
+
+    assert result.exit_code == 0, result.output
+    fields = service.fields[earlier]
+    assert fields["title"] == "Parcels (public view)"
+    assert fields["visibility"] == "public"
+    assert _state(plan_file)["items"][A2]["reused"] == [earlier]
 
 
 def _adopt_then_fail(runner, tmp_path, geolens):
