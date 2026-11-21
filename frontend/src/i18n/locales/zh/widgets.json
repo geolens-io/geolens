@@ -72,7 +72,11 @@
       "label": "类别选择器",
       "summary": "按 {{column}} 筛选",
       "all": "全部",
-      "other": "其他值：{{value}}"
+      "other": "其他值：{{value}}",
+      "showMore_one": "再显示 {{count}} 个",
+      "showMore_many": "再显示 {{count}} 个",
+      "showMore_other": "再显示 {{count}} 个",
+      "showFewer": "收起"
     },
     "image": {
       "label": "图片",

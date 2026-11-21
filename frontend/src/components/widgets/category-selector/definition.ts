@@ -37,6 +37,10 @@ export const categorySelectorWidget = defineWidget<CategorySelectorConfig>({
     'types.category_selector.summary',
     'types.category_selector.all',
     'types.category_selector.other',
+    'types.category_selector.showMore_one',
+    'types.category_selector.showMore_many',
+    'types.category_selector.showMore_other',
+    'types.category_selector.showFewer',
   ],
   // `name` is a placeholder: a selector added in the Builder takes its column
   // from initialConfig, and the Builder holds a save naming a column the layer lacks.
