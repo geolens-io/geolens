@@ -143,10 +143,10 @@ flowchart LR
 ### Coming from ArcGIS Online
 
 `geolens arcgis inventory` reads an ArcGIS Online organization or a self-hosted ArcGIS portal and
-reports which items import fully, partly or not at all. It changes nothing and needs no GeoLens
-instance. `geolens arcgis migrate` then moves layers, files and web maps into GeoLens with their
-owners, folders and sharing, and writes a loss report of what didn't carry over. The
-[CLI guide](https://docs.getgeolens.com/guides/cli/#arcgis-migration) walks through it.
+reports what would carry over to GeoLens. It changes nothing and needs no GeoLens instance. `geolens
+arcgis migrate` then moves layers, files and web maps into GeoLens with their owners, folders and
+sharing, and writes a loss report of what didn't carry over. The [CLI
+guide](https://docs.getgeolens.com/guides/cli/#arcgis-migration) walks through it.
 
 ## Know where every dataset came from
 

@@ -145,12 +145,11 @@ flowchart LR
 ### Umstieg von ArcGIS Online
 
 `geolens arcgis inventory` liest eine ArcGIS-Online-Organisation oder ein selbst gehostetes
-ArcGIS-Portal und meldet, welche Elemente sich vollständig, teilweise oder gar nicht importieren
-lassen. Es ändert nichts und braucht keine GeoLens-Instanz. `geolens arcgis migrate` übernimmt
-danach Layer, Dateien und Webkarten mit ihren Eigentümern, Ordnern und Freigaben in GeoLens und
-schreibt einen Verlustbericht darüber, was nicht übernommen wurde. Die
-[CLI-Anleitung](https://docs.getgeolens.com/guides/cli/#arcgis-migration) führt Schritt für Schritt
-durch den Ablauf.
+ArcGIS-Portal und meldet, was sich nach GeoLens übernehmen lässt. Es ändert nichts und braucht keine
+GeoLens-Instanz. `geolens arcgis migrate` übernimmt danach Layer, Dateien und Webkarten mit ihren
+Eigentümern, Ordnern und Freigaben in GeoLens und schreibt einen Verlustbericht darüber, was nicht
+übernommen wurde. Die [CLI-Anleitung](https://docs.getgeolens.com/guides/cli/#arcgis-migration)
+führt Schritt für Schritt durch den Ablauf.
 
 ## Wissen, woher jeder Datensatz stammt
 

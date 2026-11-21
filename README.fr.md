@@ -148,11 +148,11 @@ flowchart LR
 ### Migrer depuis ArcGIS Online
 
 `geolens arcgis inventory` lit une organisation ArcGIS Online ou un portail ArcGIS auto-hébergé et
-indique quels éléments s’importent entièrement, en partie ou pas du tout. Il ne modifie rien et ne
-nécessite aucune instance GeoLens. `geolens arcgis migrate` déplace ensuite les couches, les
-fichiers et les cartes web vers GeoLens avec leurs propriétaires, leurs dossiers et leur partage,
-et écrit un rapport de pertes de ce qui n’a pas été repris. Le
-[guide de la CLI](https://docs.getgeolens.com/guides/cli/#arcgis-migration) le décrit pas à pas.
+indique ce qui serait repris dans GeoLens. Il ne modifie rien et ne nécessite aucune instance
+GeoLens. `geolens arcgis migrate` déplace ensuite les couches, les fichiers et les cartes web vers
+GeoLens avec leurs propriétaires, leurs dossiers et leur partage, et écrit un rapport de pertes de
+ce qui n’a pas été repris. Le [guide de la
+CLI](https://docs.getgeolens.com/guides/cli/#arcgis-migration) le décrit pas à pas.
 
 ## Savoir d’où vient chaque jeu de données
 

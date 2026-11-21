@@ -130,7 +130,7 @@ flowchart LR
 
 ### 从 ArcGIS Online 迁移
 
-`geolens arcgis inventory` 读取 ArcGIS Online 组织或自托管的 ArcGIS 门户，报告哪些项目可以完整导入、部分导入或无法导入。它不会更改任何内容，也不需要 GeoLens 实例。随后 `geolens arcgis migrate` 会把图层、文件和 Web 地图连同所有者、文件夹和共享设置迁入 GeoLens，并生成一份损失报告，列出未能迁移的内容。[CLI 指南](https://docs.getgeolens.com/guides/cli/#arcgis-migration)有详细步骤。
+`geolens arcgis inventory` 读取 ArcGIS Online 组织或自托管的 ArcGIS 门户，报告哪些内容可以迁移到 GeoLens。它不会更改任何内容，也不需要 GeoLens 实例。随后 `geolens arcgis migrate` 会把图层、文件和 Web 地图连同所有者、文件夹和共享设置迁入 GeoLens，并生成一份损失报告，列出未能迁移的内容。[CLI 指南](https://docs.getgeolens.com/guides/cli/#arcgis-migration)有详细步骤。
 
 ## 了解每个数据集的来源
 
