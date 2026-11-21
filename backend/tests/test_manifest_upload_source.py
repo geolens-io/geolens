@@ -773,7 +773,7 @@ class TestSchema:
             ManifestApplyRequest.model_validate(payload)
 
     @pytest.mark.parametrize(
-        ("version", "client", "valid"),
+        ("version", "sent", "valid"),
         [
             ("1", "omitted", True),
             ("1", None, False),
@@ -782,7 +782,7 @@ class TestSchema:
             ("2", _CLIENT, True),
         ],
     )
-    def test_client_is_decided_by_whether_it_was_sent(self, version, client, valid):
+    def test_client_is_decided_by_whether_it_was_sent(self, version, sent, valid):
         payload = {
             "manifest_version": version,
             "catalog": {"title": "Catalog"},
@@ -797,8 +797,8 @@ class TestSchema:
                 }
             ],
         }
-        if client != "omitted":
-            payload["client"] = client
+        if sent != "omitted":
+            payload["client"] = sent
         if valid:
             ManifestApplyRequest.model_validate(payload)
         else:

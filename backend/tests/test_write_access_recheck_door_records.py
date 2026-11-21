@@ -233,7 +233,7 @@ async def test_a_manifest_update_over_http_hands_an_overlay_a_full_identity(
     with _reupload_task() as task:
         resp = await client.post(
             "/ingest/manifest/apply",
-            json=_update("http-identity").model_dump(mode="json"),
+            json=_update("http-identity").model_dump(mode="json", exclude_none=True),
             headers=admin_auth_header,
         )
 
