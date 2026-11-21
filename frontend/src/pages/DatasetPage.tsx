@@ -506,9 +506,10 @@ export function DatasetPage() {
   // upload. The header labels both axes so "Unpublish" never sits beside only a
   // "Private" badge.
   const origin = datasetOrigin(dataset);
-  // The table name in the header lets psql, QGIS and ogr2ogr hit the data
-  // directly. Raster/VRT data lives in object storage, so it skips the readout.
-  const showTableReadout = featureTable && Boolean(dataset.table_name);
+  // The table name lets psql, QGIS and ogr2ogr hit the data directly, which is
+  // an editor concern; readers see it in the Details list. Raster/VRT data
+  // lives in object storage, so it skips the readout.
+  const showTableReadout = canEdit && featureTable && Boolean(dataset.table_name);
 
   const statsLine = (
     <>

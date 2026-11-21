@@ -353,6 +353,18 @@ describe('DatasetPage actions by record type', () => {
     expect(within(readout).getByRole('button')).toHaveClass('shrink-0');
   });
 
+  it('keeps the table readout from a signed-in viewer', async () => {
+    act(() => { useAuthStore.setState({ user: { ...OWNER, id: 'reader-id', roles: ['viewer'] } }); });
+    await renderAs('vector_dataset');
+    expect(screen.queryByTestId('dataset-table-readout')).not.toBeInTheDocument();
+  });
+
+  it('keeps the table readout from an anonymous reader', async () => {
+    act(() => { useAuthStore.setState({ user: null, token: null, refreshToken: null, expiresAt: null }); });
+    await renderAs('vector_dataset');
+    expect(screen.queryByTestId('dataset-table-readout')).not.toBeInTheDocument();
+  });
+
   it('offers Add to map to a capable viewer who does not own the dataset', async () => {
     act(() => { useAuthStore.setState({ user: { ...OWNER, id: 'reader-id', roles: ['viewer'] } }); });
     await renderAs('vector_dataset');
