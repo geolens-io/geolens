@@ -1311,7 +1311,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # apply workflow, including the settlement of a contended or refused admission,
     # the records of an admin's raw seed source, restricted public intent and a
     # publish key, and the gates a version 2 entry's visibility passes.
-    "backend/app/processing/ingest/manifest_service.py": 1298,
+    "backend/app/processing/ingest/manifest_service.py": 1292,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,

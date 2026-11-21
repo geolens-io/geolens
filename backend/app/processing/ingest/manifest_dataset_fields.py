@@ -8,11 +8,9 @@ code.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
-from fastapi import HTTPException
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -55,25 +53,27 @@ COLLECTION_REFUSED_KIND = "manifest_collection_refused"
 ATTRIBUTE_UNMATCHED_KIND = "manifest_attribute_unmatched"
 
 
-def _public_restricted(dataset: ManifestDataset, severity: str) -> ManifestMessage:
-    if severity == "error":
-        return ManifestMessage(
-            code=PUBLIC_RESTRICTED,
-            severity="error",
-            message=(
-                "Public visibility is restricted on this server, so "
-                f"{dataset.title!r} was not published."
-            ),
-            fix="Use Organization, or ask the admin.",
+def _public_refused(
+    dataset: ManifestDataset, severity: str, *, publish_key: bool
+) -> ManifestMessage:
+    reason, fix = (
+        ("A publish key can't make anything public", "Use Organization, or sign in.")
+        if publish_key
+        else (
+            "Public visibility is restricted on this server",
+            "Use Organization, or ask the admin.",
         )
+    )
+    outcome = (
+        "was not published"
+        if severity == "error"
+        else "is shared with the organization instead"
+    )
     return ManifestMessage(
         code=PUBLIC_RESTRICTED,
-        severity="warning",
-        message=(
-            "Public visibility is restricted on this server, so "
-            f"{dataset.title!r} is shared with the organization instead."
-        ),
-        fix="Use Organization, or ask the admin.",
+        severity=severity,
+        message=f"{reason}, so {dataset.title!r} {outcome}.",
+        fix=fix,
     )
 
 
@@ -105,46 +105,42 @@ class ManifestEntryFields:
             visibility=dataset.visibility, public_fallback=request.public_fallback
         )
 
-    def downgrade_or_refuse(self, dataset: ManifestDataset) -> None:
+    def downgrade_or_refuse(
+        self, dataset: ManifestDataset, *, publish_key: bool
+    ) -> None:
         """Handle a refused ``public``: write ``internal`` only when asked to."""
         if self.public_fallback == "internal":
             self.visibility = "internal"
-            self.messages.append(_public_restricted(dataset, "warning"))
+            self.messages.append(
+                _public_refused(dataset, "warning", publish_key=publish_key)
+            )
             return
-        raise ManifestEntryRefused([_public_restricted(dataset, "error")])
+        raise ManifestEntryRefused(
+            [_public_refused(dataset, "error", publish_key=publish_key)]
+        )
 
     async def judge_update(
-        self,
-        db: AsyncSession,
-        user: Identity,
-        dataset: ManifestDataset,
-        existing: Any,
-        public_gate: Callable[..., Awaitable[Any]],
+        self, db: AsyncSession, dataset: ManifestDataset, existing: Any
     ) -> None:
-        """Judge an update by the audience it leaves the dataset with.
+        """Hold a publish key's update to what the metadata edit lets one change.
 
         An omitted visibility keeps the dataset's, so publishing a public
         draft opens it to anonymous readers without the entry naming
-        ``public``: that goes through ``public_gate`` as if it had, and is
-        error A020 when refused. A publish key is held to what it may change
-        through the metadata edit. The publish judges both again, holding the
-        dataset's rows.
+        ``public``. A key may not do that: it is a refused public, with the
+        fallback to internal when asked. The publish judges it again, holding
+        the dataset's rows.
         """
+        if not is_publish_key(db):
+            return
         record = existing.record
         await db.refresh(record, attribute_names=["visibility", "record_status"])
         _, record_status = publication_to_catalog_fields(dataset.publication)
         now = (record.visibility, record.record_status)
         change = {"visibility": self.visibility, "record_status": record_status}
         if self.visibility is None and opens_to_anonymous(*now, **change):
-            try:
-                await public_gate(db, user, "public")
-            except HTTPException as exc:
-                if exc.status_code != 403:
-                    raise
-                raise ManifestEntryRefused(
-                    [_public_restricted(dataset, "error")]
-                ) from exc
-        if is_publish_key(db) and (refusal := publish_key_widening(*now, **change)):
+            self.downgrade_or_refuse(dataset, publish_key=True)
+            change["visibility"] = self.visibility
+        if refusal := publish_key_widening(*now, **change):
             raise ManifestSourceError(refusal)
 
     def note_edits_since_publish(

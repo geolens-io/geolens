@@ -340,7 +340,9 @@ class ManifestApplyRequest(_ManifestBaseModel):
     manifest_version: Literal["1", "2"] = Field(
         description=(
             "Manifest format. Version 2 adds `client`, which it requires, and "
-            "`upload:<job_id>` sources."
+            "`upload:<job_id>` sources. Version 2 is a preview and may change "
+            "in any release until the desktop connectors ship; version 1 is "
+            "stable."
         )
     )
     catalog: ManifestCatalog

@@ -315,6 +315,9 @@ async def test_a_refused_public_is_an_error_and_queues_nothing(
     result = response.results[0]
     assert (result.action, response.accepted) == ("error", False)
     assert [(m.code, m.severity) for m in result.messages] == [("A020", "error")]
+    assert result.messages[0].message.startswith(
+        "Public visibility is restricted on this server"
+    )
     queue.assert_not_awaited()
     assert (
         await test_db_session.scalar(
@@ -1026,6 +1029,9 @@ async def test_a_held_run_accepted_later_keeps_the_collection_and_attributes():
 # ---------------------------------------------------------------------------
 
 
+_KEY_REFUSAL = "A publish key can't make anything public"
+
+
 @contextmanager
 def _publish_key(session):
     """The session as a publish-scoped key's request sees it."""
@@ -1116,9 +1122,34 @@ async def test_a_publish_key_cannot_publish_a_public_draft_it_leaves_public(
 
     assert result.action == "error", result
     assert [(m.code, m.severity) for m in result.messages] == [("A020", "error")]
+    assert result.messages[0].message.startswith(_KEY_REFUSAL)
     task.defer_async.assert_not_awaited()
     assert await _jobs_for(test_db_session, key) == 1
     assert await _record(test_db_session, dataset_id) == ("public", "draft")
+
+
+async def test_public_fallback_shares_a_publish_keys_public_draft_internally(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "audience-key-omitted-fallback"
+    dataset_id = await _manifest_dataset(test_db_session, user, key, "public", "draft")
+
+    with _publish_key(test_db_session):
+        result, task = await _queue_update(
+            test_db_session,
+            user,
+            await _uploaded(client, admin_auth_header, key),
+            public_fallback="internal",
+        )
+    assert result.action == "update", result
+    job = await _run_update(test_db_session, result, task)
+
+    assert [(m.code, m.severity) for m in result.messages] == [("A020", "warning")]
+    assert result.messages[0].message.startswith(_KEY_REFUSAL)
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("internal", "published")
 
 
 async def test_the_gate_refuses_a_publish_key_that_names_public(
@@ -1140,6 +1171,7 @@ async def test_the_gate_refuses_a_publish_key_that_names_public(
 
     assert result.action == "error", result
     assert [(m.code, m.severity) for m in result.messages] == [("A020", "error")]
+    assert result.messages[0].message.startswith(_KEY_REFUSAL)
     task.defer_async.assert_not_awaited()
     assert await _record(test_db_session, dataset_id) == ("public", "draft")
 
@@ -1196,9 +1228,10 @@ async def test_a_publish_key_cannot_widen_through_a_manifest(
 
 
 @pytest.mark.usefixtures("_restricted_public")
-async def test_a_non_admin_cannot_publish_a_public_draft_while_public_is_restricted(
+async def test_a_non_admin_may_publish_a_public_draft_while_public_is_restricted(
     client, test_db_session, admin_auth_header, clean_tables
 ):
+    """The restriction is on naming public; the record status is the owner's."""
     _stage_fixture()
     headers, editor = await _editor(client, test_db_session, admin_auth_header)
     key = "audience-restricted"
@@ -1209,11 +1242,11 @@ async def test_a_non_admin_cannot_publish_a_public_draft_while_public_is_restric
     result, task = await _queue_update(
         test_db_session, editor, await _uploaded(client, headers, key)
     )
+    assert (result.action, result.messages) == ("update", []), result
+    job = await _run_update(test_db_session, result, task)
 
-    assert result.action == "error", result
-    assert [(m.code, m.severity) for m in result.messages] == [("A020", "error")]
-    task.defer_async.assert_not_awaited()
-    assert await _record(test_db_session, dataset_id) == ("public", "draft")
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("public", "published")
 
 
 async def test_the_publish_refuses_a_publish_key_once_the_dataset_went_public(
@@ -1239,7 +1272,7 @@ async def test_the_publish_refuses_a_publish_key_once_the_dataset_went_public(
 
 
 @pytest.mark.usefixtures("_restricted_public")
-async def test_the_publish_refuses_a_non_admin_once_the_dataset_went_public(
+async def test_the_publish_lets_a_non_admin_publish_a_dataset_made_public_meanwhile(
     client, test_db_session, admin_auth_header, clean_tables
 ):
     _stage_fixture()
@@ -1257,9 +1290,8 @@ async def test_the_publish_refuses_a_non_admin_once_the_dataset_went_public(
     await _set_record(test_db_session, dataset_id, "public", "draft")
     job = await _run_update(test_db_session, result, task)
 
-    assert job.status == "failed"
-    assert "may not open this dataset to more readers" in job.error_message
-    assert await _record(test_db_session, dataset_id) == ("public", "draft")
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("public", "published")
 
 
 async def test_an_accepted_held_run_keeps_a_publish_keys_limits(

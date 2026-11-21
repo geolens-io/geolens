@@ -30,7 +30,8 @@ class ManifestApplyRequest:
     """
     Attributes:
         manifest_version (ManifestApplyRequestManifestVersion): Manifest format. Version 2 adds `client`, which it
-            requires, and `upload:<job_id>` sources.
+            requires, and `upload:<job_id>` sources. Version 2 is a preview and may change in any release until the desktop
+            connectors ship; version 1 is stable.
         catalog (ManifestCatalog):
         datasets (list[ManifestDataset]):
         dry_run (bool | Unset):  Default: False.

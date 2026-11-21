@@ -51,7 +51,7 @@ from app.platform.jobs.models import (
     ADMITTED_RAW_SOURCE_METADATA_KEY,
     IngestJob,
 )
-from app.platform.record_audience import opens_to_anonymous, publish_key_widening
+from app.platform.record_audience import publish_key_widening
 from app.platform.refresh.service import (
     claim_run_for_job,
     record_refresh_failure,
@@ -648,31 +648,24 @@ async def require_submitter_can_write(
     roles = {r.name for r in submitter.roles}
     if await _no_longer_admin_to_publish(session, job, roles):
         raise WriteAccessRevoked
-    if await _widens_past_submitter(session, job, dataset.record, roles):
+    if _widens_past_publish_key(job, dataset.record):
         raise WideningRefused
 
 
-async def _widens_past_submitter(
-    session: AsyncSession, job: IngestJob, record: Any, roles: set[str]
-) -> bool:
-    """A manifest job whose visibility and status, applied to the record as
-    committed now, widen who reads it past what its submitter may: a publish
-    key's beyond what the metadata edit lets one change, or anyone else's onto
-    anonymous readers while public visibility is restricted to admins."""
-    from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
-
+def _widens_past_publish_key(job: IngestJob, record: Any) -> bool:
+    """A publish key's manifest job whose visibility and status, applied to
+    the record as committed now, change more than the metadata edit lets a
+    publish key change."""
     metadata = job.user_metadata or {}
-    if "manifest_key" not in metadata:
+    if "manifest_key" not in metadata or not metadata.get(
+        ADMITTED_PUBLISH_KEY_METADATA_KEY
+    ):
         return False
     change = {
         key: _manifest_text(metadata, key) for key in ("visibility", "record_status")
     }
     now = (record.visibility, record.record_status)
-    if metadata.get(ADMITTED_PUBLISH_KEY_METADATA_KEY):
-        return publish_key_widening(*now, **change) is not None
-    if "admin" in roles or not opens_to_anonymous(*now, **change):
-        return False
-    return bool(await RESTRICT_PUBLIC_VISIBILITY.get_uncached(session))
+    return publish_key_widening(*now, **change) is not None
 
 
 async def _no_longer_admin_to_publish(

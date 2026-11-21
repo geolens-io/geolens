@@ -1537,8 +1537,9 @@ async def test_a_publish_keys_manifest_update_keeps_the_datasets_visibility(
         metadata = reserved.job.user_metadata
         assert ("visibility" in metadata) is kept, metadata
         assert metadata["record_status"] == "internal"
-        # What the publish holds the job to, version 1 included.
-        assert ("admitted_publish_key" in metadata) is not kept, metadata
+        # Version 1 drops the visibility, and its one publishing intent asks
+        # for public, which a key is refused: nothing is left to re-check.
+        assert "admitted_publish_key" not in metadata, metadata
     finally:
         test_db_session.info.pop(_SESSION_KEY, None)
         if reserved is not None:

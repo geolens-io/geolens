@@ -614,7 +614,7 @@ async def _classify_dataset(
     except HTTPException as exc:
         if fields is None or exc.status_code != 403:
             raise
-        fields.downgrade_or_refuse(dataset)
+        fields.downgrade_or_refuse(dataset, publish_key=is_publish_key(db))
     prepared = await prepare_manifest_source(db, dataset, user)
     await _validate_prepared_source(db, prepared)
     await _authorize_prepared_source(db, prepared, user)
@@ -797,12 +797,12 @@ async def _reserve_entry(
     if dataset_id is not None:
         metadata["reupload"] = True
         metadata["dataset_id"] = str(dataset_id)
-        if is_publish_key(db):
+        if is_publish_key(db) and fields is None:
+            # Version 1's comes from the intent, applied later over whatever
+            # the visibility is by then, so the update keeps it.
+            metadata.pop("visibility", None)
+        elif is_publish_key(db):
             metadata[ADMITTED_PUBLISH_KEY_METADATA_KEY] = True
-            if fields is None:
-                # Version 1's comes from the intent, applied later over
-                # whatever the visibility is by then, so the update keeps it.
-                metadata.pop("visibility", None)
         metadata[ADMITTED_CAPABILITY_METADATA_KEY] = UPLOAD
         from app.modules.catalog.authorization import admitted_public_visibility
 
@@ -1183,13 +1183,7 @@ async def _reserve_or_settle_entry(
         _refuse_publish_key_remote_origin(db, existing_dataset)
         update_dataset_id = existing_dataset.id
         if fields is not None:
-            from app.modules.catalog.authorization import (
-                check_public_visibility_allowed,
-            )
-
-            await fields.judge_update(
-                db, user, dataset, existing_dataset, check_public_visibility_allowed
-            )
+            await fields.judge_update(db, dataset, existing_dataset)
             if request.dry_run:
                 fields.note_edits_since_publish(dataset, job, existing_dataset)
 
