@@ -56,6 +56,7 @@ from .arcgis_migrate_layers import (
     relationship_records,
 )
 from .arcgis_migrate_session import (
+    kept_visibility_note,
     GeoLensError,
     ItemFailed,
     MigrationContext,
@@ -744,9 +745,7 @@ def _bring_one(
         return f"{reason}; it was left as it is.{portal} {KEEP_GEOLENS}"
     if reason:
         return f"{reason}; it was left as it is"
-    problem, dataset = _apply_visibility(ctx, item, entry, dataset_id, dataset)
-    if problem:
-        return problem
+    dataset = _apply_visibility(ctx, item, entry, dataset_id, dataset)
     problem = start(dataset_id, dataset, revision)
     if problem:
         return problem
@@ -840,14 +839,14 @@ def _apply_visibility(
     entry: ItemState,
     dataset_id: str,
     dataset: Any,
-) -> tuple[str | None, Any]:
+) -> Any:
     """Give the dataset the plan's visibility when the portal's sharing moved
-    it since the import; why it can't, or None, and the dataset as this left
-    it.
+    it since this command last wrote it; the dataset as this left it.
 
-    A visibility changed in GeoLens since this command set it is kept and
-    reported, and so is a difference a state file without the record can't
-    tell the origin of.
+    A visibility that isn't the one this command last wrote was set in
+    GeoLens: it is kept, even when the plan has come to match it, and noted
+    on the item when it differs, and so is a difference a state file without
+    the record can't tell the origin of.
     """
     from geolens.api.datasets import (
         update_dataset_metadata_datasets_dataset_id_patch as patch,
@@ -855,21 +854,14 @@ def _apply_visibility(
     from geolens.models.dataset_meta import DatasetMeta
 
     wanted = item["target"]["visibility"]
-    applied = entry.visibility.get(dataset_id)
     current = _value(dataset.visibility)
     if current == wanted:
-        entry.visibility[dataset_id] = wanted
-        return None, dataset
-    if applied is None:
-        return (
-            f"its visibility is {current} in GeoLens and {wanted} in the plan, and "
-            "the state doesn't say which changed; set it by hand"
-        ), dataset
-    if current != applied:
-        return (
-            f"its visibility was changed to {current} in GeoLens, and the plan now "
-            f"says {wanted}; it was left as it is"
-        ), dataset
+        return dataset
+    if current != entry.visibility.get(dataset_id):
+        note = kept_visibility_note(dataset_id)
+        if note not in entry.notes:
+            entry.notes.append(note)
+        return dataset
     written = ctx.geolens.write(
         patch.sync_detailed,
         during="its visibility was written",
@@ -879,7 +871,7 @@ def _apply_visibility(
     record(entry, dataset_id, written)
     entry.visibility[dataset_id] = wanted
     ctx.save()
-    return None, written
+    return written
 
 
 def _settle_unrecorded(

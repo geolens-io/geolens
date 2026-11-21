@@ -384,6 +384,7 @@ def _build_map_response(
         dashboard_config=render_dashboard(
             map_obj.dashboard_config, [layer.id for layer in layers]
         ),
+        bookmarks=map_obj.bookmarks or [],
         visibility=map_obj.visibility,
         thumbnail_url=thumbnail_url,
         og_image_url=og_image_url,

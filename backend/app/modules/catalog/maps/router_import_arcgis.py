@@ -133,6 +133,7 @@ async def import_arcgis_webmap_endpoint(
         center_lat=translation.center_lat,
         zoom=translation.zoom,
         bearing=translation.bearing,
+        bookmarks=translation.bookmarks,
     )
     if body.dry_run:
         if visibility == "public":

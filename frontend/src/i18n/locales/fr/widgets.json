@@ -72,7 +72,11 @@
       "label": "Sélecteur de catégories",
       "summary": "Filtrer par {{column}}",
       "all": "Tout",
-      "other": "Autres valeurs : {{value}}"
+      "other": "Autres valeurs : {{value}}",
+      "showMore_one": "Afficher {{count}} de plus",
+      "showMore_many": "Afficher {{count}} de plus",
+      "showMore_other": "Afficher {{count}} de plus",
+      "showFewer": "Afficher moins"
     },
     "image": {
       "label": "Image",

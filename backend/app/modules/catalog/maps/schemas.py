@@ -21,6 +21,7 @@ from pydantic import (
 from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 from app.modules.auth.schemas import GroupRef
+from app.modules.catalog.maps.bookmarks import MAX_MAP_BOOKMARKS, MapBookmark
 from app.modules.catalog.maps.dashboard import DashboardConfig, DashboardConfigInput
 from app.modules.catalog.maps.filter_grammar import bounded_filter
 from app.modules.catalog.maps.publish_vocabulary import (
@@ -868,6 +869,11 @@ class MapCreate(BaseModel):
         default=None,
         description="Curated map-level basemap appearance preferences",
     )
+    bookmarks: list[MapBookmark] | None = Field(
+        default=None,
+        max_length=MAX_MAP_BOOKMARKS,
+        description=f"Named areas, in display order (max {MAX_MAP_BOOKMARKS})",
+    )
 
     @field_validator("name", "description", "notes", mode="before")
     @classmethod
@@ -922,6 +928,14 @@ class MapUpdate(BaseModel):
     dashboard_config: DashboardConfigInput | None = Field(
         default=None,
         description="The dashboard. Omit to keep it; null removes the widgets you see.",
+    )
+    bookmarks: list[MapBookmark] | None = Field(
+        default=None,
+        max_length=MAX_MAP_BOOKMARKS,
+        description=(
+            f"Named areas, in display order (max {MAX_MAP_BOOKMARKS}). Omit to "
+            "keep them; null or an empty list removes them."
+        ),
     )
     visibility: MapVisibility | None = Field(
         default=None,
@@ -1084,6 +1098,7 @@ class MapResponse(BaseModel):
     basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
     dashboard_config: DashboardConfig | None = None
+    bookmarks: list[MapBookmark] = Field(default_factory=list)
     visibility: ReadMapVisibility
     thumbnail_url: str | None = None
     og_image_url: str | None = None
@@ -1440,6 +1455,7 @@ class SharedMapResponse(BaseModel):
     basemap_config: BasemapConfig | None = None
     terrain_config: TerrainConfig | None = None
     dashboard_config: DashboardConfig | None = None
+    bookmarks: list[MapBookmark] = Field(default_factory=list)
     has_non_public_layers: bool = False
     legend_title: str | None = None
     layers: list[SharedLayerResponse]

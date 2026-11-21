@@ -98,6 +98,11 @@ class Map(Base):
         JSONB, nullable=True, default=None
     )
 
+    # Named areas in display order, validated by maps/bookmarks.py (null = none)
+    bookmarks: Mapped[list[dict] | None] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
+
     # Whether viewers offer the layers' attribute tables; embed tokens may page
     # rows only while it is on.
     show_attribute_table: Mapped[bool] = mapped_column(

@@ -106,9 +106,10 @@ class FakeFiles:
         for layer in seen.json()["layers"]:
             name = layer["layer_name"]
             self.helper._serve_dataset(dataset_id(name))
-            self.helper.fields.setdefault(dataset_id(name), {})["title"] = layer[
-                "title"
-            ]
+            # A fan-out sends no visibility, and a fresh import has no writer.
+            self.helper.fields.setdefault(dataset_id(name), {}).update(
+                title=layer["title"], updated_by=None
+            )
             child = _uuid("0e", name)
             # The dataset appears when the queued job runs, as on the server.
             self.fake.routes[f"GET /jobs/{child}"] = lambda s, c=child, n=name: (
@@ -867,6 +868,56 @@ def test_a_file_resume_keeps_an_edited_title_and_takes_a_rename(
         assert _state(plan_file)["items"][D3]["notes"].count(note) == 1
     else:
         assert title.startswith("Renamed")
+
+
+@pytest.mark.parametrize("change", ["edit", "plan"])
+@pytest.mark.parametrize("layer_names", [None, ["Roads", "Rivers"]])
+def test_a_file_resume_keeps_an_edited_visibility_and_takes_the_plans(
+    runner, tmp_path, geolens, portal, layer_names, change
+):
+    """The visibility a file's commit, or the write after its fan-out, gave each dataset is recorded, so a resume keeps one edited after the pass failed and still gives an unedited dataset the plan's new visibility."""
+    files = FakeFiles(geolens, layer_names=layer_names)
+    serve = files.helper._serve_dataset
+
+    def serve_then_break_keywords(dataset):
+        serve(dataset)
+        broken = (500, _problem(500, "database unavailable"))
+        geolens.routes[f"POST /records/{dataset}/keywords/"] = broken
+
+    files.helper._serve_dataset = serve_then_break_keywords
+    plan_file = _plan(tmp_path, tags=["inspections"])
+    assert _migrate(runner, plan_file, "--only", D3)[0].exit_code == 1
+    entry = _state(plan_file)["items"][D3]
+    datasets = entry["dataset_ids"]
+    assert entry["visibility"] == dict.fromkeys(datasets, "public")
+    if change == "edit":
+        files.helper.fields[datasets[0]].update(
+            visibility="internal",
+            updated_at="2026-10-02T00:00:00Z",
+            updated_by=layers.OPERATOR,
+        )
+    else:
+        plan = json.loads(plan_file.read_text())
+        target = next(i for i in plan["items"] if i["id"] == D3)["target"]
+        target["visibility"] = "private"
+        plan_file.write_text(json.dumps(plan))
+    files.helper._serve_dataset = serve
+    for dataset in datasets:
+        serve(dataset)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 0, result.output
+    entry = _state(plan_file)["items"][D3]
+    note = layers.session.kept_visibility_note(datasets[0])
+    if change == "edit":
+        assert files.helper.fields[datasets[0]]["visibility"] == "internal"
+        assert entry["notes"].count(note) == 1
+        assert entry["visibility"] == dict.fromkeys(datasets, "public")
+    else:
+        held = {files.helper.fields[d]["visibility"] for d in datasets}
+        assert held == {"private"} and note not in entry["notes"]
+        assert entry["visibility"] == dict.fromkeys(datasets, "private")
 
 
 def test_a_recovered_file_job_keeps_a_title_edited_after_its_lost_commit(

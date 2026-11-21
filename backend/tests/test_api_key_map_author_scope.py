@@ -60,7 +60,7 @@ NOT_ITS_MAP = {
 # except at its default in MAP_AUTHOR_DEFAULTS_ACCEPTED bodies. With
 # MAP_AUTHOR_SETTABLE_FIELDS this covers each model exactly.
 _REFUSED_FIELDS: dict[type, set[str]] = {
-    MapCreate: {"notes", "terrain_config"},
+    MapCreate: {"notes", "terrain_config", "bookmarks"},
     MapUpdate: {
         "name",
         "description",
@@ -69,6 +69,7 @@ _REFUSED_FIELDS: dict[type, set[str]] = {
         "show_attribute_table",
         "terrain_config",
         "dashboard_config",
+        "bookmarks",
         "visibility",
         "layers",
         "plugins",

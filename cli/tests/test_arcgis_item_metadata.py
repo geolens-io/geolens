@@ -191,11 +191,12 @@ def test_links_in_every_field_keep_their_destination():
 # with no baseline at all.
 LEGACY, ABSENT, PRESENT = None, {}, {"license": "old"}
 FIELD_CASES = [
-    # no baseline: every equal or empty value is ours, anything else is rewritten
+    # no baseline: an equal or empty value is ours, and anything else may be an
+    # edit made before this first write, so it is kept
     (LEGACY, "", "new", "write", True),
     (LEGACY, "new", "new", "same", True),
-    (LEGACY, "old", "new", "write", True),
-    (LEGACY, "edit", "new", "write", True),
+    (LEGACY, "old", "new", "keep", False),
+    (LEGACY, "edit", "new", "keep", False),
     # a baseline without this field: only an empty field is ours to fill
     (ABSENT, "", "new", "write", True),
     (ABSENT, "new", "new", "same", False),

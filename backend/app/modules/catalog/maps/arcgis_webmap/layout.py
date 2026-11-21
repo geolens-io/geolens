@@ -79,8 +79,8 @@ def _to_meters(x: float, y: float, wkid: Any) -> tuple[float, float] | None:
     return None
 
 
-def extent_to_view(extent: Any) -> tuple[float, float, float] | None:
-    """``(center_lng, center_lat, zoom)`` fitting an extent in a 1280 x 800 viewport."""
+def _extent_corners(extent: Any) -> tuple[list[float], int] | None:
+    """``([xmin, ymin, xmax, ymax], wkid)`` of a usable extent, else None."""
     if not isinstance(extent, dict):
         return None
     ref = extent.get("spatialReference")
@@ -92,6 +92,52 @@ def extent_to_view(extent: Any) -> tuple[float, float, float] | None:
         return None
     if any(abs(v) > 1e9 for v in raw):  # type: ignore[arg-type]
         return None
+    return raw, wkid  # type: ignore[return-value]
+
+
+def _wrap_lng(lng: float) -> float:
+    return lng if -180 <= lng <= 180 else (lng + 180) % 360 - 180
+
+
+def extent_to_bbox(extent: Any) -> list[float] | None:
+    """``[west, south, east, north]`` in degrees for a 4326 or Web Mercator extent.
+
+    Latitudes are clamped; longitudes are wrapped, so a box past the antimeridian
+    comes back with west greater than east, and one spanning the world is
+    ``[-180, 180]``.
+    """
+    corners = _extent_corners(extent)
+    if corners is None:
+        return None
+    (xmin, ymin, xmax, ymax), wkid = corners
+    xmin, xmax = sorted((xmin, xmax))
+    ymin, ymax = sorted((ymin, ymax))
+    if wkid in _WEB_MERCATOR_WKIDS:
+        scale = 360 / _WORLD_METERS
+        xmin, xmax = xmin * scale, xmax * scale
+        ymin, ymax = (
+            math.degrees(
+                2 * math.atan(math.exp(y / (_WORLD_METERS / (2 * math.pi))))
+                - math.pi / 2
+            )
+            for y in (ymin, ymax)
+        )
+    elif wkid != 4326:
+        return None
+    if xmax - xmin >= 360:
+        west, east = -180.0, 180.0
+    else:
+        west, east = _wrap_lng(xmin), _wrap_lng(xmax)
+    south, north = (min(90.0, max(-90.0, y)) for y in (ymin, ymax))
+    return [round(v, 6) for v in (west, south, east, north)]
+
+
+def extent_to_view(extent: Any) -> tuple[float, float, float] | None:
+    """``(center_lng, center_lat, zoom)`` fitting an extent in a 1280 x 800 viewport."""
+    corners = _extent_corners(extent)
+    if corners is None:
+        return None
+    raw, wkid = corners
     low = _to_meters(raw[0], raw[1], wkid)  # type: ignore[arg-type]
     high = _to_meters(raw[2], raw[3], wkid)  # type: ignore[arg-type]
     if low is None or high is None:
