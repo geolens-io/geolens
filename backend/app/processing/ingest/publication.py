@@ -48,6 +48,7 @@ from app.platform.jobs.models import (
     ADMITTED_CAPABILITY_METADATA_KEY,
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
     ADMITTED_RAW_SOURCE_METADATA_KEY,
+    MANIFEST_VERSION_METADATA_KEY,
     IngestJob,
 )
 from app.platform.refresh.service import (
@@ -654,8 +655,9 @@ async def _no_longer_admin_to_publish(
     session: AsyncSession, job: IngestJob, roles: set[str]
 ) -> bool:
     """A job only an admin could queue, whose submitter is no longer one: it
-    reads a raw seed source, or makes data public while the restricted-public
-    setting is still on."""
+    reads a raw seed source, or, for a version 1 job, makes data public while
+    the restricted-public setting is still on. A version 2 job's publication
+    is judged again where it is written, which can fall back to internal."""
     from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
 
     metadata = job.user_metadata or {}
@@ -663,7 +665,9 @@ async def _no_longer_admin_to_publish(
         return False
     if metadata.get(ADMITTED_RAW_SOURCE_METADATA_KEY):
         return True
-    if not metadata.get(ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY):
+    if not metadata.get(ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY) or (
+        metadata.get(MANIFEST_VERSION_METADATA_KEY) == "2"
+    ):
         return False
     return bool(await RESTRICT_PUBLIC_VISIBILITY.get(session))
 

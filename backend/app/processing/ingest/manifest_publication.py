@@ -29,6 +29,7 @@ from app.platform.record_audience import (
     PublicationRefused,
     effective_publication,
     may_set_public,
+    settled_visibility,
 )
 from app.platform.request_credential import is_publish_key, stamp_publish_key
 from app.processing.ingest.manifest_dataset_fields import (
@@ -234,10 +235,11 @@ async def settle_stored_publication(
     committed now, holding its rows (None for a create), with its submitter's
     standing and the restriction as they are now.
 
-    The stored result applies when the rules still allow it, or when they
-    now allow more. A refused public falls back to internal by the stored
-    fallback, with an A020 job warning. Otherwise raises ``WideningRefused``.
-    Returns the metadata to publish from.
+    The publish writes the narrower of the stored and the recomputed
+    visibility (``settled_visibility``). A recompute whose refused public
+    fell back to internal by the stored fallback adds an A020 job warning; a
+    refused one raises ``WideningRefused``. Returns the metadata to publish
+    from.
     """
     from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
     from app.processing.ingest.publication import WideningRefused
@@ -269,12 +271,16 @@ async def settle_stored_publication(
         )
     except PublicationRefused:
         raise WideningRefused from None
-    if result.fell_back_for is None or result.visibility == user_metadata.get(
-        "visibility"
-    ):
-        return user_metadata
-    append_job_warning(
-        job,
-        {"kind": PUBLIC_FALLBACK_KIND, "details": {"reason": result.fell_back_for}},
-    )
-    return {**user_metadata, "visibility": result.visibility}
+    stored = user_metadata.get("visibility")
+    if result.fell_back_for is not None and result.visibility != stored:
+        append_job_warning(
+            job,
+            {"kind": PUBLIC_FALLBACK_KIND, "details": {"reason": result.fell_back_for}},
+        )
+    settled = {
+        key: value for key, value in user_metadata.items() if key != "visibility"
+    }
+    visibility = settled_visibility(stored, result.visibility, now and now[0])
+    if visibility is not None:
+        settled["visibility"] = visibility
+    return settled

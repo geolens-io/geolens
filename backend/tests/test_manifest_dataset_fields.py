@@ -1601,6 +1601,110 @@ async def test_the_publish_judges_a_named_public_by_the_restriction_as_it_is_the
     assert await _record(test_db_session, dataset_id) == ("internal", "published")
 
 
+async def test_the_publish_keeps_a_dataset_made_private_after_a_keys_fallback(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    """The stored fallback is internal, but the owner made the dataset
+    private before the publish: the narrower of the two is written."""
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "audience-key-fallback-then-private"
+    dataset_id = await _manifest_dataset(test_db_session, user, key, "public", "draft")
+    with _publish_key(test_db_session):
+        result, task = await _queue_update(
+            test_db_session,
+            user,
+            await _uploaded(client, admin_auth_header, key),
+            public_fallback="internal",
+        )
+    assert result.action == "update", result
+    assert [(m.code, m.severity) for m in result.messages] == [("A020", "warning")]
+
+    await _set_record(test_db_session, dataset_id, "private", "draft")
+    version_before = await test_db_session.scalar(
+        select(Dataset.current_version).where(Dataset.id == dataset_id)
+    )
+    job = await _run_update(test_db_session, result, task)
+
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("private", "published")
+    version_after = await test_db_session.scalar(
+        select(Dataset.current_version)
+        .where(Dataset.id == dataset_id)
+        .execution_options(populate_existing=True)
+    )
+    assert version_after != version_before
+
+
+@pytest.mark.parametrize(
+    "version,fallback,ending",
+    [
+        ("2", "internal", "internal"),
+        ("2", None, None),
+        ("1", None, None),
+    ],
+    ids=["v2-fallback", "v2-no-fallback", "v1"],
+)
+async def test_an_update_by_an_admin_demoted_before_it_publishes(
+    client,
+    test_db_session,
+    admin_auth_header,
+    clean_tables,
+    monkeypatch,
+    version,
+    fallback,
+    ending,
+):
+    """Admitted public as an admin while public was restricted, no longer an
+    admin when the replacement publishes. Version 2 judges the publication
+    again, which can fall back; version 1 refuses the replacement."""
+    import app.core.persistent_config as pc
+    from tests.write_recheck_races import _commit, _move_to_role
+
+    class _On:
+        async def get(self, _db):
+            return True
+
+        get_uncached = get
+
+    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", _On())
+    _stage_fixture()
+    headers, admin_id = await create_user(client, admin_auth_header, "admin")
+    admin = await test_db_session.get(User, uuid.UUID(admin_id))
+    key = f"audience-demoted-update-{version}-{fallback or 'none'}"
+    dataset_id = await _manifest_dataset(
+        test_db_session, admin, key, "private", "draft"
+    )
+    if version == "2":
+        entry = await _uploaded(client, headers, key, visibility="public")
+        extra = {} if fallback is None else {"public_fallback": fallback}
+    else:
+        entry, extra = _entry(key, title="Republished"), {"version": "1"}
+    result, task = await _queue_update(test_db_session, admin, entry, **extra)
+    assert result.action == "update", result
+    queued = await test_db_session.get(IngestJob, result.job_id)
+    assert queued.user_metadata["admitted_public_visibility"] is True
+    # Only the public admission is judged here, not the admin-only local
+    # source version 1 reads from.
+    queued.user_metadata = {
+        k: v for k, v in queued.user_metadata.items() if k != "admitted_raw_source"
+    }
+    await test_db_session.commit()
+
+    await _commit(_move_to_role(admin.id, "editor"))
+    job = await _run_update(test_db_session, result, task)
+
+    if ending is None:
+        assert job.status == "failed"
+        assert await _record(test_db_session, dataset_id) == ("private", "draft")
+        return
+    assert (job.status, job.error_message) == ("complete", None)
+    assert job.user_metadata["warnings"] == [
+        {"kind": "manifest_public_fallback", "details": {"reason": "restriction"}}
+    ]
+    assert await _record(test_db_session, dataset_id) == (ending, "published")
+
+
 async def _in_flight(session, user, entry: dict, **metadata) -> IngestJob:
     """A running job of ``entry``'s key, as an earlier apply left it."""
     job = IngestJob(

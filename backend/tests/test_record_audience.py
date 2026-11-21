@@ -9,6 +9,7 @@ from app.platform.record_audience import (
     PublicationRefused,
     effective_publication,
     may_set_public,
+    settled_visibility,
 )
 
 # (requested, status, fallback, may_set_public, is_key, now) -> Publication or
@@ -152,3 +153,46 @@ def test_may_set_public(is_key, is_admin, restricted, allowed):
         may_set_public(is_key=is_key, is_admin=is_admin, restricted=restricted)
         is allowed
     )
+
+
+@pytest.mark.parametrize(
+    "stored,recomputed,now,written",
+    [
+        # A key's stored fallback, the dataset made private since.
+        ("internal", None, "private", None),
+        ("internal", None, "internal", None),
+        # The key's fallback again, the dataset a public draft.
+        ("internal", "internal", "public", "internal"),
+        # Named public, fell back while restricted; the restriction lifted.
+        ("internal", "public", "private", "internal"),
+        ("internal", "public", "public", "internal"),
+        # Admitted public as an admin, demoted since: the recompute falls back.
+        ("public", "internal", "private", "internal"),
+        # Creates.
+        ("internal", "public", None, "internal"),
+        ("public", "internal", None, "internal"),
+        ("private", "private", None, "private"),
+        (None, None, None, "private"),
+        # The same decision.
+        ("restricted", "restricted", "private", "restricted"),
+        (None, None, "internal", None),
+        ("public", "public", "internal", "public"),
+    ],
+    ids=[
+        "key-fallback-now-private",
+        "key-fallback-now-internal",
+        "key-fallback-again",
+        "restriction-lifted-update-private",
+        "restriction-lifted-update-public",
+        "admin-demoted-update",
+        "restriction-lifted-create",
+        "admin-demoted-create",
+        "create-private",
+        "create-omitted",
+        "same-restricted",
+        "same-keep",
+        "same-public",
+    ],
+)
+def test_settled_visibility(stored, recomputed, now, written):
+    assert settled_visibility(stored, recomputed, now) == written

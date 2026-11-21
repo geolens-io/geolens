@@ -113,6 +113,26 @@ def effective_publication(
     return Publication(visibility, record_status, fell_back_for)
 
 
+def settled_visibility(
+    stored: str | None, recomputed: str | None, now: str | None
+) -> str | None:
+    """What a publish writes: the narrower of the visibility its job stored
+    and the one recomputed for the record as it is now.
+
+    None in ``stored`` or ``recomputed`` means the record's current
+    visibility ``now``, or private on a create (``now`` None). Returns None
+    when that is the record's current visibility, which the write keeps.
+    The recomputed target passed every rule against the record now, and a
+    narrower one passes them too.
+    """
+
+    def resolved(visibility: str | None) -> str:
+        return visibility or now or "private"
+
+    written = min(resolved(stored), resolved(recomputed), key=VISIBILITY_ORDER.index)
+    return None if written == now else written
+
+
 def _fall_back(public_fallback: str | None, refused_for: str) -> tuple[str, str]:
     if public_fallback == "internal":
         return "internal", refused_for
