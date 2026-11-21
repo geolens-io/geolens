@@ -542,3 +542,56 @@ async def test_a_held_v1_run_keeps_its_live_version_key(test_db_session, clean_t
     )
     assert isinstance(verification["live_version"], int)
     assert "manifest_v2_live_version" not in verification
+
+
+async def test_an_accept_whose_task_lookup_fails_gives_the_acceptance_back(
+    test_db_session, clean_tables
+):
+    """The lookup runs inside the dispatch guard, which fails the job and its
+    run; the held run can then be accepted again."""
+    from unittest.mock import MagicMock
+
+    held = await _hold(test_db_session, record=("private", "draft"), **_v2())
+    dataset = (
+        await test_db_session.execute(
+            select(Dataset)
+            .options(selectinload(Dataset.record))
+            .where(Dataset.id == held.dataset_id)
+        )
+    ).scalar_one()
+    port = MagicMock()
+    port.manifest_v2_reupload_task.side_effect = RuntimeError("no task registry")
+    with (
+        patch(
+            "app.modules.catalog.datasets.api.refresh_acceptance.get_catalog_port",
+            return_value=port,
+        ),
+        pytest.raises(HTTPException),
+    ):
+        await dispatch_upload_acceptance(
+            test_db_session,
+            dataset=dataset,
+            dataset_id=held.dataset_id,
+            user=held.user,
+            run_id=held.run_id,
+            token=None,
+        )
+
+    failed = await test_db_session.scalar(
+        select(IngestJob.status)
+        .where(
+            IngestJob.user_metadata["accepted_refresh_run_id"].astext
+            == str(held.run_id)
+        )
+        .execution_options(populate_existing=True)
+    )
+    assert failed == "failed"
+    verification = await test_db_session.scalar(
+        select(DatasetRefreshRun.verification)
+        .where(DatasetRefreshRun.id == held.run_id)
+        .execution_options(populate_existing=True)
+    )
+    assert "acceptance_consumed_by_run_id" not in verification
+
+    job = await _accept(test_db_session, held, publish_key=False)
+    assert (job.status, job.error_message) == ("complete", None)
