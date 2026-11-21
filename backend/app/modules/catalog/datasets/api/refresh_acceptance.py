@@ -45,7 +45,7 @@ from app.platform.record_audience import (
     Publication,
     PublicationRefused,
     effective_publication,
-    settled_visibility,
+    accepted_visibility,
 )
 from app.platform.request_credential import (
     api_key_scope_refusal,
@@ -324,7 +324,7 @@ async def _accepted_publication(
         ) from refused
     return replace(
         result,
-        visibility=settled_visibility(
+        visibility=accepted_visibility(
             stored.get("visibility"), result.visibility, dataset.record.visibility
         ),
     )

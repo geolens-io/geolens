@@ -66,9 +66,10 @@ async def _hold(session, *, record: tuple[str, str], **held_metadata):
     return held
 
 
-async def _accept(session, held, *, publish_key: bool) -> IngestJob:
-    """Accept the held run, as a publish key or not, and run its worker.
-    Raises what the accept refuses with."""
+async def _accept(session, held, *, publish_key: bool, before_worker=None) -> IngestJob:
+    """Accept the held run, as a publish key or not, and run its worker,
+    awaiting ``before_worker()`` in between. Raises what the accept refuses
+    with."""
     dataset = (
         await session.execute(
             select(Dataset)
@@ -97,6 +98,8 @@ async def _accept(session, held, *, publish_key: bool) -> IngestJob:
             )
     finally:
         session.info.pop(_SESSION_KEY, None)
+    if before_worker is not None:
+        await before_worker()
     task = SimpleNamespace(defer_async=SimpleNamespace(await_args=defer.await_args))
     await _run_worker(task)
     return (
@@ -543,6 +546,40 @@ async def test_an_accept_never_widens_past_what_the_apply_stored(
     job = await _accept(test_db_session, held, publish_key=False)
 
     assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, held.dataset_id) == ("internal", "published")
+
+
+async def test_an_accept_at_the_current_level_keeps_it_when_the_dataset_widens(
+    test_db_session, clean_tables
+):
+    """Stored internal after a public fell back, accepted while the dataset
+    is internal; the dataset is made public before the run publishes, with
+    public allowed. The run publishes the apply's internal."""
+    held = await _hold(
+        test_db_session,
+        record=("internal", "published"),
+        **_v2(
+            visibility="internal",
+            manifest_requested_visibility="public",
+            manifest_public_fallback="internal",
+        ),
+    )
+
+    async def made_public():
+        record_id = select(Dataset.record_id).where(Dataset.id == held.dataset_id)
+        await test_db_session.execute(
+            update(Record)
+            .where(Record.id == record_id.scalar_subquery())
+            .values(visibility="public")
+        )
+        await test_db_session.commit()
+
+    job = await _accept(
+        test_db_session, held, publish_key=False, before_worker=made_public
+    )
+
+    assert (job.status, job.error_message) == ("complete", None)
+    assert job.user_metadata["visibility"] == "internal"
     assert await _record(test_db_session, held.dataset_id) == ("internal", "published")
 
 

@@ -7,6 +7,7 @@ import pytest
 from app.platform.record_audience import (
     Publication,
     PublicationRefused,
+    accepted_visibility,
     effective_publication,
     may_set_public,
     settled_visibility,
@@ -196,3 +197,32 @@ def test_may_set_public(is_key, is_admin, restricted, allowed):
 )
 def test_settled_visibility(stored, recomputed, now, written):
     assert settled_visibility(stored, recomputed, now) == written
+
+
+@pytest.mark.parametrize(
+    ("stored", "recomputed", "now", "kept"),
+    [
+        # Fell back to internal; accepted while the dataset is internal.
+        ("internal", "public", "internal", "internal"),
+        ("internal", "internal", "internal", "internal"),
+        # Visibility kept; a key's accept falls back over a public draft.
+        (None, "internal", "public", "internal"),
+        # Named a level; the recompute keeps the record's.
+        ("internal", None, "private", "private"),
+        ("internal", None, "public", "internal"),
+        # Visibility kept and nothing fell back: whatever the record is then.
+        (None, None, "public", None),
+        (None, None, "private", None),
+    ],
+    ids=[
+        "fallback-at-current-level",
+        "same-at-current-level",
+        "omitted-key-fallback",
+        "named-record-narrower",
+        "named-record-wider",
+        "omitted-public",
+        "omitted-private",
+    ],
+)
+def test_accepted_visibility(stored, recomputed, now, kept):
+    assert accepted_visibility(stored, recomputed, now) == kept

@@ -126,11 +126,31 @@ def settled_visibility(
     narrower one passes them too.
     """
 
+    written = _narrower(stored, recomputed, now)
+    return None if written == now else written
+
+
+def accepted_visibility(
+    stored: str | None, recomputed: str | None, now: str | None
+) -> str | None:
+    """What an accepted run stores for its publish to settle against: the
+    narrower of the visibility the apply stored and the one recomputed for
+    the accepter, resolved as ``settled_visibility`` does.
+
+    Explicit even when it is the record's current visibility, so a record
+    widened before the publish can't lift it. None only when both are None,
+    which keeps whatever the record is by then.
+    """
+    if stored is None and recomputed is None:
+        return None
+    return _narrower(stored, recomputed, now)
+
+
+def _narrower(stored: str | None, recomputed: str | None, now: str | None) -> str:
     def resolved(visibility: str | None) -> str:
         return visibility or now or "private"
 
-    written = min(resolved(stored), resolved(recomputed), key=VISIBILITY_ORDER.index)
-    return None if written == now else written
+    return min(resolved(stored), resolved(recomputed), key=VISIBILITY_ORDER.index)
 
 
 def _fall_back(public_fallback: str | None, refused_for: str) -> tuple[str, str]:
