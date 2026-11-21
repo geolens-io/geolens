@@ -90,8 +90,12 @@ test.describe('Map bookmarks', () => {
               { timeout: 10_000 },
             )
             .toBeLessThan(0.001);
+          // The reader can open on the bookmark's center, so the center matches
+          // before the jump has moved anything. The zoom settling is the jump.
+          await expect
+            .poll(async () => Math.abs((await readMapCamera(reader)).zoom - first.zoom), { timeout: 10_000 })
+            .toBeLessThan(0.5);
           const after = await readMapCamera(reader);
-          expect(Math.abs(after.zoom - first.zoom)).toBeLessThan(1);
           expect(Math.abs(after.zoom - before.zoom) + Math.abs(after.lng - before.lng)).toBeGreaterThan(0);
         } finally {
           await reader.context().close();

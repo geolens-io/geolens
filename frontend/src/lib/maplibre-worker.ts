@@ -13,7 +13,7 @@ import { tileRetryProtocol } from './tile-retry-protocol';
  * the worker as a hashed asset served from the app's own origin.
  *
  * This deliberately does not live in `main.tsx`: importing maplibre from the app
- * entry puts `map-vendor` (~295 kB gzip) in the eager entry graph, so every
+ * entry puts `map-vendor` (~345 kB gzip) in the eager entry graph, so every
  * login, admin and search page would download the mapping bundle, defeating the
  * lazy-route split in `App.tsx`. Import this module for its side effect from
  * each surface that constructs a map.

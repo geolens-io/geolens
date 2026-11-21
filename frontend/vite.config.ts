@@ -105,8 +105,17 @@ interface LicenseEntry {
   text?: string
 }
 
-function shippedLicenseText(name: string): string {
-  const root = path.resolve(__dirname, 'node_modules', name)
+// maplibre-gl publishes a dist that already contains its dependencies, so the
+// bundler never sees them and build.license can't list them.
+const prebundled = ['maplibre-gl']
+
+function packageRoot(name: string, parent?: string): string {
+  const nested = parent && path.resolve(__dirname, 'node_modules', parent, 'node_modules', name)
+  return nested && fs.existsSync(nested) ? nested : path.resolve(__dirname, 'node_modules', name)
+}
+
+function shippedLicenseText(name: string, parent?: string): string {
+  const root = packageRoot(name, parent)
   const file = fs.existsSync(root) && fs.readdirSync(root).find((f) => /^licen[cs]e/i.test(f))
   const source = file ? path.join(root, file) : path.resolve(__dirname, 'licenses', `${name}.txt`)
   return fs.existsSync(source) ? fs.readFileSync(source, 'utf-8').trim() : ''
@@ -132,6 +141,24 @@ const thirdPartyLicenses: Plugin = {
         entries.push({ name, version: pkg.version, identifier: pkg.license })
       }
     }
+    for (const parent of prebundled) {
+      const { dependencies = {} } = JSON.parse(
+        fs.readFileSync(path.join(packageRoot(parent), 'package.json'), 'utf-8'),
+      )
+      for (const name of Object.keys(dependencies)) {
+        if (entries.some((e) => e.name === name)) continue
+        const pkg = JSON.parse(
+          fs.readFileSync(path.join(packageRoot(name, parent), 'package.json'), 'utf-8'),
+        )
+        entries.push({
+          name,
+          version: pkg.version,
+          identifier: pkg.license,
+          text: shippedLicenseText(name, parent),
+        })
+      }
+    }
+    entries.sort((x, y) => x.name.localeCompare(y.name))
     const missing: string[] = []
     const sections = entries.map(({ name, version, identifier, text }) => {
       const body = text?.trim() || shippedLicenseText(name)
