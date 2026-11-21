@@ -1308,10 +1308,10 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 # Full paths cover oversized modules beyond the router glob.
 _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
-    # apply workflow, including the settlement of a contended or refused admission
-    # and the records of an admin's raw seed source and restricted public intent,
-    # and the version 2 entry's visibility, collection and coded messages.
-    "backend/app/processing/ingest/manifest_service.py": 1310,
+    # apply workflow, including the settlement of a contended or refused admission,
+    # the records of an admin's raw seed source, restricted public intent and a
+    # publish key, and the gates a version 2 entry's visibility passes.
+    "backend/app/processing/ingest/manifest_service.py": 1298,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,

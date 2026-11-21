@@ -914,7 +914,6 @@ async def _finalize_ingest(ctx: IngestContext):
     # The manifest's catalog metadata, which create_dataset has no argument
     # for, in the same transaction as the record it annotates.
     await apply_manifest_record_metadata(session, dataset.record, user_metadata)
-    await apply_dataset_fields(session, job, dataset, user_metadata)
 
     # System-managed origin pointer, in the same transaction that creates the
     # dataset. Service ingest supplies the enriched URL through ctx.source_url;
@@ -945,6 +944,7 @@ async def _finalize_ingest(ctx: IngestContext):
         schema=_schema,
     )
     dataset.quality_detail = quality_score
+    await apply_dataset_fields(session, job, dataset, user_metadata)
 
     # Complete the job and commit dataset + job atomically. The attempt
     # predicate is the worker lease fence: if a stale worker resumes after a

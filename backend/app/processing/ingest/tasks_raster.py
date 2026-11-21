@@ -429,7 +429,6 @@ async def ingest_raster(
             # The manifest's credit line, for both branches: neither
             # create_*_dataset takes the field.
             await apply_manifest_record_metadata(session, record, um)
-            await apply_dataset_fields(session, job, dataset, um)
 
             # 9b. Set temporal fields on Record.
             parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(
@@ -569,6 +568,8 @@ async def ingest_raster(
                 size_bytes=archived_bytes,
                 source_filename=source_filename,
             )
+
+            await apply_dataset_fields(session, job, dataset, um)
 
             # 12. Finalize job. ``rows_processed`` stays NULL: a raster has no
             # rows.

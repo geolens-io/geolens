@@ -65,6 +65,7 @@ BOOKKEEPING = {
     "start_data_revision": 3,
     "admitted_capability": "upload",
     "admitted_public_visibility": True,
+    "admitted_publish_key": True,
     "admitted_raw_source": True,
     "archive_error": "Could not archive staging/job/original.tif",
     "archive_pending": True,

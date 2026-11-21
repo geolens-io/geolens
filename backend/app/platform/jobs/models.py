@@ -129,6 +129,10 @@ ADMITTED_CAPABILITY_METADATA_KEY = "admitted_capability"
 # public, which the publish checks they still are.
 ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY = "admitted_public_visibility"
 
+# Set when a publish key queued a manifest replacement, which the publish holds
+# to what a publish key may change on the dataset as it is then.
+ADMITTED_PUBLISH_KEY_METADATA_KEY = "admitted_publish_key"
+
 # Set when the door admitted an admin-only raw seed source, a local staging
 # path or a same-bucket object key, which the publish checks they still are.
 ADMITTED_RAW_SOURCE_METADATA_KEY = "admitted_raw_source"

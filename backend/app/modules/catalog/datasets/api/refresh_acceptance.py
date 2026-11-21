@@ -27,6 +27,7 @@ from app.platform.jobs.defer_guard import (
 from app.platform.jobs.models import (
     ADMITTED_CAPABILITY_METADATA_KEY,
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
+    ADMITTED_PUBLISH_KEY_METADATA_KEY,
     ADMITTED_RAW_SOURCE_METADATA_KEY,
     IngestJob,
 )
@@ -196,11 +197,13 @@ def _upload_unavailable(message: str) -> HTTPException:
     )
 
 
-# The blocked job's admin-only admissions follow it into the accepted upload.
+# The blocked job's admissions, and a publish key's limits on what it widens,
+# follow it into the accepted upload.
 _CARRIED_KEYS = frozenset(
     {
         "srid_override",
         ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
+        ADMITTED_PUBLISH_KEY_METADATA_KEY,
         ADMITTED_RAW_SOURCE_METADATA_KEY,
     }
 )

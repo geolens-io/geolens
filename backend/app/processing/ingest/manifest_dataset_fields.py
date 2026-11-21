@@ -8,23 +8,31 @@ code.
 from __future__ import annotations
 
 import uuid
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
 
+from fastapi import HTTPException
 from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity, IdentityRole, IdentitySnapshot
 from app.platform.extensions import get_processing_port
 from app.platform.jobs.models import IngestJob
+from app.platform.record_audience import opens_to_anonymous, publish_key_widening
+from app.platform.request_credential import is_publish_key
 from app.processing.ingest.manifest_schemas import (
     MAX_MANIFEST_ATTRIBUTES,
+    ManifestApplyEntryResult,
     ManifestApplyRequest,
     ManifestAttribute,
     ManifestDataset,
     ManifestMessage,
 )
-from app.processing.ingest.manifest_sources import ManifestSourceError
+from app.processing.ingest.manifest_sources import (
+    ManifestSourceError,
+    publication_to_catalog_fields,
+)
 
 import structlog
 from sqlalchemy import text
@@ -103,11 +111,39 @@ class ManifestEntryFields:
             return
         raise ManifestEntryRefused([_public_restricted(dataset, "error")])
 
-    def report_on(self, result: Any) -> None:
-        """Give the entry's result its messages. A skip or a held run changes
-        nothing, so it has none to add."""
-        added = self.messages if result.action in ("create", "update") else []
-        result.messages = [*(result.messages or []), *added]
+    async def judge_update(
+        self,
+        db: AsyncSession,
+        user: Identity,
+        dataset: ManifestDataset,
+        existing: Any,
+        public_gate: Callable[..., Awaitable[Any]],
+    ) -> None:
+        """Judge an update by the audience it leaves the dataset with.
+
+        An omitted visibility keeps the dataset's, so publishing a public
+        draft opens it to anonymous readers without the entry naming
+        ``public``: that goes through ``public_gate`` as if it had, and is
+        error A020 when refused. A publish key is held to what it may change
+        through the metadata edit. The publish judges both again, holding the
+        dataset's rows.
+        """
+        record = existing.record
+        await db.refresh(record, attribute_names=["visibility", "record_status"])
+        _, record_status = publication_to_catalog_fields(dataset.publication)
+        now = (record.visibility, record.record_status)
+        change = {"visibility": self.visibility, "record_status": record_status}
+        if self.visibility is None and opens_to_anonymous(*now, **change):
+            try:
+                await public_gate(db, user, "public")
+            except HTTPException as exc:
+                if exc.status_code != 403:
+                    raise
+                raise ManifestEntryRefused(
+                    [_public_restricted(dataset, "error")]
+                ) from exc
+        if is_publish_key(db) and (refusal := publish_key_widening(*now, **change)):
+            raise ManifestSourceError(refusal)
 
     def note_edits_since_publish(
         self, dataset: ManifestDataset, completed_job: Any, existing: Any
@@ -134,6 +170,17 @@ class ManifestEntryFields:
                     fix="Publish as new, or Continue.",
                 )
             )
+
+
+def report_entry(
+    fields: ManifestEntryFields | None, result: ManifestApplyEntryResult
+) -> ManifestApplyEntryResult:
+    """Give a version 2 entry's result its messages. A skip or a held run
+    changes nothing, so it has none to add."""
+    if fields is not None:
+        added = fields.messages if result.action in ("create", "update") else []
+        result.messages = [*(result.messages or []), *added]
+    return result
 
 
 async def resolve_entry_collection(
@@ -268,9 +315,11 @@ async def apply_dataset_fields(
     tile cache version the dataset has now.
 
     The ingest tail calls this inside the transaction that publishes the
-    dataset, after the submitter's write access to it was checked. A job no
-    manifest created changes nothing. Refusals and unmatched names become job
-    warnings; neither fails the job.
+    dataset, after the submitter's write access to it was checked, and after
+    any storage writes, since the collection row it takes is held to the
+    commit. A job no manifest created changes nothing. Refusals, a collection
+    that stays busy and unmatched names become job warnings; none fails the
+    job.
     """
     if not user_metadata or "manifest_key" not in user_metadata:
         return

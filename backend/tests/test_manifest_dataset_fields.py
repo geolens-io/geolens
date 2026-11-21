@@ -5,7 +5,9 @@ Requirements: the docker database must be running with migrations applied.
 
 from __future__ import annotations
 
+import hashlib
 import uuid
+from contextlib import contextmanager
 from datetime import datetime, timezone
 from pathlib import Path
 from shutil import copyfile
@@ -15,6 +17,7 @@ import pytest
 from fastapi import HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy import select, text, update
+from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.modules.auth.models import User
@@ -26,6 +29,11 @@ from app.modules.catalog.datasets.domain.models import (
 )
 from app.modules.catalog.datasets.domain.schemas import AttributeMetadataUpdate
 from app.platform.jobs.models import IngestJob
+from app.platform.request_credential import (
+    _SESSION_KEY,
+    ApiKeyCredential,
+    record_api_key,
+)
 from app.processing.ingest import manifest_dataset_fields as fields_module
 from app.processing.ingest.manifest_dataset_fields import (
     ManifestEntryFields,
@@ -42,6 +50,10 @@ from app.processing.ingest.manifest_sources import (
     classify_manifest_source,
     manifest_dataset_fingerprint,
     manifest_job_metadata,
+)
+from app.processing.ingest.publication import (
+    WideningRefused,
+    require_submitter_can_write,
 )
 from app.processing.ingest.tasks import reupload_file
 from app.processing.ingest.tasks_common import IngestContext, _finalize_ingest
@@ -476,6 +488,66 @@ async def test_the_tail_does_not_trust_a_collection_id_it_cannot_read(
     ]
 
 
+async def test_a_busy_collection_is_a033_and_keeps_the_tails_transaction(
+    test_db_session, clean_tables, monkeypatch
+):
+    import app.core.db as db_module
+
+    monkeypatch.setattr(
+        "app.modules.catalog.collections.manifest.WORKER_LOCK_TIMEOUT", "200ms"
+    )
+    user = await _admin(test_db_session)
+    collection = Collection(name="busy", created_by=user.id)
+    test_db_session.add(collection)
+    dataset = await create_dataset(test_db_session, created_by=user.id)
+    await test_db_session.commit()
+    # Uncommitted, as the tail's new dataset is.
+    job = await _job_for(
+        test_db_session, user, manifest_collection_id=str(collection.id)
+    )
+
+    async with db_module.async_session() as holder:
+        await holder.execute(
+            text("SELECT id FROM catalog.collections WHERE id = :id FOR UPDATE"),
+            {"id": collection.id},
+        )
+        await apply_dataset_fields(test_db_session, job, dataset, job.user_metadata)
+        await holder.rollback()
+    await test_db_session.commit()
+
+    assert [w["kind"] for w in job.user_metadata["warnings"]] == [
+        "manifest_collection_refused"
+    ]
+    assert await test_db_session.scalar(
+        select(IngestJob.id).where(IngestJob.id == job.id)
+    )
+    assert (
+        await test_db_session.scalar(
+            select(CollectionDataset).where(CollectionDataset.dataset_id == dataset.id)
+        )
+        is None
+    )
+
+
+def test_the_tails_add_the_collection_after_their_slow_work():
+    """The collection row is held from the add to the commit, so nothing slow
+    may run in between."""
+    import inspect
+
+    from app.processing.ingest.tasks_raster import ingest_raster
+
+    raster = inspect.getsource(ingest_raster)
+    added = raster.index("await apply_dataset_fields(")
+    assert raster.rindex("await storage.put(") < added
+    assert raster.index("await archive_lossy_original(") < added
+    assert added < raster.index("await ledger.complete(")
+
+    vector = inspect.getsource(_finalize_ingest)
+    added = vector.index("await apply_dataset_fields(")
+    assert vector.index("await compute_quality_score(") < added
+    assert added < vector.index("await ledger.complete(")
+
+
 async def test_attributes_are_saved_and_an_unknown_name_is_a092(
     test_db_session, clean_tables
 ):
@@ -669,8 +741,8 @@ async def _stage_rows(file_path, staging_table, db_conn_str, **kwargs):
         await session.commit()
 
 
-async def _update(session, user, entry: dict) -> tuple[IngestJob, uuid.UUID]:
-    """Apply a version 2 update of the key and run its worker."""
+async def _queue_update(session, user, entry: dict, **extra):
+    """Apply a version 2 update of the key; the result and its queued task."""
     task = MagicMock()
     task.defer_async = AsyncMock()
     port = MagicMock()
@@ -678,9 +750,23 @@ async def _update(session, user, entry: dict) -> tuple[IngestJob, uuid.UUID]:
     with patch(
         "app.processing.ingest.manifest_service.get_catalog_port", return_value=port
     ):
-        response = await apply_manifest(session, _request(entry), user, _http_request())
-    result = response.results[0]
+        response = await apply_manifest(
+            session, _request(entry, **extra), user, _http_request()
+        )
+    return response.results[0], task
+
+
+async def _update(session, user, entry: dict) -> tuple[IngestJob, uuid.UUID]:
+    """Apply a version 2 update of the key and run its worker."""
+    result, task = await _queue_update(session, user, entry)
     assert result.action == "update", result
+    job = await _run_update(session, result, task)
+    assert (job.status, job.error_message) == ("complete", None)
+    return job, result.dataset_id
+
+
+async def _run_update(session, result, task) -> IngestJob:
+    """Run the reupload worker an update queued; the job as it ended."""
     with (
         patch(
             "app.processing.ingest.service.resolve_file_path",
@@ -696,15 +782,13 @@ async def _update(session, user, entry: dict) -> tuple[IngestJob, uuid.UUID]:
         ),
     ):
         await reupload_file(**task.defer_async.await_args.kwargs)
-    job = (
+    return (
         await session.execute(
             select(IngestJob)
             .where(IngestJob.id == result.job_id)
             .execution_options(populate_existing=True)
         )
     ).scalar_one()
-    assert (job.status, job.error_message) == ("complete", None)
-    return job, result.dataset_id
 
 
 async def _record(session, dataset_id: uuid.UUID) -> tuple[str, str]:
@@ -831,6 +915,287 @@ async def test_a_held_run_accepted_later_keeps_the_collection_and_attributes():
     assert (
         carried["manifest_attributes"] == blocked.user_metadata["manifest_attributes"]
     )
+
+
+# ---------------------------------------------------------------------------
+# Who can read the record an update leaves
+# ---------------------------------------------------------------------------
+
+
+@contextmanager
+def _publish_key(session):
+    """The session as a publish-scoped key's request sees it."""
+    record_api_key(
+        session, ApiKeyCredential(id=uuid.uuid4(), scope="publish", dataset_id=None)
+    )
+    try:
+        yield
+    finally:
+        session.info.pop(_SESSION_KEY, None)
+
+
+@pytest.fixture
+def _restricted_public(monkeypatch):
+    import app.core.persistent_config as pc
+
+    class _On:
+        async def get(self, _db):
+            return True
+
+        get_uncached = get
+
+    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", _On())
+
+
+async def _set_record(session, dataset_id, visibility: str, record_status: str):
+    record_id = select(Dataset.record_id).where(Dataset.id == dataset_id)
+    await session.execute(
+        update(Record)
+        .where(Record.id == record_id.scalar_subquery())
+        .values(visibility=visibility, record_status=record_status)
+    )
+    await session.commit()
+
+
+async def _manifest_dataset(session, user, key, visibility, record_status):
+    dataset_id = await _published_by_manifest(session, user, key)
+    await _set_record(session, dataset_id, visibility, record_status)
+    return dataset_id
+
+
+async def _jobs_for(session, key: str) -> int:
+    return len(
+        (
+            await session.execute(
+                select(IngestJob.id).where(
+                    IngestJob.user_metadata["manifest_key"].astext == key
+                )
+            )
+        ).all()
+    )
+
+
+async def _uploaded(client, headers, key: str, **overrides) -> dict:
+    """An entry whose source the caller uploaded, as a key holder's must be."""
+    body = (Path(__file__).parent / "fixtures/ingest/basic_attrs.geojson").read_bytes()
+    response = await client.post(
+        "/ingest/upload",
+        files={"file": ("roads.geojson", body, "application/geo+json")},
+        headers=headers,
+    )
+    assert response.status_code == 201, response.text
+    source = {
+        "type": "vector",
+        "uri": f"upload:{response.json()['job_id']}",
+        "checksum": "sha256:" + hashlib.sha256(body).hexdigest(),
+    }
+    return _entry(key, sources=[source], **overrides)
+
+
+async def _editor(client, session, admin_headers) -> tuple[dict, User]:
+    headers, user_id = await create_user(client, admin_headers, "editor")
+    return headers, await session.get(User, uuid.UUID(user_id))
+
+
+async def test_a_publish_key_cannot_publish_a_public_draft_it_leaves_public(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "audience-key-omitted"
+    dataset_id = await _manifest_dataset(test_db_session, user, key, "public", "draft")
+
+    with _publish_key(test_db_session):
+        result, task = await _queue_update(
+            test_db_session, user, await _uploaded(client, admin_auth_header, key)
+        )
+
+    assert result.action == "error", result
+    assert [(m.code, m.severity) for m in result.messages] == [("A020", "error")]
+    task.defer_async.assert_not_awaited()
+    assert await _jobs_for(test_db_session, key) == 1
+    assert await _record(test_db_session, dataset_id) == ("public", "draft")
+
+
+async def test_a_publish_key_cannot_name_public_for_a_public_draft(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "audience-key-public"
+    dataset_id = await _manifest_dataset(test_db_session, user, key, "public", "draft")
+
+    with _publish_key(test_db_session):
+        result, task = await _queue_update(
+            test_db_session,
+            user,
+            await _uploaded(client, admin_auth_header, key, visibility="public"),
+        )
+
+    assert result.action == "error", result
+    assert [(m.code, m.severity) for m in result.messages] == [("A020", "error")]
+    task.defer_async.assert_not_awaited()
+    assert await _record(test_db_session, dataset_id) == ("public", "draft")
+
+
+async def test_a_publish_key_narrows_a_public_draft_as_it_publishes_it(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "audience-key-private"
+    dataset_id = await _manifest_dataset(test_db_session, user, key, "public", "draft")
+
+    with _publish_key(test_db_session):
+        result, task = await _queue_update(
+            test_db_session,
+            user,
+            await _uploaded(client, admin_auth_header, key, visibility="private"),
+        )
+    assert result.action == "update", result
+    job = await _run_update(test_db_session, result, task)
+
+    assert job.user_metadata["visibility"] == "private"
+    assert job.user_metadata["admitted_publish_key"] is True
+    assert (job.status, job.error_message) == ("complete", None)
+    # The row the worker commits: published, and never public while it is.
+    assert await _record(test_db_session, dataset_id) == ("private", "published")
+
+
+async def test_a_publish_key_cannot_widen_through_a_manifest(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "audience-key-widen"
+    dataset_id = await _manifest_dataset(test_db_session, user, key, "private", "draft")
+
+    with _publish_key(test_db_session):
+        result, task = await _queue_update(
+            test_db_session,
+            user,
+            await _uploaded(
+                client,
+                admin_auth_header,
+                key,
+                visibility="internal",
+                publication={"intent": "draft"},
+            ),
+        )
+
+    assert result.action == "error", result
+    assert result.errors == ["A publish key can't widen a dataset's visibility"]
+    task.defer_async.assert_not_awaited()
+    assert await _record(test_db_session, dataset_id) == ("private", "draft")
+
+
+@pytest.mark.usefixtures("_restricted_public")
+async def test_a_non_admin_cannot_publish_a_public_draft_while_public_is_restricted(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    key = "audience-restricted"
+    dataset_id = await _manifest_dataset(
+        test_db_session, editor, key, "public", "draft"
+    )
+
+    result, task = await _queue_update(
+        test_db_session, editor, await _uploaded(client, headers, key)
+    )
+
+    assert result.action == "error", result
+    assert [(m.code, m.severity) for m in result.messages] == [("A020", "error")]
+    task.defer_async.assert_not_awaited()
+    assert await _record(test_db_session, dataset_id) == ("public", "draft")
+
+
+async def test_the_publish_refuses_a_publish_key_once_the_dataset_went_public(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "audience-key-raced"
+    dataset_id = await _manifest_dataset(test_db_session, user, key, "private", "draft")
+    with _publish_key(test_db_session):
+        result, task = await _queue_update(
+            test_db_session, user, await _uploaded(client, admin_auth_header, key)
+        )
+    assert result.action == "update", result
+
+    # The owner shares it publicly while the replacement waits in the queue.
+    await _set_record(test_db_session, dataset_id, "public", "draft")
+    job = await _run_update(test_db_session, result, task)
+
+    assert job.status == "failed"
+    assert "may not open this dataset to more readers" in job.error_message
+    assert await _record(test_db_session, dataset_id) == ("public", "draft")
+
+
+@pytest.mark.usefixtures("_restricted_public")
+async def test_the_publish_refuses_a_non_admin_once_the_dataset_went_public(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    key = "audience-restricted-raced"
+    dataset_id = await _manifest_dataset(
+        test_db_session, editor, key, "private", "draft"
+    )
+    result, task = await _queue_update(
+        test_db_session, editor, await _uploaded(client, headers, key)
+    )
+    assert result.action == "update", result
+
+    # An admin shares it publicly while the replacement waits in the queue.
+    await _set_record(test_db_session, dataset_id, "public", "draft")
+    job = await _run_update(test_db_session, result, task)
+
+    assert job.status == "failed"
+    assert "may not open this dataset to more readers" in job.error_message
+    assert await _record(test_db_session, dataset_id) == ("public", "draft")
+
+
+async def test_an_accepted_held_run_keeps_a_publish_keys_limits(
+    test_db_session, clean_tables
+):
+    from app.modules.catalog.datasets.api.refresh_acceptance import (
+        _accepted_upload_metadata,
+    )
+
+    user = await _admin(test_db_session)
+    key = "audience-accepted"
+    dataset_id = await _manifest_dataset(test_db_session, user, key, "public", "draft")
+    held = IngestJob(
+        user_metadata={
+            "manifest_key": key,
+            "record_status": "published",
+            "admitted_publish_key": True,
+        }
+    )
+    # Accepted by the owner's own session, not a key.
+    accepted = IngestJob(
+        created_by=user.id,
+        user_metadata=_accepted_upload_metadata(
+            held,
+            dataset_id=dataset_id,
+            run_id=uuid.uuid4(),
+            fingerprint="f",
+            held_version=1,
+        ),
+    )
+    dataset = (
+        await test_db_session.execute(
+            select(Dataset)
+            .options(selectinload(Dataset.record))
+            .where(Dataset.id == dataset_id)
+        )
+    ).scalar_one()
+
+    with pytest.raises(WideningRefused):
+        await require_submitter_can_write(
+            test_db_session, dataset, accepted, capability=None
+        )
 
 
 # ---------------------------------------------------------------------------

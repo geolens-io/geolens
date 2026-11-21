@@ -45,12 +45,14 @@ from app.platform.jobs import ledger
 from app.platform.jobs.models import (
     ADMITTED_CAPABILITY_METADATA_KEY,
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
+    ADMITTED_PUBLISH_KEY_METADATA_KEY,
     ADMITTED_RAW_SOURCE_METADATA_KEY,
     MANIFEST_FINGERPRINT_METADATA_KEY,
     IngestJob,
 )
 from app.processing.ingest.manifest_dataset_fields import (
     ManifestEntryFields,
+    report_entry,
     resolve_entry_collection,
 )
 from app.processing.ingest.manifest_reservation import (
@@ -82,6 +84,7 @@ from app.processing.ingest.manifest_sources import (
     publication_to_catalog_fields,
     refuse_used_upload,
     skip_complete_message,
+    _validate_existing_dataset_update,
     validate_publication_intent,
 )
 from app.processing.ingest.pointcloud import require_pointcloud_file
@@ -748,27 +751,6 @@ async def _queue_reupload_job(
     )
 
 
-def _validate_existing_dataset_update(
-    existing_dataset: object,
-    prepared: ManifestPreparedSource,
-) -> None:
-    """Reject manifest updates the reupload worker cannot implement safely."""
-    record = getattr(existing_dataset, "record", None)
-    record_type = getattr(record, "record_type", None)
-
-    # Raster replacement has different asset/version semantics than the
-    # vector-only reupload task manifest updates use.
-    if prepared.source.type == "raster_cog":
-        raise ManifestSourceError(
-            "Manifest raster updates are not supported; create a new raster "
-            "dataset instead."
-        )
-    if record_type not in {"vector_dataset", "table"}:
-        raise ManifestSourceError(
-            f"Manifest vector updates cannot replace an existing {record_type or 'unknown'} dataset."
-        )
-
-
 def _refuse_publish_key_remote_origin(db: AsyncSession, existing_dataset) -> None:
     # The update replaces the source binding, and a restore can bring back only
     # an upload's or a drawn layer's.
@@ -816,9 +798,11 @@ async def _reserve_entry(
         metadata["reupload"] = True
         metadata["dataset_id"] = str(dataset_id)
         if is_publish_key(db):
-            # The worker applies it later, over whatever the dataset's
-            # visibility is by then, so a publish key's update keeps it.
-            metadata.pop("visibility", None)
+            metadata[ADMITTED_PUBLISH_KEY_METADATA_KEY] = True
+            if fields is None:
+                # Version 1's comes from the intent, applied later over
+                # whatever the visibility is by then, so the update keeps it.
+                metadata.pop("visibility", None)
         metadata[ADMITTED_CAPABILITY_METADATA_KEY] = UPLOAD
         from app.modules.catalog.authorization import admitted_public_visibility
 
@@ -1198,8 +1182,16 @@ async def _reserve_or_settle_entry(
         _validate_existing_dataset_update(existing_dataset, prepared)
         _refuse_publish_key_remote_origin(db, existing_dataset)
         update_dataset_id = existing_dataset.id
-        if request.dry_run and fields is not None:
-            fields.note_edits_since_publish(dataset, job, existing_dataset)
+        if fields is not None:
+            from app.modules.catalog.authorization import (
+                check_public_visibility_allowed,
+            )
+
+            await fields.judge_update(
+                db, user, dataset, existing_dataset, check_public_visibility_allowed
+            )
+            if request.dry_run:
+                fields.note_edits_since_publish(dataset, job, existing_dataset)
 
     refuse_used_upload(prepared)
     if fields is not None:
@@ -1253,15 +1245,11 @@ async def _run_entry(
 ) -> ManifestApplyEntryResult:
     fields = ManifestEntryFields.of(request, dataset)
     outcome = await _reserve_or_settle_entry(db, request, user, dataset, quota, fields)
-    if isinstance(outcome, ManifestApplyEntryResult):
-        result = outcome
-    else:
-        result = await _finalize_reserved_entry(
+    if not isinstance(outcome, ManifestApplyEntryResult):
+        outcome = await _finalize_reserved_entry(
             db, outcome, dataset, user, http_request, quota
         )
-    if fields is not None:
-        fields.report_on(result)
-    return result
+    return report_entry(fields, outcome)
 
 
 async def apply_manifest(

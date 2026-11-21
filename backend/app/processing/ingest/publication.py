@@ -47,9 +47,11 @@ from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     ADMITTED_CAPABILITY_METADATA_KEY,
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
+    ADMITTED_PUBLISH_KEY_METADATA_KEY,
     ADMITTED_RAW_SOURCE_METADATA_KEY,
     IngestJob,
 )
+from app.platform.record_audience import opens_to_anonymous, publish_key_widening
 from app.platform.refresh.service import (
     claim_run_for_job,
     record_refresh_failure,
@@ -65,6 +67,7 @@ from app.processing.ingest.publish_followups import (
 )
 from app.processing.ingest.tasks_common import (
     _current_tenant_schema,
+    _manifest_text,
     cleanup_step,
 )
 from app.processing.ingest.tasks_raster_common import (
@@ -181,6 +184,17 @@ class WriteAccessRevoked(Exception):
         super().__init__(
             "The account that started this job can no longer modify this "
             "dataset, so its data was not replaced."
+        )
+
+
+class WideningRefused(WriteAccessRevoked):
+    """The job would widen who reads its dataset past what its submitter may."""
+
+    def __init__(self) -> None:
+        Exception.__init__(
+            self,
+            "The account that started this job may not open this dataset to "
+            "more readers, so its data was not replaced.",
         )
 
 
@@ -631,10 +645,34 @@ async def require_submitter_can_write(
         session, submitter, capability, user_roles={r.name for r in submitter.roles}
     ):
         raise WriteAccessRevoked
-    if await _no_longer_admin_to_publish(
-        session, job, {r.name for r in submitter.roles}
-    ):
+    roles = {r.name for r in submitter.roles}
+    if await _no_longer_admin_to_publish(session, job, roles):
         raise WriteAccessRevoked
+    if await _widens_past_submitter(session, job, dataset.record, roles):
+        raise WideningRefused
+
+
+async def _widens_past_submitter(
+    session: AsyncSession, job: IngestJob, record: Any, roles: set[str]
+) -> bool:
+    """A manifest job whose visibility and status, applied to the record as
+    committed now, widen who reads it past what its submitter may: a publish
+    key's beyond what the metadata edit lets one change, or anyone else's onto
+    anonymous readers while public visibility is restricted to admins."""
+    from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
+
+    metadata = job.user_metadata or {}
+    if "manifest_key" not in metadata:
+        return False
+    change = {
+        key: _manifest_text(metadata, key) for key in ("visibility", "record_status")
+    }
+    now = (record.visibility, record.record_status)
+    if metadata.get(ADMITTED_PUBLISH_KEY_METADATA_KEY):
+        return publish_key_widening(*now, **change) is not None
+    if "admin" in roles or not opens_to_anonymous(*now, **change):
+        return False
+    return bool(await RESTRICT_PUBLIC_VISIBILITY.get_uncached(session))
 
 
 async def _no_longer_admin_to_publish(

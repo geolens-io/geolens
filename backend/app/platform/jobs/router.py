@@ -660,7 +660,7 @@ def _redacted_job_status(job: IngestJob) -> JobStatusResponse:
     )
 
 
-_WARNING_MODELS: dict[object, Any] = {
+_WARNING_MODELS: dict[str, Any] = {
     "reserved_rename": ReservedRenameWarning,
     "dbf_truncation_collision": DbfTruncationCollisionWarning,
     "mercator_clip": MercatorClipWarning,
@@ -714,7 +714,7 @@ async def _job_to_status_response(
                     continue
                 kind = raw.get("kind")
                 try:
-                    model = _WARNING_MODELS.get(kind)
+                    model = _WARNING_MODELS.get(kind) if isinstance(kind, str) else None
                     if model is not None:
                         warnings.append(model.model_validate(raw))
                     else:

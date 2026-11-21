@@ -161,6 +161,27 @@ def manifest_dataset_fingerprint(dataset: ManifestDataset) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _validate_existing_dataset_update(
+    existing_dataset: object,
+    prepared: ManifestPreparedSource,
+) -> None:
+    """Reject manifest updates the reupload worker cannot implement safely."""
+    record = getattr(existing_dataset, "record", None)
+    record_type = getattr(record, "record_type", None)
+
+    # Raster replacement has different asset/version semantics than the
+    # vector-only reupload task manifest updates use.
+    if prepared.source.type == "raster_cog":
+        raise ManifestSourceError(
+            "Manifest raster updates are not supported; create a new raster "
+            "dataset instead."
+        )
+    if record_type not in {"vector_dataset", "table"}:
+        raise ManifestSourceError(
+            f"Manifest vector updates cannot replace an existing {record_type or 'unknown'} dataset."
+        )
+
+
 def parse_manifest_crs(crs: str | None) -> int | None:
     """Parse a manifest EPSG CRS string into an integer SRID override."""
     if crs is None:
