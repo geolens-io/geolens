@@ -47,10 +47,15 @@ pytestmark = [
 
 async def _hold(session, *, record: tuple[str, str], **held_metadata):
     """A held replacement whose entry asks for ``held_metadata``, over a
-    dataset whose record is ``record``."""
+    dataset whose record is ``record``. The fixture's admin applies from local
+    staging; the run counts as read from a raw seed source only when
+    ``held_metadata`` says so."""
     held = await _held_apply(session)
     job = await session.get(IngestJob, held.job_id)
-    job.user_metadata = {**job.user_metadata, **held_metadata}
+    job.user_metadata = {
+        **{k: v for k, v in job.user_metadata.items() if k != "admitted_raw_source"},
+        **held_metadata,
+    }
     record_id = select(Dataset.record_id).where(Dataset.id == held.dataset_id)
     await session.execute(
         update(Record)
@@ -512,6 +517,62 @@ async def test_an_owner_accepting_a_publish_keys_held_run_is_judged_as_the_owner
     assert (job.status, job.error_message) == ("complete", None)
     assert "admitted_publish_key" not in job.user_metadata
     assert await _record(test_db_session, held.dataset_id) == ("public", "published")
+
+
+@pytest.mark.parametrize(
+    "applied_by_key", [True, False], ids=["key-applied", "restriction-lifted"]
+)
+async def test_an_accept_never_widens_past_what_the_apply_stored(
+    test_db_session, clean_tables, applied_by_key
+):
+    """A public entry with the fallback was stored internal, because a key
+    applied it or the restriction was on. The owner accepts signed in, with
+    public allowed now: the run publishes what the apply stored."""
+    marker = {"admitted_publish_key": str(uuid.uuid4())} if applied_by_key else {}
+    held = await _hold(
+        test_db_session,
+        record=("internal", "published"),
+        **_v2(
+            visibility="internal",
+            manifest_requested_visibility="public",
+            manifest_public_fallback="internal",
+            **marker,
+        ),
+    )
+
+    job = await _accept(test_db_session, held, publish_key=False)
+
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, held.dataset_id) == ("internal", "published")
+
+
+async def test_a_publish_key_cannot_accept_a_held_run_from_a_raw_seed_source(
+    test_db_session, clean_tables
+):
+    """Only an admin may apply from a raw seed source, and a key is judged
+    without its owner's admin role; the accept is refused, consuming nothing."""
+    held = await _hold(
+        test_db_session, record=("private", "draft"), admitted_raw_source=True
+    )
+
+    with pytest.raises(HTTPException) as refused:
+        await _accept(test_db_session, held, publish_key=True)
+
+    assert refused.value.status_code == 403
+    assert refused.value.detail["code"] == "api_key_scope"
+    accepted = await test_db_session.scalar(
+        select(IngestJob.id).where(
+            IngestJob.user_metadata["accepted_refresh_run_id"].astext
+            == str(held.run_id)
+        )
+    )
+    assert accepted is None
+    verification = await test_db_session.scalar(
+        select(DatasetRefreshRun.verification)
+        .where(DatasetRefreshRun.id == held.run_id)
+        .execution_options(populate_existing=True)
+    )
+    assert "acceptance_consumed_by_run_id" not in verification
 
 
 async def test_a_held_v2_run_stores_its_live_version_where_an_earlier_api_cannot_read_it(

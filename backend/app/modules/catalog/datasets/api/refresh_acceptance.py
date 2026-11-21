@@ -8,6 +8,7 @@ the upload its blocked job kept.
 from __future__ import annotations
 
 import uuid
+from dataclasses import replace
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -44,6 +45,7 @@ from app.platform.record_audience import (
     Publication,
     PublicationRefused,
     effective_publication,
+    settled_visibility,
 )
 from app.platform.request_credential import (
     api_key_scope_refusal,
@@ -285,6 +287,8 @@ async def _accepted_publication(
     record as it is now and the restriction as it is now; None for version 1.
 
     A refusal refuses the accept, as the same apply by the accepter would be.
+    The accept may keep or narrow the visibility the apply stored, never widen
+    it: the narrower of the two is what it publishes.
     """
     from app.modules.catalog import authorization
     from app.modules.catalog.write_recheck import PUBLIC_VISIBILITY_DENIED
@@ -302,7 +306,7 @@ async def _accepted_publication(
         may_set_public = False
     await db.refresh(dataset.record, attribute_names=["visibility", "record_status"])
     try:
-        return effective_publication(
+        result = effective_publication(
             requested,
             stored["record_status"],
             stored.get("manifest_public_fallback"),
@@ -318,6 +322,12 @@ async def _accepted_publication(
         raise api_key_scope_refusal(
             refused.message or "A publish key can't make anything public"
         ) from refused
+    return replace(
+        result,
+        visibility=settled_visibility(
+            stored.get("visibility"), result.visibility, dataset.record.visibility
+        ),
+    )
 
 
 async def dispatch_upload_acceptance(
@@ -363,6 +373,15 @@ async def dispatch_upload_acceptance(
     if blocked_job is None or not blocked_job.file_path:
         raise _upload_unavailable(
             "The upload this run staged is gone. Upload the file again."
+        )
+    # A key is judged without its owner's admin role, which a raw seed source
+    # needs, as the apply that queued it did.
+    if is_publish_key(db) and (blocked_job.user_metadata or {}).get(
+        ADMITTED_RAW_SOURCE_METADATA_KEY
+    ):
+        raise api_key_scope_refusal(
+            "A publish key can't accept a run that reads a local or same-bucket "
+            "seed source"
         )
     from app.platform.jobs.router import staged_input_available
 
