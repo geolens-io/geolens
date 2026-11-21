@@ -297,7 +297,8 @@ def _merged_symbol(style_config: dict[str, Any]) -> dict[str, Any]:
 def _symbol_category_column(style_config: dict[str, Any]) -> Any:
     """The column a symbol layer picks its icons by, read as the style export does."""
     symbol = _merged_symbol(style_config)
-    if not isinstance(symbol.get("categories"), list):
+    # With no surviving category the export writes the fallback icon alone.
+    if not _symbol_category_icons(symbol):
         return None
     return symbol.get("categoryColumn") or symbol.get("category_column")
 
@@ -355,13 +356,13 @@ def _named_columns(layer: MapLayerInput) -> set[str]:
     symbol = _merged_symbol(style_config)
     for key in _SYMBOL_LAYOUT_KEYS:
         _walk_style_value(symbol.get(key), names)
-    # The fallback and category icons are exported into `icon-image`, which
-    # expands tokens.
     category_icons = _symbol_category_icons(symbol)
     for icon in category_icons:
         _walk_expression(icon, names)
-    token_values += [symbol.get("iconImage") or symbol.get("icon_image")]
-    token_values += category_icons
+    # Tokens expand only in a plain `icon-image` string. With categories the
+    # export writes a match, where the icons and the fallback are literal names.
+    if not category_icons:
+        token_values += [symbol.get("iconImage") or symbol.get("icon_image")]
     for value in token_values:
         if isinstance(value, str):
             names.update(_LAYOUT_TOKEN.findall(value))
@@ -564,7 +565,11 @@ async def apply_manifest_maps(
         is not None
     }
     columns_by_dataset = await _readable_columns(session, layer_dataset_ids, user)
-    basemap_ids = await _known_basemap_ids(session)
+    basemap_ids = (
+        await _known_basemap_ids(session)
+        if any(entry.basemap_style is not None for entry in maps)
+        else set()
+    )
     results = []
     for entry in maps:
         try:

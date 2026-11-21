@@ -1223,6 +1223,30 @@ async def test_one_maps_unexpected_failure_fails_only_that_map(
             },
             None,
         ),
+        # The export reads the column only when a category survives into the
+        # icon match.
+        (
+            {
+                "style_config": {
+                    "symbol": {"categoryColumn": "MISSING", "categories": []}
+                }
+            },
+            None,
+        ),
+        (
+            {
+                "style_config": {
+                    "symbol": {
+                        "categoryColumn": "MISSING",
+                        "categories": [
+                            {"value": None, "icon": "marker"},
+                            {"value": "a", "icon": None},
+                        ],
+                    }
+                }
+            },
+            None,
+        ),
     ],
 )
 async def test_popup_placeholders_and_symbol_categories_are_checked(
@@ -1411,6 +1435,62 @@ async def test_icon_image_tokens_name_columns(test_db_session, clean_tables):
     ).maps
 
     assert _codes(result) == [("A063", "warning", "parks")]
+
+
+@pytest.mark.parametrize(
+    ("symbol", "codes"),
+    [
+        ({"iconImage": "marker-{MISSING}"}, [("A063", "warning", "parks")]),
+        (
+            {
+                "iconImage": "marker-{MISSING}",
+                "categoryColumn": "PARK_TYPE",
+                "categories": [{"value": "a", "icon": "pin-{MISSING}"}],
+            },
+            [],
+        ),
+    ],
+    ids=["plain-fallback", "inside-a-match"],
+)
+async def test_symbol_icon_tokens_name_columns_only_outside_a_match(
+    test_db_session, clean_tables, symbol, codes
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+
+    [result] = (
+        await _dry_run(
+            test_db_session,
+            admin,
+            _map(
+                "qgis-map-a",
+                _layer(dataset_id=str(dataset_id), style_config={"symbol": symbol}),
+            ),
+        )
+    ).maps
+
+    assert _codes(result) == codes
+
+
+async def test_maps_naming_no_basemap_never_read_the_basemaps(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    from app.modules.catalog.maps import manifest_apply
+
+    with patch.object(
+        manifest_apply, "_known_basemap_ids", AsyncMock(side_effect=RuntimeError)
+    ):
+        [result] = (
+            await _dry_run(
+                test_db_session,
+                admin,
+                _map("qgis-map-a", _layer(dataset_id=str(dataset_id))),
+            )
+        ).maps
+
+    assert (result.action, result.messages) == ("create", [])
 
 
 async def test_a_database_error_in_one_map_leaves_the_next_map_checked(
@@ -1657,8 +1737,13 @@ async def test_invalid_contract_styling_is_refused_by_the_dry_run(
             test_db_session, request, admin, _http_request()
         )
 
-    codes = {m.code for result in response.maps for m in result.messages}
-    assert _REFUSED_BY_THE_DRY_RUN[name] in codes
+    [result] = response.maps
+    assert result.action == "error"
+    assert [
+        m.layer
+        for m in result.messages
+        if m.code == _REFUSED_BY_THE_DRY_RUN[name] and "popup_config" in m.message
+    ] == ["parks"]
 
 
 def test_the_listed_exceptions_are_contract_invalid_examples():
