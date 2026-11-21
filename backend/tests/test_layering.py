@@ -1224,7 +1224,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
         # A metadata edit judges its visibility and status change as one move, and a
         # manifest saves its per-column text beside the attribute edit it reuses.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 681,
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 685,
         # Pointer reads sit beside the detail query that shares them; the row
         # browser's page, count, label-filter and box SQL share its projection, and
         # its NULLS LAST keyset also pages the aggregate feature list.

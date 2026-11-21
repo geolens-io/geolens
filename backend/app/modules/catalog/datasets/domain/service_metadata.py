@@ -565,8 +565,10 @@ async def update_manifest_attributes(
 
     Each entry names its column by ``source_name``, the name in the uploaded
     file, which is matched against the stored columns' recorded source names
-    and never guessed. Only the keys an entry carries are written. Returns the
-    ``source_name`` values that matched no current column. Does NOT commit.
+    and never guessed: a source name two columns share, as duplicate headers
+    in the file leave, names neither. Only the keys an entry carries are
+    written. Returns the ``source_name`` values that matched no one current
+    column. Does NOT commit.
     """
     from sqlalchemy.orm import joinedload
 
@@ -580,17 +582,19 @@ async def update_manifest_attributes(
     if dataset is None:
         raise DatasetNotFoundError(str(dataset_id))
 
-    stored_by_source = {
-        column["source_name"]: column["name"]
-        for column in dataset.column_info or []
-        if column.get("source_name") and column.get("name")
-    }
+    stored_by_source: dict[str, list[str]] = {}
+    for column in dataset.column_info or []:
+        if column.get("source_name") and column.get("name"):
+            stored_by_source.setdefault(column["source_name"], []).append(
+                column["name"]
+            )
     current = {a.field_name: a for a in await list_attributes(session, dataset_id)}
 
     unmatched: list[str] = []
     changed = False
     for entry in attributes:
-        attr = current.get(stored_by_source.get(entry["source_name"], ""))
+        stored = stored_by_source.get(entry["source_name"], [])
+        attr = current.get(stored[0]) if len(stored) == 1 else None
         if attr is None:
             unmatched.append(entry["source_name"])
             continue
