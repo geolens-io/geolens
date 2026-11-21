@@ -953,6 +953,48 @@ async def _geom_column_is_measured(session: AsyncSession, table_name: str) -> bo
     return typmod_type is not None and typmod_type.strip().upper().endswith("M")
 
 
+async def _geom_4326_is_generated(session: AsyncSession, table_name: str) -> bool:
+    """True when the table's geom_4326 is a stored generated column.
+
+    Registration creates it that way, so it re-derives itself from geom
+    and rejects a direct write; feature edits must write geom only and
+    let the column follow. A plain column still takes the write pair.
+
+    Every caller is about to write geom_4326 when this answers False, so
+    a table with no geom_4326 column at all is refused here with the
+    cause, instead of failing later on the database's undefined-column
+    error.
+    """
+    from app.core.db.tenant_schema import tenant_data_schema
+    from app.core.db.tenant_session import current_tenant_var
+
+    schema = tenant_data_schema(current_tenant_var.get())
+    rows = (
+        await session.execute(
+            text(
+                "SELECT column_name, is_generated "
+                "FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = :t "
+                "AND column_name IN ('geom', 'geom_4326')"
+            ).bindparams(schema=schema, t=table_name)
+        )
+    ).all()
+    found = {row.column_name: row.is_generated for row in rows}
+    if not found:
+        # The table itself is missing, or it carries neither geometry
+        # column: the caller's own missing-table handling owns that
+        # failure, so answer False here rather than naming a column on
+        # a table that is not there.
+        return False
+    value = found.get("geom_4326")
+    if value is None:
+        raise ValueError(
+            f"Table '{table_name}' has no geom_4326 column, so a feature "
+            "write cannot store its render geometry."
+        )
+    return value == "ALWAYS"
+
+
 DryRunBlocker = Literal[
     "missing_table", "not_a_table", "insert_side_effects", "user_code"
 ]
@@ -979,6 +1021,28 @@ _COLUMN_TYPES = (
 
 _UNTRUSTED_VOLATILE = f"p.provolatile = 'v' AND NOT ({_trusted('p.oid', 'pg_proc')})"
 
+# The two generation expressions registration writes for geom_4326
+# (processing/ingest/metadata_projection._geom_4326_expr), lowercased as
+# PostgreSQL stores them: the 4326-source form and the projected-source
+# form. The layering rule keeps app.processing out of catalog, so the two
+# literals live here too; the registration suite pins them equal to the
+# registration expressions. A geom_4326 generated with one of these runs
+# only PostGIS functions on geom, so a dry-run insert cannot reach past
+# the transaction through it; any other generated column still refuses
+# the dry run. The text alone does not prove that: PostgreSQL prints a
+# function without its schema when it is visible on the search path, so
+# a user function shadowing a PostGIS name prints the same text. The
+# exemption also requires every function the expression depends on to be
+# built in or an extension's, checked through pg_depend on the pg_attrdef
+# row.
+_REGISTERED_GEOM_4326_EXPRESSIONS = (
+    "st_force2d(st_curvetoline(st_setsrid(geom, 4326)))",
+    "st_force2d(st_transform(st_curvetoline(geom), 4326))",
+)
+_REGISTERED_GEOM_4326_EXPR_SQL = ", ".join(
+    f"'{expr}'" for expr in _REGISTERED_GEOM_4326_EXPRESSIONS
+)
+
 # Shapes whose insert or readback could run user code. Extension objects are
 # trusted because PostGIS declares its GiST support functions VOLATILE, and
 # element types are checked for JSON casts because the readback's to_jsonb
@@ -994,7 +1058,14 @@ _USER_CODE = (
     "OR EXISTS (SELECT 1 FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid "
     f"WHERE i.indrelid = c.oid AND NOT ({_trusted('ic.relam', 'pg_am')})) "
     "OR EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid "
-    "AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated <> '') "
+    "AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated <> '' "
+    "AND NOT (a.attname = 'geom_4326' AND EXISTS (SELECT 1 FROM pg_attrdef ad "
+    "WHERE ad.adrelid = a.attrelid AND ad.adnum = a.attnum AND "
+    f"lower(pg_get_expr(ad.adbin, ad.adrelid)) IN ({_REGISTERED_GEOM_4326_EXPR_SQL}) "
+    "AND NOT EXISTS (SELECT 1 FROM pg_depend d "
+    "WHERE d.classid = 'pg_attrdef'::regclass AND d.objid = ad.oid "
+    "AND d.refclassid = 'pg_proc'::regclass "
+    f"AND NOT ({_trusted('d.refobjid', 'pg_proc')}))))) "
     f"OR EXISTS (SELECT 1 FROM ({_COLUMN_TYPES}) col WHERE NOT ("
     f"{_trusted('col.oid', 'pg_type')})) "
     f"OR EXISTS (SELECT 1 FROM ({_COLUMN_TYPES}) col JOIN pg_cast ca "
@@ -1177,7 +1248,8 @@ async def insert_feature(
 ) -> dict:
     """Insert a GeoJSON feature into a PostGIS data table.
 
-    Writes both geom and geom_4326 columns. Only inserts property columns
+    Writes geom and, unless geom_4326 is a stored generated column that
+    derives itself from geom, geom_4326. Only inserts property columns
     that exist in column_info. Returns the full inserted feature via
     get_feature_by_id.
     """
@@ -1191,6 +1263,7 @@ async def insert_feature(
         column_info,
         dataset_geometry_type,
         dataset_srid,
+        generated_4326=await _geom_4326_is_generated(db, table_name),
     )
     row = await get_feature_by_id(db, table_name, gid)
     if row is None:
@@ -1223,6 +1296,7 @@ async def insert_features(
     """
     if await _geom_column_is_measured(db, table_name):
         raise ValueError(_MEASURED_LAYER_EDIT_ERROR)
+    generated_4326 = await _geom_4326_is_generated(db, table_name)
     gids: list[int] = []
     for index, (geometry, properties) in enumerate(features):
         try:
@@ -1235,6 +1309,7 @@ async def insert_features(
                     column_info,
                     dataset_geometry_type,
                     dataset_srid,
+                    generated_4326=generated_4326,
                 )
             )
         except (ValueError, DBAPIError) as exc:
@@ -1250,6 +1325,8 @@ async def _insert_row(
     column_info: list[dict],
     dataset_geometry_type: str,
     dataset_srid: int | None,
+    *,
+    generated_4326: bool = False,
 ) -> int:
     _validate_geometry_type(geometry.get("type", ""), dataset_geometry_type)
     normalized_geom = _validate_geometry_structure(geometry)
@@ -1259,8 +1336,13 @@ async def _insert_row(
     geojson_str = to_geojson(normalized_geom)
 
     geom_expr, geom_4326_expr = _geom_write_exprs(dataset_geometry_type, dataset_srid)
-    cols = ["geom", "geom_4326"]
-    vals = [geom_expr, geom_4326_expr]
+    cols = ["geom"]
+    vals = [geom_expr]
+    if not generated_4326:
+        # A stored generated geom_4326 derives itself from geom and
+        # rejects a direct write; naming it here would fail the insert.
+        cols.append("geom_4326")
+        vals.append(geom_4326_expr)
     params: dict = {"geojson": geojson_str}
 
     if properties:
@@ -1307,10 +1389,11 @@ async def replace_feature(
     geojson_str = to_geojson(normalized_geom)
     geom_expr, geom_4326_expr = _geom_write_exprs(dataset_geometry_type, dataset_srid)
 
-    sets = [
-        f"geom = {geom_expr}",
-        f"geom_4326 = {geom_4326_expr}",
-    ]
+    sets = [f"geom = {geom_expr}"]
+    if not await _geom_4326_is_generated(db, table_name):
+        # A stored generated geom_4326 derives itself from geom and
+        # rejects a direct write; naming it here would fail the update.
+        sets.append(f"geom_4326 = {geom_4326_expr}")
     params: dict = {"geojson": geojson_str, "gid": gid}
 
     allowed = {c["name"] for c in column_info}
@@ -1346,8 +1429,9 @@ async def update_feature(
 ) -> dict:
     """Partial update of a feature (PATCH semantics).
 
-    Only modifies fields that are provided. If geometry is given, both geom
-    and geom_4326 are updated. If properties is given, only the keys present
+    Only modifies fields that are provided. If geometry is given, geom is
+    updated and geom_4326 with it, unless geom_4326 is a stored generated
+    column that derives itself from geom. If properties is given, only the keys present
     in the dict (and in column_info) are updated.
     """
     sets: list[str] = []
@@ -1363,7 +1447,10 @@ async def update_feature(
             dataset_geometry_type, dataset_srid
         )
         sets.append(f"geom = {geom_expr}")
-        sets.append(f"geom_4326 = {geom_4326_expr}")
+        if not await _geom_4326_is_generated(db, table_name):
+            # A stored generated geom_4326 derives itself from geom and
+            # rejects a direct write; naming it here would fail the update.
+            sets.append(f"geom_4326 = {geom_4326_expr}")
         params["geojson"] = geojson_str
 
     if properties is not None:
