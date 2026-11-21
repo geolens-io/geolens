@@ -608,7 +608,8 @@
     },
     "anonMapRecovery": "Cette carte est peut-être privée. Connectez-vous pour vérifier si votre compte peut l'ouvrir.",
     "map": {
-      "ariaLabel": "Visionneuse de carte"
+      "ariaLabel": "Visionneuse de carte",
+      "bookmarks": "Signets"
     }
   },
   "maps": {

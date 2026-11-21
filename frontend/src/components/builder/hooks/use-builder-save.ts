@@ -16,7 +16,7 @@ import { useEdition } from '@/hooks/use-edition';
 import { demChipGlyph, getLayerColors } from '@/components/map/layer-icons';
 import { getMap, uploadThumbnail, uploadOgImage } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
-import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
+import type { MapBasemapConfig, MapBookmark, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
@@ -1000,6 +1000,9 @@ interface SaveState {
   dashboard: DashboardDraft;
   savedDashboard: DashboardDraft;
   dashboardEdited: boolean;
+  /** The Builder's bookmarks; a save sends them only when `bookmarksEdited`. */
+  bookmarks?: MapBookmark[];
+  bookmarksEdited?: boolean;
   /**
    * Told what a save sends, so the saved dashboard coming back isn't taken for
    * another editor's; the returned callback hears whether the server stored it.
@@ -1049,6 +1052,7 @@ const SAVE_SNAPSHOT_FIELDS = [
   'showAttributeTable',
   'dockNotes',
   'dashboard',
+  'bookmarks',
   'localBasemap',
   'showBasemapLabels',
   'basemapConfig',
@@ -1155,6 +1159,8 @@ export function useBuilderSave(state: SaveState) {
       dashboard,
       savedDashboard,
       dashboardEdited: sendDashboard,
+      bookmarks,
+      bookmarksEdited: sendBookmarks,
       localBasemap,
       localLayers,
       groupMeta = {},
@@ -1283,6 +1289,7 @@ export function useBuilderSave(state: SaveState) {
       ...(sendDashboard
         ? { dashboard_config: dashboardSavePayload(dashboard, localLayers, savedDashboard) }
         : {}),
+      ...(sendBookmarks && bookmarks ? { bookmarks } : {}),
     };
     const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);
 

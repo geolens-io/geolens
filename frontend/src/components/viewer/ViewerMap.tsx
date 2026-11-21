@@ -41,7 +41,8 @@ import i18n from '@/i18n/i18n';
 import { GEOLENS_SITE_URL } from '@/lib/external-links';
 import type { MapLibreEvent, MapMouseEvent } from 'maplibre-gl';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { MapBasemapConfig, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
+import type { MapBasemapConfig, MapBookmark, MapTerrainConfig, SharedLayerResponse } from '@/types/api';
+import { ViewerBookmarks } from '@/components/viewer/ViewerBookmarks';
 import { getAdapter } from '@/components/builder/layer-adapters/registry';
 import { resolveCirclePaint } from '@/components/builder/layer-adapters/circle-adapter';
 import { getBuilderStyleConfig, resolveAdapterType, scaleOpacity } from '@/components/builder/layer-adapters/shared';
@@ -112,6 +113,8 @@ interface ViewerMapProps {
   showAttributeTable?: boolean;
   /** Page controls laid over the map area, which the Map data panel pushes up rather than covers. */
   overlays?: ReactNode;
+  /** The map's saved views; a button in the control column lists them when there are any. */
+  bookmarks?: readonly MapBookmark[];
   /** Layers a visibility change turns on or off fade over a moment instead of switching at once. */
   fadeLayerChanges?: boolean;
   /** Follows the `data-map-ready` signal: style, tiles, layers and terrain all settled. */
@@ -197,6 +200,7 @@ export const ViewerMap = memo(function ViewerMap({
   datasetLinksAllowed = false,
   showAttributeTable = false,
   overlays,
+  bookmarks,
   fadeLayerChanges = false,
   onReadyChange,
   coordReadoutSide,
@@ -210,6 +214,7 @@ export const ViewerMap = memo(function ViewerMap({
   // can opt out, so Enterprise also waits for branding to avoid flashing the credit.
   const showBranding = isResolved && (!isEnterprise || (branding !== undefined && branding.show_badge !== false));
   const mapRef = useRef<MaplibreMap | null>(null);
+  const getMap = useCallback(() => mapRef.current, []);
   // The selection belongs to this map; the next one starts with none.
   useEffect(() => () => useMapSelectionStore.getState().clear(), []);
   // Watched from mount: the attribution control is keyed on its credits, and
@@ -1237,6 +1242,9 @@ export const ViewerMap = memo(function ViewerMap({
           <FullscreenControl position="top-right" />
           {terrainReady && (
             <TerrainControl source="terrain-dem" position="top-right" />
+          )}
+          {bookmarks && bookmarks.length > 0 && (
+            <ViewerBookmarks bookmarks={bookmarks} getMap={getMap} />
           )}
           <ScaleControl position="bottom-left" maxWidth={100} unit="metric" />
           {/* The `key` is load-bearing, not cosmetic. react-maplibre's
