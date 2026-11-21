@@ -82,26 +82,26 @@ exécuter en production.
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
-<img src=".github/assets/geolens-builder-style.png" alt="Le générateur de cartes avec la carte Restless Earth sur un globe : une carte de chaleur des séismes le long des limites de plaques du Pacifique, la liste des couches groupées et le panneau de style de la carte de chaleur avec ses palettes de couleurs" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-arcgis-webmap-dark.jpg">
+<img src=".github/assets/geolens-arcgis-webmap.jpg" alt="Le générateur de cartes avec une carte des arbres de rue de Cambridge importée d’une carte web ArcGIS Online : arbres colorés selon le type d’emplacement, contours et noms des quartiers, liste des couches et légende" width="100%">
 </picture>
-<br><sub>Les couches s’affichent en points, symboles, cartes de chaleur ou regroupements, et la liste des palettes peut se limiter à celles adaptées au daltonisme.</sub>
+<br><sub>Une carte web ArcGIS Online importée dans GeoLens. Ses couleurs, fenêtres contextuelles, contours et plages de zoom ont été conservés.</sub>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="Le générateur de cartes GeoLens affichant le Cervin en terrain 3D à partir du lidar swissALTI3D, avec sommets nommés, itinéraires d’escalade, la liste des couches et une légende" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-story-dark.jpg">
+<img src=".github/assets/geolens-story.jpg" alt="Un récit publié, Where the Atlantic's Major Hurricanes Go : un chapitre avec une photo de couverture et du texte à côté d’un globe de trajectoires de tempêtes colorées selon la catégorie Saffir-Simpson, avec la légende" width="100%">
 </picture>
-<br><sub>Un terrain 3D issu de vos propres données d’élévation, ici le Cervin à partir du lidar swissALTI3D.</sub>
+<br><sub>Un récit guide le lecteur dans une carte chapitre par chapitre.</sub>
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
-<img src=".github/assets/geolens-stac-imagery.jpg" alt="Le générateur de cartes affichant quatre scènes Sentinel-2 en vraies couleurs, à des dates différentes, au-dessus de New York et du nord du New Jersey, référencées depuis le catalogue STAC Earth Search, avec la liste des couches et la légende" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.png">
+<img src=".github/assets/geolens-dashboard.png" alt="Un tableau de bord des parcelles de Cambridge : indicateurs du nombre de parcelles et de la superficie, deux diagrammes circulaires des parcelles par zone d’urbanisme, et des notes sur la zone inondable et les sources des données" width="100%">
 </picture>
-<br><sub>Des scènes Sentinel-2 référencées depuis un catalogue STAC. L’imagerie reste où elle est et est découpée en tuiles à la demande.</sub>
+<br><sub>Un tableau de bord résume les données d’une carte en indicateurs, graphiques et notes. Celui-ci masque sa carte.</sub>
 </td>
 </tr>
 </table>
@@ -239,15 +239,6 @@ le catalogue et, avec une clé d’API `map_author`, de créer et styliser des c
 pour MapLibre, Leaflet, OpenLayers, l’ArcGIS Maps SDK, QGIS et DuckDB.
 
 ## IA facultative
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-ask-ai-dark.png">
-    <img src=".github/assets/geolens-ask-ai.png" alt="Le panneau Demander à l’IA sur le jeu de données Major Hurricane Tracks répondant à « How many of these hurricanes made landfall? » par 119 sur 202, un tableau de comptage à deux lignes, une note sur la façon dont la colonne d’atterrissage a été interprétée et un bouton Ouvrir dans l’éditeur" width="100%">
-  </picture>
-  <br>
-  <sub>« How many of these hurricanes made landfall? » renvoie le décompte, un tableau et l’hypothèse sur laquelle repose la réponse.</sub>
-</p>
 
 GeoLens peut répondre à des questions sur un jeu de données, modifier des cartes à partir de
 demandes en langage courant, rédiger des métadonnées et chercher en langage naturel. Il fonctionne

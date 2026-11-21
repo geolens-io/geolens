@@ -80,26 +80,26 @@ ejecutar en producción.
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
-<img src=".github/assets/geolens-builder-style.png" alt="El constructor de mapas con el mapa Restless Earth en un globo: un mapa de calor de terremotos a lo largo de los límites de las placas del Pacífico, la lista de capas agrupadas y el panel de estilo del mapa de calor con sus rampas de color" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-arcgis-webmap-dark.jpg">
+<img src=".github/assets/geolens-arcgis-webmap.jpg" alt="Un mapa web de ArcGIS Online importado a GeoLens: el constructor de mapas con un mapa de los árboles de las calles de Cambridge, coloreados por tipo de emplazamiento, con los contornos y nombres de los barrios, la lista de capas y una leyenda" width="100%">
 </picture>
-<br><sub>Las capas se representan como puntos, símbolos, mapas de calor o agrupaciones, y la lista de rampas puede limitarse a las aptas para daltonismo.</sub>
+<br><sub>Un mapa web de ArcGIS Online importado a GeoLens. Se conservaron sus colores, ventanas emergentes, contornos y rangos de zoom.</sub>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="El constructor de mapas de GeoLens representando el Cervino como terreno 3D a partir de lidar swissALTI3D, con cumbres rotuladas, rutas de escalada, la lista de capas y una leyenda" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-story-dark.jpg">
+<img src=".github/assets/geolens-story.jpg" alt="Una historia publicada, Where the Atlantic's Major Hurricanes Go: un capítulo con una foto de portada y texto junto a un globo con trayectorias de tormentas coloreadas por categoría Saffir-Simpson, con la leyenda" width="100%">
 </picture>
-<br><sub>Terreno 3D a partir de tus propios datos de elevación, aquí el Cervino con lidar swissALTI3D.</sub>
+<br><sub>Una historia guía al lector por un mapa capítulo a capítulo.</sub>
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
-<img src=".github/assets/geolens-stac-imagery.jpg" alt="El constructor de mapas con cuatro escenas Sentinel-2 en color real y con fecha sobre la ciudad de Nueva York y el norte de Nueva Jersey, referenciadas desde el catálogo STAC Earth Search, con la lista de capas y la leyenda" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.png">
+<img src=".github/assets/geolens-dashboard.png" alt="Un panel de control de las parcelas de Cambridge: indicadores del número de parcelas y de la superficie, dos gráficos circulares de parcelas por distrito de zonificación, y notas sobre la llanura de inundación y las fuentes de los datos" width="100%">
 </picture>
-<br><sub>Escenas Sentinel-2 referenciadas desde un catálogo STAC. Las imágenes se quedan donde están y se sirven en teselas bajo demanda.</sub>
+<br><sub>Un panel de control resume los datos de un mapa en indicadores, gráficos y notas. Este oculta su mapa.</sub>
 </td>
 </tr>
 </table>
@@ -235,15 +235,6 @@ catálogo y, con una clave de API `map_author`, crear mapas y darles estilo. La 
 ejecutable para MapLibre, Leaflet, OpenLayers, el ArcGIS Maps SDK, QGIS y DuckDB.
 
 ## IA opcional
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-ask-ai-dark.png">
-    <img src=".github/assets/geolens-ask-ai.png" alt="El panel Preguntar a la IA sobre el conjunto de datos Major Hurricane Tracks respondiendo 'How many of these hurricanes made landfall?' con 119 de 202, una tabla de recuento de dos filas, una nota sobre cómo interpretó la columna de llegada a tierra y un botón Abrir en el editor" width="100%">
-  </picture>
-  <br>
-  <sub>"How many of these hurricanes made landfall?" devuelve el recuento, una tabla y el supuesto en que se basa la respuesta.</sub>
-</p>
 
 GeoLens puede responder preguntas sobre un conjunto de datos, editar mapas a partir de peticiones
 en lenguaje natural, redactar metadatos y buscar en lenguaje natural. Funciona con cualquier

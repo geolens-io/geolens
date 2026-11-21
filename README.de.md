@@ -79,26 +79,26 @@ der Produktion betreiben.
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
-<img src=".github/assets/geolens-builder-style.png" alt="Der Karteneditor mit der Karte Restless Earth auf einem Globus: eine Erdbeben-Heatmap entlang der pazifischen Plattengrenzen, die gruppierte Ebenenliste und das Stilfenster der Heatmap mit Farbverläufen" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-arcgis-webmap-dark.jpg">
+<img src=".github/assets/geolens-arcgis-webmap.jpg" alt="Der Karteneditor mit einer Karte der Straßenbäume von Cambridge, aus einer ArcGIS-Online-Webkarte importiert: Bäume nach Standorttyp eingefärbt, Umrisse und Namen der Stadtviertel, Ebenenliste und Legende" width="100%">
 </picture>
-<br><sub>Ebenen werden als Punkte, Symbole, Heatmaps oder Cluster dargestellt, und die Liste der Farbverläufe lässt sich auf farbenblindheitssichere beschränken.</sub>
+<br><sub>Eine ArcGIS-Online-Webkarte, in GeoLens importiert. Farben, Popups, Umrisse und Zoombereiche wurden übernommen.</sub>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="Der GeoLens-Karteneditor stellt das Matterhorn als 3D-Gelände aus swissALTI3D-Lidar dar, mit beschrifteten Gipfeln, Kletterrouten, der Ebenenliste und einer Legende" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-story-dark.jpg">
+<img src=".github/assets/geolens-story.jpg" alt="Eine veröffentlichte Story, Where the Atlantic's Major Hurricanes Go: ein Kapitel mit Titelfoto und Text neben einem Globus mit Sturmbahnen, nach Saffir-Simpson-Kategorie eingefärbt, mit Legende" width="100%">
 </picture>
-<br><sub>3D-Gelände aus Ihren eigenen Höhendaten, hier das Matterhorn aus swissALTI3D-Lidar.</sub>
+<br><sub>Eine Story führt Leser Kapitel für Kapitel durch eine Karte.</sub>
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
-<img src=".github/assets/geolens-stac-imagery.jpg" alt="Der Karteneditor mit vier datierten Sentinel-2-Echtfarbenaufnahmen über New York City und dem Norden von New Jersey, aus dem STAC-Katalog Earth Search referenziert, mit Ebenenliste und Legende" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.png">
+<img src=".github/assets/geolens-dashboard.png" alt="Ein Dashboard zu den Flurstücken von Cambridge: Kennzahlen zu Anzahl und Fläche der Flurstücke, zwei Kreisdiagramme der Flurstücke nach Nutzungsbezirk sowie Notizen zum Überschwemmungsgebiet und zu den Datenquellen" width="100%">
 </picture>
-<br><sub>Sentinel-2-Szenen, aus einem STAC-Katalog referenziert. Die Bilddaten bleiben, wo sie sind, und werden bei Bedarf gekachelt.</sub>
+<br><sub>Ein Dashboard fasst die Daten einer Karte in Kennzahlen, Diagrammen und Notizen zusammen. Dieses blendet seine Karte aus.</sub>
 </td>
 </tr>
 </table>
@@ -237,15 +237,6 @@ durchsuchen und mit einem API-Schlüssel `map_author` Karten erstellen und gesta
 MapLibre, Leaflet, OpenLayers, das ArcGIS Maps SDK, QGIS und DuckDB.
 
 ## Optionale KI
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-ask-ai-dark.png">
-    <img src=".github/assets/geolens-ask-ai.png" alt="Der Bereich „KI fragen“ zum Datensatz Major Hurricane Tracks beantwortet „How many of these hurricanes made landfall?“ mit 119 von 202, einer Zähltabelle mit zwei Zeilen, einem Hinweis, wie die Spalte zum Landfall gelesen wurde, und der Schaltfläche „Im Editor öffnen“" width="100%">
-  </picture>
-  <br>
-  <sub>„How many of these hurricanes made landfall?“ liefert die Zahl, eine Tabelle und die Annahme, auf der die Antwort beruht.</sub>
-</p>
 
 GeoLens kann Fragen zu einem Datensatz beantworten, Karten anhand von Anfragen in normaler Sprache
 bearbeiten, Metadaten entwerfen und in natürlicher Sprache suchen. Es funktioniert mit jedem

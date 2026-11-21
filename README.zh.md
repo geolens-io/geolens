@@ -71,26 +71,26 @@ grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin pass
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
-<img src=".github/assets/geolens-builder-style.png" alt="地图构建器中球面视图的 Restless Earth 地图：沿太平洋板块边界分布的地震热力图、分组图层列表，以及带色带的热力图样式面板" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-arcgis-webmap-dark.jpg">
+<img src=".github/assets/geolens-arcgis-webmap.jpg" alt="地图构建器中从 ArcGIS Online Web 地图导入的剑桥市行道树地图：树木按立地类型着色，带邻里轮廓和名称、图层列表和图例" width="100%">
 </picture>
-<br><sub>图层可渲染为点、符号、热力图或聚类，色带列表可限定为色盲友好的色带。</sub>
+<br><sub>导入 GeoLens 的 ArcGIS Online Web 地图。它的颜色、弹出窗口、轮廓和缩放范围都保留了下来。</sub>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="GeoLens 地图构建器用 swissALTI3D 激光雷达将马特洪峰渲染为 3D 地形，带标注的山峰、攀登路线、图层列表和图例" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-story-dark.jpg">
+<img src=".github/assets/geolens-story.jpg" alt="已发布的故事 Where the Atlantic's Major Hurricanes Go：一个章节，封面照片和文字位于风暴路径地球仪旁，路径按 Saffir-Simpson 等级着色，并带图例" width="100%">
 </picture>
-<br><sub>用您自己的高程数据生成 3D 地形，这里是由 swissALTI3D 激光雷达生成的马特洪峰。</sub>
+<br><sub>故事带读者逐章浏览地图。</sub>
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
-<img src=".github/assets/geolens-stac-imagery.jpg" alt="地图构建器显示纽约市和新泽西州北部上空四幅不同日期的 Sentinel-2 真彩色影像，引用自 Earth Search STAC 目录，旁边是图层列表和图例" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.png">
+<img src=".github/assets/geolens-dashboard.png" alt="剑桥市地块仪表板：地块数量和土地面积指标，两个按分区划分地块的饼图，以及关于洪泛区和数据来源的注释" width="100%">
 </picture>
-<br><sub>引用自 STAC 目录的 Sentinel-2 影像。影像保留在原处，按请求切片。</sub>
+<br><sub>仪表板用指标、图表和注释汇总地图的数据。这个仪表板隐藏了自己的地图。</sub>
 </td>
 </tr>
 </table>
@@ -189,15 +189,6 @@ QGIS 可以把同一个 API 添加为 OGC API Features 连接，做法见 [QGIS 
 `geolens` CLI 可发布文件并应用目录清单，Python 和 TypeScript SDK 覆盖整个 API，MCP 服务器让 AI 代理搜索目录，并在使用 `map_author` API 密钥时创建地图并设置样式。[API 参考](https://docs.getgeolens.com/guides/api/)和 [SDK 指南](https://docs.getgeolens.com/guides/sdk/)有详细说明，[示例库](https://geolens-io.github.io/geolens-examples/)提供可运行的代码，涵盖 MapLibre、Leaflet、OpenLayers、ArcGIS Maps SDK、QGIS 和 DuckDB。
 
 ## 可选的 AI
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-ask-ai-dark.png">
-    <img src=".github/assets/geolens-ask-ai.png" alt="Major Hurricane Tracks 数据集上的“询问 AI”面板，回答“How many of these hurricanes made landfall?”：202 个中的 119 个，附两行计数表、说明如何解读登陆列的备注，以及“在构建器中打开”按钮" width="100%">
-  </picture>
-  <br>
-  <sub>“How many of these hurricanes made landfall?”会返回计数、一张表和答案所依据的假设。</sub>
-</p>
 
 GeoLens 可以回答关于数据集的问题，根据自然语言请求编辑地图，起草元数据，并支持自然语言搜索。它可以使用任何 OpenAI 兼容端点（包括 Ollama 这样的本地服务器），也可以通过 Anthropic、Microsoft Foundry、Amazon Bedrock 或 Google Vertex AI 使用 Claude。在管理员配置提供方之前 AI 保持关闭，没有它，所有工作流依然可用。
 
