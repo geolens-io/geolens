@@ -278,6 +278,32 @@ describe('Builder bookmarks', () => {
     expect(result.current.bookmarksEdited).toBe(false);
   });
 
+  it('keeps the list a save sent when that save fails after a while, and sends it again', async () => {
+    const { result } = renderHook(({ mapData }) => useCombinedBuilder(mapData), { initialProps: { mapData: mapWith([a]) } });
+    act(() => result.current.handleBookmarksChange([a, b]));
+    let fail: (reason: unknown) => void = () => {};
+    mockUpdateMapMutateAsync.mockReturnValueOnce(new Promise((_, reject) => { fail = reject; }));
+    let saving: Promise<unknown> = Promise.resolve();
+    act(() => {
+      saving = result.current.handleSave();
+    });
+    await waitFor(() => expect(mockUpdateMapMutateAsync).toHaveBeenCalledOnce());
+    // The save stays unanswered across renders before it fails.
+    expect(result.current.bookmarks).toEqual([a, b]);
+    await act(async () => {
+      fail(new Error('offline'));
+      await saving;
+    });
+    expect(result.current.bookmarks).toEqual([a, b]);
+    expect(result.current.bookmarksEdited).toBe(true);
+
+    mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1' });
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    expect(mockUpdateMapMutateAsync.mock.lastCall![0].data.bookmarks).toEqual([a, b]);
+  });
+
   it('measures edits against the saved list again after a save fails', async () => {
     const { result } = renderHook(({ mapData }) => useCombinedBuilder(mapData), { initialProps: { mapData: mapWith([a]) } });
     act(() => result.current.handleBookmarksChange([a, b]));
