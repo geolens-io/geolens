@@ -172,15 +172,17 @@ async def _staged_row(
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(_ORIGINAL)
     job = IngestJob(
-        status="pending",
-        created_by=owner,
-        source_filename="roads.geojson",
-        file_path=str(path),
-        user_metadata={
-            "staged_at": datetime.now(timezone.utc).isoformat(),
-            **(metadata or {}),
-        },
-        **columns,
+        **{
+            "status": "pending",
+            "created_by": owner,
+            "source_filename": "roads.geojson",
+            "file_path": str(path),
+            "user_metadata": {
+                "staged_at": datetime.now(timezone.utc).isoformat(),
+                **(metadata or {}),
+            },
+            **columns,
+        }
     )
     session.add(job)
     await session.commit()
@@ -1191,3 +1193,92 @@ async def test_a_fan_out_that_read_the_upload_before_a_claim_writes_nothing(
     assert job.user_metadata["manifest_key"] == "web-raced"
     assert job.user_metadata[COMMIT_ATTEMPTED_METADATA_KEY]
     assert "item_id" not in job.user_metadata
+
+
+async def test_a_retry_and_a_manifest_apply_never_both_take_an_upload(
+    client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+):
+    """A manifest apply lands between a retry's commit and its dispatch."""
+    import app.core.db as db_module
+    from app.modules.auth.models import User
+    from app.platform.jobs.defer_guard import stamp_commit_attempted
+
+    editor = await _user_id(client, editor_auth_header)
+    failed = await _staged_row(
+        test_db_session,
+        editor,
+        status="failed",
+        error_message="Stale: upload completed but never committed",
+        completed_at=datetime.now(timezone.utc),
+    )
+    job_id = failed.id
+    request = ManifestApplyRequest.model_validate(
+        _manifest(_entry("web-retried", job_id, _checksum(_ORIGINAL)))
+    )
+    applied: list = []
+
+    async def _applied_then_dispatched(job, user_id, *, db, **kwargs):
+        async with db_module.async_session() as other:
+            user = await other.get(User, editor)
+            response = await apply_manifest(other, request, user, _http_request())
+            applied.extend(response.results)
+        await stamp_commit_attempted(job, db=db)
+
+    with (
+        patch(
+            "app.platform.jobs.router.queue_ingest_job",
+            side_effect=_applied_then_dispatched,
+        ),
+        patch(
+            "app.processing.ingest.manifest_service.queue_ingest_job", new=AsyncMock()
+        ) as manifest_queue,
+    ):
+        retried = await client.post(f"/jobs/{job_id}/retry", headers=editor_auth_header)
+
+    assert retried.status_code == 202, retried.text
+    [result] = applied
+    assert (result.action, result.message) == ("error", UPLOAD_SOURCE_UNAVAILABLE)
+    manifest_queue.assert_not_awaited()
+    job = await _row(test_db_session, job_id)
+    assert job.status == "pending"
+    assert "manifest_key" not in job.user_metadata
+    assert job.user_metadata[COMMIT_ATTEMPTED_METADATA_KEY]
+
+
+async def test_a_dispatch_stamp_from_a_copy_read_before_a_claim_keeps_the_claim(
+    test_db_session, clean_tables, monkeypatch, tmp_path
+):
+    import app.core.db as db_module
+    from app.platform.jobs.defer_guard import stamp_commit_attempted
+
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+    owner = await get_user_id(test_db_session, "admin")
+    stale = await _staged_row(test_db_session, owner)
+    job_id = stale.id
+    async with db_module.async_session() as other:
+        row = await other.get(IngestJob, job_id)
+        claimed = await claim_upload(
+            other,
+            job_id=job_id,
+            attempt_id=row.attempt_id,
+            file_path=row.file_path,
+            owner=owner,
+            metadata={
+                "manifest_key": "stamp-raced",
+                MANIFEST_FINGERPRINT_METADATA_KEY: "f" * 64,
+                "manifest_stage": "downloading",
+            },
+            dataset_id=None,
+            source_layer=None,
+        )
+        await other.commit()
+        assert claimed is not None
+
+    await stamp_commit_attempted(stale, db=test_db_session)
+    await test_db_session.commit()
+
+    job = await _row(test_db_session, job_id)
+    assert job.status == "running"
+    assert job.user_metadata["manifest_key"] == "stamp-raced"
+    assert job.user_metadata[MANIFEST_FINGERPRINT_METADATA_KEY] == "f" * 64
+    assert job.user_metadata["manifest_stage"] == "downloading"

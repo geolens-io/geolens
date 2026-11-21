@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import String, func, inspect as sa_inspect, literal, or_, select, text
-from sqlalchemy import update
+from sqlalchemy import bindparam, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -36,6 +36,7 @@ from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     IngestJob,
+    commit_attempted_marker,
     dispatch_attempted,
 )
 
@@ -682,8 +683,10 @@ async def retry(session: AsyncSession, job: IngestJob) -> Outcome:
     Clears what the failed attempt left: its reason, its clocks and its
     dataset binding. ``staged_at`` is stamped now, because the stale-pending
     sweep ages a pending row from it and an hour-old failure would otherwise
-    be stale the moment the retry commits. A late worker on the old attempt
-    then matches no row. When the write lands, the new state, new attempt
+    be stale the moment the retry commits. The dispatch marker is stamped in
+    the same write, since a retry always dispatches next: until then, a
+    pending row without it reads as an upload a manifest or a commit may
+    still take. A late worker on the old attempt then matches no row. When the write lands, the new state, new attempt
     included, is mirrored onto the instance. Ends no linked rows, and does
     not commit.
     """
@@ -709,7 +712,14 @@ async def retry(session: AsyncSession, job: IngestJob) -> Outcome:
                 user_metadata=func.coalesce(
                     IngestJob.user_metadata, text("'{}'::jsonb")
                 ).op("||", return_type=JSONB)(
-                    func.jsonb_build_object("staged_at", retried_at.isoformat())
+                    bindparam(
+                        "retry_fields",
+                        value={
+                            "staged_at": retried_at.isoformat(),
+                            **commit_attempted_marker(),
+                        },
+                        type_=JSONB,
+                    )
                 ),
             )
             .returning(
