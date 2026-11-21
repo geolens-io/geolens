@@ -161,7 +161,13 @@ const thirdPartyLicenses: Plugin = {
     entries.sort((x, y) => x.name.localeCompare(y.name))
     const missing: string[] = []
     const sections = entries.map(({ name, version, identifier, text }) => {
-      const body = text?.trim() || shippedLicenseText(name)
+      const notice = path.resolve(__dirname, 'licenses', `${name}.notice.txt`)
+      const body = [
+        text?.trim() || shippedLicenseText(name),
+        fs.existsSync(notice) ? fs.readFileSync(notice, 'utf-8').trim() : '',
+      ]
+        .filter(Boolean)
+        .join('\n\n')
       if (!body) missing.push(name)
       return `## ${name} - ${version} (${identifier})\n\n${body}\n`
     })
