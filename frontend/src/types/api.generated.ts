@@ -12746,8 +12746,11 @@ export interface components {
              */
             manifest_version: "1" | "2";
             catalog: components["schemas"]["ManifestCatalog"];
-            /** Datasets */
-            datasets: components["schemas"]["ManifestDataset"][];
+            /**
+             * Datasets
+             * @description Required, with at least one entry, in version 1. In version 2 it may be empty, or left out, when `maps` is not.
+             */
+            datasets?: components["schemas"]["ManifestDataset"][];
             /**
              * Dry Run
              * @default false
@@ -12760,6 +12763,11 @@ export interface components {
              * @description Version 2 only. When public visibility is refused for an entry, write it as internal with warning A020 instead of failing it.
              */
             public_fallback?: "internal" | null;
+            /**
+             * Maps
+             * @description Version 2 only. Maps built from datasets the caller can read. For now maps are only checked: a request with maps must set `dry_run` to true, or it is refused before anything is applied.
+             */
+            maps?: components["schemas"]["ManifestMap"][] | null;
         };
         /** ManifestApplyResponse */
         ManifestApplyResponse: {
@@ -12769,6 +12777,11 @@ export interface components {
             dry_run: boolean;
             /** Results */
             results: components["schemas"]["ManifestApplyEntryResult"][];
+            /**
+             * Maps
+             * @description One result per map, in request order. Left out in version 1.
+             */
+            maps?: components["schemas"]["ManifestMapResult"][] | null;
         };
         /**
          * ManifestAttribute
@@ -12899,6 +12912,173 @@ export interface components {
              */
             attributes?: components["schemas"]["ManifestAttribute"][] | null;
         };
+        /** ManifestLossItem */
+        ManifestLossItem: {
+            /** Path */
+            path: string;
+            /** Kind */
+            kind: string;
+            /** Detail */
+            detail?: string | null;
+        };
+        /** ManifestLossReport */
+        ManifestLossReport: {
+            /** Items */
+            items?: components["schemas"]["ManifestLossItem"][];
+            /** Summary */
+            summary?: {
+                [key: string]: number;
+            };
+        };
+        /** ManifestMap */
+        ManifestMap: {
+            /**
+             * Key
+             * @description Stable map identity key, unique across the server. A key on a map the caller can't edit answers A050.
+             */
+            key: string;
+            /** Name */
+            name: string;
+            /** Description */
+            description?: string | null;
+            view?: components["schemas"]["ManifestMapView"] | null;
+            /**
+             * Basemap Style
+             * @description A basemap id from GET /capabilities.
+             */
+            basemap_style?: string | null;
+            /**
+             * Styling
+             * @description Whether a republish replaces the map's styling.
+             * @default replace_if_unedited
+             * @enum {string}
+             */
+            styling: "replace_if_unedited" | "replace" | "keep";
+            /**
+             * Thumbnail
+             * @description A PNG or JPEG data URI.
+             */
+            thumbnail?: string | null;
+            loss_report?: components["schemas"]["ManifestLossReport"] | null;
+            /**
+             * Visibility
+             * @description Who can see the map. Omitted on create the map is private; omitted on update the current level is kept.
+             */
+            visibility?: ("private" | "internal" | "public") | null;
+            /** Layers */
+            layers: components["schemas"]["ManifestMapLayer"][];
+        };
+        /**
+         * ManifestMapLayer
+         * @description One map layer. Column names in its styling are the uploaded file's.
+         */
+        ManifestMapLayer: {
+            /**
+             * Key
+             * @description Stable layer identity key, unique within its map.
+             */
+            key: string;
+            /**
+             * Dataset Key
+             * @description A dataset the caller published under this key. Exactly one of dataset_key and dataset_id.
+             */
+            dataset_key?: string | null;
+            /**
+             * Dataset Id
+             * @description A dataset already in GeoLens that the caller can read.
+             */
+            dataset_id?: string | null;
+            /** Display Name */
+            display_name?: string | null;
+            /**
+             * Visible
+             * @default true
+             */
+            visible: boolean;
+            /**
+             * Opacity
+             * @default 1
+             */
+            opacity: number;
+            /** Min Zoom */
+            min_zoom?: number | null;
+            /** Max Zoom */
+            max_zoom?: number | null;
+            /**
+             * Style Config
+             * @description The builder's style description. Unknown top-level keys are dropped with info A062.
+             */
+            style_config?: {
+                [key: string]: unknown;
+            } | null;
+            /** Paint */
+            paint?: {
+                [key: string]: unknown;
+            } | null;
+            /** Layout */
+            layout?: {
+                [key: string]: unknown;
+            } | null;
+            /** Filter */
+            filter?: unknown[] | null;
+            /**
+             * Label Config
+             * @description Text labels. Unknown keys are dropped with info A062.
+             */
+            label_config?: {
+                [key: string]: unknown;
+            } | null;
+            /** Popup Config */
+            popup_config?: {
+                [key: string]: unknown;
+            } | null;
+            /**
+             * Show In Legend
+             * @default true
+             */
+            show_in_legend: boolean;
+        };
+        /** ManifestMapResult */
+        ManifestMapResult: {
+            /** Map Key */
+            map_key: string;
+            /**
+             * Action
+             * @description What apply did, or in a dry run would do, with the map. A map with an error message is `error`.
+             * @enum {string}
+             */
+            action: "create" | "update" | "skip" | "error";
+            /**
+             * Map Id
+             * @description The map the key names, when the caller may edit it.
+             */
+            map_id?: string | null;
+            /** Messages */
+            messages?: components["schemas"]["ManifestMessage"][];
+        };
+        /** ManifestMapView */
+        ManifestMapView: {
+            /**
+             * Center
+             * @description Longitude and latitude, WGS84.
+             */
+            center: [
+                number,
+                number
+            ];
+            /** Zoom */
+            zoom: number;
+            /**
+             * Bearing
+             * @default 0
+             */
+            bearing: number;
+            /**
+             * Pitch
+             * @default 0
+             */
+            pitch: number;
+        };
         /** ManifestMessage */
         ManifestMessage: {
             /**
@@ -12915,6 +13095,11 @@ export interface components {
             message: string;
             /** Fix */
             fix?: string | null;
+            /**
+             * Layer
+             * @description The map layer key the message is about. Left out otherwise.
+             */
+            layer?: string | null;
         };
         /** ManifestMetadata */
         ManifestMetadata: {

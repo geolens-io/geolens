@@ -1238,7 +1238,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 615,
+        "backend/app/platform/extensions/defaults_processing_port.py": 624,
         "backend/app/platform/extensions/defaults_extensions.py": 436,
         "backend/app/modules/catalog/search/service_filters.py": 376,
     }
@@ -1310,9 +1310,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow, including the settlement of a contended or refused admission,
     # the records of an admin's raw seed source, restricted public intent and a
-    # publish key, and where a version 2 entry's publication is decided and a
-    # held or in-flight job is reused.
-    "backend/app/processing/ingest/manifest_service.py": 1336,
+    # publish key, where a version 2 entry's publication is decided and a held or
+    # in-flight job is reused, and the maps section's results beside the datasets'.
+    "backend/app/processing/ingest/manifest_service.py": 1339,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,

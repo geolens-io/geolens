@@ -610,6 +610,15 @@ class DefaultProcessingPort:
         )
 
     async def apply_manifest_maps(  # type: ignore[no-untyped-def]
-        self, session, maps, user, *, dry_run
+        self, session, maps, user, *, dry_run, dataset_ids_by_key, pending_dataset_keys
     ):
-        raise NotImplementedError("manifest maps are not implemented yet")
+        from app.modules.catalog.maps.manifest_apply import apply_manifest_maps
+
+        return await apply_manifest_maps(
+            session,
+            maps,
+            user,
+            dry_run=dry_run,
+            dataset_ids_by_key=dataset_ids_by_key,
+            pending_dataset_keys=pending_dataset_keys,
+        )

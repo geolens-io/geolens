@@ -24,12 +24,14 @@ class ManifestMessage:
         severity (ManifestMessageSeverity):
         message (str):
         fix (None | str | Unset):
+        layer (None | str | Unset): The map layer key the message is about. Left out otherwise.
     """
 
     code: str
     severity: ManifestMessageSeverity
     message: str
     fix: None | str | Unset = UNSET
+    layer: None | str | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -45,6 +47,12 @@ class ManifestMessage:
         else:
             fix = self.fix
 
+        layer: None | str | Unset
+        if isinstance(self.layer, Unset):
+            layer = UNSET
+        else:
+            layer = self.layer
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -56,6 +64,8 @@ class ManifestMessage:
         )
         if fix is not UNSET:
             field_dict["fix"] = fix
+        if layer is not UNSET:
+            field_dict["layer"] = layer
 
         return field_dict
 
@@ -77,11 +87,21 @@ class ManifestMessage:
 
         fix = _parse_fix(d.pop("fix", UNSET))
 
+        def _parse_layer(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        layer = _parse_layer(d.pop("layer", UNSET))
+
         manifest_message = cls(
             code=code,
             severity=severity,
             message=message,
             fix=fix,
+            layer=layer,
         )
 
         manifest_message.additional_properties = d

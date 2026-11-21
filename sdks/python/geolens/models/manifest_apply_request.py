@@ -20,6 +20,7 @@ if TYPE_CHECKING:
     from ..models.manifest_catalog import ManifestCatalog
     from ..models.manifest_client import ManifestClient
     from ..models.manifest_dataset import ManifestDataset
+    from ..models.manifest_map import ManifestMap
 
 
 T = TypeVar("T", bound="ManifestApplyRequest")
@@ -33,19 +34,24 @@ class ManifestApplyRequest:
             requires, and `upload:<job_id>` sources. Version 2 is a preview and may change in any release until the desktop
             connectors ship; version 1 is stable.
         catalog (ManifestCatalog):
-        datasets (list[ManifestDataset]):
+        datasets (list[ManifestDataset] | Unset): Required, with at least one entry, in version 1. In version 2 it may
+            be empty, or left out, when `maps` is not.
         dry_run (bool | Unset):  Default: False.
         client (ManifestClient | None | Unset): The publishing client. Required in version 2, refused in 1.
         public_fallback (Literal['internal'] | None | Unset): Version 2 only. When public visibility is refused for an
             entry, write it as internal with warning A020 instead of failing it.
+        maps (list[ManifestMap] | None | Unset): Version 2 only. Maps built from datasets the caller can read. For now
+            maps are only checked: a request with maps must set `dry_run` to true, or it is refused before anything is
+            applied.
     """
 
     manifest_version: ManifestApplyRequestManifestVersion
     catalog: ManifestCatalog
-    datasets: list[ManifestDataset]
+    datasets: list[ManifestDataset] | Unset = UNSET
     dry_run: bool | Unset = False
     client: ManifestClient | None | Unset = UNSET
     public_fallback: Literal["internal"] | None | Unset = UNSET
+    maps: list[ManifestMap] | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.manifest_client import ManifestClient
@@ -54,10 +60,12 @@ class ManifestApplyRequest:
 
         catalog = self.catalog.to_dict()
 
-        datasets = []
-        for datasets_item_data in self.datasets:
-            datasets_item = datasets_item_data.to_dict()
-            datasets.append(datasets_item)
+        datasets: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.datasets, Unset):
+            datasets = []
+            for datasets_item_data in self.datasets:
+                datasets_item = datasets_item_data.to_dict()
+                datasets.append(datasets_item)
 
         dry_run = self.dry_run
 
@@ -75,21 +83,36 @@ class ManifestApplyRequest:
         else:
             public_fallback = self.public_fallback
 
+        maps: list[dict[str, Any]] | None | Unset
+        if isinstance(self.maps, Unset):
+            maps = UNSET
+        elif isinstance(self.maps, list):
+            maps = []
+            for maps_type_0_item_data in self.maps:
+                maps_type_0_item = maps_type_0_item_data.to_dict()
+                maps.append(maps_type_0_item)
+
+        else:
+            maps = self.maps
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
             {
                 "manifest_version": manifest_version,
                 "catalog": catalog,
-                "datasets": datasets,
             }
         )
+        if datasets is not UNSET:
+            field_dict["datasets"] = datasets
         if dry_run is not UNSET:
             field_dict["dry_run"] = dry_run
         if client is not UNSET:
             field_dict["client"] = client
         if public_fallback is not UNSET:
             field_dict["public_fallback"] = public_fallback
+        if maps is not UNSET:
+            field_dict["maps"] = maps
 
         return field_dict
 
@@ -98,6 +121,7 @@ class ManifestApplyRequest:
         from ..models.manifest_catalog import ManifestCatalog
         from ..models.manifest_client import ManifestClient
         from ..models.manifest_dataset import ManifestDataset
+        from ..models.manifest_map import ManifestMap
 
         d = dict(src_dict)
         manifest_version = check_manifest_apply_request_manifest_version(
@@ -106,12 +130,14 @@ class ManifestApplyRequest:
 
         catalog = ManifestCatalog.from_dict(d.pop("catalog"))
 
-        datasets = []
-        _datasets = d.pop("datasets")
-        for datasets_item_data in _datasets:
-            datasets_item = ManifestDataset.from_dict(datasets_item_data)
+        _datasets = d.pop("datasets", UNSET)
+        datasets: list[ManifestDataset] | Unset = UNSET
+        if _datasets is not UNSET:
+            datasets = []
+            for datasets_item_data in _datasets:
+                datasets_item = ManifestDataset.from_dict(datasets_item_data)
 
-            datasets.append(datasets_item)
+                datasets.append(datasets_item)
 
         dry_run = d.pop("dry_run", UNSET)
 
@@ -147,6 +173,28 @@ class ManifestApplyRequest:
 
         public_fallback = _parse_public_fallback(d.pop("public_fallback", UNSET))
 
+        def _parse_maps(data: object) -> list[ManifestMap] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                maps_type_0 = []
+                _maps_type_0 = data
+                for maps_type_0_item_data in _maps_type_0:
+                    maps_type_0_item = ManifestMap.from_dict(maps_type_0_item_data)
+
+                    maps_type_0.append(maps_type_0_item)
+
+                return maps_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[ManifestMap] | None | Unset, data)
+
+        maps = _parse_maps(d.pop("maps", UNSET))
+
         manifest_apply_request = cls(
             manifest_version=manifest_version,
             catalog=catalog,
@@ -154,6 +202,7 @@ class ManifestApplyRequest:
             dry_run=dry_run,
             client=client,
             public_fallback=public_fallback,
+            maps=maps,
         )
 
         return manifest_apply_request

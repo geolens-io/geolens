@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import sys
 from pathlib import Path
 
@@ -40,3 +41,14 @@ def test_the_fourth_positional_argument_is_still_dry_run():
     assert body["dry_run"] is True
     assert "client" not in body
     assert ManifestApplyRequest.model_validate(body).dry_run is True
+
+
+_CONTRACT = json.loads(
+    (Path(__file__).parent / "fixtures/publish_contract_v2.json").read_text()
+)
+
+
+@pytest.mark.parametrize("example", _CONTRACT["valid"], ids=lambda e: e["name"])
+def test_the_sdk_request_round_trips_every_valid_contract_example(example):
+    manifest = example["manifest"]
+    assert SdkManifestApplyRequest.from_dict(manifest).to_dict() == manifest

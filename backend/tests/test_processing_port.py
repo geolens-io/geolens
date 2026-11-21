@@ -337,7 +337,9 @@ class FakeProcessingPort:
     ):
         return [a["source_name"] for a in attributes]
 
-    async def apply_manifest_maps(self, session, maps, user, *, dry_run):
+    async def apply_manifest_maps(
+        self, session, maps, user, *, dry_run, dataset_ids_by_key, pending_dataset_keys
+    ):
         raise NotImplementedError
 
 

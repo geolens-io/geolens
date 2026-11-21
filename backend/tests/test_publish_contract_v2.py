@@ -345,3 +345,35 @@ def test_every_required_member_is_required():
     assert len(reachable) >= MIN_REQUIRED
     accepted = [path for path, m in reachable if VALIDATOR.is_valid(m)]
     assert accepted == []
+
+
+def test_a_loss_report_has_no_item_limit():
+    """The schema sets none, so the request model accepts the same report."""
+    from app.processing.ingest.manifest_schemas import ManifestApplyRequest
+
+    manifest = copy.deepcopy(_valid("dry_run"))
+    manifest["maps"][0]["loss_report"] = {
+        "items": [
+            {"path": f"layers[{i}]", "kind": "effect_dropped"} for i in range(1001)
+        ]
+    }
+    assert VALIDATOR.is_valid(manifest)
+    ManifestApplyRequest.model_validate(manifest)
+
+
+def test_a_loss_report_takes_any_kind_and_summary_key_the_contract_does():
+    from app.processing.ingest.manifest_schemas import ManifestApplyRequest
+
+    manifest = copy.deepcopy(_valid("dry_run"))
+    manifest["maps"][0]["loss_report"] = {
+        "items": [
+            {
+                "path": "layers[0].style " + "x" * 600,
+                "kind": "unsupported-style",
+                "detail": "d" * 3000,
+            }
+        ],
+        "summary": {"unsupported-style": 1, "Mixed Case": 2},
+    }
+    assert VALIDATOR.is_valid(manifest)
+    ManifestApplyRequest.model_validate(manifest)
