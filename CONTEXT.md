@@ -45,6 +45,9 @@ _Avoid_: Embed, for a plain share link.
 
 **Shared map**: A saved map that someone besides its owner and admins can open: a public map, a restricted map, or a map with an active embed token.
 
+**Bookmark**: A named area saved on a map, with its rotation and tilt for a tilted view, that every reader of the map can jump to. Jumping fits the area to the reader's screen. A map's editors set its bookmarks and their order.
+_Avoid_: View (the camera a map opens at), scene (a chapter's map, camera and layers).
+
 **Column allowlist**: The columns of a dataset that anyone reaching it only through an embed may see. Map tiles carry no others; row lists keep the row id.
 _Avoid_: Tile columns.
 
@@ -76,6 +79,12 @@ _Avoid_: Migration on its own (that is a database schema migration), AGOL import
 
 **Cutover**: The final run of an ArcGIS migration, made after edits in the portal are frozen. After it GeoLens is the system of record for the migrated content.
 
+**Manifest key**: The name a manifest (a declared list of datasets to create or update) gives a dataset. It is unique on the server, so applying the manifest again updates that dataset instead of making another.
+_Avoid_: Publish key, which is a credential.
+
+**Publish key**: An API key that can only add content or make changes that can be undone, such as uploading, applying a manifest, or replacing a dataset's data while keeping its previous version. It can't delete anything, edit features or make anything public; those take a full key or a signed-in user.
+_Avoid_: Manifest key.
+
 **Role**: A user's permission tier (admin, editor or viewer). It decides what a user may do; it is not an audience that content is shared with.
 _Avoid_: Group, when meaning an audience.
 
@@ -83,6 +92,9 @@ _Avoid_: Group, when meaning an audience.
 _Avoid_: Team, role, layer group (layers grouped inside a map).
 
 **Restricted**: The visibility of a dataset, map or story that only its owner, admins and members of the groups it is shared with can see. A dataset can be restricted with no group left, which leaves only its owner and admins; a map or story left with no group becomes private.
+
+**Record status**: Whether a dataset's catalog record is a draft or published. Anonymous readers get a dataset only when it is public and its record is published, and an internal dataset reaches signed-in users other than its owner and admins only when it is published.
+_Avoid_: Draft or publish on their own (a story's), status (a job's).
 
 **Story**: An ordered list of chapters told over saved maps. It has its own owner and visibility, and it can't be published more widely than any map it uses can be read.
 
