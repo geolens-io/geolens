@@ -19,6 +19,7 @@ if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
     from ..models.dashboard_config import DashboardConfig
     from ..models.group_ref import GroupRef
+    from ..models.map_bookmark import MapBookmark
     from ..models.map_layer_response import MapLayerResponse
     from ..models.reader_theme import ReaderTheme
     from ..models.terrain_config import TerrainConfig
@@ -56,6 +57,7 @@ class MapResponse:
         basemap_config (BasemapConfig | None | Unset):
         terrain_config (None | TerrainConfig | Unset):
         dashboard_config (DashboardConfig | None | Unset):
+        bookmarks (list[MapBookmark] | Unset):
         thumbnail_url (None | str | Unset):
         og_image_url (None | str | Unset):
         forked_from_id (None | Unset | UUID): Source map UUID if this is a fork
@@ -90,6 +92,7 @@ class MapResponse:
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
     dashboard_config: DashboardConfig | None | Unset = UNSET
+    bookmarks: list[MapBookmark] | Unset = UNSET
     thumbnail_url: None | str | Unset = UNSET
     og_image_url: None | str | Unset = UNSET
     forked_from_id: None | Unset | UUID = UNSET
@@ -181,6 +184,13 @@ class MapResponse:
             dashboard_config = self.dashboard_config.to_dict()
         else:
             dashboard_config = self.dashboard_config
+
+        bookmarks: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.bookmarks, Unset):
+            bookmarks = []
+            for bookmarks_item_data in self.bookmarks:
+                bookmarks_item = bookmarks_item_data.to_dict()
+                bookmarks.append(bookmarks_item)
 
         thumbnail_url: None | str | Unset
         if isinstance(self.thumbnail_url, Unset):
@@ -281,6 +291,8 @@ class MapResponse:
             field_dict["terrain_config"] = terrain_config
         if dashboard_config is not UNSET:
             field_dict["dashboard_config"] = dashboard_config
+        if bookmarks is not UNSET:
+            field_dict["bookmarks"] = bookmarks
         if thumbnail_url is not UNSET:
             field_dict["thumbnail_url"] = thumbnail_url
         if og_image_url is not UNSET:
@@ -307,6 +319,7 @@ class MapResponse:
         from ..models.basemap_config import BasemapConfig
         from ..models.dashboard_config import DashboardConfig
         from ..models.group_ref import GroupRef
+        from ..models.map_bookmark import MapBookmark
         from ..models.map_layer_response import MapLayerResponse
         from ..models.reader_theme import ReaderTheme
         from ..models.terrain_config import TerrainConfig
@@ -443,6 +456,15 @@ class MapResponse:
             return cast(DashboardConfig | None | Unset, data)
 
         dashboard_config = _parse_dashboard_config(d.pop("dashboard_config", UNSET))
+
+        _bookmarks = d.pop("bookmarks", UNSET)
+        bookmarks: list[MapBookmark] | Unset = UNSET
+        if _bookmarks is not UNSET:
+            bookmarks = []
+            for bookmarks_item_data in _bookmarks:
+                bookmarks_item = MapBookmark.from_dict(bookmarks_item_data)
+
+                bookmarks.append(bookmarks_item)
 
         def _parse_thumbnail_url(data: object) -> None | str | Unset:
             if data is None:
@@ -586,6 +608,7 @@ class MapResponse:
             basemap_config=basemap_config,
             terrain_config=terrain_config,
             dashboard_config=dashboard_config,
+            bookmarks=bookmarks,
             thumbnail_url=thumbnail_url,
             og_image_url=og_image_url,
             forked_from_id=forked_from_id,

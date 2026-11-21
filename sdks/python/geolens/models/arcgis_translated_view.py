@@ -1,13 +1,17 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
 
+from ..types import UNSET, Unset
 
 from typing import cast
+
+if TYPE_CHECKING:
+    from ..models.map_bookmark import MapBookmark
 
 
 T = TypeVar("T", bound="ArcgisTranslatedView")
@@ -22,6 +26,7 @@ class ArcgisTranslatedView:
         center_lat (float | None): Initial center latitude.
         zoom (float | None): Initial zoom level.
         bearing (float | None): Initial rotation in degrees.
+        bookmarks (list[MapBookmark] | Unset): The bookmarks the map gets.
     """
 
     basemap_style: None | str
@@ -29,6 +34,7 @@ class ArcgisTranslatedView:
     center_lat: float | None
     zoom: float | None
     bearing: float | None
+    bookmarks: list[MapBookmark] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -47,6 +53,13 @@ class ArcgisTranslatedView:
         bearing: float | None
         bearing = self.bearing
 
+        bookmarks: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.bookmarks, Unset):
+            bookmarks = []
+            for bookmarks_item_data in self.bookmarks:
+                bookmarks_item = bookmarks_item_data.to_dict()
+                bookmarks.append(bookmarks_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -58,11 +71,15 @@ class ArcgisTranslatedView:
                 "bearing": bearing,
             }
         )
+        if bookmarks is not UNSET:
+            field_dict["bookmarks"] = bookmarks
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.map_bookmark import MapBookmark
+
         d = dict(src_dict)
 
         def _parse_basemap_style(data: object) -> None | str:
@@ -100,12 +117,22 @@ class ArcgisTranslatedView:
 
         bearing = _parse_bearing(d.pop("bearing"))
 
+        _bookmarks = d.pop("bookmarks", UNSET)
+        bookmarks: list[MapBookmark] | Unset = UNSET
+        if _bookmarks is not UNSET:
+            bookmarks = []
+            for bookmarks_item_data in _bookmarks:
+                bookmarks_item = MapBookmark.from_dict(bookmarks_item_data)
+
+                bookmarks.append(bookmarks_item)
+
         arcgis_translated_view = cls(
             basemap_style=basemap_style,
             center_lng=center_lng,
             center_lat=center_lat,
             zoom=zoom,
             bearing=bearing,
+            bookmarks=bookmarks,
         )
 
         arcgis_translated_view.additional_properties = d

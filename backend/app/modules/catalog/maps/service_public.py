@@ -850,6 +850,7 @@ async def get_shared_map(
         "dashboard_config": render_dashboard(
             map_row.dashboard_config, [layer["id"] for layer in layers]
         ),
+        "bookmarks": map_row.bookmarks or [],
         "has_non_public_layers": has_non_public,
         "legend_title": map_row.legend_title,
     }
