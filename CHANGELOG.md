@@ -16,6 +16,7 @@ and releases use semantic versioning.
 - The PostGIS table name under a dataset's title shows only to signed-in users who can edit the dataset. The Details list still shows it to everyone.
 - A dashboard panel says once at the top that its numbers follow the map view, instead of on every card. Where only some widgets follow the view, the others are labelled "Whole layer".
 - The basemap switcher button has a visible border and a layers badge, and is 44 px wide on phones.
+- The map engine moved from MapLibre GL JS 6.5 to 6.19. Labels in Devanagari, Khmer, Burmese and other complex scripts, and in Arabic and Hebrew, draw correctly, and globe and terrain camera, zoom and drag fixes land with it.
 - Overlay authors: `EXTENSION_API_VERSION` is now 24. `ProcessingPort` gains the required `resolve_manifest_collection`, `add_dataset_to_manifest_collection`, `apply_manifest_attributes` and `apply_manifest_maps` methods, which the publish manifest will call. An overlay that wraps the default port by delegation only needs to declare 24.
 - A dashboard's category selector lists its first ten values and shows the rest from a "Show more" button under the list, in place of a scroll box that cut the list with nothing to say so. A picked value further down stays listed.
 
