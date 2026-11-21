@@ -32,15 +32,15 @@ class ManifestApplyRequest:
             requires, and `upload:<job_id>` sources.
         catalog (ManifestCatalog):
         datasets (list[ManifestDataset]):
-        client (ManifestClient | None | Unset): The publishing client. Required in version 2, refused in 1.
         dry_run (bool | Unset):  Default: False.
+        client (ManifestClient | None | Unset): The publishing client. Required in version 2, refused in 1.
     """
 
     manifest_version: ManifestApplyRequestManifestVersion
     catalog: ManifestCatalog
     datasets: list[ManifestDataset]
-    client: ManifestClient | None | Unset = UNSET
     dry_run: bool | Unset = False
+    client: ManifestClient | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.manifest_client import ManifestClient
@@ -54,6 +54,8 @@ class ManifestApplyRequest:
             datasets_item = datasets_item_data.to_dict()
             datasets.append(datasets_item)
 
+        dry_run = self.dry_run
+
         client: dict[str, Any] | None | Unset
         if isinstance(self.client, Unset):
             client = UNSET
@@ -61,8 +63,6 @@ class ManifestApplyRequest:
             client = self.client.to_dict()
         else:
             client = self.client
-
-        dry_run = self.dry_run
 
         field_dict: dict[str, Any] = {}
 
@@ -73,10 +73,10 @@ class ManifestApplyRequest:
                 "datasets": datasets,
             }
         )
-        if client is not UNSET:
-            field_dict["client"] = client
         if dry_run is not UNSET:
             field_dict["dry_run"] = dry_run
+        if client is not UNSET:
+            field_dict["client"] = client
 
         return field_dict
 
@@ -100,6 +100,8 @@ class ManifestApplyRequest:
 
             datasets.append(datasets_item)
 
+        dry_run = d.pop("dry_run", UNSET)
+
         def _parse_client(data: object) -> ManifestClient | None | Unset:
             if data is None:
                 return data
@@ -117,14 +119,12 @@ class ManifestApplyRequest:
 
         client = _parse_client(d.pop("client", UNSET))
 
-        dry_run = d.pop("dry_run", UNSET)
-
         manifest_apply_request = cls(
             manifest_version=manifest_version,
             catalog=catalog,
             datasets=datasets,
-            client=client,
             dry_run=dry_run,
+            client=client,
         )
 
         return manifest_apply_request

@@ -7978,10 +7978,6 @@ export type ManifestApplyRequest = {
     manifest_version: '1' | '2';
     catalog: ManifestCatalog;
     /**
-     * The publishing client. Required in version 2, refused in 1.
-     */
-    client?: ManifestClient | null;
-    /**
      * Datasets
      */
     datasets: Array<ManifestDataset>;
@@ -7989,6 +7985,10 @@ export type ManifestApplyRequest = {
      * Dry Run
      */
     dry_run?: boolean;
+    /**
+     * The publishing client. Required in version 2, refused in 1.
+     */
+    client?: ManifestClient | null;
 };
 
 /**

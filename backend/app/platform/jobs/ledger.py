@@ -260,14 +260,18 @@ async def claim(
     *,
     values: Mapping[str, Any] | None = None,
     require: Sequence[Any] = (),
+    new_attempt: bool = False,
 ) -> bool:
     """Move this attempt's pending job to running and start its lease.
 
     ``values`` are further columns the claim writes, and ``require`` further
-    predicates the row must still meet. Returns whether it landed. Does not
-    commit.
+    predicates the row must still meet. ``new_attempt`` starts the lease under
+    a fresh attempt, for a claimant that takes over a row another flow made:
+    whoever still holds the old attempt then matches no row. Returns whether
+    it landed. Does not commit.
     """
     now = datetime.now(timezone.utc)
+    rotated = {"attempt_id": uuid.uuid4()} if new_attempt else {}
     return await _move(
         session,
         job_id,
@@ -278,6 +282,7 @@ async def claim(
             "started_at": now,
             "heartbeat_at": now,
             **_extra(values),
+            **rotated,
         },
         require=require,
     )
@@ -309,19 +314,28 @@ async def stage(
 
 
 async def fan_out(
-    session: AsyncSession, job_id: uuid.UUID, attempt_id: uuid.UUID | None
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None,
+    *,
+    values: Mapping[str, Any] | None = None,
 ) -> bool:
     """Move this attempt's pending parent to ``fanned_out``, before any child exists.
 
     A job already dispatched as a whole, by an import commit or a manifest
-    apply, can't also fan out. Returns whether it landed. Does not commit.
+    apply, can't also fan out. ``values`` are further columns the transition
+    writes. Returns whether it landed. Does not commit.
     """
     return await _move(
         session,
         job_id,
         attempt_id,
         expect=("pending",),
-        written={"status": "fanned_out", "completed_at": datetime.now(timezone.utc)},
+        written={
+            "status": "fanned_out",
+            "completed_at": datetime.now(timezone.utc),
+            **_extra(values),
+        },
         require=(~dispatch_attempted(),),
     )
 

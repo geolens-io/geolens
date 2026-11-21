@@ -610,11 +610,15 @@ class TestClaimFence:
 
 @pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="needs ogr2ogr")
 @pytest.mark.requires_ogr2ogr
+@pytest.mark.parametrize("uploaded_before_publish", [False, True])
 async def test_a_schema_changing_replace_is_held_and_its_reapply_is_blocked(
-    test_db_session, clean_tables, monkeypatch, tmp_path
+    test_db_session, clean_tables, monkeypatch, tmp_path, uploaded_before_publish
 ):
     monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
     user = await _admin(test_db_session)
+    if uploaded_before_publish:
+        # The replacement's file was uploaded before the import it replaces.
+        upload = await _staged_row(test_db_session, user.id)
     key = "upload-held"
     table = f"manifest_held_{uuid.uuid4().hex[:10]}"
     dataset = await create_dataset(
@@ -656,7 +660,8 @@ async def test_a_schema_changing_replace_is_held_and_its_reapply_is_blocked(
         )
     )
     await test_db_session.commit()
-    upload = await TestClaimFence()._pending_upload(test_db_session, user.id)
+    if not uploaded_before_publish:
+        upload = await _staged_row(test_db_session, user.id)
     staged = Path(upload.file_path)
     staged.write_bytes(_RESURVEYED)
     resurveyed = ManifestApplyRequest.model_validate(
@@ -1082,3 +1087,107 @@ class TestFanOut:
 
         assert response.status_code == 409, response.text
         assert await self._children(test_db_session, job_id) == 0
+
+
+async def test_recovery_never_adopts_a_claim_another_request_made(
+    test_db_session, clean_tables, monkeypatch, tmp_path
+):
+    """A's claim is lost and B claims the upload before A reads the row back."""
+    import app.core.db as db_module
+
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+    user = await _admin(test_db_session)
+    upload = await _staged_row(test_db_session, user.id)
+    upload_id = upload.id
+    request = ManifestApplyRequest.model_validate(
+        _manifest(_entry("claim-a", upload_id, _checksum(_ORIGINAL)))
+    )
+
+    async def _lost_then_claimed_by_b(db) -> None:
+        await (await db.connection()).rollback()
+        async with db_module.async_session() as other:
+            row = await other.get(IngestJob, upload_id)
+            assert await claim_upload(
+                other,
+                job_id=upload_id,
+                attempt_id=row.attempt_id,
+                file_path=row.file_path,
+                owner=user.id,
+                metadata={"manifest_key": "claim-b", "manifest_stage": "downloading"},
+                dataset_id=None,
+                source_layer=None,
+            )
+            await other.commit()
+        raise RuntimeError("connection reset")
+
+    with (
+        patch(
+            "app.processing.ingest.manifest_service._commit_reservation",
+            new=_lost_then_claimed_by_b,
+        ),
+        patch(
+            "app.processing.ingest.manifest_service.queue_ingest_job", new=AsyncMock()
+        ) as queue,
+    ):
+        response = await apply_manifest(test_db_session, request, user, _http_request())
+
+    [result] = response.results
+    assert result.action == "error"
+    queue.assert_not_awaited()
+    job = await _row(test_db_session, upload_id)
+    assert job.status == "running"
+    assert job.user_metadata["manifest_key"] == "claim-b"
+    assert job.user_metadata["manifest_stage"] == "downloading"
+
+
+async def test_a_fan_out_that_read_the_upload_before_a_claim_writes_nothing(
+    client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+):
+    """The route merges its portal link into a copy read before the claim landed."""
+    import app.core.db as db_module
+    import app.modules.catalog.authorization as authorization
+
+    job_id = await _upload(client, editor_auth_header)
+    await TestFanOut()._layers_previewed(test_db_session, job_id)
+    real_gate = authorization.check_public_visibility_allowed
+
+    async def _claimed_meanwhile(db, user, visibility):
+        async with db_module.async_session() as other:
+            row = await other.get(IngestJob, job_id)
+            claimed = await claim_upload(
+                other,
+                job_id=job_id,
+                attempt_id=row.attempt_id,
+                file_path=row.file_path,
+                owner=row.created_by,
+                metadata={"manifest_key": "web-raced", "manifest_stage": "downloading"},
+                dataset_id=None,
+                source_layer=None,
+            )
+            assert await bind_reservation_to_staged_source(
+                other, claimed, file_path=claimed.file_path
+            )
+            await other.commit()
+        return await real_gate(db, user, visibility)
+
+    with (
+        patch.object(
+            authorization, "check_public_visibility_allowed", _claimed_meanwhile
+        ),
+        patch("app.platform.jobs.defer_guard.defer_with_orphan_guard", new=AsyncMock()),
+    ):
+        response = await client.post(
+            f"/ingest/commit-fan-out/{job_id}",
+            json={
+                "layers": [{"layer_name": "capitals"}],
+                "item_id": "0123456789abcdef0123456789abcdef",
+            },
+            headers=editor_auth_header,
+        )
+
+    assert response.status_code == 409, response.text
+    job = await _row(test_db_session, job_id)
+    assert job.status == "pending"
+    assert job.user_metadata["manifest_key"] == "web-raced"
+    assert job.user_metadata[COMMIT_ATTEMPTED_METADATA_KEY]
+    assert "item_id" not in job.user_metadata

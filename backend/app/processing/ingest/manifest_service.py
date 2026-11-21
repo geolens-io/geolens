@@ -812,10 +812,9 @@ async def _reserve_entry(
         if prepared.kind not in ("http", "upload"):
             metadata[ADMITTED_RAW_SOURCE_METADATA_KEY] = True
 
-    # `running`, not `pending`. A pending row with no file_path and no queue
-    # task is reapable by four actors while its source is still downloading;
-    # the fixed lease is not. An upload's own row becomes the reservation, so
-    # its staged file stays attributed to the row that names it.
+    # `running`, not `pending`: a pending row with no file_path and no queue
+    # task is reapable by four actors while its source downloads; the lease is
+    # not. An upload's own row is the reservation, keeping its file attributed.
     if prepared.kind == "upload":
         job = await claim_upload_source(
             db, prepared, user, metadata, dataset_id=dataset_id
@@ -855,25 +854,26 @@ async def _reserve_entry(
 async def _adopt_committed_reservation(
     db: AsyncSession, job: IngestJob, exc: BaseException, *, adopt: bool = True
 ) -> IngestJob | None:
-    """Reconcile a reservation whose insert was durable but unacknowledged.
+    """Reconcile a reservation whose write was durable but unacknowledged.
 
-    Returns the row when this request may go on using it, None when the
-    caller must re-raise. Either way the key is not left held.
-
-    ``adopt`` is False for a cancellation, which releases the landed row
-    instead.
+    Returns the row when this request may go on using it: running, at this
+    claim's own attempt. None when the caller must re-raise; either way the key
+    is not left held. ``adopt`` is False for a cancellation, which releases the
+    landed row instead.
     """
-    job_id = job.id
+    job_id, attempt_id = job.id, job.attempt_id
     adopted: IngestJob | None = None
 
     async def _read_back() -> None:
         nonlocal adopted
         row = await db.get(IngestJob, job_id, populate_existing=True)
-        adopted = row if row is not None and row.status == "running" else None
+        ours = row is not None and row.attempt_id == attempt_id
+        adopted = row if ours and row.status == "running" else None
 
-    await _settle_under_reset(db, job, _read_back, job_id=job_id)
+    await _settle_under_reset(db, job, _read_back, job_id=job_id, attempt_id=attempt_id)
     if adopted is not None and adopt:
         return adopted
+    set_committed_value(job, "attempt_id", attempt_id)  # the read-back may not be ours
     await _fail_reservation(db, job, exc)
     return None
 

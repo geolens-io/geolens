@@ -100,7 +100,8 @@ async def claim_upload(
     on a miss, which never says which condition failed.
 
     The claim also writes the dispatch stamp, which shuts the import commit
-    door on this upload for good.
+    door on this upload for good, and starts a fresh attempt: the upload keeps
+    its job id, so only the attempt tells this claim from a later one.
     """
     metadata = {**metadata, **commit_attempted_marker()}
     values: dict[str, object] = {
@@ -115,6 +116,7 @@ async def claim_upload(
         db,
         job_id,
         attempt_id,
+        new_attempt=True,
         values=values,
         require=(
             IngestJob.created_by == owner,
@@ -151,8 +153,9 @@ async def held_entry(
     """The ``blocked`` result for an entry whose last apply is held for review.
 
     None unless applying the unchanged entry again would only repeat the hold:
-    the key's newest held job must carry ``fingerprint``, postdate the last
-    completed import, and still be acceptable: its acceptance unspent, the
+    the key's newest held job must carry ``fingerprint``, have its run admitted
+    after the last completed import finished (an upload's job is older than
+    its apply), and still be acceptable: its acceptance unspent, the
     dataset's data at the version it was held against, and the copy apply
     staged still on disk. A raw seed is the entry's own source, so applying
     again could not restage it.
@@ -165,7 +168,7 @@ async def held_entry(
                 IngestJob.user_metadata["manifest_key"].astext == entry.key,
                 DatasetRefreshRun.status == "blocked",
             )
-            .order_by(desc(IngestJob.created_at))
+            .order_by(desc(DatasetRefreshRun.created_at))
             .limit(1)
         )
     ).one_or_none()
@@ -176,7 +179,7 @@ async def held_entry(
     if (
         (job.user_metadata or {}).get(MANIFEST_FINGERPRINT_METADATA_KEY) != fingerprint
         or job.dataset_id != getattr(dataset, "id", None)
-        or job.created_at <= completed_job.created_at
+        or run.created_at <= (completed_job.completed_at or completed_job.created_at)
         or "acceptance_consumed_by_run_id" in verification
         or verification.get("live_version") != getattr(dataset, "current_version", None)
         or not job.file_path

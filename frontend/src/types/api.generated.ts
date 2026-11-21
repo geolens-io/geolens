@@ -12741,8 +12741,6 @@ export interface components {
              */
             manifest_version: "1" | "2";
             catalog: components["schemas"]["ManifestCatalog"];
-            /** @description The publishing client. Required in version 2, refused in 1. */
-            client?: components["schemas"]["ManifestClient"] | null;
             /** Datasets */
             datasets: components["schemas"]["ManifestDataset"][];
             /**
@@ -12750,6 +12748,8 @@ export interface components {
              * @default false
              */
             dry_run: boolean;
+            /** @description The publishing client. Required in version 2, refused in 1. */
+            client?: components["schemas"]["ManifestClient"] | null;
         };
         /** ManifestApplyResponse */
         ManifestApplyResponse: {

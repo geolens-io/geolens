@@ -282,15 +282,16 @@ class ManifestApplyRequest(_ManifestBaseModel):
         )
     )
     catalog: ManifestCatalog
-    client: ManifestClient | None = Field(
-        default=None,
-        description="The publishing client. Required in version 2, refused in 1.",
-    )
     # Keep one request from causing an unbounded number of remote downloads,
     # quota queries, transactions, and queued jobs. Callers can submit another
     # batch after this one completes.
     datasets: list[ManifestDataset] = Field(min_length=1, max_length=100)
     dry_run: bool = False
+    # Last, so generated SDK constructors keep their positional order.
+    client: ManifestClient | None = Field(
+        default=None,
+        description="The publishing client. Required in version 2, refused in 1.",
+    )
 
     @field_validator("datasets")
     @classmethod

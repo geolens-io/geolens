@@ -13642,17 +13642,6 @@
           "catalog": {
             "$ref": "#/components/schemas/ManifestCatalog"
           },
-          "client": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ManifestClient"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The publishing client. Required in version 2, refused in 1."
-          },
           "datasets": {
             "items": {
               "$ref": "#/components/schemas/ManifestDataset"
@@ -13666,6 +13655,17 @@
             "default": false,
             "title": "Dry Run",
             "type": "boolean"
+          },
+          "client": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestClient"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The publishing client. Required in version 2, refused in 1."
           }
         },
         "required": [

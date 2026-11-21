@@ -1277,20 +1277,20 @@ async def claim_fan_out_parent(
 ) -> bool:
     """CAS the parent ``pending -> fanned_out`` BEFORE any child is dispatched.
 
-    Dispatching children first and CASing the terminal state after the loop
-    would let a cancel commit mid-loop while an already-deferred fast child
-    claimed and completed before cleanup: the child CAS refused the terminal
-    row, so a 200 cancel still created that child's dataset. This CAS is the
-    mutex for the whole dispatch. It commits before the first child exists,
-    so only two clean orderings remain: cancel first (zero children ever
-    created, endpoint 409s, nothing to reconcile), or this CAS first (parent
-    terminal, every cancel 409s, each child is its own individually
-    cancellable job). Committed here rather than riding a later flush, since
-    a fence is only a fence once durable.
-
-    Returns whether the claim landed. The caller renders the refusal.
+    The CAS is the mutex for the whole dispatch: committed before the first
+    child exists, it lets a cancel either land first (no child is ever created,
+    the route 409s) or find the parent terminal and 409, leaving each child
+    individually cancellable. A portal link the route merged into ``job`` rides
+    the same fenced write; flushed ahead of it, the link would land on a row the
+    fence refuses. Returns whether the claim landed, for the caller to report.
     """
-    claimed = await ledger.fan_out(session, job.id, parent_attempt_id)
+    from sqlalchemy.orm.attributes import instance_state, set_committed_value
+
+    merged = instance_state(job).attrs.user_metadata.history.added
+    if merged:
+        set_committed_value(job, "user_metadata", merged[0])
+    values = {"user_metadata": merged[0]} if merged else None
+    claimed = await ledger.fan_out(session, job.id, parent_attempt_id, values=values)
     await session.commit()
     return claimed
 
