@@ -555,9 +555,7 @@ async def test_a_busy_collection_is_a033_and_keeps_the_tails_transaction(
 ):
     import app.core.db as db_module
 
-    monkeypatch.setattr(
-        "app.modules.catalog.collections.manifest.WORKER_LOCK_TIMEOUT", "200ms"
-    )
+    monkeypatch.setattr("app.platform.catalog_locks.WORKER_LOCK_TIMEOUT", "200ms")
     user = await _admin(test_db_session)
     collection = Collection(name="busy", created_by=user.id)
     test_db_session.add(collection)
@@ -647,9 +645,7 @@ async def test_an_unchanged_reapply_adds_a_collection_left_out_while_busy(
 ):
     import app.core.db as db_module
 
-    monkeypatch.setattr(
-        "app.modules.catalog.collections.manifest.WORKER_LOCK_TIMEOUT", "200ms"
-    )
+    monkeypatch.setattr("app.platform.catalog_locks.WORKER_LOCK_TIMEOUT", "200ms")
     _stage_fixture()
     user = await _admin(test_db_session)
     collection = Collection(name="Retry parks", created_by=user.id)

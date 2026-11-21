@@ -10,11 +10,10 @@ from collections.abc import Mapping
 from typing import Any
 
 from fastapi import HTTPException
-from sqlalchemy import select, text
-from sqlalchemy.exc import DBAPIError, IntegrityError
+from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.sqlstate import is_lock_conflict
 from app.core.identity import Identity
 from app.core.permissions import MANAGE_COLLECTIONS
 from app.modules.audit.service import AuditEvent, audit_emit
@@ -31,7 +30,7 @@ from app.modules.catalog.collections.service import (
     get_collection,
     lock_collection_for_write,
 )
-from app.platform.catalog_locks import WORKER_LOCK_TIMEOUT
+from app.platform.catalog_locks import lock_row_in_savepoint, lock_timeout_kept
 from app.platform.extensions import get_permission_extension
 
 COLLECTION_REFUSED = "A033"
@@ -138,36 +137,6 @@ async def resolve_manifest_collection(
     return created.id, None
 
 
-async def _wait_for_collection(session: AsyncSession, collection_id: uuid.UUID) -> bool:
-    """Take the collection row with a worker's patience; False when the wait fails.
-
-    In a savepoint: ``lock_collection_for_write`` rolls back the whole
-    transaction when its wait fails, which here would take the caller's new
-    dataset with it. Leaves ``lock_timeout`` at the worker's budget on success.
-    """
-    savepoint = await session.begin_nested()
-    try:
-        await _set_lock_timeout(session, WORKER_LOCK_TIMEOUT)
-        await session.execute(
-            select(Collection.id)
-            .where(Collection.id == collection_id)
-            .with_for_update(key_share=True)
-        )
-    except DBAPIError as exc:
-        await savepoint.rollback()
-        if not is_lock_conflict(exc):
-            raise
-        return False
-    await savepoint.commit()
-    return True
-
-
-async def _set_lock_timeout(session: AsyncSession, value: str) -> None:
-    await session.execute(
-        text("SELECT set_config('lock_timeout', :value, true)"), {"value": value}
-    )
-
-
 async def add_dataset_to_manifest_collection(
     session: AsyncSession,
     collection_id: uuid.UUID,
@@ -185,16 +154,19 @@ async def add_dataset_to_manifest_collection(
     collection = await get_collection(session, collection_id)
     if collection is None or not await _may_write_collection(session, collection, user):
         return COLLECTION_REFUSED
-    previous = await session.scalar(text("SELECT current_setting('lock_timeout')"))
-    if not await _wait_for_collection(session, collection_id):
+    # In a savepoint with a worker's patience: lock_collection_for_write rolls
+    # back the whole transaction when its wait fails, which here would take
+    # the caller's new dataset with it.
+    row = select(Collection.id).where(Collection.id == collection_id)
+    if not await lock_row_in_savepoint(session, row.with_for_update(key_share=True)):
         return COLLECTION_BUSY
-    try:
-        # Held already, so this only re-checks the writer.
-        await lock_collection_for_write(session, collection_id)
-        refused = False
-    except HTTPException:
-        refused = True
-    await _set_lock_timeout(session, previous)
+    async with lock_timeout_kept(session):
+        try:
+            # Held already, so this only re-checks the writer.
+            await lock_collection_for_write(session, collection_id)
+            refused = False
+        except HTTPException:
+            refused = True
     if refused:
         return COLLECTION_REFUSED
     await add_datasets_to_collection(session, collection_id, [dataset_id], user.id)
