@@ -40,6 +40,7 @@ from app.modules.catalog.datasets.domain.service_metadata import (
     reset_attribute,
     sample_example_values,
     update_attribute,
+    update_manifest_attributes,
     ValueLabelsOverBudget,
     update_user_metadata,
 )
@@ -131,6 +132,7 @@ __all__ = [
     "run_analysis_preview",
     "UnknownGroupsError",
     "update_attribute",
+    "update_manifest_attributes",
     "ValueLabelsOverBudget",
     "update_user_metadata",
 ]

@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -49,6 +49,7 @@ __all__ = [
     "reset_attribute",
     "sample_example_values",
     "update_attribute",
+    "update_manifest_attributes",
     "update_user_metadata",
 ]
 
@@ -548,6 +549,58 @@ async def update_attribute(
 
     await session.flush()
     return attr
+
+
+_MANIFEST_ATTRIBUTE_FIELDS = ("title", "description", "units")
+
+
+async def update_manifest_attributes(
+    session: AsyncSession,
+    dataset_id: uuid.UUID,
+    attributes: Sequence[Mapping[str, Any]],
+    *,
+    actor_id: uuid.UUID,
+) -> list[str]:
+    """Save a manifest's per-column title, description and units.
+
+    Each entry names its column by ``source_name``, the name in the uploaded
+    file, which is matched against the stored columns' recorded source names
+    and never guessed. Only the keys an entry carries are written. Returns the
+    ``source_name`` values that matched no current column. Does NOT commit.
+    """
+    from sqlalchemy.orm import joinedload
+
+    dataset = (
+        await session.execute(
+            select(Dataset)
+            .options(joinedload(Dataset.record))
+            .where(Dataset.id == dataset_id)
+        )
+    ).scalar_one_or_none()
+    if dataset is None:
+        raise DatasetNotFoundError(str(dataset_id))
+
+    stored_by_source = {
+        column["source_name"]: column["name"]
+        for column in dataset.column_info or []
+        if column.get("source_name") and column.get("name")
+    }
+    current = {a.field_name: a for a in await list_attributes(session, dataset_id)}
+
+    unmatched: list[str] = []
+    changed = False
+    for entry in attributes:
+        attr = current.get(stored_by_source.get(entry["source_name"], ""))
+        if attr is None:
+            unmatched.append(entry["source_name"])
+            continue
+        updates = {k: entry[k] for k in _MANIFEST_ATTRIBUTE_FIELDS if k in entry}
+        if updates:
+            await update_attribute(session, attr.id, **updates)
+            changed = True
+    if changed:
+        dataset.record.updated_by = actor_id
+    return unmatched
 
 
 _UNSAMPLED = object()

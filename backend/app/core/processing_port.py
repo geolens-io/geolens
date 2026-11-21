@@ -469,3 +469,42 @@ class ProcessingPort(Protocol):
     async def get_dataset_with_attributes(
         self, session: AsyncSession, dataset_id: uuid.UUID
     ) -> DatasetProtocol | None: ...
+
+    # Publish manifest v2. Collection refusals come back as the warning code
+    # "A033" rather than raising; ``user`` is an Identity, ``ref`` is
+    # ``{"id": ...}`` or ``{"name": ...}``.
+    async def resolve_manifest_collection(
+        self,
+        session: AsyncSession,
+        ref: Any,
+        user: Identity,
+        *,
+        may_create: bool,
+    ) -> tuple[uuid.UUID | None, str | None]: ...
+
+    async def add_dataset_to_manifest_collection(
+        self,
+        session: AsyncSession,
+        collection_id: uuid.UUID,
+        dataset_id: uuid.UUID,
+        user: Identity,
+    ) -> str | None: ...
+
+    # Returns the ``source_name`` of every entry that matched no column.
+    async def apply_manifest_attributes(
+        self,
+        session: AsyncSession,
+        dataset_id: uuid.UUID,
+        attributes: Sequence[Any],
+        *,
+        actor_id: uuid.UUID,
+    ) -> list[str]: ...
+
+    async def apply_manifest_maps(
+        self,
+        session: AsyncSession,
+        maps: Sequence[Any],
+        user: Identity,
+        *,
+        dry_run: bool,
+    ) -> list[Any]: ...

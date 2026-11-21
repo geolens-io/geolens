@@ -1196,7 +1196,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 132,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 136,
+        "backend/app/modules/catalog/datasets/domain/service.py": 138,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1222,8 +1222,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
-        # A metadata edit judges its visibility and status change as one move.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 629,
+        # A metadata edit judges its visibility and status change as one move, and a
+        # manifest saves its per-column text beside the attribute edit it reuses.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 681,
         # Pointer reads sit beside the detail query that shares them; the row
         # browser's page, count, label-filter and box SQL share its projection, and
         # its NULLS LAST keyset also pages the aggregate feature list.
@@ -1237,7 +1238,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 586,
+        "backend/app/platform/extensions/defaults_processing_port.py": 615,
         "backend/app/platform/extensions/defaults_extensions.py": 436,
         "backend/app/modules/catalog/search/service_filters.py": 376,
     }
