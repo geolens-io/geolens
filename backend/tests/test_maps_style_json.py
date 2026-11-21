@@ -3159,6 +3159,10 @@ def test_walker_skips_literal_operands():
     assert _walked(["literal", ["get", "x"]]) == set()
 
 
+def test_walker_reads_through_a_list_whose_head_is_a_list():
+    assert _walked([["get", "x"], ["has", "y"]]) == {"x", "y"}
+
+
 def test_walker_reads_get_with_an_object_expression_operand():
     node = ["get", "radius", ["at", 0, ["literal", [{"radius": 5}]]]]
     assert _walked(node) == {"radius"}

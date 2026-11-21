@@ -287,7 +287,7 @@ def _walk_get_has_columns(node: Any, cols: set[str]) -> None:
     head = node[0]
     if head == "literal":
         return
-    if head in {"get", "has"} and len(node) >= 2 and isinstance(node[1], str):
+    if head in ("get", "has") and len(node) >= 2 and isinstance(node[1], str):
         cols.add(node[1])
     last = len(node) - 1
     for index, child in enumerate(node):
