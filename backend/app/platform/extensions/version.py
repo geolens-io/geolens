@@ -164,7 +164,10 @@ logger = logging.getLogger(__name__)
 # an overlay's branding extension without it serves pages no reader theme.
 # 22 -> 23: CatalogPort gained the required ``queue_ingest_job`` and
 # ``refresh_database_task`` methods for database import and refresh.
-EXTENSION_API_VERSION: int = 23
+# 23 -> 24: ProcessingPort gained the required ``resolve_manifest_collection``,
+# ``add_dataset_to_manifest_collection``, ``apply_manifest_attributes`` and
+# ``apply_manifest_maps`` methods for publish manifest v2.
+EXTENSION_API_VERSION: int = 24
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

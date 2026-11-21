@@ -151,11 +151,17 @@ class TestExtensionApiVersionConstant:
         methods to ``CatalogPort``. An overlay that replaces the ``catalog_port``
         key without them fails every database import and refresh.
 
+        v24 adds the required ``resolve_manifest_collection``,
+        ``add_dataset_to_manifest_collection``, ``apply_manifest_attributes``
+        and ``apply_manifest_maps`` methods to ``ProcessingPort``. An overlay
+        that replaces the ``processing_port`` key without them fails manifest
+        v2 applies.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 23
+        assert EXTENSION_API_VERSION == 24
 
 
 class TestCheckExtensionApiVersion:
