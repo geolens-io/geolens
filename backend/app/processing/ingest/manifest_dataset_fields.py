@@ -16,7 +16,8 @@ from pydantic import TypeAdapter, ValidationError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity, IdentityRole, IdentitySnapshot
-from app.platform.extensions import get_processing_port
+from app.core.permissions import EDIT_METADATA
+from app.platform.extensions import get_permission_extension, get_processing_port
 from app.platform.jobs.models import ADMITTED_PUBLISH_KEY_METADATA_KEY, IngestJob
 from app.platform.record_audience import opens_to_anonymous, publish_key_widening
 from app.platform.request_credential import (
@@ -98,6 +99,10 @@ class ManifestEntryFields:
     public_fallback: str | None = None
     collection_id: uuid.UUID | None = None
     messages: list[ManifestMessage] = field(default_factory=list)
+    # Who was refused a named public, decided once the entry is known to
+    # change something: a skip writes nothing, so it applies no fallback.
+    public_refused_for_key: bool | None = None
+    edits_attributes: bool = False
 
     @classmethod
     def of(
@@ -125,16 +130,35 @@ class ManifestEntryFields:
         )
 
     async def judge_update(
-        self, db: AsyncSession, dataset: ManifestDataset, existing: Any
+        self,
+        db: AsyncSession,
+        user: Identity,
+        dataset: ManifestDataset,
+        existing: Any,
     ) -> None:
-        """Hold a publish key's update to what the metadata edit lets one change.
+        """Hold an update to what the metadata edit lets the caller change.
 
-        An omitted visibility keeps the dataset's, so publishing a public
-        draft opens it to anonymous readers without the entry naming
-        ``public``. A key may not do that: it is a refused public, with the
-        fallback to internal when asked. The publish judges it again, holding
-        the dataset's rows.
+        Attribute text on an existing dataset needs ``edit_metadata``, as the
+        attribute edit does; the job then records that capability, which the
+        publish checks again. An omitted visibility keeps the dataset's, so
+        publishing a public draft opens it to anonymous readers without the
+        entry naming ``public``. A publish key may not do that: it is a
+        refused public, with the fallback to internal when asked. The publish
+        judges it again, holding the dataset's rows.
         """
+        if dataset.attributes:
+            submitter = await load_submitter(db, user.id)
+            if (
+                submitter is None
+                or not await get_permission_extension().check_permission(
+                    db,
+                    submitter,
+                    EDIT_METADATA,
+                    user_roles={r.name for r in submitter.roles},
+                )
+            ):
+                raise ManifestSourceError(f"Missing permission: {EDIT_METADATA}")
+            self.edits_attributes = True
         if not is_publish_key(db):
             return
         record = existing.record
@@ -173,6 +197,15 @@ class ManifestEntryFields:
                     fix="Publish as new, or Continue.",
                 )
             )
+
+
+def settle_refused_public(
+    fields: ManifestEntryFields | None, dataset: ManifestDataset
+) -> None:
+    """Act on a named public the gate refused, once the entry is known to
+    write something."""
+    if fields is not None and fields.public_refused_for_key is not None:
+        fields.downgrade_or_refuse(dataset, publish_key=fields.public_refused_for_key)
 
 
 def report_entry(

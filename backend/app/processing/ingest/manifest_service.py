@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm import joinedload
 
-from app.core.permissions import UPLOAD
+from app.core.permissions import EDIT_METADATA, UPLOAD
 from app.core.async_io import (
     run_in_thread_draining,
     run_in_thread_draining_capture_cancel,
@@ -58,6 +58,7 @@ from app.processing.ingest.manifest_dataset_fields import (
     ManifestEntryFields,
     attach_unchanged_entry,
     report_entry,
+    settle_refused_public,
     resolve_entry_collection,
 )
 from app.processing.ingest.manifest_reservation import (
@@ -606,8 +607,9 @@ async def _classify_dataset(
     # A public visibility goes through the same admin gate as every
     # visibility-accepting API mutation, raising 403 for a non-admin when
     # restrict_public_visibility is on. Checked before staging so dry_run
-    # reports it too. Version 2 gates the entry's own visibility, version 1
-    # the one its intent implies. Local import: processing/ must not import
+    # reports it too. Version 2 gates the entry's own visibility, and acts on
+    # a refusal only for an entry that writes; version 1 gates the one its
+    # intent implies. Local import: processing/ must not import
     # app.modules.catalog.* at module level.
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
@@ -619,7 +621,7 @@ async def _classify_dataset(
     except HTTPException as exc:
         if fields is None or exc.status_code != 403:
             raise
-        fields.downgrade_or_refuse(dataset, publish_key=is_publish_key(db))
+        fields.public_refused_for_key = is_publish_key(db)
     prepared = await prepare_manifest_source(db, dataset, user)
     await _validate_prepared_source(db, prepared)
     await _authorize_prepared_source(db, prepared, user)
@@ -808,7 +810,9 @@ async def _reserve_entry(
             # Version 1's comes from the intent, applied later over whatever
             # the visibility is by then, so the update keeps it.
             metadata.pop("visibility", None)
-        metadata[ADMITTED_CAPABILITY_METADATA_KEY] = UPLOAD
+        metadata[ADMITTED_CAPABILITY_METADATA_KEY] = (
+            EDIT_METADATA if fields is not None and fields.edits_attributes else UPLOAD
+        )
         from app.modules.catalog.authorization import admitted_public_visibility
 
         # What this entry's restricted-public gate decided, not a later read.
@@ -1178,6 +1182,7 @@ async def _reserve_or_settle_entry(
         await db.commit()
         return result
 
+    settle_refused_public(fields, dataset)
     update_dataset_id: uuid.UUID | None = None
     if classification == "update" and existing_dataset is not None:
         # Before the blocked and dry-run responses, which name the dataset.
@@ -1191,7 +1196,7 @@ async def _reserve_or_settle_entry(
         _refuse_publish_key_remote_origin(db, existing_dataset)
         update_dataset_id = existing_dataset.id
         if fields is not None:
-            await fields.judge_update(db, dataset, existing_dataset)
+            await fields.judge_update(db, user, dataset, existing_dataset)
             if request.dry_run:
                 fields.note_edits_since_publish(dataset, job, existing_dataset)
 

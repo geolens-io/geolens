@@ -51,7 +51,10 @@ describe('IngestWarningsBanner', () => {
           ...job([]),
           warnings: [
             { kind: 'manifest_attribute_unmatched', details: { source_names: ['A'] } },
-            { kind: 'manifest_collection_refused', details: { collection_id: 'c' } },
+            {
+              kind: 'manifest_collection_refused',
+              details: { collection_id: 'c', reason: 'refused' },
+            },
           ],
         }}
       />,

@@ -1480,6 +1480,132 @@ async def test_a_held_entry_reapplied_keeps_its_a020_warning(
     task.defer_async.assert_not_awaited()
 
 
+async def _replayed_public_entry(client, session, headers, user, key) -> dict:
+    """An entry naming public, already published unchanged: its replay skips."""
+    entry = await _uploaded(client, headers, key, visibility="public")
+    dataset_id = await _manifest_dataset(session, user, key, "public", "published")
+    await session.execute(
+        update(IngestJob)
+        .where(IngestJob.dataset_id == dataset_id)
+        .values(
+            user_metadata=IngestJob.user_metadata.op("||")(
+                {
+                    "manifest_fingerprint": manifest_dataset_fingerprint(
+                        _request(entry).datasets[0]
+                    )
+                }
+            )
+        )
+    )
+    await session.commit()
+    return {"entry": entry, "dataset_id": dataset_id}
+
+
+@pytest.mark.parametrize("fallback", [None, "internal"], ids=["no", "fallback"])
+async def test_a_skipped_replay_reports_no_refused_public(
+    client, test_db_session, admin_auth_header, clean_tables, fallback
+):
+    """A skip writes nothing, so it claims no fallback and blocks nothing."""
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = f"audience-replay-{fallback or 'none'}"
+    replay = await _replayed_public_entry(
+        client, test_db_session, admin_auth_header, user, key
+    )
+    extra = {} if fallback is None else {"public_fallback": fallback}
+
+    with _publish_key(test_db_session):
+        result, task = await _queue_update(
+            test_db_session, user, replay["entry"], **extra
+        )
+
+    assert (result.action, result.messages) == ("skip", []), result
+    task.defer_async.assert_not_awaited()
+    assert await _record(test_db_session, replay["dataset_id"]) == (
+        "public",
+        "published",
+    )
+
+
+def _editors_without(monkeypatch, capability: str) -> None:
+    from app.modules.auth import permissions
+
+    effective = permissions.get_effective_permissions
+
+    async def narrowed(db):
+        matrix = await effective(db)
+        matrix["editor"][capability] = False
+        return matrix
+
+    monkeypatch.setattr(permissions, "get_effective_permissions", narrowed)
+
+
+_ATTRIBUTES = [{"source_name": "name", "title": "Place"}]
+
+
+@pytest.mark.parametrize(
+    "attributes,refused", [(_ATTRIBUTES, True), (None, False)], ids=["with", "without"]
+)
+async def test_an_upload_only_owner_cannot_edit_attributes_through_an_update(
+    client,
+    test_db_session,
+    admin_auth_header,
+    clean_tables,
+    monkeypatch,
+    attributes,
+    refused,
+):
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    key = f"attributes-upload-only-{'with' if attributes else 'without'}"
+    dataset_id = await _manifest_dataset(
+        test_db_session, editor, key, "private", "draft"
+    )
+    _editors_without(monkeypatch, "edit_metadata")
+    entry = await _uploaded(client, headers, key)
+    if attributes:
+        entry["attributes"] = attributes
+
+    result, task = await _queue_update(test_db_session, editor, entry)
+
+    if refused:
+        assert result.action == "error", result
+        assert result.errors == ["Missing permission: edit_metadata"]
+        task.defer_async.assert_not_awaited()
+        assert await _jobs_for(test_db_session, key) == 1
+        return
+    assert result.action == "update", result
+    job = await _run_update(test_db_session, result, task)
+    assert job.user_metadata["admitted_capability"] == "upload"
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("private", "published")
+
+
+async def test_attributes_need_edit_metadata_still_held_when_published(
+    client, test_db_session, admin_auth_header, clean_tables, monkeypatch
+):
+    """Lost after queueing, the replacement fails whole, as every door's
+    recorded capability does: half a publish would replace the data and drop
+    the edits the entry asked for."""
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    key = "attributes-revoked"
+    dataset_id = await _manifest_dataset(
+        test_db_session, editor, key, "private", "draft"
+    )
+    entry = await _uploaded(client, headers, key, attributes=_ATTRIBUTES)
+    result, task = await _queue_update(test_db_session, editor, entry)
+    assert result.action == "update", result
+
+    _editors_without(monkeypatch, "edit_metadata")
+    job = await _run_update(test_db_session, result, task)
+
+    assert job.user_metadata["admitted_capability"] == "edit_metadata"
+    assert job.status == "failed"
+    assert "can no longer modify this dataset" in job.error_message
+    assert await _record(test_db_session, dataset_id) == ("private", "draft")
+
+
 # ---------------------------------------------------------------------------
 # Edits since the last publish
 # ---------------------------------------------------------------------------
