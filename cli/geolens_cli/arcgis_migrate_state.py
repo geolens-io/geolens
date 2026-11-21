@@ -194,7 +194,8 @@ class ItemState:
     # can tell a field it wrote from one someone edited in GeoLens.
     metadata_baseline: dict[str, dict[str, Any]] = field(default_factory=dict)
     # Dataset -> {"title": the title, NFC, its import or this command's last
-    # write of the plan's title gave it}; {} when that isn't known, so a rerun
+    # write of the plan's title gave it, or the one a dataset GeoLens already
+    # held had when it was adopted}; {} when that isn't known, so a rerun
     # keeps a title that differs from the plan's. Recorded as each is confirmed.
     title_baseline: dict[str, dict[str, str]] = field(default_factory=dict)
     # Dataset -> its GeoLens updated_at, feature count and data revision when
@@ -238,8 +239,10 @@ class ItemState:
     # The layer keys the last import pass set out to import, which tells a
     # service whose every layer was refused from one with a layer still owed.
     pass_layers: list[str] = field(default_factory=list)
-    # Dataset -> the visibility this command last gave it, so a rerun can
-    # tell a portal sharing change from an edit made in GeoLens.
+    # Dataset -> the visibility this command last gave it, at its import
+    # commit or a later write of the plan's, so a rerun can tell a portal
+    # sharing change from an edit made in GeoLens. Recorded as each lands;
+    # without one a rerun keeps a visibility that differs from the plan's.
     visibility: dict[str, str] = field(default_factory=dict)
     # Dataset or map id -> the GeoLens groups this command shared it with,
     # which a rerun doesn't add again after someone removed one in GeoLens.

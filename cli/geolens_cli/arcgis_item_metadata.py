@@ -186,13 +186,15 @@ def _decide(
     equality with what GeoLens holds claims nothing. The exception is a dataset
     with no baseline at all, from a state file that predates it or a dataset
     seen for the first time: there an equal value is taken as ours, except a
-    summary the file's ``metadata_hash`` doesn't vouch for.
+    summary the file's ``metadata_hash`` doesn't vouch for, and only an empty
+    field or a summary that hash vouches for is written. Anything else it
+    holds may be an edit made before this first write.
     """
     if base is None:
         ours = name != "summary" or summary_hash(existing) == old_hash
         if existing == value:
             return "same", ours
-        if name != "summary" or not existing or ours:
+        if not existing or (name == "summary" and ours):
             return "write", True
         return "keep", False
     if existing == value:
