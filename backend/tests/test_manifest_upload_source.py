@@ -744,6 +744,10 @@ async def test_an_upload_source_is_open_to_its_owner_in_multi_tenant_mode(
     queue.assert_awaited_once()
 
 
+# Fixed, since parametrize ids must be the same in every test worker.
+_A_JOB_ID = "5abc97a9-55d1-4ff1-add7-71bf5f8cec14"
+
+
 class TestSchema:
     def _payload(self, **changes) -> dict:
         payload = _manifest(_entry("schema", uuid.uuid4(), _checksum(_ORIGINAL)))
@@ -812,9 +816,9 @@ class TestSchema:
         [
             "upload:not-a-job-id",
             "upload:" + "-" * 36,
-            "upload:" + str(uuid.uuid4()).upper(),
-            "upload:" + str(uuid.uuid4()) + "\n",
-            "upload:../" + str(uuid.uuid4()),
+            "upload:" + _A_JOB_ID.upper(),
+            "upload:" + _A_JOB_ID + "\n",
+            "upload:../" + _A_JOB_ID,
         ],
     )
     def test_an_upload_uri_names_one_canonical_job_id(self, uri: str):
