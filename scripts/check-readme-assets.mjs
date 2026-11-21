@@ -38,24 +38,12 @@ const README_ASSETS = {
   // The "A closer look" grid.
   'geolens-catalog-search.png': { width: 1600, height: 900 },
   'geolens-catalog-search-dark.png': { width: 1600, height: 900 },
-  'geolens-dataset-page.png': { width: 1600, height: 900 },
-  'geolens-dataset-page-dark.png': { width: 1600, height: 900 },
-  'geolens-import-preview.png': { width: 1600, height: 900 },
-  'geolens-import-preview-dark.png': { width: 1600, height: 900 },
-  'geolens-version-history.png': { width: 1600, height: 900 },
-  'geolens-version-history-dark.png': { width: 1600, height: 900 },
   'geolens-builder-style.png': { width: 1600, height: 900 },
   'geolens-builder-style-dark.png': { width: 1600, height: 900 },
   'geolens-matterhorn-terrain.jpg': { width: 1600, height: 900 },
   'geolens-matterhorn-terrain-dark.jpg': { width: 1600, height: 900 },
   'geolens-stac-imagery.jpg': { width: 1600, height: 900 },
   'geolens-stac-imagery-dark.jpg': { width: 1600, height: 900 },
-  'geolens-share-embed.png': { width: 1600, height: 900 },
-  'geolens-share-embed-dark.png': { width: 1600, height: 900 },
-  'geolens-admin-overview.png': { width: 1600, height: 900 },
-  'geolens-admin-overview-dark.png': { width: 1600, height: 900 },
-  'geolens-admin-permissions.png': { width: 1600, height: 900 },
-  'geolens-admin-permissions-dark.png': { width: 1600, height: 900 },
 };
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif']);
