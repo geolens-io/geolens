@@ -49,6 +49,46 @@ describe('category selector widget', () => {
     expect(categorySelectorWidget.readsColumns!(config)).toEqual([{ name: 'land_use', numeric: false }]);
   });
 
+  it('lists the first ten values and shows the rest on request', async () => {
+    const user = userEvent.setup();
+    const many = {
+      ...data,
+      result: {
+        values: Array.from({ length: 12 }, (_, index) => ({ value: `Use ${index + 1}`, count: 20 - index })),
+        other_count: 0,
+      },
+    };
+    const { rerender } = render(<CategorySelectorRenderer config={config} data={many} onSelect={vi.fn()} />);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(10);
+    const more = screen.getByRole('button', { name: 'Show 2 more' });
+    expect(more).toHaveAttribute('aria-expanded', 'false');
+
+    await user.click(more);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(12);
+    const fewer = screen.getByRole('button', { name: 'Show fewer' });
+    expect(fewer).toHaveAttribute('aria-expanded', 'true');
+    // The same button stays under the list, so the keyboard focus isn't lost.
+    expect(fewer).toHaveFocus();
+    await user.keyboard('{Enter}');
+    expect(screen.getAllByRole('checkbox')).toHaveLength(10);
+
+    // A picked value below the tenth stays listed, so it can be cleared.
+    const picked = { column: 'land_use', label: 'Use 12', values: ['Use 12'] };
+    rerender(<CategorySelectorRenderer config={config} data={many} selection={picked} onSelect={vi.fn()} />);
+    expect(screen.getByRole('checkbox', { name: /Use 12/ })).toBeChecked();
+    expect(screen.getByRole('button', { name: 'Show 1 more' })).toBeInTheDocument();
+
+    // In the Builder's preview the inputs are disabled and the list still opens.
+    rerender(<CategorySelectorRenderer config={config} data={many} />);
+    await user.click(screen.getByRole('button', { name: 'Show 2 more' }));
+    expect(screen.getAllByRole('checkbox')).toHaveLength(12);
+  });
+
+  it('shows no button when every value fits', () => {
+    render(<CategorySelectorRenderer config={config} data={data} onSelect={vi.fn()} />);
+    expect(screen.queryByRole('button')).not.toBeInTheDocument();
+  });
+
   it('offers checkboxes with counts and picks several values', async () => {
     const user = userEvent.setup();
     const onSelect = vi.fn();
@@ -56,7 +96,7 @@ describe('category selector widget', () => {
     const group = screen.getByRole('group', { name: 'Filter by land_use' });
     expect(within(group).getAllByRole('checkbox')).toHaveLength(3);
     expect(within(group).getByText('40')).toBeInTheDocument();
-    expect(within(group).getByText('Other values: 7')).toBeInTheDocument();
+    expect(screen.getByText('Other values: 7')).toBeInTheDocument();
 
     await user.click(screen.getByRole('checkbox', { name: /Residential/ }));
     expect(onSelect).toHaveBeenLastCalledWith({ column: 'land_use', label: 'Residential', values: ['Residential'] });

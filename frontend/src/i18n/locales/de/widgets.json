@@ -72,7 +72,11 @@
       "label": "Kategorieauswahl",
       "summary": "Nach {{column}} filtern",
       "all": "Alle",
-      "other": "Andere Werte: {{value}}"
+      "other": "Andere Werte: {{value}}",
+      "showMore_one": "{{count}} weiteren anzeigen",
+      "showMore_many": "{{count}} weitere anzeigen",
+      "showMore_other": "{{count}} weitere anzeigen",
+      "showFewer": "Weniger anzeigen"
     },
     "image": {
       "label": "Bild",

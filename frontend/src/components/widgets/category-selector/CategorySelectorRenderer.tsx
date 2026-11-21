@@ -1,5 +1,6 @@
-import { useId } from 'react';
+import { useId, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Button } from '@/components/ui/button';
 import { Checkbox } from '@/components/ui/checkbox';
 import { columnName, type SelectionValue, type WidgetRenderProps } from '../contract';
 import { selectedValues } from '../selection';
@@ -14,12 +15,15 @@ interface SelectorOption {
 }
 
 const OPTION_CLASS = 'flex items-center gap-2 rounded-sm px-1 py-0.5 text-sm hover:bg-muted';
+/** How many values the list shows before the reader asks for the rest. */
+const COLLAPSED_OPTIONS = 10;
 
 /**
  * The column's most frequent values with their counts, as checkboxes, or as
- * radio buttons headed by "All" when the reader picks one value. Where the
- * host doesn't link widgets, as in the Builder's preview, the inputs are
- * disabled.
+ * radio buttons headed by "All" when the reader picks one value. The first
+ * values and any picked one are listed, and a button shows the rest. Where
+ * the host doesn't link widgets, as in the Builder's preview, the inputs are
+ * disabled and the button still works.
  */
 export default function CategorySelectorRenderer({
   config,
@@ -33,6 +37,7 @@ export default function CategorySelectorRenderer({
   const labelOf = labelOfColumn(valueLabel, config.column);
   const { rows, other } = useCategoryRows(data, labelOf);
   const idPrefix = useId();
+  const [expanded, setExpanded] = useState(false);
   const picked = selectedValues(selection, config.column);
 
   if (!rows || rows.length === 0) {
@@ -46,6 +51,9 @@ export default function CategorySelectorRenderer({
       .filter((value) => !rows.some((row) => row.key === value))
       .map((value) => ({ key: value, label: categoryLabel(value, t, labelOf) })),
   ];
+  const shown = options.filter(
+    (option, index) => expanded || index < COLLAPSED_OPTIONS || picked.includes(option.key),
+  );
   const disabled = !onSelect;
   const choose = (key: SelectionValue, checked: boolean) => {
     const values = config.multiple
@@ -58,61 +66,78 @@ export default function CategorySelectorRenderer({
   };
 
   return (
-    <fieldset className="space-y-1" disabled={disabled}>
-      <legend className="sr-only">
-        {t('types.category_selector.summary', { column: (columnLabel ?? columnName)(config.column) })}
-      </legend>
-      <ul className="max-h-64 space-y-0.5 overflow-y-auto">
-        {!config.multiple && (
-          <li className={OPTION_CLASS}>
-            <input
-              id={`${idPrefix}-all`}
-              type="radio"
-              name={idPrefix}
-              className="size-4 shrink-0 accent-primary"
-              checked={picked.length === 0}
-              onChange={() => onSelect?.(null)}
-            />
-            <label htmlFor={`${idPrefix}-all`} className="flex-1">
-              {t('types.category_selector.all')}
-            </label>
-          </li>
-        )}
-        {options.map((option, index) => {
-          const id = `${idPrefix}-${index}`;
-          const checked = picked.includes(option.key);
-          return (
-            <li key={index} className={OPTION_CLASS}>
-              {config.multiple ? (
-                <Checkbox
-                  id={id}
-                  checked={checked}
-                  disabled={disabled}
-                  onCheckedChange={(next) => choose(option.key, next === true)}
-                />
-              ) : (
-                <input
-                  id={id}
-                  type="radio"
-                  name={idPrefix}
-                  className="size-4 shrink-0 accent-primary"
-                  checked={checked}
-                  onChange={(event) => choose(option.key, event.target.checked)}
-                />
-              )}
-              <label htmlFor={id} className="flex-1 break-words">
-                {option.label}
+    <div className="space-y-1">
+      <fieldset disabled={disabled}>
+        <legend className="sr-only">
+          {t('types.category_selector.summary', { column: (columnLabel ?? columnName)(config.column) })}
+        </legend>
+        <ul id={`${idPrefix}-options`} className="space-y-0.5">
+          {!config.multiple && (
+            <li className={OPTION_CLASS}>
+              <input
+                id={`${idPrefix}-all`}
+                type="radio"
+                name={idPrefix}
+                className="size-4 shrink-0 accent-primary"
+                checked={picked.length === 0}
+                onChange={() => onSelect?.(null)}
+              />
+              <label htmlFor={`${idPrefix}-all`} className="flex-1">
+                {t('types.category_selector.all')}
               </label>
-              {option.count !== undefined && (
-                <span className="text-xs tabular-nums text-muted-foreground">{option.count}</span>
-              )}
             </li>
-          );
-        })}
-      </ul>
+          )}
+          {shown.map((option) => {
+            const id = `${idPrefix}-${options.indexOf(option)}`;
+            const checked = picked.includes(option.key);
+            return (
+              <li key={id} className={OPTION_CLASS}>
+                {config.multiple ? (
+                  <Checkbox
+                    id={id}
+                    checked={checked}
+                    disabled={disabled}
+                    onCheckedChange={(next) => choose(option.key, next === true)}
+                  />
+                ) : (
+                  <input
+                    id={id}
+                    type="radio"
+                    name={idPrefix}
+                    className="size-4 shrink-0 accent-primary"
+                    checked={checked}
+                    onChange={(event) => choose(option.key, event.target.checked)}
+                  />
+                )}
+                <label htmlFor={id} className="flex-1 break-words">
+                  {option.label}
+                </label>
+                {option.count !== undefined && (
+                  <span className="text-xs tabular-nums text-muted-foreground">{option.count}</span>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </fieldset>
+      {options.length > COLLAPSED_OPTIONS && (expanded || shown.length < options.length) && (
+        <Button
+          type="button"
+          variant="link"
+          size="sm"
+          className="px-1"
+          aria-expanded={expanded}
+          aria-controls={`${idPrefix}-options`}
+          onClick={() => setExpanded(!expanded)}
+        >
+          {expanded
+            ? t('types.category_selector.showFewer')
+            : t('types.category_selector.showMore', { count: options.length - shown.length })}
+        </Button>
+      )}
       {other !== undefined && (
         <p className="text-xs text-muted-foreground">{t('types.category_selector.other', { value: other })}</p>
       )}
-    </fieldset>
+    </div>
   );
 }
