@@ -512,3 +512,33 @@ async def test_an_owner_accepting_a_publish_keys_held_run_is_judged_as_the_owner
     assert (job.status, job.error_message) == ("complete", None)
     assert "admitted_publish_key" not in job.user_metadata
     assert await _record(test_db_session, held.dataset_id) == ("public", "published")
+
+
+async def test_a_held_v2_run_stores_its_live_version_where_an_earlier_api_cannot_read_it(
+    test_db_session, clean_tables
+):
+    """An earlier API's accept reads ``live_version`` only, so it refuses a
+    version 2 hold as superseded, consuming nothing; this API accepts it."""
+    held = await _held_apply(test_db_session, request=_v2_resurveyed())
+    verification = await test_db_session.scalar(
+        select(DatasetRefreshRun.verification)
+        .where(DatasetRefreshRun.id == held.run_id)
+        .execution_options(populate_existing=True)
+    )
+    assert "live_version" not in verification
+    assert isinstance(verification["manifest_v2_live_version"], int)
+
+    job = await _accept(test_db_session, held, publish_key=False)
+
+    assert (job.status, job.error_message) == ("complete", None)
+
+
+async def test_a_held_v1_run_keeps_its_live_version_key(test_db_session, clean_tables):
+    held = await _held_apply(test_db_session)
+    verification = await test_db_session.scalar(
+        select(DatasetRefreshRun.verification).where(
+            DatasetRefreshRun.id == held.run_id
+        )
+    )
+    assert isinstance(verification["live_version"], int)
+    assert "manifest_v2_live_version" not in verification

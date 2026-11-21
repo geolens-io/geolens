@@ -365,7 +365,7 @@ async def apply_dataset_fields(
         except ValueError:
             collection_id = None
         if collection_id is not None and submitter is not None:
-            with _as_publish_key(session, user_metadata):
+            with as_publish_key(session, user_metadata):
                 code = await port.add_dataset_to_manifest_collection(
                     session, collection_id, dataset.id, submitter
                 )
@@ -393,11 +393,12 @@ async def apply_dataset_fields(
     record_manifest_tile_cache_version(job, dataset)
 
 
-def _as_publish_key(
+def as_publish_key(
     session: AsyncSession, metadata: dict
 ) -> contextlib.AbstractContextManager[None]:
-    """The scope of the publish key a job was queued or accepted with, so
-    the collection checks reach only the key owner's own collections."""
+    """The scope of the publish key a job was queued or accepted with, so a
+    check made for the job reaches only the key owner's own datasets and
+    collections, as the key's request did."""
     marker = metadata.get(ADMITTED_PUBLISH_KEY_METADATA_KEY)
     if not marker:
         return contextlib.nullcontext()

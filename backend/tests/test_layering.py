@@ -1371,7 +1371,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that lets a refresh or file re-upload of unchanged data publish nothing,
     # the rebuild of geometry from the columns a dataset's was built from, and
     # the task names that keep earlier workers off newer replacements.
-    "backend/app/processing/ingest/tasks_reupload.py": 2024,
+    "backend/app/processing/ingest/tasks_reupload.py": 2025,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.

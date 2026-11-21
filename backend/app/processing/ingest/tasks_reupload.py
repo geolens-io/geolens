@@ -823,7 +823,8 @@ class _FileReupload(_LiveComparison):
             data_revision=dataset.data_revision,
         )
         # What an acceptance of this run must still find live.
-        self.verification["live_version"] = dataset.current_version
+        held = refresh_policy.held_version_key(self.user_metadata)
+        self.verification[held] = dataset.current_version
         if self.verification["decision"] == "allowed":
             if self.compares_live:
                 await self._compare_live(session, dataset)

@@ -17,7 +17,7 @@ from pydantic import (
     model_validator,
 )
 
-from app.core.text import reject_html_markup
+from app.core.text import normalize_nfc, reject_html_markup
 from app.platform.value_labels import is_storable_text
 
 NonEmptyString100 = Annotated[str, Field(min_length=1, max_length=100)]
@@ -262,6 +262,11 @@ class ManifestCollectionRef(_ManifestBaseModel):
 
     id: uuid.UUID | None = None
     name: Annotated[str, Field(min_length=1, max_length=255)] | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _normalize_nfc(cls, v: str | None) -> str | None:
+        return normalize_nfc(v)
 
     @model_validator(mode="after")
     def _exactly_one(self) -> "ManifestCollectionRef":

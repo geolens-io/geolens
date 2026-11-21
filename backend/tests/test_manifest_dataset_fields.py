@@ -1779,6 +1779,91 @@ async def test_an_in_flight_job_is_reused_only_under_the_same_fallback_policy(
     queue.assert_not_awaited()
 
 
+async def test_a_decomposed_collection_name_joins_the_composed_collection(
+    test_db_session, clean_tables
+):
+    """Collection names are stored in NFC; the manifest's name is matched in
+    the same form, so a decomposed spelling finds it."""
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    composed = Collection(name="Caf\u00e9", created_by=user.id)
+    test_db_session.add(composed)
+    await test_db_session.commit()
+
+    response, _ = await _apply(
+        test_db_session,
+        user,
+        _request(_entry("fields-nfc", collection={"name": "Cafe\u0301"})),
+    )
+
+    result = response.results[0]
+    assert (result.action, result.messages) == ("create", []), result
+    job = await test_db_session.get(IngestJob, result.job_id)
+    assert job.user_metadata["manifest_collection_id"] == str(composed.id)
+    names = (
+        (
+            await test_db_session.execute(
+                select(Collection.name).where(Collection.name.like("Caf%"))
+            )
+        )
+        .scalars()
+        .all()
+    )
+    assert names == ["Caf\u00e9"]
+
+
+@pytest.mark.parametrize("publish_key", [True, False], ids=["key", "signed-in"])
+async def test_a_dataset_transferred_before_an_admins_update_publishes(
+    client, test_db_session, admin_auth_header, clean_tables, publish_key
+):
+    """An admin's publish key reaches only the admin's own datasets, at the
+    request and again when the job publishes; signed in, the admin reaches
+    any."""
+    from tests.write_recheck_races import _commit
+
+    _stage_fixture()
+    headers, admin_id = await create_user(client, admin_auth_header, "admin")
+    admin = await test_db_session.get(User, uuid.UUID(admin_id))
+    _, other_id = await create_user(client, admin_auth_header, "editor")
+    key = f"audience-transferred-{'key' if publish_key else 'jwt'}"
+    dataset_id = await _manifest_dataset(
+        test_db_session, admin, key, "private", "draft"
+    )
+    entry = await _uploaded(client, headers, key)
+    if publish_key:
+        with _publish_key(test_db_session):
+            result, task = await _queue_update(test_db_session, admin, entry)
+    else:
+        result, task = await _queue_update(test_db_session, admin, entry)
+    assert result.action == "update", result
+    version_before = await test_db_session.scalar(
+        select(Dataset.current_version).where(Dataset.id == dataset_id)
+    )
+
+    record_id = select(Dataset.record_id).where(Dataset.id == dataset_id)
+    await _commit(
+        update(Record)
+        .where(Record.id == record_id.scalar_subquery())
+        .values(created_by=uuid.UUID(other_id))
+    )
+    job = await _run_update(test_db_session, result, task)
+
+    version_after = await test_db_session.scalar(
+        select(Dataset.current_version)
+        .where(Dataset.id == dataset_id)
+        .execution_options(populate_existing=True)
+    )
+    if publish_key:
+        assert job.status == "failed"
+        assert "can no longer modify this dataset" in job.error_message
+        assert version_after == version_before
+        assert await _record(test_db_session, dataset_id) == ("private", "draft")
+    else:
+        assert (job.status, job.error_message) == ("complete", None)
+        assert version_after != version_before
+        assert await _record(test_db_session, dataset_id) == ("private", "published")
+
+
 async def _in_flight(session, user, entry: dict, **metadata) -> IngestJob:
     """A running job of ``entry``'s key, as an earlier apply left it."""
     job = IngestJob(

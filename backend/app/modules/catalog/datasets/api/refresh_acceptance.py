@@ -36,6 +36,7 @@ from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.verification import (
     REVIEW_SUPERSEDED,
     canonical_service_source_binding_fingerprint,
+    held_live_version,
 )
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
 from app.modules.catalog.authorization import admitted_public_visibility
@@ -350,7 +351,7 @@ async def dispatch_upload_acceptance(
         db, dataset_id=dataset_id, run_id=run_id
     )
     blocked_run = await db.get(DatasetRefreshRun, run_id)
-    held_version = (blocked_run.verification or {}).get("live_version")
+    held_version = held_live_version(blocked_run.verification or {})
     # Held until commit, so the retention purge skips the job and keeps its
     # upload; a job the purge already took is gone by the time this returns.
     blocked_job = await db.scalar(

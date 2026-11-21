@@ -47,6 +47,7 @@ from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     ADMITTED_CAPABILITY_METADATA_KEY,
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
+    ADMITTED_PUBLISH_KEY_METADATA_KEY,
     ADMITTED_RAW_SOURCE_METADATA_KEY,
     MANIFEST_VERSION_METADATA_KEY,
     IngestJob,
@@ -57,6 +58,7 @@ from app.platform.refresh.service import (
     record_refresh_success,
 )
 from app.processing.ingest.manifest_dataset_fields import (
+    as_publish_key,
     load_submitter,
     record_manifest_tile_cache_version,
     required_capabilities,
@@ -614,10 +616,12 @@ async def require_submitter_can_write(
     """Raise ``WriteAccessRevoked`` unless the job's submitter may still write
     the dataset, as committed now, and their roles still grant ``capability``,
     the one the job's door admitted it under. With None, only the account and
-    owner-or-admin are checked. A manifest job carrying attribute text also
-    needs ``edit_metadata``, as the attribute edit does. A job only an admin could queue, for a raw
-    seed source or public data under ``restrict_public_visibility``, also needs
-    them to still be an admin.
+    owner-or-admin are checked. A job a publish key queued or accepted is
+    judged as that key's request is, which reaches only its owner's own
+    datasets. A manifest job carrying attribute text also needs
+    ``edit_metadata``, as the attribute edit does. A job only an admin could
+    queue, for a raw seed source or public data under
+    ``restrict_public_visibility``, also needs them to still be an admin.
 
     Call holding the catalog rows, which an ownership transfer also takes.
     """
@@ -631,14 +635,20 @@ async def require_submitter_can_write(
     await session.refresh(
         dataset.record, attribute_names=["created_by", "visibility", "record_status"]
     )
+    metadata = job.user_metadata or {}
+    key_marked = bool(metadata.get(ADMITTED_PUBLISH_KEY_METADATA_KEY))
     try:
-        await get_processing_port().check_dataset_write_access(
-            session,
-            dataset,
-            dataset.id,
-            submitter,
-            user_roles={role.name for role in submitter.roles},
-        )
+        with as_publish_key(session, metadata):
+            await get_processing_port().check_dataset_write_access(
+                session,
+                dataset,
+                dataset.id,
+                submitter,
+                # The key's roles are resolved as its request's are.
+                user_roles=None
+                if key_marked
+                else {role.name for role in submitter.roles},
+            )
     except HTTPException:
         raise WriteAccessRevoked from None
     roles = {r.name for r in submitter.roles}
