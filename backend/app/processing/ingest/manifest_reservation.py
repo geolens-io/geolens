@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import and_, bindparam, desc, func, select, text
+from sqlalchemy import and_, bindparam, desc, func, not_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -25,7 +25,7 @@ from app.platform.jobs.models import (
     commit_attempted_marker,
     dispatch_attempted,
 )
-from app.platform.jobs.sweep import settle_stale_jobs
+from app.platform.jobs.sweep import settle_stale_jobs, stale_pending_clauses
 from app.platform.refresh.job_runs import stored_review_reasons
 from app.platform.source_copies import EXISTING_DATASET_MARKERS
 from app.platform.refresh.models import DatasetRefreshRun
@@ -105,9 +105,12 @@ async def claim_upload(
     """
     metadata = {**metadata, **commit_attempted_marker()}
     values: dict[str, object] = {
-        "user_metadata": func.coalesce(IngestJob.user_metadata, text("'{}'::jsonb")).op(
-            "||", return_type=JSONB
-        )(bindparam("manifest_fields", value=metadata, type_=JSONB)),
+        "user_metadata": func.coalesce(
+            func.nullif(IngestJob.user_metadata, text("'null'::jsonb")),
+            text("'{}'::jsonb"),
+        ).op("||", return_type=JSONB)(
+            bindparam("manifest_fields", value=metadata, type_=JSONB)
+        ),
         "source_layer": source_layer,
     }
     if dataset_id is not None:
@@ -123,6 +126,16 @@ async def claim_upload(
             IngestJob.file_path == file_path,
             plain_upload(),
             unclaimed_upload(),
+            # Not one the stale sweep could settle now, which the read checked
+            # before the hash and the key-lock wait.
+            not_(
+                and_(
+                    *stale_pending_clauses(
+                        datetime.now(timezone.utc),
+                        completion_bound=file_path.startswith("staging/"),
+                    )
+                )
+            ),
         ),
     ):
         return None

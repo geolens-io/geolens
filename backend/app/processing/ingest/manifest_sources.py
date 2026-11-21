@@ -527,14 +527,18 @@ def skip_complete_message(prepared: ManifestPreparedSource) -> str:
 
     Matching the last completed entry means only that, not that the source
     bytes were read: a stable URI whose file changed underneath it lands
-    here too, so the message says the source wasn't inspected. An upload's
-    bytes were checked, so its message says the file is the same.
+    here too, so the message says the source wasn't inspected. A fresh
+    upload's bytes were checked, so its message says the file is the same and
+    the upload is spare; an entry replayed with the upload it already used
+    says only that.
 
     Only vector entries are told to bump `checksum`. A bumped `raster_cog`
     fingerprint would reach `_validate_existing_dataset_update` and be
     rejected with "Manifest raster updates are not supported", so raster
     entries get that rejection's guidance instead.
     """
+    if prepared.kind == "upload" and prepared.upload is None:
+        return "Manifest dataset entry is unchanged: this upload was already applied."
     if prepared.kind == "upload":
         return (
             "Manifest dataset entry is unchanged: the uploaded file matches "

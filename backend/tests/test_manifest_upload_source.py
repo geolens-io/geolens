@@ -312,6 +312,25 @@ class TestApply:
         job = await _row(test_db_session, again)
         assert (job.status, job.user_metadata) == ("pending", untouched)
 
+    async def test_replaying_an_applied_upload_says_so_without_cancel_advice(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        job_id = await _upload(client, editor_auth_header)
+        manifest = _manifest(_entry("web-replay", job_id, _checksum(_ORIGINAL)))
+        await _apply(client, editor_auth_header, manifest)
+        editor = (await _row(test_db_session, job_id)).created_by
+        await _complete(test_db_session, job_id, editor)
+
+        result = await _apply(client, editor_auth_header, manifest)
+
+        assert (result["action"], result["job_id"], result["queued"]) == (
+            "skip",
+            str(job_id),
+            0,
+        )
+        assert "already applied" in result["message"]
+        assert "Cancel" not in result["message"]
+
     async def test_a_dry_run_claims_nothing(
         self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
     ):
@@ -749,6 +768,39 @@ class TestSchema:
         with pytest.raises(ValidationError, match="upload: sources require"):
             ManifestApplyRequest.model_validate(payload)
 
+    @pytest.mark.parametrize(
+        ("version", "client", "valid"),
+        [
+            ("1", "omitted", True),
+            ("1", None, False),
+            ("1", _CLIENT, False),
+            ("2", None, False),
+            ("2", _CLIENT, True),
+        ],
+    )
+    def test_client_is_decided_by_whether_it_was_sent(self, version, client, valid):
+        payload = {
+            "manifest_version": version,
+            "catalog": {"title": "Catalog"},
+            "datasets": [
+                {
+                    "key": "roads",
+                    "title": "Roads",
+                    "sources": [
+                        {"type": "vector", "uri": "https://example.com/roads.fgb"}
+                    ],
+                    "publication": {"intent": "draft"},
+                }
+            ],
+        }
+        if client != "omitted":
+            payload["client"] = client
+        if valid:
+            ManifestApplyRequest.model_validate(payload)
+        else:
+            with pytest.raises(ValidationError, match="client"):
+                ManifestApplyRequest.model_validate(payload)
+
     def test_version_2_requires_client(self):
         payload = self._payload()
         del payload["client"]
@@ -935,6 +987,47 @@ class TestDuringTheCheck:
         assert job.status == "cancelled"
         assert "manifest_key" not in job.user_metadata
 
+    async def test_the_upload_is_hashed_with_no_connection_or_key_held(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        import app.core.db as db_module
+
+        job_id = await _upload(client, editor_auth_header)
+        released: list[bool] = []
+        seen_while_hashing: dict[str, object] = {}
+        real_release = manifest_sources.release_connection
+        real_hash = manifest_sources._staged_upload_sha256
+
+        async def _release(db):
+            await real_release(db)
+            released.append(db.in_transaction())
+
+        async def _probing_hash(file_path: str):
+            seen_while_hashing["released"] = list(released)
+            async with db_module.async_session() as other:
+                seen_while_hashing["key_free"] = await other.scalar(
+                    text(
+                        "SELECT pg_try_advisory_xact_lock("
+                        "hashtextextended('manifest_apply:web-probed', 0))"
+                    )
+                )
+                await other.rollback()
+            return await real_hash(file_path)
+
+        with (
+            patch.object(manifest_sources, "release_connection", _release),
+            patch.object(manifest_sources, "_staged_upload_sha256", _probing_hash),
+        ):
+            result = await _apply(
+                client,
+                editor_auth_header,
+                _manifest(_entry("web-probed", job_id, _checksum(_ORIGINAL))),
+            )
+
+        assert result["action"] == "create", result["message"]
+        # The connection went back to the pool and the key was free while it read.
+        assert seen_while_hashing == {"released": [False], "key_free": True}
+
     async def test_the_checksum_time_limit_ends_the_entry_holding_nothing(
         self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
     ):
@@ -944,29 +1037,12 @@ class TestDuringTheCheck:
 
         job_id = await _upload(client, editor_auth_header)
         untouched = dict((await _row(test_db_session, job_id)).user_metadata)
-        released: list[bool] = []
-        seen_while_hashing: dict[str, object] = {}
-        real_release = manifest_sources.release_connection
-
-        async def _release(db):
-            await real_release(db)
-            released.append(db.in_transaction())
 
         async def _slow_hash(file_path: str):
-            seen_while_hashing["released"] = list(released)
-            async with db_module.async_session() as other:
-                seen_while_hashing["key_free"] = await other.scalar(
-                    text(
-                        "SELECT pg_try_advisory_xact_lock("
-                        "hashtextextended('manifest_apply:web-slow', 0))"
-                    )
-                )
-                await other.rollback()
             await asyncio.sleep(5)
 
         with (
             patch.object(manifest_sources, "UPLOAD_CHECKSUM_MAX_SECONDS", 0.5),
-            patch.object(manifest_sources, "release_connection", _release),
             patch.object(manifest_sources, "_staged_upload_sha256", _slow_hash),
         ):
             result = await _apply(
@@ -977,10 +1053,59 @@ class TestDuringTheCheck:
 
         assert result["action"] == "error"
         assert "within 0.5 seconds" in result["message"]
-        # The connection went back to the pool and the key was free while it read.
-        assert seen_while_hashing == {"released": [False], "key_free": True}
         job = await _row(test_db_session, job_id)
         assert (job.status, job.user_metadata) == ("pending", untouched)
+        async with db_module.async_session() as other:
+            assert await other.scalar(
+                text(
+                    "SELECT pg_try_advisory_xact_lock("
+                    "hashtextextended('manifest_apply:web-slow', 0))"
+                )
+            )
+            await other.rollback()
+
+    async def test_an_upload_that_expires_during_the_hash_is_not_claimed(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        import app.core.db as db_module
+
+        job_id = await _upload(client, editor_auth_header)
+        real_hash = manifest_sources._staged_upload_sha256
+        old = datetime.now(timezone.utc) - timedelta(
+            seconds=settings.pending_job_timeout_seconds + 60
+        )
+
+        async def _hash_then_expire(file_path: str):
+            result = await real_hash(file_path)
+            async with db_module.async_session() as other:
+                await other.execute(
+                    update(IngestJob)
+                    .where(IngestJob.id == job_id)
+                    .values(
+                        created_at=old,
+                        user_metadata=IngestJob.user_metadata.op("||")(
+                            text(f"""'{{"staged_at": "{old.isoformat()}"}}'::jsonb""")
+                        ),
+                    )
+                )
+                await other.commit()
+            return result
+
+        with patch.object(manifest_sources, "_staged_upload_sha256", _hash_then_expire):
+            result = await _apply(
+                client,
+                editor_auth_header,
+                _manifest(_entry("web-late", job_id, _checksum(_ORIGINAL))),
+            )
+
+        assert (result["action"], result["message"], result["queued"]) == (
+            "error",
+            UPLOAD_SOURCE_UNAVAILABLE,
+            0,
+        )
+        job = await _row(test_db_session, job_id)
+        assert job.status == "pending"
+        assert "manifest_key" not in job.user_metadata
 
     async def test_a_storage_error_while_hashing_is_not_echoed(
         self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
@@ -1282,3 +1407,64 @@ async def test_a_dispatch_stamp_from_a_copy_read_before_a_claim_keeps_the_claim(
     assert job.user_metadata["manifest_key"] == "stamp-raced"
     assert job.user_metadata[MANIFEST_FINGERPRINT_METADATA_KEY] == "f" * 64
     assert job.user_metadata["manifest_stage"] == "downloading"
+
+
+class TestJsonNullMetadata:
+    """A row created with None holds JSON null, which a merge must treat as empty."""
+
+    async def _json_null(self, session, job_id) -> None:
+        await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job_id)
+            .values(user_metadata=text("'null'::jsonb"))
+        )
+        await session.commit()
+
+    async def test_a_retry_leaves_an_object_carrying_the_dispatch_marker(
+        self, test_db_session, clean_tables, monkeypatch, tmp_path
+    ):
+        from app.platform.jobs import ledger
+        from app.platform.jobs.models import dispatch_attempted
+
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+        owner = await get_user_id(test_db_session, "admin")
+        job = await _staged_row(test_db_session, owner, status="failed")
+        job_id = job.id
+        await self._json_null(test_db_session, job_id)
+        job = await _row(test_db_session, job_id)
+
+        assert await ledger.retry(test_db_session, job) is ledger.Outcome.LANDED
+        await test_db_session.commit()
+
+        row = await _row(test_db_session, job_id)
+        assert isinstance(row.user_metadata, dict)
+        assert row.user_metadata["staged_at"]
+        assert await test_db_session.scalar(
+            select(dispatch_attempted()).where(IngestJob.id == job_id)
+        )
+
+    async def test_a_claim_leaves_an_object_carrying_the_manifest_fields(
+        self, test_db_session, clean_tables, monkeypatch, tmp_path
+    ):
+        monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+        owner = await get_user_id(test_db_session, "admin")
+        job = await _staged_row(test_db_session, owner)
+        job_id, attempt_id, file_path = job.id, job.attempt_id, job.file_path
+        await self._json_null(test_db_session, job_id)
+
+        claimed = await claim_upload(
+            test_db_session,
+            job_id=job_id,
+            attempt_id=attempt_id,
+            file_path=file_path,
+            owner=owner,
+            metadata={"manifest_key": "null-claim"},
+            dataset_id=None,
+            source_layer=None,
+        )
+        await test_db_session.commit()
+
+        assert claimed is not None
+        row = await _row(test_db_session, job_id)
+        assert isinstance(row.user_metadata, dict)
+        assert row.user_metadata["manifest_key"] == "null-claim"

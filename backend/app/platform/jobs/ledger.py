@@ -709,8 +709,11 @@ async def retry(session: AsyncSession, job: IngestJob) -> Outcome:
                 heartbeat_at=None,
                 completed_at=None,
                 dataset_id=None,
+                # A JSON null, as a row created with None holds, counts as
+                # empty; merged as is, it would nest the fields in an array.
                 user_metadata=func.coalesce(
-                    IngestJob.user_metadata, text("'{}'::jsonb")
+                    func.nullif(IngestJob.user_metadata, text("'null'::jsonb")),
+                    text("'{}'::jsonb"),
                 ).op("||", return_type=JSONB)(
                     bindparam(
                         "retry_fields",

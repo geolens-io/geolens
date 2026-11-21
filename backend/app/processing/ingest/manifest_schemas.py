@@ -85,9 +85,9 @@ ManifestChecksum = Annotated[
             "vector source, "
             "bump it when the file under a stable URI changes, to force "
             "apply to reclassify the entry as an update instead of "
-            "skipping it. Manifest raster updates are not supported: do not "
-            "set or change checksum on a raster_cog source, because a "
-            "changed value there makes apply report that entry as an error "
+            "skipping it. Manifest raster updates are not supported: once a "
+            "raster_cog entry has published, a changed checksum, a new "
+            "upload's included, makes apply report that entry as an error "
             "('Manifest raster updates are not supported; create a new "
             "raster dataset instead.'), not a skip. An unchanged raster "
             "entry, checksum included, still skips normally."
@@ -335,7 +335,8 @@ class ManifestApplyRequest(_ManifestBaseModel):
             if self.client is None:
                 raise ValueError("manifest_version '2' requires client")
             return self
-        if self.client is not None:
+        # Supplied at all, null included: version 1 had no such field.
+        if "client" in self.model_fields_set:
             raise ValueError("client requires manifest_version '2'")
         if any(
             source.uri.startswith(UPLOAD_URI_PREFIX)
