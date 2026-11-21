@@ -29,7 +29,7 @@ from app.modules.catalog.datasets.api import router as datasets_router
 from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.datasets.domain.service import get_dataset
 from app.modules.catalog.features.service import lock_catalog_rows_for_write
-from app.modules.catalog.maps import router as maps_router
+from app.modules.catalog.maps import service_update as map_update
 from app.modules.catalog.maps.models import Map
 from app.platform.extensions import DefaultPermissionExtension
 from app.modules.catalog.maps.service import (
@@ -243,7 +243,7 @@ async def test_map_save_is_refused_when_a_transfer_lands_mid_request(
 ) -> None:
     owner_headers, _ = people["owner"]
     map_id = uuid.UUID((await create_map_via_api(client, owner_headers))["id"])
-    original = maps_router.check_public_visibility_allowed
+    original = map_update.check_public_visibility_allowed
 
     # Runs after the handler's ownership check and before it writes the row.
     async def transfer_then_continue(db, user, visibility, **kwargs):
@@ -254,7 +254,7 @@ async def test_map_save_is_refused_when_a_transfer_lands_mid_request(
         return await original(db, user, visibility, **kwargs)
 
     monkeypatch.setattr(
-        maps_router, "check_public_visibility_allowed", transfer_then_continue
+        map_update, "check_public_visibility_allowed", transfer_then_continue
     )
     resp = await client.put(
         f"/maps/{map_id}", json={"name": "renamed"}, headers=owner_headers
@@ -475,7 +475,7 @@ async def test_an_overlay_deciding_from_identity_roles_sees_them_as_committed(
     owner_headers, owner_id = people["owner"]
     monkeypatch.setitem(extensions._extensions, "permission", _RolesDecideExtension())
     viewer = select(Role.id).where(Role.name == "viewer").scalar_subquery()
-    router = datasets_router if kind == "dataset" else maps_router
+    router = datasets_router if kind == "dataset" else map_update
     original = router.check_public_visibility_allowed
 
     # Runs after require_permission and the write guard, before the lock.
