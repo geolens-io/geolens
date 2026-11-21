@@ -187,8 +187,6 @@ export function useBuilderLayers(
   const { dashboard, savedDashboard, setDashboard, beginSave: beginDashboardSave, dashboardEdited } =
     useDashboardDraft(mapData?.dashboard_config, mapId, mapData?.layers, localLayers, warnDashboardChanged);
   const savedBookmarks = useMemo(() => mapData?.bookmarks ?? [], [mapData?.bookmarks]);
-  const { bookmarks, bookmarksEdited, setBookmarks, beginSave: beginBookmarksSave } =
-    useBookmarksDraft(savedBookmarks, mapId);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
@@ -216,6 +214,12 @@ export function useBuilderLayers(
       [queryClient],
     ),
     () => (mapId ? fetchedVersionRef.current.get(mapId) ?? 0 : 0),
+  );
+  const { bookmarks, bookmarksEdited, setBookmarks, beginSave: beginBookmarksSave } = useBookmarksDraft(
+    savedBookmarks,
+    mapId,
+    detailVersion,
+    () => detailDataVersion(queryClient, mapId),
   );
   const saveFenced = useCallback((): boolean => {
     const settled = mapId ? saveFenceRef.current.get(mapId) : undefined;

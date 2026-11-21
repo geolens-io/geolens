@@ -38,6 +38,13 @@ describe('extentOfView', () => {
     expect(n).toBeLessThanOrEqual(85.051129);
   });
 
+  it('stays centered on the view when one edge would pass the Mercator limit', () => {
+    const y = (lat: number) => Math.log(Math.tan(Math.PI / 4 + (lat * Math.PI) / 360));
+    const [, south, , north] = extentOfView({ ...view, center: { lng: 10, lat: 84.5 } });
+    expect(north).toBeLessThanOrEqual(85.051129);
+    expect((y(south) + y(north)) / 2).toBeCloseTo(y(84.5), 4);
+  });
+
   it('keeps latitudes inside the Mercator limit', () => {
     const [, s, , n] = extentOfView({ center: { lng: 0, lat: 84 }, zoom: 1, width: 600, height: 900 });
     expect(n).toBeLessThanOrEqual(85.051129);

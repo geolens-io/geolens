@@ -55,11 +55,12 @@ export function extentOfView({ center, zoom, width, height, bearing = 0, scale =
   const cos = Math.abs(Math.cos(angle));
   const sin = Math.abs(Math.sin(angle));
   const k = Math.min(width / (width * cos + height * sin), height / (width * sin + height * cos));
-  const halfW = (width * k * scale) / 2;
-  const halfH = (height * k * scale) / 2;
-
   const cx = lngToX(center.lng, worldSize);
   const cy = latToY(center.lat, worldSize);
+  const halfW = (width * k * scale) / 2;
+  // Kept inside the Mercator limits on both sides alike, so a box near a
+  // limit stays centered on the view and fits back to the same place.
+  const halfH = Math.min((height * k * scale) / 2, cy, worldSize - cy);
   const south = round6(yToLat(cy + halfH, worldSize));
   const north = round6(yToLat(cy - halfH, worldSize));
   if (halfW * 2 >= worldSize) return [-180, south, 180, north];

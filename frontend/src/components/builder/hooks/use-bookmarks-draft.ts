@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { sameBookmarks } from '@/lib/bookmarks';
 import type { MapBookmark } from '@/types/api';
 
@@ -12,8 +12,8 @@ interface Ahead {
   mapId?: string;
   /** The list of a save not yet answered. */
   sending: MapBookmark[] | null;
-  /** The list of the last stored save, until the saved list is read again. */
-  stored: MapBookmark[] | null;
+  /** The list of the last stored save, and the read count when it was stored. */
+  stored: { list: MapBookmark[]; readAt: number } | null;
 }
 
 const NOTHING_AHEAD: Ahead = { sending: null, stored: null };
@@ -23,25 +23,37 @@ const NOTHING_AHEAD: Ahead = { sending: null, stored: null };
  *
  * An edit is measured against the list the server holds or is about to hold:
  * the list a save is sending, else the list the last save stored, else the
- * saved list as last read. An edit equal to that measure is no edit, whenever
+ * saved list as last read. `reads` counts completed reads of the saved list,
+ * one that returns the same list included, and `countReads` gives the count
+ * at this moment: a stored save's list is the measure until a read completes
+ * after it. An edit equal to that measure is no edit, whenever
  * and however the two came to match (the edit put back, a stored save, a
  * failed save, the same list saved elsewhere), and it is retired once no save
  * of it is still unanswered. A list kept past that point would read as an edit
  * again on the next change from elsewhere, hide it, and go out with the next
  * save.
  */
-export function useBookmarksDraft(savedBookmarks: MapBookmark[], mapId: string | undefined) {
+export function useBookmarksDraft(
+  savedBookmarks: MapBookmark[],
+  mapId: string | undefined,
+  reads: number,
+  countReads: () => number,
+) {
   const [edit, setEdit] = useState<Edit | null>(null);
   const [aheadState, setAhead] = useState<Ahead>(NOTHING_AHEAD);
   const ahead = aheadState.mapId === mapId ? aheadState : NOTHING_AHEAD;
+  const countReadsRef = useRef(countReads);
+  countReadsRef.current = countReads;
 
-  // A saved list read again shows what the last stored save left, or what
-  // someone else saved after it. A save still unanswered is not answered by it.
+  // A read that completes after a save was stored shows what that save left,
+  // or what someone else saved after it, even when the list comes back
+  // unchanged; so does a saved list that changes by any other route. A save
+  // still unanswered is not answered by either.
   useEffect(() => {
     setAhead((current) => (current.stored ? { ...current, stored: null } : current));
   }, [savedBookmarks]);
-
-  const measure = ahead.sending ?? ahead.stored ?? savedBookmarks;
+  const storedUnread = ahead.stored && reads <= ahead.stored.readAt ? ahead.stored.list : null;
+  const measure = ahead.sending ?? storedUnread ?? savedBookmarks;
   const edited = edit && edit.mapId === mapId && !sameBookmarks(edit.list, measure) ? edit.list : null;
 
   // While a save is unanswered its list is only what the server may come to
@@ -65,7 +77,11 @@ export function useBookmarksDraft(savedBookmarks: MapBookmark[], mapId: string |
       return (stored: boolean) => {
         setAhead((current) => {
           if (current.mapId !== mapId || current.sending !== list) return current;
-          return { ...current, sending: null, stored: stored ? list : current.stored };
+          return {
+            ...current,
+            sending: null,
+            stored: stored ? { list, readAt: countReadsRef.current() } : current.stored,
+          };
         });
       };
     },
