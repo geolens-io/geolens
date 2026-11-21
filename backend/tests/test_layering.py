@@ -1405,8 +1405,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Raster replacement owns conversion, read-back and published-object cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases
-    # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1222,
+    # and failure settlement, and the task name that keeps earlier workers off
+    # a manifest version 2 create.
+    "backend/app/processing/ingest/tasks_vector.py": 1237,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1950,
@@ -1421,7 +1422,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/admin/service.py": 1057,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1591,
+    "backend/app/processing/ingest/service.py": 1597,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 700,

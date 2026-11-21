@@ -32,10 +32,12 @@ from app.platform.storage import get_storage  # noqa: F401
 from app.processing.embeddings.helpers import defer_embedding  # noqa: F401
 from app.processing.ingest.tasks_vector import (  # noqa: F401
     ingest_file,
+    ingest_manifest_v2_file,
     ingest_service,
 )
 from app.processing.ingest.tasks_raster import (  # noqa: F401
     create_raster_dataset,
+    ingest_manifest_v2_raster,
     ingest_raster,
 )
 from app.processing.ingest.tasks_tileset import (  # noqa: F401

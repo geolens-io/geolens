@@ -733,3 +733,13 @@ async def ingest_raster(
                     final_status=final_status,
                     failed_source_replayable=True,
                 )
+
+
+# A manifest version 2 raster create, under a name earlier workers lack, for
+# the reason ``ingest_manifest_v2_file`` gives.
+ingest_manifest_v2_raster = task_app.task(
+    ingest_raster.func,
+    queue="raster",
+    retry=0,
+    name="app.ingest.tasks.ingest_manifest_v2_raster",
+)

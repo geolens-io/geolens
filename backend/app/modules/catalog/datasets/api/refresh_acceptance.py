@@ -29,7 +29,6 @@ from app.platform.jobs.models import (
     MANIFEST_VERSION_METADATA_KEY,
     ADMITTED_CAPABILITY_METADATA_KEY,
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
-    ADMITTED_PUBLISH_KEY_METADATA_KEY,
     ADMITTED_RAW_SOURCE_METADATA_KEY,
     IngestJob,
 )
@@ -209,13 +208,13 @@ def _upload_unavailable(message: str) -> HTTPException:
     )
 
 
-# The blocked job's admissions, and the publish key it was queued with, follow
-# it into the accepted upload.
+# The blocked job's admissions follow it into the accepted upload. Its publish
+# key does not: the accept is the accepter's act, judged and stamped for the
+# accepting credential.
 _CARRIED_KEYS = frozenset(
     {
         "srid_override",
         ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
-        ADMITTED_PUBLISH_KEY_METADATA_KEY,
         ADMITTED_RAW_SOURCE_METADATA_KEY,
     }
 )

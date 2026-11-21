@@ -69,6 +69,7 @@ from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
     PUBLISHED_FOR_METADATA_KEY,
     DATABASE_SOURCE_METADATA_KEY,
+    MANIFEST_VERSION_METADATA_KEY,
     IngestJob,
     commit_attempted_marker,
 )
@@ -1443,11 +1444,16 @@ async def queue_ingest_job(
     from app.processing.ingest.tasks import (
         ingest_database,
         ingest_file,
+        ingest_manifest_v2_file,
+        ingest_manifest_v2_raster,
         ingest_pointcloud,
         ingest_raster,
         ingest_service,
         ingest_tileset,
     )
+
+    # A manifest version 2 create, under names earlier workers lack.
+    manifest_v2 = (job.user_metadata or {}).get(MANIFEST_VERSION_METADATA_KEY) == "2"
 
     database_source = (job.user_metadata or {}).get(DATABASE_SOURCE_METADATA_KEY)
     if database_source is not None:
@@ -1545,7 +1551,7 @@ async def queue_ingest_job(
     file_path = job.file_path
 
     whole_file_task = {
-        "raster": ingest_raster,
+        "raster": ingest_manifest_v2_raster if manifest_v2 else ingest_raster,
         TILESET_FILE_TYPE: ingest_tileset,
         POINTCLOUD_FILE_TYPE: ingest_pointcloud,
     }.get((job.user_metadata or {}).get("file_type"))
@@ -1572,7 +1578,7 @@ async def queue_ingest_job(
     use_priority = 0 < _local_file_size(file_path) <= PRIORITY_QUEUE_THRESHOLD_BYTES
 
     async def _defer_vector() -> None:
-        task = ingest_file
+        task = ingest_manifest_v2_file if manifest_v2 else ingest_file
         if use_priority:
             task = task.configure(queue="priority")
         await defer_async_with_tenant(

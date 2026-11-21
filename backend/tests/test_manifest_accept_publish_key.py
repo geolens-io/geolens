@@ -488,3 +488,27 @@ async def test_an_accepted_run_is_queued_under_its_versions_task_name(
         )
 
     assert defer.await_args.args[0].name == name
+
+
+async def test_an_owner_accepting_a_publish_keys_held_run_is_judged_as_the_owner(
+    test_db_session, clean_tables
+):
+    """The accept is the owner's act: the key's limits don't follow the run.
+    The key's entry kept the visibility and asked to publish; the owner made
+    the dataset a public draft since, and accepts signed in."""
+    held = await _hold(
+        test_db_session,
+        record=("public", "draft"),
+        **_v2(admitted_publish_key=str(uuid.uuid4())),
+    )
+    job_row = await test_db_session.get(IngestJob, held.job_id)
+    job_row.user_metadata = {
+        k: v for k, v in job_row.user_metadata.items() if k != "visibility"
+    }
+    await test_db_session.commit()
+
+    job = await _accept(test_db_session, held, publish_key=False)
+
+    assert (job.status, job.error_message) == ("complete", None)
+    assert "admitted_publish_key" not in job.user_metadata
+    assert await _record(test_db_session, held.dataset_id) == ("public", "published")
