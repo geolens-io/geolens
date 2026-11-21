@@ -36,7 +36,7 @@ async def owning_admin(client: AsyncClient, admin_auth_header: dict) -> tuple:
 
 
 def _demote_after_the_gate(monkeypatch, router, user_id: uuid.UUID) -> None:
-    """Demote ``user_id`` to editor straight after the router's public gate."""
+    """Demote ``user_id`` to editor straight after the public gate in ``router``."""
     original = router.check_public_visibility_allowed
 
     async def gate_then_demote(db, user, visibility, **kwargs):

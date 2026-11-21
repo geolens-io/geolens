@@ -50,7 +50,12 @@ _MUTATION_METHODS = {"POST", "PUT", "PATCH"}
 
 # Handlers whose gate call lives in a helper instead of the handler body.
 # Value: (module path, function name) whose source must contain the call.
-_DELEGATED_GATES: dict[str, tuple[str, str]] = {}
+_DELEGATED_GATES: dict[str, tuple[str, str]] = {
+    "app.modules.catalog.maps.router.update_map_endpoint": (
+        "app.modules.catalog.maps.service_update",
+        "_check_map_update",
+    ),
+}
 
 # Mutation routes whose body accepts `visibility` but which are deliberately
 # NOT gated, each with a written justification. Kept empty on purpose: every

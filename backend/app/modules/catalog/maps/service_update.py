@@ -44,14 +44,29 @@ async def apply_map_update(
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Apply ``body`` to ``map_obj`` for ``user`` and return ``update_map``'s tuple.
 
-    The caller has fetched ``map_obj``, passed ``check_map_ownership`` and
-    owns the commit. Checks the map_author key's fields, the terrain DEM, the
-    public-visibility opt-in and every replacement layer's dataset before
-    writing; refuses a public map with non-public datasets; emits the audit
-    event; records builder history only with ``record_history``; and revokes
-    embed tokens whose dataset a layer replacement dropped. Narrowing the
-    visibility revokes the map's share and embed links inside ``update_map``.
-    Refusals raise ``HTTPException``.
+    Checks the map_author key's fields, the terrain DEM, the public-visibility
+    opt-in and every replacement layer's dataset before writing; refuses a
+    public map with non-public datasets; emits the audit event; records
+    builder history only with ``record_history``; and revokes embed tokens
+    whose dataset a layer replacement dropped. Narrowing the visibility
+    revokes the map's share and embed links inside ``update_map``. Refusals
+    raise ``HTTPException``.
+
+    The caller must:
+
+    - call ``check_map_ownership`` on ``db`` first. It admits the writer for
+      this session, and the ownership recheck under the map row lock does
+      nothing for a writer that wasn't admitted;
+    - bind the request credential to ``db`` when there is one. The map_author
+      key refusal and the audit's key id read it from the session, so a
+      session without one is not held to a key's scope;
+    - shape the returned layer rows for the reader (``_visible_map_response``)
+      before they reach a client. They include layers ``user`` can't read;
+    - commit.
+
+    With ``record_history=False`` nothing keeps the previous and new values:
+    the audit event records only the changed field names. Keep history on
+    for a change of visibility.
     """
     map_id = map_obj.id
     await _check_map_update(db, map_obj, body, user)
