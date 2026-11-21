@@ -1,10 +1,12 @@
-import { render, screen } from '@/test/test-utils';
+import { render, screen, within } from '@/test/test-utils';
 import { OverviewTab } from '../tabs/OverviewTab';
 import type { DatasetResponse } from '@/types/api';
 import { buildDatasetEditCapabilities } from '@/components/dataset/hooks/use-dataset-edit-capabilities';
 
+const mockUseDataset = vi.fn((id: string): { data?: { title: string } } => ({ data: { title: `Title of ${id}` } }));
 vi.mock('@/components/dataset/hooks/use-dataset', () => ({
   useDatasetVersions: () => ({ data: { versions: [] }, isLoading: false }),
+  useDataset: (id: string) => mockUseDataset(id),
 }));
 vi.mock('@/components/dataset/hooks/use-records', () => ({
   useKeywords: () => ({ data: { keywords: [] }, isLoading: false }),
@@ -174,5 +176,51 @@ describe('OverviewTab Table Name row', () => {
     renderOverview(makeDataset({ record_type: 'tiles3d_dataset', table_name: 'tiles3d_a1b2c3' }));
 
     expect(screen.queryByText('tiles3d_a1b2c3')).not.toBeInTheDocument();
+  });
+});
+
+describe('OverviewTab derived-from row', () => {
+  const derived = (operation: string, params: Record<string, unknown> = {}) =>
+    makeDataset({
+      derived_from: { dataset_id: 'src-1', operation, params, created_at: '2026-01-01T00:00:00Z' },
+    } as Partial<DatasetResponse>);
+
+  it('links the source title and names the operation', () => {
+    renderOverview(derived('buffer', { distance: 5 }));
+    const row = screen.getByTestId('dataset-derived-from');
+    expect(screen.getByText('Derived from')).toBeInTheDocument();
+    expect(within(row).getByRole('link', { name: 'Title of src-1' })).toHaveAttribute('href', '/datasets/src-1');
+    expect(row).toHaveTextContent('Buffer');
+    // The organization row keeps its own label.
+    expect(screen.getByText('Source')).toBeInTheDocument();
+  });
+
+  it('links a second input beside the operation', () => {
+    renderOverview(derived('spatial_join', { join_dataset_id: 'join-1' }));
+    const row = screen.getByTestId('dataset-derived-from');
+    expect(row).toHaveTextContent('Spatial join with Title of join-1');
+    expect(within(row).getByRole('link', { name: 'Title of join-1' })).toHaveAttribute('href', '/datasets/join-1');
+    expect(within(row).getAllByRole('link')).toHaveLength(2);
+  });
+
+  it('reads a clip mask as the second input and falls back for an unknown operation', () => {
+    renderOverview(derived('warp_drive', { mask_dataset_id: 'mask-1' }));
+    const row = screen.getByTestId('dataset-derived-from');
+    expect(row).toHaveTextContent('Analysis with Title of mask-1');
+  });
+
+  it('shows a neutral name, never an id, while a title is unavailable', () => {
+    mockUseDataset.mockImplementation(() => ({}));
+    renderOverview(derived('buffer'));
+    const row = screen.getByTestId('dataset-derived-from');
+    expect(row).toHaveTextContent('another dataset');
+    expect(row).not.toHaveTextContent('src-1');
+    expect(within(row).queryByRole('link')).not.toBeInTheDocument();
+    mockUseDataset.mockImplementation((id: string) => ({ data: { title: `Title of ${id}` } }));
+  });
+
+  it('adds no row for a dataset that was not derived', () => {
+    renderOverview(makeDataset({ derived_from: null } as Partial<DatasetResponse>));
+    expect(screen.queryByTestId('dataset-derived-from')).not.toBeInTheDocument();
   });
 });

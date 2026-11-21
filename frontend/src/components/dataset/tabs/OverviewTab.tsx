@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { Link } from 'react-router';
 import { toast } from 'sonner';
 import type { DatasetResponse } from '@/types/api';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,7 +22,7 @@ import { DatasetCollectionBadges } from '@/components/collections/DatasetCollect
 import { AiAssistButton, AiDraftPreview } from '@/components/dataset/AiAssistButton';
 import { useAIAvailability } from '@/hooks/use-ai-availability';
 import { useSummaryDraft } from '@/hooks/use-ai-metadata';
-import { useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
+import { useDataset, useDatasetVersions } from '@/components/dataset/hooks/use-dataset';
 import { useKeywords } from '@/components/dataset/hooks/use-records';
 import { useVrtGenerations } from '@/components/import/hooks/use-vrt';
 import { useAuthStore } from '@/stores/auth-store';
@@ -40,6 +41,57 @@ import { vrtRasterStatusColors } from '@/lib/status-colors';
 import { recordTypeCapabilities } from '@/lib/record-types';
 
 /** Compact key-value row for sidebar cards — grid layout matching design */
+// Analysis operations the backend writes; each has a label in the builder's analysis tools.
+const OPERATION_LABEL_KEYS: Record<string, string> = {
+  buffer: 'opBuffer',
+  centroid: 'opCentroid',
+  clip: 'opClip',
+  dissolve: 'opDissolve',
+  spatial_join: 'opSpatialJoin',
+  measure: 'opMeasure',
+  select_by_location: 'opSelectByLocation',
+  intersect: 'opIntersect',
+};
+
+function DatasetLink({ id }: { id: string }) {
+  const { t } = useTranslation('dataset');
+  const { data } = useDataset(id);
+  const title = data?.title?.trim();
+  return title ? (
+    <Link to={`/datasets/${id}`} className="font-medium text-primary underline-offset-2 hover:underline">
+      {title}
+    </Link>
+  ) : (
+    <span className="font-medium">{t('overview.derivedUnknownDataset')}</span>
+  );
+}
+
+function DerivedFromRow({ derivedFrom }: { derivedFrom: NonNullable<DatasetResponse['derived_from']> }) {
+  const { t } = useTranslation('dataset');
+  const params = derivedFrom.params as Record<string, unknown> | null | undefined;
+  const second = [params?.join_dataset_id, params?.mask_dataset_id].find(
+    (value): value is string => typeof value === 'string' && value.length > 0,
+  );
+  const labelKey = OPERATION_LABEL_KEYS[derivedFrom.operation];
+  const operation = labelKey ? t(`builder:analysisTools.${labelKey}`) : t('overview.derivedOperationUnknown');
+  return (
+    <SideKV label={t('overview.derivedFrom')}>
+      <span className="min-w-0 break-words" data-testid="dataset-derived-from">
+        <DatasetLink id={derivedFrom.dataset_id} />
+        <span className="block text-muted-foreground">
+          {operation}
+          {second && (
+            <>
+              {' '}
+              {t('overview.derivedWith')} <DatasetLink id={second} />
+            </>
+          )}
+        </span>
+      </span>
+    </SideKV>
+  );
+}
+
 function SideKV({ label, value, mono, title, wrap, children }: {
   label: string;
   value?: string;
@@ -218,6 +270,7 @@ export function OverviewTab({
             {dataset.license && (
               <SideKV label={t('metadata.license', { defaultValue: 'License' })} value={dataset.license} wrap />
             )}
+            {dataset.derived_from && <DerivedFromRow derivedFrom={dataset.derived_from} />}
             {dataset.source_organization && (
               <SideKV label={t('overview.source', { defaultValue: 'Source' })} value={dataset.source_organization} wrap />
             )}

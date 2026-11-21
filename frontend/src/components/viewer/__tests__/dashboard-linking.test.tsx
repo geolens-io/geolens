@@ -221,7 +221,7 @@ describe('dashboard linking', () => {
     expect(await within(widget).findByText('1,234')).toBeInTheDocument();
     expect(fetchMock.mock.calls.every(([, body]) => !('bbox' in body))).toBe(true);
     expect(screen.getByText(/this dashboard hides its map/)).toBeInTheDocument();
-    expect(within(widget).queryByText('Follows the map view')).not.toBeInTheDocument();
+    expect(within(widget).queryByText('Numbers follow the map view')).not.toBeInTheDocument();
   });
 
   it('names a pick\'s column by its attribute title in the chip and the announcement', async () => {
