@@ -77,10 +77,19 @@ test.describe('Map bookmarks', () => {
           const before = await readMapCamera(reader);
           await control.click();
           await reader.getByRole('menuitem', { name: 'Overview' }).click();
+          // The saved area is fitted to this screen, so the center matches the
+          // author's and the zoom follows the size of the reader's map.
           await expect
-            .poll(async () => Math.abs((await readMapCamera(reader)).zoom - first.zoom), { timeout: 10_000 })
-            .toBeLessThan(0.2);
+            .poll(
+              async () => {
+                const now = await readMapCamera(reader);
+                return Math.abs(now.lng - first.lng) + Math.abs(now.lat - first.lat);
+              },
+              { timeout: 10_000 },
+            )
+            .toBeLessThan(0.001);
           const after = await readMapCamera(reader);
+          expect(Math.abs(after.zoom - first.zoom)).toBeLessThan(1);
           expect(Math.abs(after.zoom - before.zoom) + Math.abs(after.lng - before.lng)).toBeGreaterThan(0);
         } finally {
           await reader.context().close();
