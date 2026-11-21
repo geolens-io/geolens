@@ -30,20 +30,18 @@ const README_ASSETS = {
   // shot is cropped to the Source panel.
   'geolens-manhattan-3d-hero.jpg': { width: 1600, height: 900 },
   'geolens-manhattan-3d-hero-dark.jpg': { width: 1600, height: 900 },
-  'geolens-provenance.png': { width: 1600, height: 872 },
-  'geolens-provenance-dark.png': { width: 1600, height: 872 },
+  'geolens-provenance.png': { width: 1600, height: 694 },
+  'geolens-provenance-dark.png': { width: 1600, height: 694 },
   'geolens-qgis.png': { width: 1600, height: 900 },
-  'geolens-ask-ai.png': { width: 1600, height: 900 },
-  'geolens-ask-ai-dark.png': { width: 1600, height: 900 },
   // The "A closer look" grid.
   'geolens-catalog-search.png': { width: 1600, height: 900 },
   'geolens-catalog-search-dark.png': { width: 1600, height: 900 },
-  'geolens-builder-style.png': { width: 1600, height: 900 },
-  'geolens-builder-style-dark.png': { width: 1600, height: 900 },
-  'geolens-matterhorn-terrain.jpg': { width: 1600, height: 900 },
-  'geolens-matterhorn-terrain-dark.jpg': { width: 1600, height: 900 },
-  'geolens-stac-imagery.jpg': { width: 1600, height: 900 },
-  'geolens-stac-imagery-dark.jpg': { width: 1600, height: 900 },
+  'geolens-arcgis-webmap.jpg': { width: 1600, height: 900 },
+  'geolens-arcgis-webmap-dark.jpg': { width: 1600, height: 900 },
+  'geolens-story.jpg': { width: 1600, height: 900 },
+  'geolens-story-dark.jpg': { width: 1600, height: 900 },
+  'geolens-dashboard.png': { width: 1600, height: 900 },
+  'geolens-dashboard-dark.png': { width: 1600, height: 900 },
 };
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif']);

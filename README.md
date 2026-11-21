@@ -77,26 +77,26 @@ verifying the script, building from source and running in production.
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
-<img src=".github/assets/geolens-builder-style.png" alt="The map builder with the Restless Earth map on a globe: an earthquake heatmap along the Pacific plate boundaries, the grouped layer list and the heatmap style panel with its color ramps" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-arcgis-webmap-dark.jpg">
+<img src=".github/assets/geolens-arcgis-webmap.jpg" alt="The map builder with a map of Cambridge street trees imported from an ArcGIS Online web map: trees colored by site type, neighborhood outlines and names, the layer list and a legend" width="100%">
 </picture>
-<br><sub>Layers render as points, symbols, heatmaps or clusters, and the ramp list can be limited to colorblind-safe ones.</sub>
+<br><sub>An ArcGIS Online web map imported into GeoLens. Its colors, popups, outlines and zoom ranges carried over.</sub>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="The GeoLens map builder rendering the Matterhorn as 3D terrain from swissALTI3D lidar, with labeled peaks, climbing routes, the layer list and a legend" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-story-dark.jpg">
+<img src=".github/assets/geolens-story.jpg" alt="A published story, Where the Atlantic's Major Hurricanes Go: a chapter with a cover photo and text beside a globe of storm tracks colored by Saffir-Simpson category, with the legend" width="100%">
 </picture>
-<br><sub>3D terrain from your own elevation data, here the Matterhorn from swissALTI3D lidar.</sub>
+<br><sub>A story walks readers through a map chapter by chapter.</sub>
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
-<img src=".github/assets/geolens-stac-imagery.jpg" alt="The map builder showing four dated Sentinel-2 true-color scenes over New York City and northern New Jersey, referenced from the Earth Search STAC catalog, with the layer list and legend" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.png">
+<img src=".github/assets/geolens-dashboard.png" alt="A dashboard of Cambridge parcels: indicators for parcel counts and land area, two pie charts of parcels by zoning district, and notes on the floodplain and the data's sources" width="100%">
 </picture>
-<br><sub>Sentinel-2 scenes referenced from a STAC catalog. The imagery stays where it is and is tiled on request.</sub>
+<br><sub>A dashboard sums up a map's data in indicators, charts and notes. This one hides its map.</sub>
 </td>
 </tr>
 </table>
@@ -228,15 +228,6 @@ create and style maps. The [API reference](https://docs.getgeolens.com/guides/ap
 MapLibre, Leaflet, OpenLayers, the ArcGIS Maps SDK, QGIS and DuckDB.
 
 ## Optional AI
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-ask-ai-dark.png">
-    <img src=".github/assets/geolens-ask-ai.png" alt="The Ask AI panel on the Major Hurricane Tracks dataset answering 'How many of these hurricanes made landfall?' with 119 of 202, a two-row count table, a note on how it read the landfall column, and an Open in builder button" width="100%">
-  </picture>
-  <br>
-  <sub>"How many of these hurricanes made landfall?" returns the count, a table and the assumption the answer rests on.</sub>
-</p>
 
 GeoLens can answer questions about a dataset, edit maps from plain-language requests, draft
 metadata and search in natural language. It works with any OpenAI-compatible endpoint, including
