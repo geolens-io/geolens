@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import { bookmarkFromMap, extentOfView, goToBookmark } from '../bookmarks';
+import { bookmarkFromMap, extentOfView, goToBookmark, sameBookmarks } from '../bookmarks';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -70,14 +70,40 @@ describe('bookmarkFromMap', () => {
   });
 });
 
+describe('sameBookmarks', () => {
+  it('reads a list the builder made and the same list from the server as equal', () => {
+    const made = [{ name: ' Cafe\u0301 ', extent: [1, 2, 3, 4] }];
+    const stored = [{ name: 'Caf\u00e9', extent: [1, 2, 3, 4], bearing: null, pitch: null }];
+    expect(sameBookmarks(made, stored)).toBe(true);
+  });
+
+  it('tells apart a name, an area, a rotation, a tilt and an order', () => {
+    const one = { name: 'a', extent: [1, 2, 3, 4] };
+    expect(sameBookmarks([one], [{ ...one, name: 'b' }])).toBe(false);
+    expect(sameBookmarks([one], [{ ...one, extent: [1, 2, 3, 5] }])).toBe(false);
+    expect(sameBookmarks([one], [{ ...one, bearing: 10 }])).toBe(false);
+    expect(sameBookmarks([one], [{ ...one, pitch: 10 }])).toBe(false);
+    const two = { name: 'b', extent: [1, 2, 3, 4] };
+    expect(sameBookmarks([one, two], [two, one])).toBe(false);
+  });
+});
+
 describe('goToBookmark', () => {
   it('fits the extent with a bearing and pitch of 0 by default', () => {
     const map = stubMap({ bearing: 0, pitch: 0 });
     goToBookmark(map, { name: 'a', extent: [1, 2, 3, 4] });
     expect(map.fitBounds).toHaveBeenCalledWith(
       [[1, 2], [3, 4]],
-      expect.objectContaining({ bearing: 0, pitch: 0, padding: 0, maxZoom: 18, duration: 800 }),
+      expect.objectContaining({ bearing: 0, pitch: 0, padding: 0, duration: 800 }),
     );
+  });
+
+  it('leaves the zoom to the area, and caps it only for an area with no size', () => {
+    const map = stubMap({ bearing: 0, pitch: 0 });
+    goToBookmark(map, { name: 'a', extent: [1, 2, 1.0001, 2.0001] });
+    expect(map.fitBounds.mock.calls[0][1]).not.toHaveProperty('maxZoom');
+    goToBookmark(map, { name: 'point', extent: [1, 2, 1, 2] });
+    expect(map.fitBounds.mock.calls[1][1]).toMatchObject({ maxZoom: 16 });
   });
 
   it('passes a stored bearing and pitch', () => {

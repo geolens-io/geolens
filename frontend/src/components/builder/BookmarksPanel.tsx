@@ -130,16 +130,28 @@ interface BookmarkRowProps {
 function BookmarkRow({ bookmark, index, count, map, onRename, onMove, onRemove, ref }: BookmarkRowProps) {
   const { t } = useTranslation('builder');
   const [draft, setDraft] = useState(bookmark.name);
-  useEffect(() => setDraft(bookmark.name), [bookmark.name]);
+  const nameAtFocus = useRef(bookmark.name);
+  // A name that changed outside the field (a move, a save's reply) replaces
+  // the draft; the field's own typing already matches it.
+  useEffect(() => {
+    setDraft((current) => (current.trim() === bookmark.name ? current : bookmark.name));
+  }, [bookmark.name]);
 
-  const commit = () => {
-    const name = draft.trim();
-    if (!name) {
+  // Each keystroke reaches the list, so a save made from the keyboard while
+  // the field has focus carries the name on screen.
+  const type = (value: string) => {
+    setDraft(value);
+    const name = value.trim();
+    if (name && name !== bookmark.name) onRename(index, name);
+  };
+
+  const settle = () => {
+    if (draft.trim()) {
       setDraft(bookmark.name);
       return;
     }
-    if (name !== bookmark.name) onRename(index, name);
-    else setDraft(name);
+    setDraft(nameAtFocus.current);
+    if (nameAtFocus.current !== bookmark.name) onRename(index, nameAtFocus.current);
   };
 
   const name = bookmark.name;
@@ -149,11 +161,11 @@ function BookmarkRow({ bookmark, index, count, map, onRename, onMove, onRemove, 
         value={draft}
         maxLength={MAX_BOOKMARK_NAME}
         aria-label={t('bookmarks.nameLabel', { number: index + 1 })}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={commit}
-        onKeyDown={(e) => {
-          if (e.key === 'Enter') commit();
+        onFocus={() => {
+          nameAtFocus.current = bookmark.name;
         }}
+        onChange={(e) => type(e.target.value)}
+        onBlur={settle}
       />
       <div className="flex items-center justify-end gap-1">
         <Button

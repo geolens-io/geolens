@@ -1,5 +1,6 @@
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import type { MapBookmark } from '@/types/api';
+import { deepEqual } from '@/lib/deep-equal';
 import { motionDuration } from '@/lib/reduced-motion';
 
 export const MAX_BOOKMARKS = 100;
@@ -66,6 +67,22 @@ export function extentOfView({ center, zoom, width, height, bearing = 0 }: Exten
   return [west, south, east, north];
 }
 
+/**
+ * Whether two lists hold the same bookmarks. The server trims and NFC-normalizes
+ * a name and answers an unset bearing or pitch as null, so a list as the
+ * builder made it and the same list read back are compared in that form.
+ */
+export function sameBookmarks(a: readonly MapBookmark[], b: readonly MapBookmark[]): boolean {
+  const stored = (list: readonly MapBookmark[]) =>
+    list.map((item) => ({
+      name: item.name.trim().normalize('NFC'),
+      extent: item.extent,
+      bearing: item.bearing ?? null,
+      pitch: item.pitch ?? null,
+    }));
+  return deepEqual(stored(a), stored(b));
+}
+
 export function bookmarkFromMap(map: MaplibreMap, name: string): MapBookmark {
   const container = map.getContainer();
   const bearing = round6(map.getBearing());
@@ -95,7 +112,8 @@ export function goToBookmark(map: MaplibreMap, bookmark: MapBookmark): void {
       bearing: bookmark.bearing ?? 0,
       pitch: bookmark.pitch ?? 0,
       padding: 0,
-      maxZoom: 18,
+      // An area with no width or height would otherwise fit at the map's deepest zoom.
+      ...(west === east || south === north ? { maxZoom: 16 } : {}),
       duration: motionDuration(800),
     },
   );

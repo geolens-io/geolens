@@ -48,19 +48,19 @@ vi.mock('react-router', async () => {
   return { ...actual, useBlocker: () => mockBlocker };
 });
 
-function useCombinedBuilder(mapData: MapResponse) {
+function useCombinedBuilder(mapData: MapResponse, mapId = 'map-1') {
   const mapInstanceRef = useRef<MaplibreMap | null>(null);
   const saveBaselineSyncRef = useRef<SaveBaselineSync>({ add: () => {}, remove: () => {} });
   const layers = useBuilderLayers(
     mapData,
     mapInstanceRef,
-    'map-1',
+    mapId,
     { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[3],
     { mutate: vi.fn() } as unknown as Parameters<typeof useBuilderLayers>[4],
     saveBaselineSyncRef,
   );
   const save = useBuilderSave({
-    mapId: 'map-1',
+    mapId,
     localLayers: layers.localLayers,
     groupMeta: layers.groupMeta,
     localBasemap: layers.localBasemap,
@@ -140,6 +140,49 @@ describe('Builder bookmarks', () => {
     rerender({ mapData: mapWith([b, a]) });
     expect(result.current.bookmarksEdited).toBe(false);
     expect(result.current.bookmarks).toEqual([b, a]);
+  });
+
+  it('takes a saved list for its own edit though the server answers unset rotation and tilt as null', async () => {
+    const asStored = (list: MapBookmark[]) => list.map((item) => ({ bearing: null, pitch: null, ...item }));
+    const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), { initialProps: { mapData: mapWith([]) } });
+    act(() => result.current.handleBookmarksChange([a]));
+    mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1' });
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    rerender({ mapData: mapWith(asStored([a])) });
+    expect(result.current.bookmarksEdited).toBe(false);
+
+    // Another editor's bookmark shows, and a later save doesn't send the old list over it.
+    rerender({ mapData: mapWith(asStored([a, b])) });
+    expect(result.current.bookmarks.map((item) => item.name)).toEqual(['A', 'B']);
+    act(() => result.current.handlePaintChange(result.current.localLayers[0].id, { 'fill-color': '#654321' }));
+    mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1' });
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    expect(mockUpdateMapMutateAsync.mock.lastCall![0].data).not.toHaveProperty('bookmarks');
+  });
+
+  it('drops an edit that was put back, so a later change from elsewhere shows', () => {
+    const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), { initialProps: { mapData: mapWith([a]) } });
+    act(() => result.current.handleBookmarksChange([{ ...a, name: 'Renamed' }]));
+    act(() => result.current.handleBookmarksChange([{ ...a }]));
+    rerender({ mapData: mapWith([a, b]) });
+    expect(result.current.bookmarks).toEqual([a, b]);
+    expect(result.current.bookmarksEdited).toBe(false);
+  });
+
+  it('drops an unsaved edit when the builder shows another map', () => {
+    const { result, rerender } = renderHook(({ mapData, mapId }) => useCombinedBuilder(mapData, mapId), {
+      initialProps: { mapData: mapWith([a]), mapId: 'map-1' },
+    });
+    act(() => result.current.handleBookmarksChange([a, b]));
+    rerender({ mapData: { ...mapWith([]), id: 'map-2' } as MapResponse, mapId: 'map-2' });
+    expect(result.current.bookmarks).toEqual([]);
+    rerender({ mapData: mapWith([a]), mapId: 'map-1' });
+    expect(result.current.bookmarks).toEqual([a]);
+    expect(result.current.bookmarksEdited).toBe(false);
   });
 
   it('sends an emptied list so the server clears it', async () => {

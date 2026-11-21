@@ -21,6 +21,7 @@ import {
   type BuilderCamera,
 } from '@/components/builder/builder-camera';
 import { deepEqual } from '@/lib/deep-equal';
+import { sameBookmarks } from '@/lib/bookmarks';
 import type { MapBasemapConfig, MapBookmark, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
@@ -185,16 +186,20 @@ export function useBuilderLayers(
   );
   const { dashboard, savedDashboard, setDashboard, beginSave: beginDashboardSave, dashboardEdited } =
     useDashboardDraft(mapData?.dashboard_config, mapId, mapData?.layers, localLayers, warnDashboardChanged);
-  // Unsaved bookmark edits over the saved list. A saved list that already
-  // equals the edit (after a save's refetch, or an edit put back) is no edit.
+  // Unsaved bookmark edits over the saved list. An edit is dropped once the
+  // saved list holds it (a save's refetch), when it is put back as saved, and
+  // on another map, so a list that is no longer an edit can't hide or
+  // overwrite what someone else saves later.
   const savedBookmarks = useMemo(() => mapData?.bookmarks ?? [], [mapData?.bookmarks]);
   const [bookmarkEdit, setBookmarkEdit] = useState<{ mapId?: string; list: MapBookmark[] } | null>(null);
   const editedBookmarks = bookmarkEdit && bookmarkEdit.mapId === mapId ? bookmarkEdit.list : null;
   useEffect(() => {
-    setBookmarkEdit((edit) => (edit && deepEqual(edit.list, savedBookmarks) ? null : edit));
-  }, [savedBookmarks]);
+    setBookmarkEdit((edit) =>
+      edit && (edit.mapId !== mapId || sameBookmarks(edit.list, savedBookmarks)) ? null : edit,
+    );
+  }, [savedBookmarks, mapId]);
   const bookmarks = editedBookmarks ?? savedBookmarks;
-  const bookmarksEdited = editedBookmarks !== null && !deepEqual(editedBookmarks, savedBookmarks);
+  const bookmarksEdited = editedBookmarks !== null && !sameBookmarks(editedBookmarks, savedBookmarks);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
@@ -1096,10 +1101,10 @@ export function useBuilderLayers(
   }, [setDashboard, requestCleanRecheck]);
 
   const handleBookmarksChange = useCallback((next: MapBookmark[]) => {
-    setBookmarkEdit({ mapId, list: next });
+    setBookmarkEdit(sameBookmarks(next, savedBookmarks) ? null : { mapId, list: next });
     setHasUnsavedChanges(true);
     requestCleanRecheck();
-  }, [mapId, requestCleanRecheck]);
+  }, [mapId, savedBookmarks, requestCleanRecheck]);
 
   // A visibility toggle is the only edit a user routinely undoes by repeating
   // it, so each one asks whether the map is back to the saved state.

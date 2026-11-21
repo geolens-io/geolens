@@ -57,14 +57,16 @@ test.describe('Map bookmarks', () => {
       await page.keyboard.press('Enter');
       await expect(page.getByLabel('Name of bookmark 1')).toHaveValue('Bookmark 2');
 
+      // Saved from the keyboard while a name is still being typed.
+      await page.getByLabel('Name of bookmark 1').fill('Close up');
       const saved = page.waitForResponse((response) => isMapUpdateResponse(response, mapId));
-      await page.getByRole('button', { name: /save/i }).first().click();
+      await page.keyboard.press('ControlOrMeta+s');
       expect((await saved).status()).toBe(200);
 
       await page.reload();
       await waitForBuilder(page);
       await page.locator('[data-rail-button="bookmarks"]').click();
-      await expect(page.getByLabel('Name of bookmark 1')).toHaveValue('Bookmark 2');
+      await expect(page.getByLabel('Name of bookmark 1')).toHaveValue('Close up');
       await expect(page.getByLabel('Name of bookmark 2')).toHaveValue('Overview');
 
       for (const path of [`/maps/${mapId}`, `/m/${shareToken}`, `/m/${shareToken}?embed=true`]) {

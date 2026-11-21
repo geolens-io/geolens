@@ -67,7 +67,29 @@ describe('BookmarksPanel', () => {
     expect(add).toHaveAccessibleDescription(/up to 100/);
   });
 
-  it('renames on blur and puts the old name back for a blank one', async () => {
+  it('passes a name on as it is typed, so a save from the keyboard carries it', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness initial={[bm('Alpha')]} map={stubMap()} onChange={onChange} />);
+    const input = screen.getByLabelText('Name of bookmark 1');
+    await user.type(input, 'bet');
+    expect(input).toHaveFocus();
+    expect(onChange.mock.lastCall![0][0].name).toBe('Alphabet');
+  });
+
+  it('puts back the name the field had when a name typed down to nothing is left blank', async () => {
+    const user = userEvent.setup();
+    const onChange = vi.fn();
+    render(<Harness initial={[bm('Abc')]} map={stubMap()} onChange={onChange} />);
+    const input = screen.getByLabelText('Name of bookmark 1');
+    await user.type(input, '{Backspace}{Backspace}{Backspace}');
+    expect(onChange.mock.lastCall![0][0].name).toBe('A');
+    await user.tab();
+    expect(onChange.mock.lastCall![0][0].name).toBe('Abc');
+    expect(screen.getByLabelText('Name of bookmark 1')).toHaveValue('Abc');
+  });
+
+  it('renames, trims on blur and puts the old name back for a blank one', async () => {
     const user = userEvent.setup();
     const onChange = vi.fn();
     render(<Harness initial={[bm('Alpha')]} map={stubMap()} onChange={onChange} />);
