@@ -7579,6 +7579,11 @@ export interface components {
              * @description Initial rotation in degrees.
              */
             bearing: number | null;
+            /**
+             * Bookmarks
+             * @description The bookmarks the map gets.
+             */
+            bookmarks?: components["schemas"]["MapBookmark"][];
         };
         /** ArcgisUnmatchedLayer */
         ArcgisUnmatchedLayer: {
@@ -11017,6 +11022,8 @@ export interface components {
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
             dashboard_config?: components["schemas"]["DashboardConfig"] | null;
+            /** Bookmarks */
+            bookmarks?: components["schemas"]["MapBookmark"][];
             visibility: components["schemas"]["MapVisibility"];
             /** Thumbnail Url */
             thumbnail_url?: string | null;
@@ -12845,6 +12852,29 @@ export interface components {
              */
             can_edit: boolean;
         };
+        /** MapBookmark */
+        MapBookmark: {
+            /**
+             * Name
+             * @description Bookmark name
+             */
+            name: string;
+            /**
+             * Extent
+             * @description [west, south, east, north] in EPSG:4326. A west greater than east means the area crosses the antimeridian.
+             */
+            extent: number[];
+            /**
+             * Bearing
+             * @description Map rotation in degrees
+             */
+            bearing?: number | null;
+            /**
+             * Pitch
+             * @description Map tilt in degrees (0-85)
+             */
+            pitch?: number | null;
+        };
         /** MapCreate */
         MapCreate: {
             /**
@@ -12868,6 +12898,11 @@ export interface components {
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
             /** @description Curated map-level basemap appearance preferences */
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
+            /**
+             * Bookmarks
+             * @description Named areas, in display order (max 100)
+             */
+            bookmarks?: components["schemas"]["MapBookmark"][] | null;
         };
         /** MapDefaultsResponse */
         MapDefaultsResponse: {
@@ -13359,6 +13394,8 @@ export interface components {
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
             dashboard_config?: components["schemas"]["DashboardConfig"] | null;
+            /** Bookmarks */
+            bookmarks?: components["schemas"]["MapBookmark"][];
             visibility: components["schemas"]["MapVisibility"];
             /** Thumbnail Url */
             thumbnail_url?: string | null;
@@ -13641,6 +13678,11 @@ export interface components {
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
             /** @description The dashboard. Omit to keep it; null removes the widgets you see. */
             dashboard_config?: components["schemas"]["DashboardConfigInput"] | null;
+            /**
+             * Bookmarks
+             * @description Named areas, in display order (max 100). Omit to keep them; null or an empty list removes them.
+             */
+            bookmarks?: components["schemas"]["MapBookmark"][] | null;
             /** @description private, internal, public or restricted. A map shared with groups is restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one group. */
             visibility?: components["schemas"]["MapVisibility"] | null;
             /**
@@ -16382,6 +16424,8 @@ export interface components {
             basemap_config?: components["schemas"]["BasemapConfig"] | null;
             terrain_config?: components["schemas"]["TerrainConfig"] | null;
             dashboard_config?: components["schemas"]["DashboardConfig"] | null;
+            /** Bookmarks */
+            bookmarks?: components["schemas"]["MapBookmark"][];
             /**
              * Has Non Public Layers
              * @default false

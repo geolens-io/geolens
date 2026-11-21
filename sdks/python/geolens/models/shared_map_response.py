@@ -13,6 +13,7 @@ from typing import cast
 if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
     from ..models.dashboard_config import DashboardConfig
+    from ..models.map_bookmark import MapBookmark
     from ..models.reader_theme import ReaderTheme
     from ..models.shared_layer_response import SharedLayerResponse
     from ..models.terrain_config import TerrainConfig
@@ -42,6 +43,7 @@ class SharedMapResponse:
         basemap_config (BasemapConfig | None | Unset):
         terrain_config (None | TerrainConfig | Unset):
         dashboard_config (DashboardConfig | None | Unset):
+        bookmarks (list[MapBookmark] | Unset):
         has_non_public_layers (bool | Unset):  Default: False.
         legend_title (None | str | Unset):
         reader_theme (None | ReaderTheme | Unset): The theme a branding extension sets for the viewer and its dashboard;
@@ -63,6 +65,7 @@ class SharedMapResponse:
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
     dashboard_config: DashboardConfig | None | Unset = UNSET
+    bookmarks: list[MapBookmark] | Unset = UNSET
     has_non_public_layers: bool | Unset = False
     legend_title: None | str | Unset = UNSET
     reader_theme: None | ReaderTheme | Unset = UNSET
@@ -126,6 +129,13 @@ class SharedMapResponse:
         else:
             dashboard_config = self.dashboard_config
 
+        bookmarks: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.bookmarks, Unset):
+            bookmarks = []
+            for bookmarks_item_data in self.bookmarks:
+                bookmarks_item = bookmarks_item_data.to_dict()
+                bookmarks.append(bookmarks_item)
+
         has_non_public_layers = self.has_non_public_layers
 
         legend_title: None | str | Unset
@@ -168,6 +178,8 @@ class SharedMapResponse:
             field_dict["terrain_config"] = terrain_config
         if dashboard_config is not UNSET:
             field_dict["dashboard_config"] = dashboard_config
+        if bookmarks is not UNSET:
+            field_dict["bookmarks"] = bookmarks
         if has_non_public_layers is not UNSET:
             field_dict["has_non_public_layers"] = has_non_public_layers
         if legend_title is not UNSET:
@@ -181,6 +193,7 @@ class SharedMapResponse:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.basemap_config import BasemapConfig
         from ..models.dashboard_config import DashboardConfig
+        from ..models.map_bookmark import MapBookmark
         from ..models.reader_theme import ReaderTheme
         from ..models.shared_layer_response import SharedLayerResponse
         from ..models.terrain_config import TerrainConfig
@@ -271,6 +284,15 @@ class SharedMapResponse:
 
         dashboard_config = _parse_dashboard_config(d.pop("dashboard_config", UNSET))
 
+        _bookmarks = d.pop("bookmarks", UNSET)
+        bookmarks: list[MapBookmark] | Unset = UNSET
+        if _bookmarks is not UNSET:
+            bookmarks = []
+            for bookmarks_item_data in _bookmarks:
+                bookmarks_item = MapBookmark.from_dict(bookmarks_item_data)
+
+                bookmarks.append(bookmarks_item)
+
         has_non_public_layers = d.pop("has_non_public_layers", UNSET)
 
         def _parse_legend_title(data: object) -> None | str | Unset:
@@ -315,6 +337,7 @@ class SharedMapResponse:
             basemap_config=basemap_config,
             terrain_config=terrain_config,
             dashboard_config=dashboard_config,
+            bookmarks=bookmarks,
             has_non_public_layers=has_non_public_layers,
             legend_title=legend_title,
             reader_theme=reader_theme,

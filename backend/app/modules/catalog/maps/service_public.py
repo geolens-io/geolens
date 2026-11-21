@@ -757,6 +757,7 @@ async def get_shared_map(
             "show_attribute_table": map_obj.show_attribute_table,
             "basemap_config": map_obj.basemap_config,
             "terrain_config": terrain_config,
+            "bookmarks": map_obj.bookmarks or [],
             "has_non_public_layers": False,
             "legend_title": map_obj.legend_title,
         }
@@ -850,6 +851,7 @@ async def get_shared_map(
         "dashboard_config": render_dashboard(
             map_row.dashboard_config, [layer["id"] for layer in layers]
         ),
+        "bookmarks": map_row.bookmarks or [],
         "has_non_public_layers": has_non_public,
         "legend_title": map_row.legend_title,
     }

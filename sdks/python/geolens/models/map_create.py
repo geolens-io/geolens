@@ -12,6 +12,7 @@ from typing import cast
 
 if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
+    from ..models.map_bookmark import MapBookmark
     from ..models.terrain_config import TerrainConfig
 
 
@@ -28,6 +29,7 @@ class MapCreate:
         notes (None | str | Unset): Private notes (not shown publicly)
         terrain_config (None | TerrainConfig | Unset): Map-level terrain source and exaggeration preferences
         basemap_config (BasemapConfig | None | Unset): Curated map-level basemap appearance preferences
+        bookmarks (list[MapBookmark] | None | Unset): Named areas, in display order (max 100)
     """
 
     name: str
@@ -35,6 +37,7 @@ class MapCreate:
     notes: None | str | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
     basemap_config: BasemapConfig | None | Unset = UNSET
+    bookmarks: list[MapBookmark] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -71,6 +74,18 @@ class MapCreate:
         else:
             basemap_config = self.basemap_config
 
+        bookmarks: list[dict[str, Any]] | None | Unset
+        if isinstance(self.bookmarks, Unset):
+            bookmarks = UNSET
+        elif isinstance(self.bookmarks, list):
+            bookmarks = []
+            for bookmarks_type_0_item_data in self.bookmarks:
+                bookmarks_type_0_item = bookmarks_type_0_item_data.to_dict()
+                bookmarks.append(bookmarks_type_0_item)
+
+        else:
+            bookmarks = self.bookmarks
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -86,12 +101,15 @@ class MapCreate:
             field_dict["terrain_config"] = terrain_config
         if basemap_config is not UNSET:
             field_dict["basemap_config"] = basemap_config
+        if bookmarks is not UNSET:
+            field_dict["bookmarks"] = bookmarks
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.basemap_config import BasemapConfig
+        from ..models.map_bookmark import MapBookmark
         from ..models.terrain_config import TerrainConfig
 
         d = dict(src_dict)
@@ -149,12 +167,37 @@ class MapCreate:
 
         basemap_config = _parse_basemap_config(d.pop("basemap_config", UNSET))
 
+        def _parse_bookmarks(data: object) -> list[MapBookmark] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                bookmarks_type_0 = []
+                _bookmarks_type_0 = data
+                for bookmarks_type_0_item_data in _bookmarks_type_0:
+                    bookmarks_type_0_item = MapBookmark.from_dict(
+                        bookmarks_type_0_item_data
+                    )
+
+                    bookmarks_type_0.append(bookmarks_type_0_item)
+
+                return bookmarks_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[MapBookmark] | None | Unset, data)
+
+        bookmarks = _parse_bookmarks(d.pop("bookmarks", UNSET))
+
         map_create = cls(
             name=name,
             description=description,
             notes=notes,
             terrain_config=terrain_config,
             basemap_config=basemap_config,
+            bookmarks=bookmarks,
         )
 
         map_create.additional_properties = d

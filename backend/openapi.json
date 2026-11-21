@@ -1956,6 +1956,14 @@
             ],
             "description": "Initial rotation in degrees.",
             "title": "Bearing"
+          },
+          "bookmarks": {
+            "description": "The bookmarks the map gets.",
+            "items": {
+              "$ref": "#/components/schemas/MapBookmark"
+            },
+            "title": "Bookmarks",
+            "type": "array"
           }
         },
         "required": [
@@ -9913,6 +9921,13 @@
               }
             ]
           },
+          "bookmarks": {
+            "items": {
+              "$ref": "#/components/schemas/MapBookmark"
+            },
+            "title": "Bookmarks",
+            "type": "array"
+          },
           "visibility": {
             "$ref": "#/components/schemas/MapVisibility"
           },
@@ -14057,6 +14072,62 @@
         "title": "MapAccessResponse",
         "type": "object"
       },
+      "MapBookmark": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Bookmark name",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "extent": {
+            "description": "[west, south, east, north] in EPSG:4326. A west greater than east means the area crosses the antimeridian.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "title": "Extent",
+            "type": "array"
+          },
+          "bearing": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map rotation in degrees",
+            "title": "Bearing"
+          },
+          "pitch": {
+            "anyOf": [
+              {
+                "maximum": 85.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map tilt in degrees (0-85)",
+            "title": "Pitch"
+          }
+        },
+        "required": [
+          "name",
+          "extent"
+        ],
+        "title": "MapBookmark",
+        "type": "object"
+      },
       "MapCreate": {
         "properties": {
           "name": {
@@ -14115,6 +14186,22 @@
               }
             ],
             "description": "Curated map-level basemap appearance preferences"
+          },
+          "bookmarks": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MapBookmark"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Named areas, in display order (max 100)",
+            "title": "Bookmarks"
           }
         },
         "required": [
@@ -15409,6 +15496,13 @@
               }
             ]
           },
+          "bookmarks": {
+            "items": {
+              "$ref": "#/components/schemas/MapBookmark"
+            },
+            "title": "Bookmarks",
+            "type": "array"
+          },
           "visibility": {
             "$ref": "#/components/schemas/MapVisibility"
           },
@@ -16184,6 +16278,22 @@
               }
             ],
             "description": "The dashboard. Omit to keep it; null removes the widgets you see."
+          },
+          "bookmarks": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MapBookmark"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Named areas, in display order (max 100). Omit to keep them; null or an empty list removes them.",
+            "title": "Bookmarks"
           },
           "visibility": {
             "anyOf": [
@@ -22254,6 +22364,13 @@
                 "type": "null"
               }
             ]
+          },
+          "bookmarks": {
+            "items": {
+              "$ref": "#/components/schemas/MapBookmark"
+            },
+            "title": "Bookmarks",
+            "type": "array"
           },
           "has_non_public_layers": {
             "default": false,

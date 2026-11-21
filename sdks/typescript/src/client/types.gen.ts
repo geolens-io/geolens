@@ -1198,6 +1198,12 @@ export type ArcgisTranslatedView = {
      * Initial rotation in degrees.
      */
     bearing: number | null;
+    /**
+     * Bookmarks
+     *
+     * The bookmarks the map gets.
+     */
+    bookmarks?: Array<MapBookmark>;
 };
 
 /**
@@ -5786,6 +5792,10 @@ export type DuplicateMapResponse = {
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
     dashboard_config?: DashboardConfig | null;
+    /**
+     * Bookmarks
+     */
+    bookmarks?: Array<MapBookmark>;
     visibility: MapVisibility;
     /**
      * Thumbnail Url
@@ -8162,6 +8172,41 @@ export type MapAccessResponse = {
 };
 
 /**
+ * MapBookmark
+ */
+export type MapBookmark = {
+    /**
+     * Name
+     *
+     * Bookmark name
+     */
+    name: string;
+    /**
+     * Extent
+     *
+     * [west, south, east, north] in EPSG:4326. A west greater than east means the area crosses the antimeridian.
+     */
+    extent: [
+        number,
+        number,
+        number,
+        number
+    ];
+    /**
+     * Bearing
+     *
+     * Map rotation in degrees
+     */
+    bearing?: number | null;
+    /**
+     * Pitch
+     *
+     * Map tilt in degrees (0-85)
+     */
+    pitch?: number | null;
+};
+
+/**
  * MapCreate
  */
 export type MapCreate = {
@@ -8191,6 +8236,12 @@ export type MapCreate = {
      * Curated map-level basemap appearance preferences
      */
     basemap_config?: BasemapConfig | null;
+    /**
+     * Bookmarks
+     *
+     * Named areas, in display order (max 100)
+     */
+    bookmarks?: Array<MapBookmark> | null;
 };
 
 /**
@@ -8900,6 +8951,10 @@ export type MapResponse = {
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
     dashboard_config?: DashboardConfig | null;
+    /**
+     * Bookmarks
+     */
+    bookmarks?: Array<MapBookmark>;
     visibility: MapVisibility;
     /**
      * Thumbnail Url
@@ -9287,6 +9342,12 @@ export type MapUpdate = {
      * The dashboard. Omit to keep it; null removes the widgets you see.
      */
     dashboard_config?: DashboardConfigInput | null;
+    /**
+     * Bookmarks
+     *
+     * Named areas, in display order (max 100). Omit to keep them; null or an empty list removes them.
+     */
+    bookmarks?: Array<MapBookmark> | null;
     /**
      * private, internal, public or restricted. A map shared with groups is restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one group.
      */
@@ -12877,6 +12938,10 @@ export type SharedMapResponse = {
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
     dashboard_config?: DashboardConfig | null;
+    /**
+     * Bookmarks
+     */
+    bookmarks?: Array<MapBookmark>;
     /**
      * Has Non Public Layers
      */

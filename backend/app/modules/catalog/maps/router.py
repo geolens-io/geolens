@@ -60,6 +60,7 @@ from app.modules.catalog.maps.author_key import (
     map_author_key_id,
     refuse_map_author_key,
 )
+from app.modules.catalog.maps.bookmarks import stored_bookmarks
 from app.modules.catalog.maps.router_assets import router as assets_router
 from app.modules.catalog.maps.router_groups import router as groups_router
 from app.modules.catalog.maps.router_sharing import router as sharing_router
@@ -181,6 +182,7 @@ async def create_map_endpoint(
         notes=body.notes,
         terrain_config=terrain_config,
         basemap_config=basemap_config,
+        bookmarks=stored_bookmarks(body.bookmarks),
         created_by_api_key_id=map_author_key_id(db),
     )
     await audit_emit(
@@ -547,6 +549,8 @@ async def update_map_endpoint(
         kwargs["terrain_config"] = body.terrain_config.model_dump(mode="json")
     if "basemap_config" in kwargs and body.basemap_config is not None:
         kwargs["basemap_config"] = body.basemap_config.model_dump(mode="json")
+    if "bookmarks" in kwargs:
+        kwargs["bookmarks"] = stored_bookmarks(body.bookmarks)
     if "layers" in kwargs and body.layers is not None:
         kwargs["layers"] = [
             {

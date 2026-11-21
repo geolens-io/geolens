@@ -17,6 +17,7 @@ import datetime
 if TYPE_CHECKING:
     from ..models.basemap_config import BasemapConfig
     from ..models.dashboard_config_input import DashboardConfigInput
+    from ..models.map_bookmark import MapBookmark
     from ..models.map_layer_input import MapLayerInput
     from ..models.terrain_config import TerrainConfig
 
@@ -45,6 +46,8 @@ class MapUpdate:
         terrain_config (None | TerrainConfig | Unset): Map-level terrain source and exaggeration preferences
         dashboard_config (DashboardConfigInput | None | Unset): The dashboard. Omit to keep it; null removes the widgets
             you see.
+        bookmarks (list[MapBookmark] | None | Unset): Named areas, in display order (max 100). Omit to keep them; null
+            or an empty list removes them.
         visibility (MapVisibility | None | Unset): private, internal, public or restricted. A map shared with groups is
             restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one
             group.
@@ -71,6 +74,7 @@ class MapUpdate:
     basemap_config: BasemapConfig | None | Unset = UNSET
     terrain_config: None | TerrainConfig | Unset = UNSET
     dashboard_config: DashboardConfigInput | None | Unset = UNSET
+    bookmarks: list[MapBookmark] | None | Unset = UNSET
     visibility: MapVisibility | None | Unset = UNSET
     layers: list[MapLayerInput] | None | Unset = UNSET
     plugins: list[str] | None | Unset = UNSET
@@ -173,6 +177,18 @@ class MapUpdate:
         else:
             dashboard_config = self.dashboard_config
 
+        bookmarks: list[dict[str, Any]] | None | Unset
+        if isinstance(self.bookmarks, Unset):
+            bookmarks = UNSET
+        elif isinstance(self.bookmarks, list):
+            bookmarks = []
+            for bookmarks_type_0_item_data in self.bookmarks:
+                bookmarks_type_0_item = bookmarks_type_0_item_data.to_dict()
+                bookmarks.append(bookmarks_type_0_item)
+
+        else:
+            bookmarks = self.bookmarks
+
         visibility: None | str | Unset
         if isinstance(self.visibility, Unset):
             visibility = UNSET
@@ -247,6 +263,8 @@ class MapUpdate:
             field_dict["terrain_config"] = terrain_config
         if dashboard_config is not UNSET:
             field_dict["dashboard_config"] = dashboard_config
+        if bookmarks is not UNSET:
+            field_dict["bookmarks"] = bookmarks
         if visibility is not UNSET:
             field_dict["visibility"] = visibility
         if layers is not UNSET:
@@ -264,6 +282,7 @@ class MapUpdate:
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.basemap_config import BasemapConfig
         from ..models.dashboard_config_input import DashboardConfigInput
+        from ..models.map_bookmark import MapBookmark
         from ..models.map_layer_input import MapLayerInput
         from ..models.terrain_config import TerrainConfig
 
@@ -425,6 +444,30 @@ class MapUpdate:
 
         dashboard_config = _parse_dashboard_config(d.pop("dashboard_config", UNSET))
 
+        def _parse_bookmarks(data: object) -> list[MapBookmark] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                bookmarks_type_0 = []
+                _bookmarks_type_0 = data
+                for bookmarks_type_0_item_data in _bookmarks_type_0:
+                    bookmarks_type_0_item = MapBookmark.from_dict(
+                        bookmarks_type_0_item_data
+                    )
+
+                    bookmarks_type_0.append(bookmarks_type_0_item)
+
+                return bookmarks_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[MapBookmark] | None | Unset, data)
+
+        bookmarks = _parse_bookmarks(d.pop("bookmarks", UNSET))
+
         def _parse_visibility(data: object) -> MapVisibility | None | Unset:
             if data is None:
                 return data
@@ -528,6 +571,7 @@ class MapUpdate:
             basemap_config=basemap_config,
             terrain_config=terrain_config,
             dashboard_config=dashboard_config,
+            bookmarks=bookmarks,
             visibility=visibility,
             layers=layers,
             plugins=plugins,

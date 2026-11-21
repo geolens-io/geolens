@@ -1211,7 +1211,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,
         # restricted maps' group members and embed tokens included.
-        "backend/app/modules/catalog/maps/service_public.py": 1154,
+        "backend/app/modules/catalog/maps/service_public.py": 1156,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 662,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
@@ -1344,7 +1344,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/api/main.py": 1286,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
-    "backend/app/modules/catalog/maps/schemas.py": 1606,
+    "backend/app/modules/catalog/maps/schemas.py": 1622,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
@@ -1435,7 +1435,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/dependencies.py": 1008,
     # Map endpoints share response assembly, visibility and ownership checks,
     # and the map_author key's limits on the routes it may write.
-    "backend/app/modules/catalog/maps/router.py": 1519,
+    "backend/app/modules/catalog/maps/router.py": 1523,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
