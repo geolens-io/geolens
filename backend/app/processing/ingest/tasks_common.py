@@ -847,6 +847,8 @@ async def _finalize_ingest(ctx: IngestContext):
     for field descriptions. Returns the created Dataset ORM instance.
     """
     from app.platform.extensions import get_processing_port
+    from app.processing.ingest.manifest_dataset_fields import apply_dataset_fields
+    from app.processing.ingest.manifest_publication import settle_stored_publication
     from app.processing.ingest.metadata_attributes import apply_source_field_labels
     from app.processing.ingest.metadata import compute_quality_score
     from app.processing.ingest.tasks_staging import _run_staging_pipeline
@@ -856,7 +858,9 @@ async def _finalize_ingest(ctx: IngestContext):
     session = ctx.session
     job = ctx.job
     table_name = ctx.table_name
-    user_metadata = ctx.user_metadata
+    user_metadata = await settle_stored_publication(
+        session, job, None, ctx.user_metadata
+    )
     source_filename = ctx.source_filename
 
     _schema = _current_tenant_schema()
@@ -943,6 +947,7 @@ async def _finalize_ingest(ctx: IngestContext):
         schema=_schema,
     )
     dataset.quality_detail = quality_score
+    await apply_dataset_fields(session, job, dataset, user_metadata)
 
     # Complete the job and commit dataset + job atomically. The attempt
     # predicate is the worker lease fence: if a stale worker resumes after a

@@ -244,6 +244,11 @@ class DefaultCatalogPort:
 
         return reupload_verified_file
 
+    def manifest_v2_reupload_task(self):  # type: ignore[no-untyped-def]
+        from app.processing.ingest.tasks import reupload_manifest_v2_file
+
+        return reupload_manifest_v2_file
+
     def reupload_service_task(self):  # type: ignore[no-untyped-def]
         from app.processing.ingest.tasks import reupload_service
 

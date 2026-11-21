@@ -849,6 +849,21 @@ async def ingest_file(
                 await run_publish_followups(job_uuid, attempt_id=attempt_uuid)
 
 
+# A manifest version 2 create is queued under its own name for rolling
+# upgrades: an earlier worker would publish it without judging its visibility
+# again and without its collection and attribute text, and the entry, its
+# fingerprint recorded, would then answer skip. A kwarg can't fence that
+# worker off (the signature ends in **kwargs), but the name can: it raises
+# TaskNotFound and nothing runs. The stale sweep then fails the job, and the
+# caller applies again once the roll finishes.
+ingest_manifest_v2_file = task_app.task(
+    ingest_file.func,
+    queue="ingest",
+    retry=0,
+    name="app.ingest.tasks.ingest_manifest_v2_file",
+)
+
+
 @task_app.task(
     queue="ingest",
     retry=0,

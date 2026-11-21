@@ -471,8 +471,10 @@ class ProcessingPort(Protocol):
     ) -> DatasetProtocol | None: ...
 
     # Publish manifest v2. Collection refusals come back as the warning code
-    # "A033" rather than raising; ``user`` is an Identity, ``ref`` is
-    # ``{"id": ...}`` or ``{"name": ...}``.
+    # "A033" rather than raising, and a collection row that stays locked as
+    # "collection_busy"; ``user`` is an Identity, ``ref`` is ``{"id": ...}``
+    # or ``{"name": ...}``. ``may_create=False`` writes nothing and answers a
+    # name the caller could create with ``(None, None)``.
     async def resolve_manifest_collection(
         self,
         session: AsyncSession,

@@ -29,6 +29,7 @@ from app.platform.jobs.sweep import settle_stale_jobs, stale_pending_clauses
 from app.platform.refresh.job_runs import stored_review_reasons
 from app.platform.source_copies import EXISTING_DATASET_MARKERS
 from app.platform.refresh.models import DatasetRefreshRun
+from app.platform.refresh.verification import held_live_version
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
     ManifestDataset,
@@ -194,7 +195,7 @@ async def held_entry(
         or job.dataset_id != getattr(dataset, "id", None)
         or run.created_at <= (completed_job.completed_at or completed_job.created_at)
         or "acceptance_consumed_by_run_id" in verification
-        or verification.get("live_version") != getattr(dataset, "current_version", None)
+        or held_live_version(verification) != getattr(dataset, "current_version", None)
         or not job.file_path
     ):
         return None

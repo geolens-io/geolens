@@ -10,12 +10,15 @@ from pydantic import (
     ConfigDict,
     EmailStr,
     Field,
+    SerializerFunctionWrapHandler,
     ValidationInfo,
     field_validator,
+    model_serializer,
     model_validator,
 )
 
-from app.core.text import reject_html_markup
+from app.core.text import normalize_nfc, reject_html_markup
+from app.platform.value_labels import is_storable_text
 
 NonEmptyString100 = Annotated[str, Field(min_length=1, max_length=100)]
 NonEmptyString500 = Annotated[str, Field(min_length=1, max_length=500)]
@@ -254,6 +257,44 @@ class ManifestPublication(_ManifestBaseModel):
     )
 
 
+class ManifestCollectionRef(_ManifestBaseModel):
+    """A collection by id, or by name, which apply creates when the caller may."""
+
+    id: uuid.UUID | None = None
+    name: Annotated[str, Field(min_length=1, max_length=255)] | None = None
+
+    @field_validator("name", mode="before")
+    @classmethod
+    def _normalize_nfc(cls, v: str | None) -> str | None:
+        return normalize_nfc(v)
+
+    @model_validator(mode="after")
+    def _exactly_one(self) -> "ManifestCollectionRef":
+        if (self.id is None) == (self.name is None):
+            raise ValueError("collection takes exactly one of id and name")
+        return self
+
+
+# The limits of the attribute-metadata update, which a test holds them to.
+MAX_MANIFEST_ATTRIBUTES = 500
+
+
+class ManifestAttribute(_ManifestBaseModel):
+    """Per-column text for the column named ``source_name`` in the uploaded file."""
+
+    source_name: Annotated[str, Field(min_length=1)]
+    title: str | None = Field(default=None, max_length=500)
+    description: str | None = Field(default=None, max_length=2000)
+    units: str | None = Field(default=None, max_length=50)
+
+    @field_validator("source_name", "title", "description", "units")
+    @classmethod
+    def _storable(cls, value: str | None) -> str | None:
+        if value is not None and not is_storable_text(value):
+            raise ValueError("must be valid UTF-8 text without NUL")
+        return value
+
+
 class ManifestDataset(_ManifestBaseModel):
     key: ManifestDatasetKey
     title: NonEmptyString500
@@ -263,6 +304,32 @@ class ManifestDataset(_ManifestBaseModel):
     sources: list[ManifestSource] = Field(min_length=1, max_length=1)
     metadata: ManifestMetadata | None = None
     publication: ManifestPublication
+    # Version 2 only, and after the version 1 fields so generated SDK
+    # constructors keep their positional order.
+    visibility: Literal["private", "internal", "public"] | None = Field(
+        default=None,
+        description=(
+            "Who can see the dataset. Version 2 only. Omitted on create the "
+            "dataset is private; omitted on update the current level is kept."
+        ),
+    )
+    collection: ManifestCollectionRef | None = Field(
+        default=None,
+        description=(
+            "Collection to add the dataset to. Version 2 only. Adding needs "
+            "the manage_collections permission and ownership of the "
+            "collection; otherwise the entry carries warning A033."
+        ),
+    )
+    attributes: list[ManifestAttribute] | None = Field(
+        default=None,
+        max_length=MAX_MANIFEST_ATTRIBUTES,
+        description=(
+            "Per-column title, description and units, by column name in the "
+            "uploaded file. Version 2 only. A null field keeps the stored "
+            "text; a name matching no column is warning A092."
+        ),
+    )
 
 
 class ManifestClient(_ManifestBaseModel):
@@ -278,7 +345,9 @@ class ManifestApplyRequest(_ManifestBaseModel):
     manifest_version: Literal["1", "2"] = Field(
         description=(
             "Manifest format. Version 2 adds `client`, which it requires, and "
-            "`upload:<job_id>` sources."
+            "`upload:<job_id>` sources. Version 2 is a preview and may change "
+            "in any release until the desktop connectors ship; version 1 is "
+            "stable."
         )
     )
     catalog: ManifestCatalog
@@ -291,6 +360,13 @@ class ManifestApplyRequest(_ManifestBaseModel):
     client: ManifestClient | None = Field(
         default=None,
         description="The publishing client. Required in version 2, refused in 1.",
+    )
+    public_fallback: Literal["internal"] | None = Field(
+        default=None,
+        description=(
+            "Version 2 only. When public visibility is refused for an entry, "
+            "write it as internal with warning A020 instead of failing it."
+        ),
     )
 
     @field_validator("datasets")
@@ -338,6 +414,14 @@ class ManifestApplyRequest(_ManifestBaseModel):
         # Supplied at all, null included: version 1 had no such field.
         if "client" in self.model_fields_set:
             raise ValueError("client requires manifest_version '2'")
+        if "public_fallback" in self.model_fields_set or any(
+            {"visibility", "collection", "attributes"} & dataset.model_fields_set
+            for dataset in self.datasets
+        ):
+            raise ValueError(
+                "visibility, collection, attributes and public_fallback "
+                "require manifest_version '2'"
+            )
         if any(
             source.uri.startswith(UPLOAD_URI_PREFIX)
             for dataset in self.datasets
@@ -345,6 +429,13 @@ class ManifestApplyRequest(_ManifestBaseModel):
         ):
             raise ValueError("upload: sources require manifest_version '2'")
         return self
+
+
+class ManifestMessage(BaseModel):
+    code: str = Field(description="Stable code, for example `A020`.")
+    severity: Literal["error", "warning", "info"]
+    message: str
+    fix: str | None = None
 
 
 class ManifestApplyEntryResult(BaseModel):
@@ -370,6 +461,18 @@ class ManifestApplyEntryResult(BaseModel):
     )
     message: str
     errors: list[str] = Field(default_factory=list)
+    messages: list[ManifestMessage] | None = Field(
+        default=None,
+        description="Coded messages for the entry. Left out in manifest version 1.",
+    )
+
+    @model_serializer(mode="wrap")
+    def _leave_out_absent_messages(self, handler: SerializerFunctionWrapHandler):
+        # A version 1 response stays as it was.
+        data = handler(self)
+        if self.messages is None:
+            data.pop("messages", None)
+        return data
 
 
 class ManifestApplyResponse(BaseModel):

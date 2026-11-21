@@ -679,11 +679,26 @@ from .manifest_apply_entry_result_action import ManifestApplyEntryResultAction
 from .manifest_apply_request import ManifestApplyRequest
 from .manifest_apply_request_manifest_version import ManifestApplyRequestManifestVersion
 from .manifest_apply_response import ManifestApplyResponse
+from .manifest_attribute import ManifestAttribute
+from .manifest_attribute_unmatched_detail import ManifestAttributeUnmatchedDetail
+from .manifest_attribute_unmatched_warning import ManifestAttributeUnmatchedWarning
 from .manifest_catalog import ManifestCatalog
 from .manifest_client import ManifestClient
+from .manifest_collection_ref import ManifestCollectionRef
+from .manifest_collection_refused_detail import ManifestCollectionRefusedDetail
+from .manifest_collection_refused_detail_reason import (
+    ManifestCollectionRefusedDetailReason,
+)
+from .manifest_collection_refused_warning import ManifestCollectionRefusedWarning
 from .manifest_contact import ManifestContact
 from .manifest_dataset import ManifestDataset
+from .manifest_dataset_visibility_type_0 import ManifestDatasetVisibilityType0
+from .manifest_message import ManifestMessage
+from .manifest_message_severity import ManifestMessageSeverity
 from .manifest_metadata import ManifestMetadata
+from .manifest_public_fallback_detail import ManifestPublicFallbackDetail
+from .manifest_public_fallback_detail_reason import ManifestPublicFallbackDetailReason
+from .manifest_public_fallback_warning import ManifestPublicFallbackWarning
 from .manifest_publication import ManifestPublication
 from .manifest_source import ManifestSource
 from .manifest_source_type import ManifestSourceType
@@ -1636,12 +1651,25 @@ __all__ = (
     "ManifestApplyRequest",
     "ManifestApplyRequestManifestVersion",
     "ManifestApplyResponse",
+    "ManifestAttribute",
+    "ManifestAttributeUnmatchedDetail",
+    "ManifestAttributeUnmatchedWarning",
     "ManifestCatalog",
     "ManifestClient",
+    "ManifestCollectionRef",
+    "ManifestCollectionRefusedDetail",
+    "ManifestCollectionRefusedDetailReason",
+    "ManifestCollectionRefusedWarning",
     "ManifestContact",
     "ManifestDataset",
+    "ManifestDatasetVisibilityType0",
+    "ManifestMessage",
+    "ManifestMessageSeverity",
     "ManifestMetadata",
     "ManifestPublication",
+    "ManifestPublicFallbackDetail",
+    "ManifestPublicFallbackDetailReason",
+    "ManifestPublicFallbackWarning",
     "ManifestSource",
     "ManifestSourceType",
     "MapAccessResponse",

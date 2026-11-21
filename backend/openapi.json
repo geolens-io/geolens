@@ -12704,6 +12704,9 @@
               "discriminator": {
                 "mapping": {
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
+                  "manifest_attribute_unmatched": "#/components/schemas/ManifestAttributeUnmatchedWarning",
+                  "manifest_collection_refused": "#/components/schemas/ManifestCollectionRefusedWarning",
+                  "manifest_public_fallback": "#/components/schemas/ManifestPublicFallbackWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
                   "reserved_rename": "#/components/schemas/ReservedRenameWarning",
                   "zm_dropped": "#/components/schemas/ZmDroppedWarning"
@@ -12722,6 +12725,15 @@
                 },
                 {
                   "$ref": "#/components/schemas/ZmDroppedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestCollectionRefusedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestAttributeUnmatchedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestPublicFallbackWarning"
                 }
               ]
             },
@@ -12884,6 +12896,9 @@
               "discriminator": {
                 "mapping": {
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
+                  "manifest_attribute_unmatched": "#/components/schemas/ManifestAttributeUnmatchedWarning",
+                  "manifest_collection_refused": "#/components/schemas/ManifestCollectionRefusedWarning",
+                  "manifest_public_fallback": "#/components/schemas/ManifestPublicFallbackWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
                   "reserved_rename": "#/components/schemas/ReservedRenameWarning",
                   "zm_dropped": "#/components/schemas/ZmDroppedWarning"
@@ -12902,6 +12917,15 @@
                 },
                 {
                   "$ref": "#/components/schemas/ZmDroppedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestCollectionRefusedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestAttributeUnmatchedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestPublicFallbackWarning"
                 }
               ]
             },
@@ -13617,6 +13641,21 @@
             },
             "title": "Errors",
             "type": "array"
+          },
+          "messages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ManifestMessage"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Coded messages for the entry. Left out in manifest version 1.",
+            "title": "Messages"
           }
         },
         "required": [
@@ -13631,7 +13670,7 @@
         "additionalProperties": false,
         "properties": {
           "manifest_version": {
-            "description": "Manifest format. Version 2 adds `client`, which it requires, and `upload:<job_id>` sources.",
+            "description": "Manifest format. Version 2 adds `client`, which it requires, and `upload:<job_id>` sources. Version 2 is a preview and may change in any release until the desktop connectors ship; version 1 is stable.",
             "enum": [
               "1",
               "2"
@@ -13666,6 +13705,19 @@
               }
             ],
             "description": "The publishing client. Required in version 2, refused in 1."
+          },
+          "public_fallback": {
+            "anyOf": [
+              {
+                "const": "internal",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version 2 only. When public visibility is refused for an entry, write it as internal with warning A020 instead of failing it.",
+            "title": "Public Fallback"
           }
         },
         "required": [
@@ -13700,6 +13752,95 @@
           "results"
         ],
         "title": "ManifestApplyResponse",
+        "type": "object"
+      },
+      "ManifestAttribute": {
+        "additionalProperties": false,
+        "description": "Per-column text for the column named ``source_name`` in the uploaded file.",
+        "properties": {
+          "source_name": {
+            "minLength": 1,
+            "title": "Source Name",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units"
+          }
+        },
+        "required": [
+          "source_name"
+        ],
+        "title": "ManifestAttribute",
+        "type": "object"
+      },
+      "ManifestAttributeUnmatchedDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "source_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Names",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_names"
+        ],
+        "title": "ManifestAttributeUnmatchedDetail",
+        "type": "object"
+      },
+      "ManifestAttributeUnmatchedWarning": {
+        "additionalProperties": false,
+        "description": "Publish manifest code A092: these attribute names matched no column.",
+        "properties": {
+          "kind": {
+            "const": "manifest_attribute_unmatched",
+            "title": "Kind",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ManifestAttributeUnmatchedDetail"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "ManifestAttributeUnmatchedWarning",
         "type": "object"
       },
       "ManifestCatalog": {
@@ -13804,6 +13945,84 @@
         "title": "ManifestClient",
         "type": "object"
       },
+      "ManifestCollectionRef": {
+        "additionalProperties": false,
+        "description": "A collection by id, or by name, which apply creates when the caller may.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "ManifestCollectionRef",
+        "type": "object"
+      },
+      "ManifestCollectionRefusedDetail": {
+        "additionalProperties": false,
+        "description": "The collection a manifest asked for that the dataset was not added to.",
+        "properties": {
+          "collection_id": {
+            "title": "Collection Id",
+            "type": "string"
+          },
+          "reason": {
+            "default": "refused",
+            "description": "refused: the submitter can't add datasets to the collection. busy: another change held the collection too long; publishing again may add the dataset.",
+            "enum": [
+              "refused",
+              "busy"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection_id"
+        ],
+        "title": "ManifestCollectionRefusedDetail",
+        "type": "object"
+      },
+      "ManifestCollectionRefusedWarning": {
+        "additionalProperties": false,
+        "description": "Publish manifest code A033: the dataset was published without its collection.",
+        "properties": {
+          "kind": {
+            "const": "manifest_collection_refused",
+            "title": "Kind",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ManifestCollectionRefusedDetail"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "ManifestCollectionRefusedWarning",
+        "type": "object"
+      },
       "ManifestContact": {
         "additionalProperties": false,
         "properties": {
@@ -13901,6 +14120,50 @@
           },
           "publication": {
             "$ref": "#/components/schemas/ManifestPublication"
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "private",
+                  "internal",
+                  "public"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who can see the dataset. Version 2 only. Omitted on create the dataset is private; omitted on update the current level is kept.",
+            "title": "Visibility"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestCollectionRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Collection to add the dataset to. Version 2 only. Adding needs the manage_collections permission and ownership of the collection; otherwise the entry carries warning A033."
+          },
+          "attributes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ManifestAttribute"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-column title, description and units, by column name in the uploaded file. Version 2 only. A null field keeps the stored text; a name matching no column is warning A092.",
+            "title": "Attributes"
           }
         },
         "required": [
@@ -13910,6 +14173,46 @@
           "publication"
         ],
         "title": "ManifestDataset",
+        "type": "object"
+      },
+      "ManifestMessage": {
+        "properties": {
+          "code": {
+            "description": "Stable code, for example `A020`.",
+            "title": "Code",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning",
+              "info"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "fix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fix"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "ManifestMessage",
         "type": "object"
       },
       "ManifestMetadata": {
@@ -14003,6 +14306,45 @@
           }
         },
         "title": "ManifestMetadata",
+        "type": "object"
+      },
+      "ManifestPublicFallbackDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "key: a publish key can't make anything public. restriction: public visibility is restricted to admins on this server.",
+            "enum": [
+              "key",
+              "restriction"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ManifestPublicFallbackDetail",
+        "type": "object"
+      },
+      "ManifestPublicFallbackWarning": {
+        "additionalProperties": false,
+        "description": "Publish manifest code A020: public was refused when the job ran, so\nthe dataset was shared with the organization instead.",
+        "properties": {
+          "kind": {
+            "const": "manifest_public_fallback",
+            "title": "Kind",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ManifestPublicFallbackDetail"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "ManifestPublicFallbackWarning",
         "type": "object"
       },
       "ManifestPublication": {

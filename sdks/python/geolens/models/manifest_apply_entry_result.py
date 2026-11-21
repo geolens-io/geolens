@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Any, TypeVar
+from typing import Any, TypeVar, TYPE_CHECKING
 
 from attrs import define as _attrs_define
 from attrs import field as _attrs_field
@@ -14,6 +14,9 @@ from ..models.manifest_apply_entry_result_action import (
 from ..models.manifest_apply_entry_result_action import ManifestApplyEntryResultAction
 from typing import cast
 from uuid import UUID
+
+if TYPE_CHECKING:
+    from ..models.manifest_message import ManifestMessage
 
 
 T = TypeVar("T", bound="ManifestApplyEntryResult")
@@ -33,6 +36,7 @@ class ManifestApplyEntryResult:
         run_id (None | Unset | UUID): The blocked refresh run to accept, when action is `blocked`.
         review_reasons (list[str] | Unset): Why the blocked run needs review, when action is `blocked`.
         errors (list[str] | Unset):
+        messages (list[ManifestMessage] | None | Unset): Coded messages for the entry. Left out in manifest version 1.
     """
 
     dataset_key: str
@@ -43,6 +47,7 @@ class ManifestApplyEntryResult:
     run_id: None | Unset | UUID = UNSET
     review_reasons: list[str] | Unset = UNSET
     errors: list[str] | Unset = UNSET
+    messages: list[ManifestMessage] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -84,6 +89,18 @@ class ManifestApplyEntryResult:
         if not isinstance(self.errors, Unset):
             errors = self.errors
 
+        messages: list[dict[str, Any]] | None | Unset
+        if isinstance(self.messages, Unset):
+            messages = UNSET
+        elif isinstance(self.messages, list):
+            messages = []
+            for messages_type_0_item_data in self.messages:
+                messages_type_0_item = messages_type_0_item_data.to_dict()
+                messages.append(messages_type_0_item)
+
+        else:
+            messages = self.messages
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -103,11 +120,15 @@ class ManifestApplyEntryResult:
             field_dict["review_reasons"] = review_reasons
         if errors is not UNSET:
             field_dict["errors"] = errors
+        if messages is not UNSET:
+            field_dict["messages"] = messages
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.manifest_message import ManifestMessage
+
         d = dict(src_dict)
         dataset_key = d.pop("dataset_key")
 
@@ -170,6 +191,30 @@ class ManifestApplyEntryResult:
 
         errors = cast(list[str], d.pop("errors", UNSET))
 
+        def _parse_messages(data: object) -> list[ManifestMessage] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                messages_type_0 = []
+                _messages_type_0 = data
+                for messages_type_0_item_data in _messages_type_0:
+                    messages_type_0_item = ManifestMessage.from_dict(
+                        messages_type_0_item_data
+                    )
+
+                    messages_type_0.append(messages_type_0_item)
+
+                return messages_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[ManifestMessage] | None | Unset, data)
+
+        messages = _parse_messages(d.pop("messages", UNSET))
+
         manifest_apply_entry_result = cls(
             dataset_key=dataset_key,
             action=action,
@@ -179,6 +224,7 @@ class ManifestApplyEntryResult:
             run_id=run_id,
             review_reasons=review_reasons,
             errors=errors,
+            messages=messages,
         )
 
         manifest_apply_entry_result.additional_properties = d

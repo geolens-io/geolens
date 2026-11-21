@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm import joinedload
 
-from app.core.permissions import UPLOAD
 from app.core.async_io import (
     run_in_thread_draining,
     run_in_thread_draining_capture_cancel,
@@ -39,15 +38,29 @@ from app.platform.jobs.defer_guard import (
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
 from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
-from app.platform.request_credential import is_publish_key, refuse_publish_key
+from app.platform.request_credential import (
+    refuse_publish_key,
+)
 
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
-    ADMITTED_CAPABILITY_METADATA_KEY,
-    ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
     ADMITTED_RAW_SOURCE_METADATA_KEY,
     MANIFEST_FINGERPRINT_METADATA_KEY,
     IngestJob,
+)
+from app.processing.ingest.manifest_dataset_fields import (
+    ManifestEntryFields,
+    attach_unchanged_entry,
+    report_entry,
+    resolve_entry_collection,
+)
+from app.processing.ingest.manifest_publication import (
+    decide_publication,
+    is_version_2,
+    entry_job_metadata,
+    judge_update,
+    in_flight_job_matches,
+    held_job_matches,
 )
 from app.processing.ingest.manifest_reservation import (
     RESERVATION_LOST_MESSAGE,
@@ -72,12 +85,12 @@ from app.processing.ingest.manifest_sources import (
     ManifestSourceError,
     claim_upload_source,
     manifest_dataset_fingerprint,
-    manifest_job_metadata,
     parse_manifest_crs,
     prepare_manifest_source,
     publication_to_catalog_fields,
     refuse_used_upload,
     skip_complete_message,
+    _validate_existing_dataset_update,
     validate_publication_intent,
 )
 from app.processing.ingest.pointcloud import require_pointcloud_file
@@ -573,6 +586,7 @@ async def _classify_dataset(
     user: Identity,
     *,
     dry_run: bool = False,
+    fields: ManifestEntryFields | None = None,
 ) -> tuple[str, ManifestPreparedSource | None, IngestJob | None, object | None, str]:
     fingerprint = manifest_dataset_fingerprint(dataset)
     if not dataset.sources:
@@ -590,15 +604,24 @@ async def _classify_dataset(
     )
     if crs_refusal:
         raise ManifestSourceError(crs_refusal)
-    # An intent resolving to public goes through the same admin gate as every
+    # A public visibility goes through the same admin gate as every
     # visibility-accepting API mutation, raising 403 for a non-admin when
     # restrict_public_visibility is on. Checked before staging so dry_run
-    # reports it too. Local import: processing/ must not import
+    # reports it too. Version 2 gates the entry's own visibility, and acts on
+    # a refusal only for an entry that writes; version 1 gates the one its
+    # intent implies. Local import: processing/ must not import
     # app.modules.catalog.* at module level.
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
-    intent_visibility, _ = publication_to_catalog_fields(dataset.publication)
-    await check_public_visibility_allowed(db, user, intent_visibility)
+    visibility, _ = publication_to_catalog_fields(dataset.publication)
+    try:
+        await check_public_visibility_allowed(
+            db, user, visibility if fields is None else dataset.visibility
+        )
+    except HTTPException as exc:
+        if fields is None or exc.status_code != 403:
+            raise
+        fields.may_set_public = False
     prepared = await prepare_manifest_source(db, dataset, user)
     await _validate_prepared_source(db, prepared)
     await _authorize_prepared_source(db, prepared, user)
@@ -712,7 +735,12 @@ async def _queue_reupload_job(
     user: Identity,
     prepared: ManifestPreparedSource,
 ) -> None:
-    task = get_catalog_port().reupload_file_task()
+    port = get_catalog_port()
+    task = (
+        port.manifest_v2_reupload_task()
+        if is_version_2(job.user_metadata or {})
+        else port.reupload_file_task()
+    )
     file_path = job.file_path
     if not file_path:
         raise ManifestSourceError("Manifest reupload job is missing file_path")
@@ -735,27 +763,6 @@ async def _queue_reupload_job(
     )
 
 
-def _validate_existing_dataset_update(
-    existing_dataset: object,
-    prepared: ManifestPreparedSource,
-) -> None:
-    """Reject manifest updates the reupload worker cannot implement safely."""
-    record = getattr(existing_dataset, "record", None)
-    record_type = getattr(record, "record_type", None)
-
-    # Raster replacement has different asset/version semantics than the
-    # vector-only reupload task manifest updates use.
-    if prepared.source.type == "raster_cog":
-        raise ManifestSourceError(
-            "Manifest raster updates are not supported; create a new raster "
-            "dataset instead."
-        )
-    if record_type not in {"vector_dataset", "table"}:
-        raise ManifestSourceError(
-            f"Manifest vector updates cannot replace an existing {record_type or 'unknown'} dataset."
-        )
-
-
 def _refuse_publish_key_remote_origin(db: AsyncSession, existing_dataset) -> None:
     # The update replaces the source binding, and a restore can bring back only
     # an upload's or a drawn layer's.
@@ -768,6 +775,32 @@ def _refuse_publish_key_remote_origin(db: AsyncSession, existing_dataset) -> Non
         )
 
 
+def _job_metadata(
+    db: AsyncSession,
+    dataset: ManifestDataset,
+    prepared: ManifestPreparedSource,
+    fingerprint: str,
+    user: Identity,
+    fields: ManifestEntryFields | None,
+    dataset_id: uuid.UUID | None,
+) -> dict[str, object]:
+    from app.modules.catalog.authorization import admitted_public_visibility
+
+    # What this entry's restricted-public gate decided, not a later read.
+    admitted = admitted_public_visibility(db, user.id)
+    return {
+        **entry_job_metadata(
+            db,
+            dataset,
+            prepared,
+            fingerprint,
+            fields,
+            dataset_id,
+            admitted_public=admitted,
+        )
+    }
+
+
 async def _reserve_entry(
     db: AsyncSession,
     dataset: ManifestDataset,
@@ -777,6 +810,7 @@ async def _reserve_entry(
     *,
     dataset_id: uuid.UUID | None,
     quota: _ManifestQuotaReservation,
+    fields: ManifestEntryFields | None = None,
 ) -> _ReservedEntry:
     """Commit this key's claim, and everything staging needs, in one transaction.
 
@@ -793,24 +827,9 @@ async def _reserve_entry(
     max_size_bytes = await _upload_max_size_bytes(db)
 
     metadata: dict[str, object] = {
-        **manifest_job_metadata(dataset, prepared, fingerprint=fingerprint),
+        **_job_metadata(db, dataset, prepared, fingerprint, user, fields, dataset_id),
         **downloading_stage_marker(),
     }
-    if dataset_id is not None:
-        metadata["reupload"] = True
-        metadata["dataset_id"] = str(dataset_id)
-        if is_publish_key(db):
-            # The worker applies it later, over whatever the dataset's
-            # visibility is by then, so a publish key's update keeps it.
-            metadata.pop("visibility", None)
-        metadata[ADMITTED_CAPABILITY_METADATA_KEY] = UPLOAD
-        from app.modules.catalog.authorization import admitted_public_visibility
-
-        # What this entry's restricted-public gate decided, not a later read.
-        if admitted_public_visibility(db, user.id):
-            metadata[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] = True
-        if prepared.kind not in ("http", "upload"):
-            metadata[ADMITTED_RAW_SOURCE_METADATA_KEY] = True
 
     # `running`, not `pending`: a pending row with no file_path and no queue
     # task is reapable by four actors while its source downloads; the lease is
@@ -1109,6 +1128,7 @@ def _error_result(dataset: ManifestDataset, exc: Exception) -> ManifestApplyEntr
         action="error",
         message=message,
         errors=[message],
+        messages=getattr(exc, "messages", None),
     )
 
 
@@ -1131,6 +1151,7 @@ async def _reserve_or_settle_entry(
     user: Identity,
     dataset: ManifestDataset,
     quota: _ManifestQuotaReservation,
+    fields: ManifestEntryFields | None = None,
 ) -> ManifestApplyEntryResult | _ReservedEntry:
     """The locked half of one entry: classify, then either answer or reserve.
 
@@ -1143,11 +1164,17 @@ async def _reserve_or_settle_entry(
         job,
         existing_dataset,
         fingerprint,
-    ) = await _classify_dataset(db, dataset, user, dry_run=request.dry_run)
+    ) = await _classify_dataset(
+        db, dataset, user, dry_run=request.dry_run, fields=fields
+    )
     if prepared is None:
         raise ManifestSourceError("Manifest source could not be prepared")
 
     if classification == "skip_in_flight" and job is not None:
+        if not await in_flight_job_matches(db, fields, dataset, job):
+            raise DatasetBusyError(
+                "The key's in-flight apply publishes otherwise than this one."
+            )
         result = _skip_result_for_in_flight(dataset, job)
         await db.commit()
         return result
@@ -1156,6 +1183,9 @@ async def _reserve_or_settle_entry(
         if existing_dataset is None:
             raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED)
         await _admit_key_dataset(db, existing_dataset, user)
+        await attach_unchanged_entry(
+            db, dataset, user, fields, existing_dataset.id, dry_run=request.dry_run
+        )
         result = ManifestApplyEntryResult(
             dataset_key=dataset.key,
             action="skip",
@@ -1167,10 +1197,12 @@ async def _reserve_or_settle_entry(
         return result
 
     update_dataset_id: uuid.UUID | None = None
+    held: ManifestApplyEntryResult | None = None
     if classification == "update" and existing_dataset is not None:
         # Before the blocked and dry-run responses, which name the dataset.
         await _admit_key_dataset(db, existing_dataset, user)
-        if held := await held_entry(db, dataset, fingerprint, job, existing_dataset):
+        held = await held_entry(db, dataset, fingerprint, job, existing_dataset)
+        if fields is None and await held_job_matches(db, held, None, {}):
             await db.commit()
             return held
         # Run after authorization (to avoid leaking another user's dataset
@@ -1178,7 +1210,31 @@ async def _reserve_or_settle_entry(
         _validate_existing_dataset_update(existing_dataset, prepared)
         _refuse_publish_key_remote_origin(db, existing_dataset)
         update_dataset_id = existing_dataset.id
+        await judge_update(
+            db,
+            user,
+            fields,
+            dataset,
+            job,
+            existing_dataset,
+            metadata=_job_metadata(
+                db, dataset, prepared, fingerprint, user, fields, update_dataset_id
+            ),
+            dry_run=request.dry_run,
+        )
 
+    await decide_publication(db, fields, dataset, existing_dataset)
+    await resolve_entry_collection(db, dataset, user, fields, dry_run=request.dry_run)
+    if fields is not None and await held_job_matches(
+        db,
+        held,
+        fields,
+        _job_metadata(
+            db, dataset, prepared, fingerprint, user, fields, update_dataset_id
+        ),
+    ):
+        await db.commit()
+        return held
     refuse_used_upload(prepared)
     if request.dry_run:
         # A preview reserves nothing, so the key is left exactly as this entry
@@ -1213,6 +1269,7 @@ async def _reserve_or_settle_entry(
         user,
         dataset_id=update_dataset_id,
         quota=quota,
+        fields=fields,
     )
 
 
@@ -1224,12 +1281,13 @@ async def _run_entry(
     http_request: Request,
     quota: _ManifestQuotaReservation,
 ) -> ManifestApplyEntryResult:
-    outcome = await _reserve_or_settle_entry(db, request, user, dataset, quota)
-    if isinstance(outcome, ManifestApplyEntryResult):
-        return outcome
-    return await _finalize_reserved_entry(
-        db, outcome, dataset, user, http_request, quota
-    )
+    fields = ManifestEntryFields.of(request, dataset)
+    outcome = await _reserve_or_settle_entry(db, request, user, dataset, quota, fields)
+    if not isinstance(outcome, ManifestApplyEntryResult):
+        outcome = await _finalize_reserved_entry(
+            db, outcome, dataset, user, http_request, quota
+        )
+    return report_entry(fields, outcome)
 
 
 async def apply_manifest(
@@ -1269,6 +1327,8 @@ async def apply_manifest(
             await db.rollback()
             results.append(_error_result(dataset, exc))
 
+    for result in results if request.manifest_version == "2" else ():
+        result.messages = result.messages or []
     return ManifestApplyResponse(
         accepted=any(result.action != "error" for result in results),
         dry_run=request.dry_run,

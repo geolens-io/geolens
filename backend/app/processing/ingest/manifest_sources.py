@@ -44,6 +44,7 @@ from app.processing.ingest.manifest_schemas import (
 
 if TYPE_CHECKING:
     from app.core.identity import Identity
+    from app.processing.ingest.manifest_dataset_fields import ManifestEntryFields
 
 log = structlog.get_logger()
 
@@ -158,6 +159,27 @@ def manifest_dataset_fingerprint(dataset: ManifestDataset) -> str:
             source["uri"] = source["checksum"]
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":")).encode()
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _validate_existing_dataset_update(
+    existing_dataset: object,
+    prepared: ManifestPreparedSource,
+) -> None:
+    """Reject manifest updates the reupload worker cannot implement safely."""
+    record = getattr(existing_dataset, "record", None)
+    record_type = getattr(record, "record_type", None)
+
+    # Raster replacement has different asset/version semantics than the
+    # vector-only reupload task manifest updates use.
+    if prepared.source.type == "raster_cog":
+        raise ManifestSourceError(
+            "Manifest raster updates are not supported; create a new raster "
+            "dataset instead."
+        )
+    if record_type not in {"vector_dataset", "table"}:
+        raise ManifestSourceError(
+            f"Manifest vector updates cannot replace an existing {record_type or 'unknown'} dataset."
+        )
 
 
 def parse_manifest_crs(crs: str | None) -> int | None:
@@ -317,8 +339,14 @@ def manifest_job_metadata(
     prepared: ManifestPreparedSource,
     *,
     fingerprint: str,
+    fields: ManifestEntryFields | None = None,
 ) -> dict[str, object]:
-    """Build the metadata ledger stored on manifest-created ingest jobs."""
+    """Build the metadata ledger stored on manifest-created ingest jobs.
+
+    A version 2 entry passes ``fields``: its visibility is the explicit one,
+    never the intent's, and an omitted one is left out so a create is private
+    and an update keeps what the dataset has.
+    """
     visibility, record_status = publication_to_catalog_fields(dataset.publication)
     metadata = dataset.metadata
     srid_override = parse_manifest_crs(metadata.crs if metadata else None)
@@ -351,6 +379,11 @@ def manifest_job_metadata(
             job_metadata["manifest_attribution"] = metadata.attribution
         if metadata.bbox is not None:
             job_metadata["manifest_bbox"] = list(metadata.bbox)
+    if fields is not None:
+        from app.processing.ingest.manifest_dataset_fields import job_metadata_fields
+
+        job_metadata.pop("visibility")
+        job_metadata.update(job_metadata_fields(dataset, fields))
     return job_metadata
 
 
