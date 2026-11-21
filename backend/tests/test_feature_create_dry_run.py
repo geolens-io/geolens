@@ -936,6 +936,44 @@ async def test_a_generated_geom_4326_allows_a_dry_run_only_with_the_registration
         assert (resp.status_code, resp.json()["detail"]) == (409, _USER_CODE_REFUSAL)
 
 
+async def test_a_shadowed_postgis_name_in_a_generated_geom_4326_still_refuses_a_dry_run(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    relation_dataset,
+):
+    """A user function shadowing a PostGIS name does not pass the exemption.
+
+    The shadow lives in the session role's own schema, ahead of public on
+    the search path, so PostgreSQL prints it without its schema and the
+    expression text matches the registration expression exactly. The dry
+    run is still refused: the expression depends on a function that is
+    neither built in nor an extension's.
+    """
+    name = f"test_dry_gen4326_shadow_{uuid.uuid4().hex[:8]}"
+    dataset_id = await relation_dataset(
+        name,
+        "CREATE SCHEMA IF NOT EXISTS geolens",
+        "CREATE OR REPLACE FUNCTION geolens.st_force2d(geom geometry) "
+        "RETURNS geometry LANGUAGE sql IMMUTABLE AS 'SELECT $1'",
+        f"CREATE TABLE data.{name} ("
+        f"gid serial, geom geometry(Point, 4326), "
+        f"geom_4326 geometry(Geometry, 4326) GENERATED ALWAYS AS "
+        f"(ST_Force2D(ST_CurveToLine(ST_SetSRID(geom, 4326)))) STORED, "
+        f"name text, status text)",
+        drop=(
+            f"DROP TABLE data.{name}",
+            "DROP FUNCTION geolens.st_force2d(geometry)",
+            "DROP SCHEMA geolens",
+        ),
+    )
+
+    resp = await client.post(
+        _dry(dataset_id), json=_feature(POINT_A, name="a"), headers=admin_auth_header
+    )
+
+    assert (resp.status_code, resp.json()["detail"]) == (409, _USER_CODE_REFUSAL)
+
+
 async def test_a_table_missing_at_the_check_is_never_inserted_into(
     client: AsyncClient,
     admin_auth_header: dict,

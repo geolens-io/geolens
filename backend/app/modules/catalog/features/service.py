@@ -1029,7 +1029,12 @@ _UNTRUSTED_VOLATILE = f"p.provolatile = 'v' AND NOT ({_trusted('p.oid', 'pg_proc
 # registration expressions. A geom_4326 generated with one of these runs
 # only PostGIS functions on geom, so a dry-run insert cannot reach past
 # the transaction through it; any other generated column still refuses
-# the dry run.
+# the dry run. The text alone does not prove that: PostgreSQL prints a
+# function without its schema when it is visible on the search path, so
+# a user function shadowing a PostGIS name prints the same text. The
+# exemption also requires every function the expression depends on to be
+# built in or an extension's, checked through pg_depend on the pg_attrdef
+# row.
 _REGISTERED_GEOM_4326_EXPRESSIONS = (
     "st_force2d(st_curvetoline(st_setsrid(geom, 4326)))",
     "st_force2d(st_transform(st_curvetoline(geom), 4326))",
@@ -1056,7 +1061,11 @@ _USER_CODE = (
     "AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated <> '' "
     "AND NOT (a.attname = 'geom_4326' AND EXISTS (SELECT 1 FROM pg_attrdef ad "
     "WHERE ad.adrelid = a.attrelid AND ad.adnum = a.attnum AND "
-    f"lower(pg_get_expr(ad.adbin, ad.adrelid)) IN ({_REGISTERED_GEOM_4326_EXPR_SQL})))) "
+    f"lower(pg_get_expr(ad.adbin, ad.adrelid)) IN ({_REGISTERED_GEOM_4326_EXPR_SQL}) "
+    "AND NOT EXISTS (SELECT 1 FROM pg_depend d "
+    "WHERE d.classid = 'pg_attrdef'::regclass AND d.objid = ad.oid "
+    "AND d.refclassid = 'pg_proc'::regclass "
+    f"AND NOT ({_trusted('d.refobjid', 'pg_proc')}))))) "
     f"OR EXISTS (SELECT 1 FROM ({_COLUMN_TYPES}) col WHERE NOT ("
     f"{_trusted('col.oid', 'pg_type')})) "
     f"OR EXISTS (SELECT 1 FROM ({_COLUMN_TYPES}) col JOIN pg_cast ca "
