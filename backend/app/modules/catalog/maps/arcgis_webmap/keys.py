@@ -203,8 +203,8 @@ WEBMAP_KEYS = _set(
     "applicationProperties",
 )
 INITIAL_STATE_KEYS = _set("viewpoint")
-# A bookmark's thumbnail is an image and its time extent follows the time slider,
-# which the import reports on its own.
+# A bookmark's thumbnail is an image; its time extent is reported where the
+# bookmark is read.
 BOOKMARK_KEYS = _set("name", "viewpoint", "extent", "thumbnail", "timeExtent")
 # The extent decides the view, so the scale it implies is not read separately.
 VIEWPOINT_KEYS = _set("targetGeometry", "rotation", "scale")

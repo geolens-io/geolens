@@ -1305,6 +1305,16 @@ class TestBookmarks:
         (item,) = [i for i in result.loss.items if i.kind == "unsupported_property"]
         assert item.path == "bookmarks" and item.detail == "tag"
 
+    def test_a_time_extent_is_reported_and_the_bookmark_kept(self) -> None:
+        result = _translate(
+            _webmap(
+                bookmarks=[_bookmark(), _bookmark("Pier", timeExtent=[0, 86400000])]
+            )
+        )
+        assert [b.name for b in result.bookmarks] == ["Harbor", "Pier"]
+        (item,) = [i for i in result.loss.items if i.kind == "time"]
+        assert item.path == "bookmarks[1]" and item.detail == "Pier: time extent"
+
 
 class TestFixtures:
     def test_hosted_feature_layers(self) -> None:

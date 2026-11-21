@@ -467,6 +467,8 @@ def _bookmarks(webmap: dict, result: Translation) -> None:
             result.loss.add(path, "bookmark_skipped", f"{name[:60]}: not valid")
             continue
         result.bookmarks.append(bookmark)
+        if item.get("timeExtent"):
+            result.loss.add(path, "time", f"{name[:60]}: time extent")
     if skipped:
         result.loss.add(
             "bookmarks",
