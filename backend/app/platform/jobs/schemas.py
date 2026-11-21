@@ -92,9 +92,17 @@ class ZmDroppedWarning(BaseModel):
 
 
 class ManifestCollectionRefusedDetail(BaseModel):
-    """The collection a manifest asked for and the submitter could not add to."""
+    """The collection a manifest asked for that the dataset was not added to."""
 
     collection_id: str
+    reason: Literal["refused", "busy"] = Field(
+        default="refused",
+        description=(
+            "refused: the submitter can't add datasets to the collection. "
+            "busy: another change held the collection too long; publishing "
+            "again may add the dataset."
+        ),
+    )
 
     model_config = ConfigDict(extra="forbid")
 

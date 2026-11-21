@@ -686,6 +686,9 @@ from .manifest_catalog import ManifestCatalog
 from .manifest_client import ManifestClient
 from .manifest_collection_ref import ManifestCollectionRef
 from .manifest_collection_refused_detail import ManifestCollectionRefusedDetail
+from .manifest_collection_refused_detail_reason import (
+    ManifestCollectionRefusedDetailReason,
+)
 from .manifest_collection_refused_warning import ManifestCollectionRefusedWarning
 from .manifest_contact import ManifestContact
 from .manifest_dataset import ManifestDataset
@@ -1652,6 +1655,7 @@ __all__ = (
     "ManifestClient",
     "ManifestCollectionRef",
     "ManifestCollectionRefusedDetail",
+    "ManifestCollectionRefusedDetailReason",
     "ManifestCollectionRefusedWarning",
     "ManifestContact",
     "ManifestDataset",

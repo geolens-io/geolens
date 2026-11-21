@@ -1,6 +1,7 @@
 """Collection resolution and membership for publish manifests.
 
-Every refusal is a code the caller turns into a job warning; none raises.
+Every refusal, and a collection too busy to join, is a code the caller turns
+into a job warning; none raises.
 Write functions flush but never commit.
 """
 
@@ -34,6 +35,9 @@ from app.platform.catalog_locks import WORKER_LOCK_TIMEOUT
 from app.platform.extensions import get_permission_extension
 
 COLLECTION_REFUSED = "A033"
+# Not a refusal: the row stayed locked past the wait, so a later publish may
+# add the dataset.
+COLLECTION_BUSY = "collection_busy"
 
 
 async def _may_manage_collections(session: AsyncSession, user: Identity) -> bool:
@@ -85,7 +89,10 @@ async def resolve_manifest_collection(
 
     Returns ``(collection_id, None)`` when the caller may add datasets to it,
     else ``(None, "A033")``. A name that matches nothing is created when
-    ``may_create`` is set and the caller holds ``manage_collections``.
+    ``may_create`` is set and the caller holds ``manage_collections``. Without
+    ``may_create`` nothing is written or audited, and such a name answers
+    ``(None, None)`` when the caller could create it, as a preview of the
+    apply.
     """
     collection: Collection | None
     if ref.get("id") is not None:
@@ -99,8 +106,10 @@ async def resolve_manifest_collection(
         return None, COLLECTION_REFUSED
 
     name = ref.get("name")
-    if not name or not may_create or not await _may_manage_collections(session, user):
+    if not name or not await _may_manage_collections(session, user):
         return None, COLLECTION_REFUSED
+    if not may_create:
+        return None, None
     # Flushed first: the savepoint would flush the caller's pending work
     # itself, and a failure there has to surface as the caller's error
     # rather than read as a lost name.
@@ -134,15 +143,11 @@ async def _wait_for_collection(session: AsyncSession, collection_id: uuid.UUID) 
 
     In a savepoint: ``lock_collection_for_write`` rolls back the whole
     transaction when its wait fails, which here would take the caller's new
-    dataset with it.
+    dataset with it. Leaves ``lock_timeout`` at the worker's budget on success.
     """
-    previous = await session.scalar(text("SELECT current_setting('lock_timeout')"))
     savepoint = await session.begin_nested()
     try:
-        await session.execute(
-            text("SELECT set_config('lock_timeout', :value, true)"),
-            {"value": WORKER_LOCK_TIMEOUT},
-        )
+        await _set_lock_timeout(session, WORKER_LOCK_TIMEOUT)
         await session.execute(
             select(Collection.id)
             .where(Collection.id == collection_id)
@@ -154,10 +159,13 @@ async def _wait_for_collection(session: AsyncSession, collection_id: uuid.UUID) 
             raise
         return False
     await savepoint.commit()
-    await session.execute(
-        text("SELECT set_config('lock_timeout', :value, true)"), {"value": previous}
-    )
     return True
+
+
+async def _set_lock_timeout(session: AsyncSession, value: str) -> None:
+    await session.execute(
+        text("SELECT set_config('lock_timeout', :value, true)"), {"value": value}
+    )
 
 
 async def add_dataset_to_manifest_collection(
@@ -168,20 +176,26 @@ async def add_dataset_to_manifest_collection(
 ) -> str | None:
     """Add a dataset to a collection the caller may modify.
 
-    Returns ``None`` on success and ``"A033"`` when the collection is gone,
-    the caller lacks ``manage_collections`` or ownership, or the collection row
-    stays busy past ``WORKER_LOCK_TIMEOUT``. Call it after any slow work in
-    the transaction, since the row is held until the caller commits.
+    Returns ``None`` on success, ``"A033"`` when the collection is gone or the
+    caller lacks ``manage_collections`` or ownership, and ``"collection_busy"``
+    when the collection row stays locked past ``WORKER_LOCK_TIMEOUT``. The
+    transaction's ``lock_timeout`` is left as it was. Call it after any slow
+    work in the transaction, since the row is held until the caller commits.
     """
     collection = await get_collection(session, collection_id)
     if collection is None or not await _may_write_collection(session, collection, user):
         return COLLECTION_REFUSED
+    previous = await session.scalar(text("SELECT current_setting('lock_timeout')"))
     if not await _wait_for_collection(session, collection_id):
-        return COLLECTION_REFUSED
+        return COLLECTION_BUSY
     try:
         # Held already, so this only re-checks the writer.
         await lock_collection_for_write(session, collection_id)
+        refused = False
     except HTTPException:
+        refused = True
+    await _set_lock_timeout(session, previous)
+    if refused:
         return COLLECTION_REFUSED
     await add_datasets_to_collection(session, collection_id, [dataset_id], user.id)
     return None

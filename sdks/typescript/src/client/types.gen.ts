@@ -8130,13 +8130,19 @@ export type ManifestCollectionRef = {
 /**
  * ManifestCollectionRefusedDetail
  *
- * The collection a manifest asked for and the submitter could not add to.
+ * The collection a manifest asked for that the dataset was not added to.
  */
 export type ManifestCollectionRefusedDetail = {
     /**
      * Collection Id
      */
     collection_id: string;
+    /**
+     * Reason
+     *
+     * refused: the submitter can't add datasets to the collection. busy: another change held the collection too long; publishing again may add the dataset.
+     */
+    reason?: 'refused' | 'busy';
 };
 
 /**

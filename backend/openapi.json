@@ -13972,10 +13972,20 @@
       },
       "ManifestCollectionRefusedDetail": {
         "additionalProperties": false,
-        "description": "The collection a manifest asked for and the submitter could not add to.",
+        "description": "The collection a manifest asked for that the dataset was not added to.",
         "properties": {
           "collection_id": {
             "title": "Collection Id",
+            "type": "string"
+          },
+          "reason": {
+            "default": "refused",
+            "description": "refused: the submitter can't add datasets to the collection. busy: another change held the collection too long; publishing again may add the dataset.",
+            "enum": [
+              "refused",
+              "busy"
+            ],
+            "title": "Reason",
             "type": "string"
           }
         },

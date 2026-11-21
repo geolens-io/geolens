@@ -41,6 +41,8 @@ log = structlog.get_logger()
 
 PUBLIC_RESTRICTED = "A020"
 COLLECTION_REFUSED = "A033"
+# What the port answers when the collection row stayed locked.
+COLLECTION_BUSY_CODE = "collection_busy"
 EDITED_SINCE_PUBLISH = "A053"
 ATTRIBUTE_UNMATCHED = "A092"
 
@@ -194,25 +196,14 @@ async def resolve_entry_collection(
     """Resolve the entry's collection before anything is queued.
 
     A refusal is warning A033 and the entry carries on without a collection.
-    A dry run resolves as an apply would, then undoes any collection it made.
+    A dry run creates nothing and reports what an apply would.
     """
     if dataset.collection is None:
         return
     ref = dataset.collection.model_dump(mode="json", exclude_none=True)
-    port = get_processing_port()
-    if dry_run:
-        savepoint = await db.begin_nested()
-        try:
-            _, code = await port.resolve_manifest_collection(
-                db, ref, user, may_create=True
-            )
-        finally:
-            await savepoint.rollback()
-        collection_id = None
-    else:
-        collection_id, code = await port.resolve_manifest_collection(
-            db, ref, user, may_create=True
-        )
+    collection_id, code = await get_processing_port().resolve_manifest_collection(
+        db, ref, user, may_create=not dry_run
+    )
     if code is not None:
         fields.messages.append(
             ManifestMessage(
@@ -328,27 +319,21 @@ async def apply_dataset_fields(
 
     collection = user_metadata.get(COLLECTION_METADATA_KEY)
     if collection is not None:
-        refused = submitter is None
-        if not refused:
-            try:
-                collection_id = uuid.UUID(str(collection))
-            except ValueError:
-                refused = True
-        if not refused:
-            refused = (
-                await port.add_dataset_to_manifest_collection(
-                    session, collection_id, dataset.id, submitter
-                )
-                is not None
+        code: str | None = COLLECTION_REFUSED
+        collection_id: uuid.UUID | None
+        try:
+            collection_id = uuid.UUID(str(collection))
+        except ValueError:
+            collection_id = None
+        if collection_id is not None and submitter is not None:
+            code = await port.add_dataset_to_manifest_collection(
+                session, collection_id, dataset.id, submitter
             )
-        if refused:
-            _append_warning(
-                job,
-                {
-                    "kind": COLLECTION_REFUSED_KIND,
-                    "details": {"collection_id": str(collection)},
-                },
-            )
+        if code is not None:
+            details = {"collection_id": str(collection)}
+            if code == COLLECTION_BUSY_CODE:
+                details["reason"] = "busy"
+            _append_warning(job, {"kind": COLLECTION_REFUSED_KIND, "details": details})
 
     attributes = _stored_attributes(user_metadata)
     if attributes and submitter is not None:

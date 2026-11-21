@@ -12837,11 +12837,18 @@ export interface components {
         };
         /**
          * ManifestCollectionRefusedDetail
-         * @description The collection a manifest asked for and the submitter could not add to.
+         * @description The collection a manifest asked for that the dataset was not added to.
          */
         ManifestCollectionRefusedDetail: {
             /** Collection Id */
             collection_id: string;
+            /**
+             * Reason
+             * @description refused: the submitter can't add datasets to the collection. busy: another change held the collection too long; publishing again may add the dataset.
+             * @default refused
+             * @enum {string}
+             */
+            reason: "refused" | "busy";
         };
         /**
          * ManifestCollectionRefusedWarning

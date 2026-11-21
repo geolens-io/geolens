@@ -29,6 +29,7 @@ from app.modules.catalog.datasets.domain.models import (
 )
 from app.modules.catalog.datasets.domain.schemas import AttributeMetadataUpdate
 from app.platform.jobs.models import IngestJob
+from app.platform.jobs.schemas import ManifestCollectionRefusedWarning
 from app.platform.request_credential import (
     _SESSION_KEY,
     ApiKeyCredential,
@@ -416,6 +417,58 @@ async def test_a_dry_run_leaves_no_collection_behind(test_db_session, clean_tabl
     )
 
 
+class _Recorder:
+    def __init__(self) -> None:
+        self.actions: list[str] = []
+
+    async def emit(self, session, event) -> None:
+        self.actions.append(event.action)
+
+
+async def test_a_dry_run_naming_a_new_collection_writes_and_emits_nothing(
+    test_db_session, clean_tables
+):
+    from app.modules.audit.models import AuditLog
+    from app.platform.extensions import _extensions
+    from app.platform.extensions.defaults import DefaultAuditSink
+
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    recorder = _Recorder()
+    saved = _extensions.get("audit_sinks")
+    _extensions["audit_sinks"] = [DefaultAuditSink(), recorder]
+    try:
+        result = await _dry_run(
+            test_db_session,
+            user,
+            _entry("fields-dry-collection", collection={"name": "Dry parks"}),
+        )
+    finally:
+        if saved is None:
+            _extensions.pop("audit_sinks", None)
+        else:
+            _extensions["audit_sinks"] = saved
+
+    # An apply would create it, so the preview warns of nothing.
+    assert (result.action, result.messages) == ("create", [])
+    assert recorder.actions == []
+    assert (
+        await test_db_session.scalar(
+            select(Collection.id).where(Collection.name == "Dry parks")
+        )
+        is None
+    )
+    assert (
+        await test_db_session.scalar(
+            select(AuditLog.id).where(
+                AuditLog.action == "collection.create",
+                AuditLog.details["name"].astext == "Dry parks",
+            )
+        )
+        is None
+    )
+
+
 async def test_a_caller_without_manage_collections_gets_a033(
     client, test_db_session, admin_auth_header, clean_tables
 ):
@@ -515,9 +568,14 @@ async def test_a_busy_collection_is_a033_and_keeps_the_tails_transaction(
         await holder.rollback()
     await test_db_session.commit()
 
-    assert [w["kind"] for w in job.user_metadata["warnings"]] == [
-        "manifest_collection_refused"
-    ]
+    (warning,) = job.user_metadata["warnings"]
+    assert warning == {
+        "kind": "manifest_collection_refused",
+        "details": {"collection_id": str(collection.id), "reason": "busy"},
+    }
+    assert ManifestCollectionRefusedWarning.model_validate(warning).details.reason == (
+        "busy"
+    )
     assert await test_db_session.scalar(
         select(IngestJob.id).where(IngestJob.id == job.id)
     )
@@ -527,6 +585,52 @@ async def test_a_busy_collection_is_a033_and_keeps_the_tails_transaction(
         )
         is None
     )
+
+
+async def test_joining_a_collection_leaves_the_transactions_lock_timeout(
+    test_db_session, clean_tables
+):
+    user = await _admin(test_db_session)
+    collection = Collection(name="free", created_by=user.id)
+    test_db_session.add(collection)
+    dataset = await create_dataset(test_db_session, created_by=user.id)
+    await test_db_session.commit()
+    job = await _job_for(
+        test_db_session, user, manifest_collection_id=str(collection.id)
+    )
+    await test_db_session.execute(text("SET LOCAL lock_timeout = '1234ms'"))
+
+    await apply_dataset_fields(test_db_session, job, dataset, job.user_metadata)
+
+    assert "warnings" not in job.user_metadata
+    assert await test_db_session.scalar(
+        text("SELECT current_setting('lock_timeout')")
+    ) == ("1234ms")
+
+
+@pytest.mark.parametrize(
+    "count,applied", [(500, True), (501, False)], ids=["at-the-cap", "over-the-cap"]
+)
+async def test_the_tail_drops_more_attributes_than_an_apply_accepts(
+    test_db_session, clean_tables, count, applied
+):
+    assert MAX_MANIFEST_ATTRIBUTES == 500
+    user = await _admin(test_db_session)
+    dataset = await create_dataset(test_db_session, created_by=user.id)
+    job = await _job_for(
+        test_db_session,
+        user,
+        manifest_attributes=[
+            {"source_name": f"C{i}", "title": "t"} for i in range(count)
+        ],
+    )
+
+    port = MagicMock()
+    port.apply_manifest_attributes = AsyncMock(return_value=[])
+    with patch.object(fields_module, "get_processing_port", return_value=port):
+        await apply_dataset_fields(test_db_session, job, dataset, job.user_metadata)
+
+    assert port.apply_manifest_attributes.await_count == int(applied)
 
 
 def test_the_tails_add_the_collection_after_their_slow_work():
@@ -1017,9 +1121,11 @@ async def test_a_publish_key_cannot_publish_a_public_draft_it_leaves_public(
     assert await _record(test_db_session, dataset_id) == ("public", "draft")
 
 
-async def test_a_publish_key_cannot_name_public_for_a_public_draft(
+async def test_the_gate_refuses_a_publish_key_that_names_public(
     client, test_db_session, admin_auth_header, clean_tables
 ):
+    """The gate on the entry's own visibility, before anything is staged: an
+    A020, not the widening rule's plain refusal further on."""
     _stage_fixture()
     user = await _admin(test_db_session)
     key = "audience-key-public"
@@ -1196,6 +1302,28 @@ async def test_an_accepted_held_run_keeps_a_publish_keys_limits(
         await require_submitter_can_write(
             test_db_session, dataset, accepted, capability=None
         )
+
+
+async def test_public_fallback_never_widens_a_publish_keys_private_dataset(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "audience-key-fallback"
+    dataset_id = await _manifest_dataset(test_db_session, user, key, "private", "draft")
+
+    with _publish_key(test_db_session):
+        result, task = await _queue_update(
+            test_db_session,
+            user,
+            await _uploaded(client, admin_auth_header, key, visibility="public"),
+            public_fallback="internal",
+        )
+
+    assert result.action == "error", result
+    assert result.errors == ["A publish key can't widen a dataset's visibility"]
+    task.defer_async.assert_not_awaited()
+    assert await _record(test_db_session, dataset_id) == ("private", "draft")
 
 
 # ---------------------------------------------------------------------------

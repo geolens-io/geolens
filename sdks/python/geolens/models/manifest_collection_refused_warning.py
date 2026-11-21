@@ -24,7 +24,7 @@ class ManifestCollectionRefusedWarning:
 
     Attributes:
         kind (Literal['manifest_collection_refused']):
-        details (ManifestCollectionRefusedDetail): The collection a manifest asked for and the submitter could not add
+        details (ManifestCollectionRefusedDetail): The collection a manifest asked for that the dataset was not added
             to.
     """
 

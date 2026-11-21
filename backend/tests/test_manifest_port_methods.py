@@ -88,11 +88,17 @@ async def test_resolve_creates_a_missing_name_when_allowed(test_db_session, peop
 
 
 async def test_resolve_does_not_create_unless_asked(test_db_session, people):
-    result = await port.resolve_manifest_collection(
+    """Without ``may_create`` it previews: a name the caller could create is
+    no refusal, and nothing is written."""
+    owner = await port.resolve_manifest_collection(
         test_db_session, {"name": "never"}, people["owner"], may_create=False
     )
+    viewer = await port.resolve_manifest_collection(
+        test_db_session, {"name": "never"}, people["viewer"], may_create=False
+    )
 
-    assert result == (None, "A033")
+    assert owner == (None, None)
+    assert viewer == (None, "A033")
     assert await _count(test_db_session, "never") == 0
 
 
