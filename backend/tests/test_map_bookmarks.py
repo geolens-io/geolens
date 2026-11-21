@@ -216,6 +216,27 @@ class TestBookmarksApi:
         shared = (await client.get(f"/maps/shared/{share.json()['token']}")).json()
         assert [b["name"] for b in shared["bookmarks"]] == ["B", "A"]
 
+    async def test_a_shared_map_with_no_layers_carries_them(
+        self, client: AsyncClient, admin_auth_header: dict
+    ):
+        created = await _create(
+            client, admin_auth_header, name="Places", bookmarks=[_bm("Harbor")]
+        )
+        resp = await client.put(
+            f"/maps/{created['id']}",
+            json={"visibility": "public"},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        share = await client.post(
+            f"/maps/{created['id']}/share/", headers=admin_auth_header
+        )
+        assert share.status_code in (200, 201), share.text
+        shared = await client.get(f"/maps/shared/{share.json()['token']}")
+        assert shared.status_code == 200, shared.text
+        assert shared.json()["layers"] == []
+        assert [b["name"] for b in shared.json()["bookmarks"]] == ["Harbor"]
+
     async def test_a_shared_map_without_bookmarks_answers_an_empty_list(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
