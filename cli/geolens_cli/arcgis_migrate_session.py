@@ -272,8 +272,9 @@ class MigrationContext:
     shared_layers: Any = None
     portal_root: str = ""
     redact: Callable[[str], str] = str
-    # Notes on titles the current item's import kept as GeoLens holds them.
-    kept_titles: list[str] = field(default_factory=list)
+    # Notes on titles and visibilities the current item's import kept as
+    # GeoLens holds them.
+    kept_notes: list[str] = field(default_factory=list)
     # The GeoLens operator's user id, whose writes a rerun recognises as its own.
     operator_id: str | None = None
     # An editor migrating their own content: items stay with the operator.
@@ -374,14 +375,23 @@ def refuse_credentials(ctx: MigrationContext, fields: Mapping[str, Any]) -> None
         )
 
 
-def operator_or_nobody_wrote_last(ctx: MigrationContext, dataset: Any) -> bool:
-    """Whether *dataset*'s last writer is this run's operator or nobody.
-    GeoLens stamps the writer of every feature, column and metadata write, and
-    a fresh vector import leaves no writer."""
+def wrote_last(dataset: Any) -> str | None:
+    """The user who last wrote *dataset*, or None. GeoLens stamps the writer
+    of every feature, column and metadata write, and a fresh vector import
+    leaves no writer."""
     from .refresh import _value
 
     by = _value(getattr(dataset, "updated_by", None))
-    return by is None or str(by) == ctx.operator_id
+    return None if by is None else str(by)
+
+
+def operator_or_nobody_wrote_last(ctx: MigrationContext, dataset: Any) -> bool:
+    """Whether *dataset*'s last writer is this run's operator or nobody."""
+    return wrote_last(dataset) in (None, ctx.operator_id)
+
+
+def kept_visibility_note(dataset_id: str) -> str:
+    return f"kept the visibility dataset {dataset_id} has in GeoLens, not the plan's"
 
 
 def changed_before_handover(dataset_id: str) -> ItemFailed:

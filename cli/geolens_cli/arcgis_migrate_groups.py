@@ -712,9 +712,12 @@ def share(
     someone removed there. Nothing is removed while the item's ArcGIS groups
     weren't read. Each share is recorded as it lands.
 
+    A dataset made private in GeoLens keeps that: groups that would turn it
+    restricted aren't put on it, and that sharing is returned as owed.
+
     With *with_map* (the import) the map only gains groups; without it (a
     rerun) the map is changed only while it is as this command left it, and
-    the reasons it couldn't be are returned.
+    the reasons it couldn't be are returned too.
     """
     from geolens.api.datasets_metadata import (
         set_dataset_groups_endpoint_datasets_dataset_id_groups_put as put_dataset,
@@ -726,6 +729,7 @@ def share(
     target = item["target"]
     if "geolens_groups" not in target:
         return []
+    owed: list[str] = []
     try:
         for dataset_id in writable(ctx, entry, entry.dataset_ids):
             _leftover(
@@ -769,21 +773,37 @@ def share(
                 groups != current
                 and groups
                 and getattr(again, "visibility", None) == "private"
-                and target["visibility"] != RESTRICTED
             ):
-                raise ItemFailed(
-                    f"dataset {dataset_id} is private, and keeping groups "
-                    f"{', '.join(sorted(groups))} on it would make it restricted; "
-                    "it was left as it is. Remove those groups from it by hand"
-                )
+                if target["visibility"] != RESTRICTED:
+                    raise ItemFailed(
+                        f"dataset {dataset_id} is private, and keeping groups "
+                        f"{', '.join(sorted(groups))} on it would make it "
+                        "restricted; it was left as it is. Remove those groups "
+                        "from it by hand"
+                    )
+                if entry.visibility.get(dataset_id) != "private":
+                    # Private by an edit made in GeoLens, not by this command.
+                    owed.append(
+                        f"dataset {dataset_id} was made private in GeoLens, so it "
+                        f"wasn't shared with groups {', '.join(sorted(groups))}; "
+                        "make it restricted in GeoLens to share it"
+                    )
+                    continue
             if groups != current:
-                ctx.geolens.call(
+                put = ctx.geolens.call(
                     put_dataset.sync_detailed,
                     dataset_id=UUID(dataset_id),
                     body=DatasetGroupsUpdate(
                         group_ids=[UUID(g) for g in sorted(groups)]
                     ),
                 )
+                # The write itself moves a dataset between private and
+                # restricted, and that visibility is then this command's.
+                moved = getattr(put, "visibility", None)
+                if isinstance(moved, str) and moved != getattr(
+                    again, "visibility", None
+                ):
+                    entry.visibility[dataset_id] = moved
                 if baseline:
                     _record_share(ctx, entry, dataset_id, before)
                 if not with_map:
@@ -793,14 +813,17 @@ def share(
             ctx.save()
         map_id = entry.map_id
         if not map_id:
-            return []
+            return owed
         _leftover(ctx, item, entry, map_id, lambda: _map_groups(ctx, map_id))
         new, gone = _changes(target, entry, map_id)
         if with_map:
             if new:
                 _share_new_map(ctx, entry, map_id, new)
-            return []
-        return _merge_map(ctx, item["id"], target, entry, map_id, new, gone)
+            return owed
+        return [
+            *owed,
+            *_merge_map(ctx, item["id"], target, entry, map_id, new, gone),
+        ]
     except GeoLensError as exc:
         raise ItemFailed(f"sharing it with its GeoLens groups failed, {exc}") from None
 

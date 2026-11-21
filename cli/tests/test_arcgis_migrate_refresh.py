@@ -14,6 +14,7 @@ import pytest
 from geolens_cli import arcgis_migrate as migrate_mod
 from geolens_cli import arcgis_migrate_cutover as cutover_mod
 from geolens_cli import arcgis_migrate_refresh as refresh_mod
+from geolens_cli import arcgis_migrate_session as session_mod
 from geolens_cli.arcgis_portal import PortalError
 from geolens_cli.main import app
 
@@ -913,28 +914,109 @@ def test_a_visibility_write_geolens_refuses_as_stale_is_reported_not_recorded(
     assert entry["last_update"] == recorded
 
 
-@pytest.mark.parametrize(
-    ("recorded", "says"),
-    [("public", "was changed to internal in GeoLens"), (None, "doesn't say")],
-)
-def test_a_visibility_the_rerun_cant_attribute_is_reported_not_applied(
-    runner, plan_file, geolens, recorded, says
+@pytest.mark.parametrize("recorded", ["public", None])
+def test_a_visibility_set_in_geolens_is_kept_and_its_data_still_refreshed(
+    runner, plan_file, geolens, recorded
 ):
+    """A visibility that isn't the one this command last wrote is kept and noted once, and so is one a state file from an older CLI has no record of. The dataset's data is refreshed all the same, and the item counts as up to date."""
     _edit_plan(plan_file, (A2,))
     service = FakeImport(geolens, [_layer(0, "Parcels", has_attachments=False)])
     _migrate(runner, plan_file)
-    FakeRefresh(geolens, service).allow(PARCELS)
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
     service.fields[PARCELS]["visibility"] = "internal"
     _edit_state(plan_file, A2, visibility={PARCELS: recorded} if recorded else {})
     _set_visibility(plan_file, A2, "private")
     before = len(geolens.seen)
+    note = session_mod.kept_visibility_note(PARCELS)
 
-    result, payload = _migrate(runner, plan_file, "--cutover")
+    for run in (1, 2):
+        result, payload = _migrate(runner, plan_file)
 
-    assert result.exit_code == 1
-    assert says in payload["not_up_to_date"][A2][0]
-    assert not [s for s in geolens.seen[before:] if s.method == "PATCH"]
-    assert payload["cutover"]["refused"] == ["unfinished-items"]
+        assert result.exit_code == 0, result.output
+        assert payload["not_up_to_date"] == {}
+        assert len(refresh.bodies) == run
+        entry = _state(plan_file)["items"][A2]
+        assert entry["notes"].count(note) == 1
+        assert entry["visibility"] == ({PARCELS: recorded} if recorded else {})
+    assert service.fields[PARCELS]["visibility"] == "internal"
+    assert not [
+        s
+        for s in geolens.seen[before:]
+        if s.method == "PATCH" and "visibility" in s.json()
+    ]
+
+
+def test_a_visibility_edited_before_the_handover_survives_the_resume_and_later_runs(
+    runner, tmp_path, geolens
+):
+    """An item fails after its layer was imported, the dataset's visibility is edited in GeoLens and the plan's changes too, and the item is resumed and then run twice more. The edit survives all three, the record keeps the visibility the import gave rather than the plan's, and the later runs still refresh the data."""
+    plan_file, service = layers._fail_after_the_import(runner, tmp_path, geolens)
+    layers._edit_in_geolens(service, visibility="internal")
+    layers._set_plan_target(plan_file, visibility="private")
+    assert layers._resume(runner, plan_file, service, geolens)[0].exit_code == 0
+    geolens.routes[layers.PROBE] = service.probe
+    refresh = FakeRefresh(geolens, service).allow(PARCELS)
+
+    for run in (1, 2):
+        result, payload = _migrate(runner, plan_file, "--only", A2)
+
+        assert result.exit_code == 0, result.output
+        assert payload["not_up_to_date"] == {}
+        assert len(refresh.bodies) == run
+        assert service.fields[PARCELS]["visibility"] == "internal"
+    entry = _state(plan_file)["items"][A2]
+    assert entry["visibility"] == {PARCELS: "public"}
+    assert entry["notes"].count(session_mod.kept_visibility_note(PARCELS)) == 1
+
+
+def test_a_reused_title_edited_after_its_adoption_survives_the_retry_and_later_runs(
+    runner, tmp_path, geolens
+):
+    """A dataset GeoLens already held gets the plan's title at its adoption, the item fails, and the title is edited in GeoLens. The retry and the two runs after it, each of which writes the item's metadata again, keep the edit."""
+    plan_file, service, earlier, mend = layers._adopt_then_fail(
+        runner, tmp_path, geolens
+    )
+    layers._edit_in_geolens(service, earlier, title="Parcels, edited")
+    mend()
+    refresh = FakeRefresh(geolens, service).allow(earlier)
+
+    for _ in range(3):
+        result, payload = _migrate(runner, plan_file, "--only", A2)
+
+        assert result.exit_code == 0, result.output
+        assert payload["not_up_to_date"] == {}
+        assert service.fields[earlier]["title"] == "Parcels, edited"
+    assert len(refresh.bodies) == 2
+
+
+def test_metadata_edited_before_its_first_write_survives_the_rerun_and_later_runs(
+    runner, tmp_path, geolens
+):
+    """A pass that stops on a sibling layer leaves the imported dataset without its first metadata write. Attribution and license edited in GeoLens before the rerun are kept and noted by that first write and by the two runs after it, while the sibling nobody edited takes the portal's."""
+    plan_file = _write_plan(tmp_path, rows={A2: layers.ITEM_TEXT})
+    service = FakeImport(geolens, [_layer(0, "Parcels"), _layer(1, "Owners")])
+    owners = dataset_id("Owners")
+    service.job_errors["Owners"] = "boom"
+    assert _migrate(runner, plan_file, "--only", A2)[0].exit_code == 1
+    assert _state(plan_file)["items"][A2]["metadata_baseline"] == {}
+    layers._edit_in_geolens(service, attribution="City surveyor", license="ODbL")
+    del service.job_errors["Owners"]
+    refresh = FakeRefresh(geolens, service).allow(PARCELS, owners)
+
+    for _ in range(3):
+        result, payload = _migrate(runner, plan_file, "--only", A2)
+
+        assert result.exit_code == 0, result.output
+        assert payload["not_up_to_date"] == {}
+        fields = service.fields[PARCELS]
+        assert (fields["attribution"], fields["license"]) == ("City surveyor", "ODbL")
+    assert len(refresh.bodies) == 4
+    notes = _state(plan_file)["items"][A2]["notes"]
+    for name in ("attribution", "license"):
+        kept = f"kept the {name} edited in GeoLens on dataset {PARCELS}"
+        assert notes.count(kept) == 1
+    assert service.fields[owners]["attribution"] == "Example County GIS"
+    assert service.fields[owners]["license"] == "CC BY 4.0"
 
 
 def test_a_data_file_is_downloaded_again_and_replaced(

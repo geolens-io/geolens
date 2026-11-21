@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+- `geolens arcgis migrate` no longer overwrites a dataset visibility you changed in GeoLens when it reruns an item that stopped before its handover, for service and file items. The state file records the visibility each import or later write gave a dataset; any other was set in GeoLens and is kept and noted, as an edited title is. Later refreshes keep it too and still refresh the data, where they used to list the item as not up to date and skip the refresh, so a kept visibility no longer holds back `--cutover`. Sharing doesn't undo it either: a dataset made private in GeoLens isn't given a restricted item's groups, and each run lists that sharing as owed. A dataset GeoLens already held takes the plan's title and visibility when it is first adopted, and keeps a title or visibility edited after that. The first metadata write on a dataset fills only empty fields, so an attribution, license or organization set in GeoLens before it is kept and noted. Where the state file has no record, from an older CLI, a visibility that differs from the plan's is kept.
+
 ## [1.33.0] - 2026-11-19
 
 1.33.0 adds no migrations, so instances still on 1.32.0 keep serving through a

@@ -29,6 +29,8 @@ from .arcgis_layer_properties import (
     label_for,
 )
 from .arcgis_migrate_session import (
+    kept_visibility_note,
+    wrote_last,
     GeoLensError,
     ItemFailed,
     ItemResult,
@@ -386,9 +388,10 @@ def _import_layer(
             ) from None
         if existing is None:
             raise ItemFailed(f"{title}: preview failed, {exc}") from None
-        if existing not in entry.reused:
+        adopt = existing not in entry.reused
+        if adopt:
             entry.reused.append(existing)
-        _apply_target(ctx, entry, existing, title_visibility)
+        _apply_target(ctx, entry, existing, title_visibility, adopt=adopt)
         entry.layer_datasets[key] = existing
         return True
     # Recorded before the commit is sent: if its answer is lost, a rerun
@@ -398,7 +401,7 @@ def _import_layer(
     ctx.save()
     _commit(ctx, row, probe, previewed.job_id, title_visibility)
     dataset = _wait_for_dataset(ctx, previewed.job_id, title)
-    _record_title(entry, dataset, title)
+    _record_target(entry, dataset, title, visibility)
     entry.layer_datasets[key] = dataset
     del entry.layer_jobs[key]
     return False
@@ -586,11 +589,15 @@ def _item_link(ctx: MigrationContext, item_id: str) -> dict[str, str]:
     return {"item_id": item_id, "portal_url": ctx.portal_root}
 
 
-def _record_title(entry: ItemState, dataset: str, title: str) -> None:
-    """Record *title* as the one this command gave *dataset*; a reused
-    dataset's title is left to ``_apply_target`` as before."""
-    if dataset not in entry.reused:
+def _record_target(
+    entry: ItemState, dataset: str, title: str | None, visibility: str | None
+) -> None:
+    """Record *title* and *visibility* as the ones this command gave
+    *dataset*; None leaves that record as it is."""
+    if title is not None:
         entry.title_baseline[dataset] = {"title": _nfc(title)}
+    if visibility is not None:
+        entry.visibility[dataset] = visibility
 
 
 def _nfc(text: str) -> str:
@@ -598,7 +605,12 @@ def _nfc(text: str) -> str:
 
 
 def _apply_target(
-    ctx: MigrationContext, entry: ItemState, dataset: str, target: Any
+    ctx: MigrationContext,
+    entry: ItemState,
+    dataset: str,
+    target: Any,
+    *,
+    adopt: bool = False,
 ) -> None:
     """Give a dataset GeoLens already held the plan's title and visibility,
     which a fresh import would have received at commit. A dataset an earlier
@@ -606,11 +618,16 @@ def _apply_target(
 
     One this command imported is refused when somebody else wrote it last, so
     this write doesn't make their edit the operator's. A reused dataset
-    predates the migration, and its owner's edits are taken as they are.
+    predates the migration, and *adopt*, its first adoption, takes what it
+    holds then as its owner's from before: that is recorded before the write,
+    so a retry after a refused write still replaces it.
 
-    Otherwise the plan's title is written only over the one
-    ``entry.title_baseline`` records: any other title was set in GeoLens,
-    whoever by, and is kept, and noted when it differs from the plan's.
+    Otherwise each of the two is written only over the value this command
+    last gave it (``entry.title_baseline``, ``entry.visibility``): any other
+    was set in GeoLens, whoever by, and is kept, and noted when it differs
+    from the plan's. A visibility that already equals the plan's counts as
+    this command's, and so does the one a dataset nobody has written since
+    its import holds.
     """
     if dataset in entry.last_update or not writable(ctx, entry, [dataset]):
         return
@@ -622,27 +639,47 @@ def _apply_target(
 
     try:
         read = ctx.geolens.call(get.sync_detailed, dataset_id=UUID(dataset))
-        reused = dataset in entry.reused
-        if not reused and not operator_or_nobody_wrote_last(ctx, read):
+        if dataset not in entry.reused and not operator_or_nobody_wrote_last(ctx, read):
             raise changed_before_handover(dataset)
         held = _nfc(read.title)
-        ours = reused or held == entry.title_baseline.get(dataset, {}).get("title")
-        ctx.geolens.write(
-            patch_dataset.sync_detailed,
-            during=f"the plan's title and visibility were written to dataset {dataset}",
-            dataset_id=UUID(dataset),
-            body=DatasetMeta(
-                **({"title": target.title} if ours else {}),
-                visibility=target.visibility,
-                expected_updated_at=read.updated_at,
-            ),
+        shown = getattr(read.visibility, "value", read.visibility)
+        if adopt:
+            _record_target(entry, dataset, held, shown)
+        elif dataset not in entry.reused and wrote_last(read) is None:
+            # Nobody has written it since its import, so it still holds the
+            # visibility the import gave it, which a fan-out doesn't take.
+            entry.visibility.setdefault(dataset, shown)
+        ours = held == entry.title_baseline.get(dataset, {}).get("title")
+        ours_visibility = shown in (entry.visibility.get(dataset), target.visibility)
+        if ours or ours_visibility:
+            ctx.geolens.write(
+                patch_dataset.sync_detailed,
+                during=(
+                    f"the plan's title and visibility were written to dataset {dataset}"
+                ),
+                dataset_id=UUID(dataset),
+                body=DatasetMeta(
+                    **({"title": target.title} if ours else {}),
+                    **({"visibility": target.visibility} if ours_visibility else {}),
+                    expected_updated_at=read.updated_at,
+                ),
+            )
+        _record_target(
+            entry,
+            dataset,
+            target.title if ours else None,
+            target.visibility if ours_visibility else None,
         )
-        if ours:
-            _record_title(entry, dataset, target.title)
-        elif held != _nfc(target.title):
+        kept = []
+        if not ours and held != _nfc(target.title):
             entry.title_baseline.setdefault(dataset, {})
-            note = f"kept the title dataset {dataset} has in GeoLens, not the plan's"
-            ctx.kept_titles.append(note)
+            kept.append(
+                f"kept the title dataset {dataset} has in GeoLens, not the plan's"
+            )
+        if not ours_visibility:
+            kept.append(kept_visibility_note(dataset))
+        for note in kept:
+            ctx.kept_notes.append(note)
             # Saved with the item even when a later step fails.
             if note not in entry.notes:
                 entry.notes.append(note)

@@ -27,7 +27,7 @@ from .arcgis_migrate_layers import (
     _apply_target,
     _commit_body,
     _item_link,
-    _record_title,
+    _record_target,
     _title,
     _wait_for_dataset,
 )
@@ -373,7 +373,7 @@ def _wait_for_layers(
             entry.layer_datasets[name] = dataset
             # Titles sent by this process only: the stored ones may be masked.
             if sent and _layer_name(name) in sent:
-                _record_title(entry, dataset, sent[_layer_name(name)])
+                _record_target(entry, dataset, sent[_layer_name(name)], None)
             else:
                 entry.title_baseline[dataset] = {}
         except _JobEnded as exc:
@@ -553,7 +553,7 @@ def import_file(
         notes.append("no geometry column found; imported as a table")
     _commit(ctx, job_id, base, visibility, {**columns, **link})
     dataset = _wait_for_dataset(ctx, job_id, base)
-    _record_title(entry, dataset, base)
+    _record_target(entry, dataset, base, visibility)
     del entry.layer_jobs[JOB_KEY]
     return _pinned(entry, dataset, notes)
 
