@@ -50,6 +50,7 @@ from app.processing.ingest.publish_followups import (
     note_publish_followups,
     run_publish_followups,
 )
+from app.processing.ingest.manifest_dataset_fields import apply_dataset_fields
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
@@ -428,6 +429,7 @@ async def ingest_raster(
             # The manifest's credit line, for both branches: neither
             # create_*_dataset takes the field.
             await apply_manifest_record_metadata(session, record, um)
+            await apply_dataset_fields(session, job, dataset, um)
 
             # 9b. Set temporal fields on Record.
             parsed_start, parsed_end, temporal_errors = _parse_temporal_fields(

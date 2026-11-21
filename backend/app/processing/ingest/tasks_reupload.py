@@ -63,6 +63,7 @@ from app.processing.ingest.publication import (
     settle_replacement,
     settle_timed_out_execution,
 )
+from app.processing.ingest.manifest_dataset_fields import apply_fields_for_job
 from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
@@ -939,6 +940,9 @@ class _FileReupload(_LiveComparison):
         )
         await apply_manifest_publication(
             session, dataset, self.user_metadata, actor_id=uuid.UUID(self.user_id)
+        )
+        await apply_fields_for_job(
+            session, uuid.UUID(self.job_id), dataset, self.user_metadata
         )
 
     def classify(self, exc: BaseException) -> Failure:

@@ -44,6 +44,21 @@ describe('IngestWarningsBanner', () => {
     expect(screen.getByText('4 features lost their Z or M values')).toBeVisible();
   });
 
+  it('leaves out the warnings a publish manifest reports to its client', () => {
+    const { container } = render(
+      <IngestWarningsBanner
+        job={{
+          ...job([]),
+          warnings: [
+            { kind: 'manifest_attribute_unmatched', details: { source_names: ['A'] } },
+            { kind: 'manifest_collection_refused', details: { collection_id: 'c' } },
+          ],
+        }}
+      />,
+    );
+    expect(container).toBeEmptyDOMElement();
+  });
+
   it('renders nothing when the job has no warnings', () => {
     const { container } = render(<IngestWarningsBanner job={job([])} />);
     expect(container).toBeEmptyDOMElement();

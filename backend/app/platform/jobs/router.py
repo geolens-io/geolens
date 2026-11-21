@@ -9,7 +9,7 @@ import uuid
 from collections.abc import Sequence
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Literal, cast
+from typing import Any, Literal, cast
 
 import structlog
 from fastapi import APIRouter, Depends, HTTPException, Request, status
@@ -52,6 +52,8 @@ from app.platform.jobs.schemas import (
     MercatorClipWarning,
     ReservedRenameWarning,
     StaleCleanupResponse,
+    ManifestAttributeUnmatchedWarning,
+    ManifestCollectionRefusedWarning,
     ZmDroppedWarning,
 )
 from app.platform.refresh.job_runs import latest_runs_for_jobs, stored_review_reasons
@@ -658,6 +660,16 @@ def _redacted_job_status(job: IngestJob) -> JobStatusResponse:
     )
 
 
+_WARNING_MODELS: dict[object, Any] = {
+    "reserved_rename": ReservedRenameWarning,
+    "dbf_truncation_collision": DbfTruncationCollisionWarning,
+    "mercator_clip": MercatorClipWarning,
+    "zm_dropped": ZmDroppedWarning,
+    "manifest_collection_refused": ManifestCollectionRefusedWarning,
+    "manifest_attribute_unmatched": ManifestAttributeUnmatchedWarning,
+}
+
+
 async def _job_to_status_response(
     job: IngestJob, *, include_detail: bool
 ) -> JobStatusResponse:
@@ -688,6 +700,8 @@ async def _job_to_status_response(
         | DbfTruncationCollisionWarning
         | MercatorClipWarning
         | ZmDroppedWarning
+        | ManifestCollectionRefusedWarning
+        | ManifestAttributeUnmatchedWarning
     ] = []
     archive_failed = False
     temporal_parse_errors: dict[TemporalParseKey, str] = {}
@@ -700,16 +714,9 @@ async def _job_to_status_response(
                     continue
                 kind = raw.get("kind")
                 try:
-                    if kind == "reserved_rename":
-                        warnings.append(ReservedRenameWarning.model_validate(raw))
-                    elif kind == "dbf_truncation_collision":
-                        warnings.append(
-                            DbfTruncationCollisionWarning.model_validate(raw)
-                        )
-                    elif kind == "mercator_clip":
-                        warnings.append(MercatorClipWarning.model_validate(raw))
-                    elif kind == "zm_dropped":
-                        warnings.append(ZmDroppedWarning.model_validate(raw))
+                    model = _WARNING_MODELS.get(kind)
+                    if model is not None:
+                        warnings.append(model.model_validate(raw))
                     else:
                         logger.warning(
                             "Dropping ingest warning with unknown kind",

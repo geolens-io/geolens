@@ -91,11 +91,45 @@ class ZmDroppedWarning(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ManifestCollectionRefusedDetail(BaseModel):
+    """The collection a manifest asked for and the submitter could not add to."""
+
+    collection_id: str
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestCollectionRefusedWarning(BaseModel):
+    """Publish manifest code A033: the dataset was published without its collection."""
+
+    kind: Literal["manifest_collection_refused"]
+    details: ManifestCollectionRefusedDetail
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestAttributeUnmatchedDetail(BaseModel):
+    source_names: list[str]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestAttributeUnmatchedWarning(BaseModel):
+    """Publish manifest code A092: these attribute names matched no column."""
+
+    kind: Literal["manifest_attribute_unmatched"]
+    details: ManifestAttributeUnmatchedDetail
+
+    model_config = ConfigDict(extra="forbid")
+
+
 IngestJobWarning = Annotated[
     ReservedRenameWarning
     | DbfTruncationCollisionWarning
     | MercatorClipWarning
-    | ZmDroppedWarning,
+    | ZmDroppedWarning
+    | ManifestCollectionRefusedWarning
+    | ManifestAttributeUnmatchedWarning,
     Field(discriminator="kind"),
 ]
 

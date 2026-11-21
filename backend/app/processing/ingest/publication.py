@@ -24,7 +24,6 @@ from sqlalchemy.orm import joinedload
 
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.failure_reason import FixedReason
-from app.core.identity import IdentityRole, IdentitySnapshot
 from app.platform.catalog_locks import (
     CatalogLockConflict,
     bump_tile_cache_version_on,
@@ -55,6 +54,10 @@ from app.platform.refresh.service import (
     claim_run_for_job,
     record_refresh_failure,
     record_refresh_success,
+)
+from app.processing.ingest.manifest_dataset_fields import (
+    load_submitter,
+    record_manifest_tile_cache_version,
 )
 from app.processing.ingest.publish_followups import (
     owed_followups,
@@ -555,6 +558,7 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         published = await strategy.write(session, dataset)
         if published.tiles_changed:
             await bump_tile_cache_version_on(session, dataset)
+        record_manifest_tile_cache_version(job, dataset)
         values = dict(published.job_values or {})
         values["user_metadata"] = owed_followups(
             attempt_id,
@@ -591,15 +595,6 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
     return False
 
 
-# In SQL, since processing may not import the auth models.
-_SUBMITTER = text(
-    "SELECT u.id, u.username, u.email, u.is_active, u.created_at, "
-    "ARRAY(SELECT r.name FROM catalog.user_roles ur "
-    "JOIN catalog.roles r ON r.id = ur.role_id WHERE ur.user_id = u.id) AS roles "
-    "FROM catalog.users u WHERE u.id = :uid"
-)
-
-
 async def require_submitter_can_write(
     session: AsyncSession, dataset: Any, job: IngestJob, *, capability: str | None
 ) -> None:
@@ -616,19 +611,9 @@ async def require_submitter_can_write(
 
     from app.platform.extensions import get_permission_extension, get_processing_port
 
-    row = None
-    if job.created_by is not None:
-        row = (await session.execute(_SUBMITTER, {"uid": job.created_by})).first()
-    if row is None or not row.is_active:
+    submitter = await load_submitter(session, job.created_by)
+    if submitter is None:
         raise WriteAccessRevoked
-    submitter = IdentitySnapshot(
-        id=row.id,
-        username=row.username,
-        email=row.email,
-        is_active=row.is_active,
-        roles=tuple(IdentityRole(name) for name in row.roles),
-        created_at=row.created_at,
-    )
     await session.refresh(
         dataset.record, attribute_names=["created_by", "visibility", "record_status"]
     )
@@ -643,10 +628,12 @@ async def require_submitter_can_write(
     except HTTPException:
         raise WriteAccessRevoked from None
     if capability is not None and not await get_permission_extension().check_permission(
-        session, submitter, capability, user_roles=set(row.roles)
+        session, submitter, capability, user_roles={r.name for r in submitter.roles}
     ):
         raise WriteAccessRevoked
-    if await _no_longer_admin_to_publish(session, job, set(row.roles)):
+    if await _no_longer_admin_to_publish(
+        session, job, {r.name for r in submitter.roles}
+    ):
         raise WriteAccessRevoked
 
 

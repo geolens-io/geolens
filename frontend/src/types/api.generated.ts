@@ -12365,7 +12365,7 @@ export interface components {
             /** Error Code */
             error_code?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"])[];
             /**
              * Can Retry
              * @default false
@@ -12417,7 +12417,7 @@ export interface components {
             /** Warning Message */
             warning_message?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"])[];
             /** Progress */
             progress?: number | null;
             /** Current Step */
@@ -12731,6 +12731,11 @@ export interface components {
             message: string;
             /** Errors */
             errors?: string[];
+            /**
+             * Messages
+             * @description Coded messages for the entry. Left out in manifest version 1.
+             */
+            messages?: components["schemas"]["ManifestMessage"][] | null;
         };
         /** ManifestApplyRequest */
         ManifestApplyRequest: {
@@ -12750,6 +12755,11 @@ export interface components {
             dry_run: boolean;
             /** @description The publishing client. Required in version 2, refused in 1. */
             client?: components["schemas"]["ManifestClient"] | null;
+            /**
+             * Public Fallback
+             * @description Version 2 only. When public visibility is refused for an entry, write it as internal with warning A020 instead of failing it.
+             */
+            public_fallback?: "internal" | null;
         };
         /** ManifestApplyResponse */
         ManifestApplyResponse: {
@@ -12759,6 +12769,37 @@ export interface components {
             dry_run: boolean;
             /** Results */
             results: components["schemas"]["ManifestApplyEntryResult"][];
+        };
+        /**
+         * ManifestAttribute
+         * @description Per-column text for the column named ``source_name`` in the uploaded file.
+         */
+        ManifestAttribute: {
+            /** Source Name */
+            source_name: string;
+            /** Title */
+            title?: string | null;
+            /** Description */
+            description?: string | null;
+            /** Units */
+            units?: string | null;
+        };
+        /** ManifestAttributeUnmatchedDetail */
+        ManifestAttributeUnmatchedDetail: {
+            /** Source Names */
+            source_names: string[];
+        };
+        /**
+         * ManifestAttributeUnmatchedWarning
+         * @description Publish manifest code A092: these attribute names matched no column.
+         */
+        ManifestAttributeUnmatchedWarning: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "manifest_attribute_unmatched";
+            details: components["schemas"]["ManifestAttributeUnmatchedDetail"];
         };
         /** ManifestCatalog */
         ManifestCatalog: {
@@ -12784,6 +12825,36 @@ export interface components {
             /** Project */
             project?: string | null;
         };
+        /**
+         * ManifestCollectionRef
+         * @description A collection by id, or by name, which apply creates when the caller may.
+         */
+        ManifestCollectionRef: {
+            /** Id */
+            id?: string | null;
+            /** Name */
+            name?: string | null;
+        };
+        /**
+         * ManifestCollectionRefusedDetail
+         * @description The collection a manifest asked for and the submitter could not add to.
+         */
+        ManifestCollectionRefusedDetail: {
+            /** Collection Id */
+            collection_id: string;
+        };
+        /**
+         * ManifestCollectionRefusedWarning
+         * @description Publish manifest code A033: the dataset was published without its collection.
+         */
+        ManifestCollectionRefusedWarning: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "manifest_collection_refused";
+            details: components["schemas"]["ManifestCollectionRefusedDetail"];
+        };
         /** ManifestContact */
         ManifestContact: {
             /** Name */
@@ -12808,6 +12879,35 @@ export interface components {
             sources: components["schemas"]["ManifestSource"][];
             metadata?: components["schemas"]["ManifestMetadata"] | null;
             publication: components["schemas"]["ManifestPublication"];
+            /**
+             * Visibility
+             * @description Who can see the dataset. Version 2 only. Omitted on create the dataset is private; omitted on update the current level is kept.
+             */
+            visibility?: ("private" | "internal" | "public") | null;
+            /** @description Collection to add the dataset to. Version 2 only. Adding needs the manage_collections permission and ownership of the collection; otherwise the entry carries warning A033. */
+            collection?: components["schemas"]["ManifestCollectionRef"] | null;
+            /**
+             * Attributes
+             * @description Per-column title, description and units, by column name in the uploaded file. Version 2 only. A null field keeps the stored text; a name matching no column is warning A092.
+             */
+            attributes?: components["schemas"]["ManifestAttribute"][] | null;
+        };
+        /** ManifestMessage */
+        ManifestMessage: {
+            /**
+             * Code
+             * @description Stable code, for example `A020`.
+             */
+            code: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "error" | "warning" | "info";
+            /** Message */
+            message: string;
+            /** Fix */
+            fix?: string | null;
         };
         /** ManifestMetadata */
         ManifestMetadata: {

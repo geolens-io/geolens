@@ -230,6 +230,7 @@ PUBLIC_METADATA_KEYS = frozenset(
         "manifest_license",
         "manifest_attribution",
         "manifest_bbox",
+        "manifest_collection_id",
         # The outcome.
         "warnings",
         "origin_link_loss",

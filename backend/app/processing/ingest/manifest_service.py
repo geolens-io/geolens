@@ -49,6 +49,10 @@ from app.platform.jobs.models import (
     MANIFEST_FINGERPRINT_METADATA_KEY,
     IngestJob,
 )
+from app.processing.ingest.manifest_dataset_fields import (
+    ManifestEntryFields,
+    resolve_entry_collection,
+)
 from app.processing.ingest.manifest_reservation import (
     RESERVATION_LOST_MESSAGE,
     bind_reservation_to_staged_source,
@@ -573,6 +577,7 @@ async def _classify_dataset(
     user: Identity,
     *,
     dry_run: bool = False,
+    fields: ManifestEntryFields | None = None,
 ) -> tuple[str, ManifestPreparedSource | None, IngestJob | None, object | None, str]:
     fingerprint = manifest_dataset_fingerprint(dataset)
     if not dataset.sources:
@@ -590,15 +595,23 @@ async def _classify_dataset(
     )
     if crs_refusal:
         raise ManifestSourceError(crs_refusal)
-    # An intent resolving to public goes through the same admin gate as every
+    # A public visibility goes through the same admin gate as every
     # visibility-accepting API mutation, raising 403 for a non-admin when
     # restrict_public_visibility is on. Checked before staging so dry_run
-    # reports it too. Local import: processing/ must not import
+    # reports it too. Version 2 gates the entry's own visibility, version 1
+    # the one its intent implies. Local import: processing/ must not import
     # app.modules.catalog.* at module level.
     from app.modules.catalog.authorization import check_public_visibility_allowed
 
-    intent_visibility, _ = publication_to_catalog_fields(dataset.publication)
-    await check_public_visibility_allowed(db, user, intent_visibility)
+    visibility, _ = publication_to_catalog_fields(dataset.publication)
+    try:
+        await check_public_visibility_allowed(
+            db, user, visibility if fields is None else dataset.visibility
+        )
+    except HTTPException as exc:
+        if fields is None or exc.status_code != 403:
+            raise
+        fields.downgrade_or_refuse(dataset)
     prepared = await prepare_manifest_source(db, dataset, user)
     await _validate_prepared_source(db, prepared)
     await _authorize_prepared_source(db, prepared, user)
@@ -777,6 +790,7 @@ async def _reserve_entry(
     *,
     dataset_id: uuid.UUID | None,
     quota: _ManifestQuotaReservation,
+    fields: ManifestEntryFields | None = None,
 ) -> _ReservedEntry:
     """Commit this key's claim, and everything staging needs, in one transaction.
 
@@ -793,7 +807,9 @@ async def _reserve_entry(
     max_size_bytes = await _upload_max_size_bytes(db)
 
     metadata: dict[str, object] = {
-        **manifest_job_metadata(dataset, prepared, fingerprint=fingerprint),
+        **manifest_job_metadata(
+            dataset, prepared, fingerprint=fingerprint, fields=fields
+        ),
         **downloading_stage_marker(),
     }
     if dataset_id is not None:
@@ -1109,6 +1125,7 @@ def _error_result(dataset: ManifestDataset, exc: Exception) -> ManifestApplyEntr
         action="error",
         message=message,
         errors=[message],
+        messages=getattr(exc, "messages", None),
     )
 
 
@@ -1131,6 +1148,7 @@ async def _reserve_or_settle_entry(
     user: Identity,
     dataset: ManifestDataset,
     quota: _ManifestQuotaReservation,
+    fields: ManifestEntryFields | None = None,
 ) -> ManifestApplyEntryResult | _ReservedEntry:
     """The locked half of one entry: classify, then either answer or reserve.
 
@@ -1143,7 +1161,9 @@ async def _reserve_or_settle_entry(
         job,
         existing_dataset,
         fingerprint,
-    ) = await _classify_dataset(db, dataset, user, dry_run=request.dry_run)
+    ) = await _classify_dataset(
+        db, dataset, user, dry_run=request.dry_run, fields=fields
+    )
     if prepared is None:
         raise ManifestSourceError("Manifest source could not be prepared")
 
@@ -1178,8 +1198,14 @@ async def _reserve_or_settle_entry(
         _validate_existing_dataset_update(existing_dataset, prepared)
         _refuse_publish_key_remote_origin(db, existing_dataset)
         update_dataset_id = existing_dataset.id
+        if request.dry_run and fields is not None:
+            fields.note_edits_since_publish(dataset, job, existing_dataset)
 
     refuse_used_upload(prepared)
+    if fields is not None:
+        await resolve_entry_collection(
+            db, dataset, user, fields, dry_run=request.dry_run
+        )
     if request.dry_run:
         # A preview reserves nothing, so the key is left exactly as this entry
         # found it.
@@ -1213,6 +1239,7 @@ async def _reserve_or_settle_entry(
         user,
         dataset_id=update_dataset_id,
         quota=quota,
+        fields=fields,
     )
 
 
@@ -1224,12 +1251,17 @@ async def _run_entry(
     http_request: Request,
     quota: _ManifestQuotaReservation,
 ) -> ManifestApplyEntryResult:
-    outcome = await _reserve_or_settle_entry(db, request, user, dataset, quota)
+    fields = ManifestEntryFields.of(request, dataset)
+    outcome = await _reserve_or_settle_entry(db, request, user, dataset, quota, fields)
     if isinstance(outcome, ManifestApplyEntryResult):
-        return outcome
-    return await _finalize_reserved_entry(
-        db, outcome, dataset, user, http_request, quota
-    )
+        result = outcome
+    else:
+        result = await _finalize_reserved_entry(
+            db, outcome, dataset, user, http_request, quota
+        )
+    if fields is not None:
+        fields.report_on(result)
+    return result
 
 
 async def apply_manifest(
@@ -1269,6 +1301,8 @@ async def apply_manifest(
             await db.rollback()
             results.append(_error_result(dataset, exc))
 
+    for result in results if request.manifest_version == "2" else ():
+        result.messages = result.messages or []
     return ManifestApplyResponse(
         accepted=any(result.action != "error" for result in results),
         dry_run=request.dry_run,

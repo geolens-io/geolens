@@ -7475,7 +7475,7 @@ export type JobStatusBatchEntry = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning | ManifestCollectionRefusedWarning | ManifestAttributeUnmatchedWarning>;
     /**
      * Can Retry
      */
@@ -7553,7 +7553,7 @@ export type JobStatusResponse = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning | ManifestCollectionRefusedWarning | ManifestAttributeUnmatchedWarning>;
     /**
      * Progress
      */
@@ -7964,6 +7964,12 @@ export type ManifestApplyEntryResult = {
      * Errors
      */
     errors?: Array<string>;
+    /**
+     * Messages
+     *
+     * Coded messages for the entry. Left out in manifest version 1.
+     */
+    messages?: Array<ManifestMessage> | null;
 };
 
 /**
@@ -7989,6 +7995,12 @@ export type ManifestApplyRequest = {
      * The publishing client. Required in version 2, refused in 1.
      */
     client?: ManifestClient | null;
+    /**
+     * Public Fallback
+     *
+     * Version 2 only. When public visibility is refused for an entry, write it as internal with warning A020 instead of failing it.
+     */
+    public_fallback?: 'internal' | null;
 };
 
 /**
@@ -8007,6 +8019,53 @@ export type ManifestApplyResponse = {
      * Results
      */
     results: Array<ManifestApplyEntryResult>;
+};
+
+/**
+ * ManifestAttribute
+ *
+ * Per-column text for the column named ``source_name`` in the uploaded file.
+ */
+export type ManifestAttribute = {
+    /**
+     * Source Name
+     */
+    source_name: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Units
+     */
+    units?: string | null;
+};
+
+/**
+ * ManifestAttributeUnmatchedDetail
+ */
+export type ManifestAttributeUnmatchedDetail = {
+    /**
+     * Source Names
+     */
+    source_names: Array<string>;
+};
+
+/**
+ * ManifestAttributeUnmatchedWarning
+ *
+ * Publish manifest code A092: these attribute names matched no column.
+ */
+export type ManifestAttributeUnmatchedWarning = {
+    /**
+     * Kind
+     */
+    kind: 'manifest_attribute_unmatched';
+    details: ManifestAttributeUnmatchedDetail;
 };
 
 /**
@@ -8053,6 +8112,47 @@ export type ManifestClient = {
 };
 
 /**
+ * ManifestCollectionRef
+ *
+ * A collection by id, or by name, which apply creates when the caller may.
+ */
+export type ManifestCollectionRef = {
+    /**
+     * Id
+     */
+    id?: string | null;
+    /**
+     * Name
+     */
+    name?: string | null;
+};
+
+/**
+ * ManifestCollectionRefusedDetail
+ *
+ * The collection a manifest asked for and the submitter could not add to.
+ */
+export type ManifestCollectionRefusedDetail = {
+    /**
+     * Collection Id
+     */
+    collection_id: string;
+};
+
+/**
+ * ManifestCollectionRefusedWarning
+ *
+ * Publish manifest code A033: the dataset was published without its collection.
+ */
+export type ManifestCollectionRefusedWarning = {
+    /**
+     * Kind
+     */
+    kind: 'manifest_collection_refused';
+    details: ManifestCollectionRefusedDetail;
+};
+
+/**
  * ManifestContact
  */
 export type ManifestContact = {
@@ -8096,6 +8196,46 @@ export type ManifestDataset = {
     ];
     metadata?: ManifestMetadata | null;
     publication: ManifestPublication;
+    /**
+     * Visibility
+     *
+     * Who can see the dataset. Version 2 only. Omitted on create the dataset is private; omitted on update the current level is kept.
+     */
+    visibility?: 'private' | 'internal' | 'public' | null;
+    /**
+     * Collection to add the dataset to. Version 2 only. Adding needs the manage_collections permission and ownership of the collection; otherwise the entry carries warning A033.
+     */
+    collection?: ManifestCollectionRef | null;
+    /**
+     * Attributes
+     *
+     * Per-column title, description and units, by column name in the uploaded file. Version 2 only. A null field keeps the stored text; a name matching no column is warning A092.
+     */
+    attributes?: Array<ManifestAttribute> | null;
+};
+
+/**
+ * ManifestMessage
+ */
+export type ManifestMessage = {
+    /**
+     * Code
+     *
+     * Stable code, for example `A020`.
+     */
+    code: string;
+    /**
+     * Severity
+     */
+    severity: 'error' | 'warning' | 'info';
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Fix
+     */
+    fix?: string | null;
 };
 
 /**

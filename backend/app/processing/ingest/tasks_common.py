@@ -847,6 +847,7 @@ async def _finalize_ingest(ctx: IngestContext):
     for field descriptions. Returns the created Dataset ORM instance.
     """
     from app.platform.extensions import get_processing_port
+    from app.processing.ingest.manifest_dataset_fields import apply_dataset_fields
     from app.processing.ingest.metadata_attributes import apply_source_field_labels
     from app.processing.ingest.metadata import compute_quality_score
     from app.processing.ingest.tasks_staging import _run_staging_pipeline
@@ -913,6 +914,7 @@ async def _finalize_ingest(ctx: IngestContext):
     # The manifest's catalog metadata, which create_dataset has no argument
     # for, in the same transaction as the record it annotates.
     await apply_manifest_record_metadata(session, dataset.record, user_metadata)
+    await apply_dataset_fields(session, job, dataset, user_metadata)
 
     # System-managed origin pointer, in the same transaction that creates the
     # dataset. Service ingest supplies the enriched URL through ctx.source_url;
