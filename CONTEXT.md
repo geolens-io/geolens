@@ -93,7 +93,7 @@ _Avoid_: Team, role, layer group (layers grouped inside a map).
 
 **Restricted**: The visibility of a dataset, map or story that only its owner, admins and members of the groups it is shared with can see. A dataset can be restricted with no group left, which leaves only its owner and admins; a map or story left with no group becomes private.
 
-**Record status**: Whether a dataset's catalog record is a draft or published. Anonymous readers get a dataset only when it is public and its record is published, and an internal dataset reaches other signed-in users only when it is published.
+**Record status**: Whether a dataset's catalog record is a draft or published. Anonymous readers get a dataset only when it is public and its record is published, and an internal dataset reaches signed-in users other than its owner and admins only when it is published.
 _Avoid_: Draft or publish on their own (a story's), status (a job's).
 
 **Story**: An ordered list of chapters told over saved maps. It has its own owner and visibility, and it can't be published more widely than any map it uses can be read.
