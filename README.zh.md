@@ -8,12 +8,12 @@
 <h1 align="center">GeoLens</h1>
 
 <p align="center">
-  <b>自托管的空间数据目录与地图构建器，记录每个数据集的来源。</b>
+  <b>开源、自托管的 ArcGIS Online 替代方案：一个带有地图、故事和仪表板的空间数据目录。</b>
 </p>
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><b>在线演示</b></a> ·
-  <a href="#安装">安装</a> ·
+  <a href="#快速开始">快速开始</a> ·
   <a href="https://docs.getgeolens.com">文档</a> ·
   <a href="#在任何地方使用数据">连接 QGIS 或代码</a> ·
   <a href="https://github.com/geolens-io/geolens/discussions">讨论区</a>
@@ -42,9 +42,21 @@
   <sub>曼哈顿的建筑按实测屋顶高度挤出，按建造年代着色，并叠加地铁网络。<a href="https://demo.getgeolens.com/maps">浏览演示中的地图</a>。</sub>
 </p>
 
-GeoLens 面向空间数据分散在文件共享、PostGIS 数据库、网络服务和 STAC 目录中的团队。它把这些数据放进一个可搜索的目录，记录每个数据集的来源，并检查数据源是否仍然保持最新。团队在浏览器中构建和共享地图，QGIS、脚本和 AI 代理则通过 OGC API 和 STAC 读取同样的数据。它用 Docker Compose 运行在您自己的服务器上，不发送遥测数据，采用 Apache 2.0 许可。
+GeoLens 面向空间数据分散在文件共享、数据库、网络服务和 STAC 目录中的团队。它把这些数据放进一个可搜索的目录，并记录每个数据集的来源。团队在浏览器中构建地图、故事和仪表板，并与用户组或公众共享，QGIS、脚本和 AI 代理则通过 OGC API 和 STAC 读取同样的数据。它用 Docker Compose 运行在您自己的服务器上，不发送遥测数据，采用 Apache 2.0 许可。
 
 [演示](https://demo.getgeolens.com)无需安装或账号；使用 Google、GitHub 或 Microsoft 登录即可体验地图构建器。演示数据可能随时被清除。
+
+## 快速开始
+
+需要 Git、curl 和带 Compose 插件的 Docker，并为 Docker 预留 8 GB 内存。
+
+```sh
+curl -fsSL https://getgeolens.com/install.sh | sh    # clone, generate secrets, start the stack
+cd geolens
+grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin password
+```
+
+打开 http://localhost:8080，以 `admin` 和该密码登录。[安装](#安装)介绍如何校验脚本、从源码构建和在生产环境中运行。
 
 ## 界面一览
 
@@ -59,36 +71,13 @@ GeoLens 面向空间数据分散在文件共享、PostGIS 数据库、网络服�
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
-<img src=".github/assets/geolens-dataset-page.png" alt="Atlantic Hurricane Tracks 数据集页面：地图预览上的风暴路径，矢量、已上传、数据源时效正常、已发布和公开徽章，以及要素数量、几何类型、CRS、版本和列数" width="100%">
-</picture>
-<br><sub>每个数据集都有一个页面，包含元数据和来源，有范围时还有地图预览。</sub>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-import-preview-dark.png">
-<img src=".github/assets/geolens-import-preview.png" alt="“导入数据”页面的“服务 URL”标签页预览 USGS Significant Earthquakes ArcGIS 图层：CRS、几何类型、要素数量、图层名称和示例行" width="100%">
-</picture>
-<br><sub>导入服务图层之前，GeoLens 会预览其列和前几行数据。</sub>
-</td>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
-<img src=".github/assets/geolens-version-history.png" alt="Significant Volcanic Eruptions 数据集的版本历史：三个 GeoJSON 版本，附日期、文件名和要素数量，当前版本已标出，上一个版本带“恢复”按钮" width="100%">
-</picture>
-<br><sub>每次替换都会记入历史，并可恢复上一个版本。</sub>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<picture>
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
 <img src=".github/assets/geolens-builder-style.png" alt="地图构建器中球面视图的 Restless Earth 地图：沿太平洋板块边界分布的地震热力图、分组图层列表，以及带色带的热力图样式面板" width="100%">
 </picture>
 <br><sub>图层可渲染为点、符号、热力图或聚类，色带列表可限定为色盲友好的色带。</sub>
 </td>
+</tr>
+<tr>
 <td width="50%" valign="top">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
@@ -96,37 +85,12 @@ GeoLens 面向空间数据分散在文件共享、PostGIS 数据库、网络服�
 </picture>
 <br><sub>用您自己的高程数据生成 3D 地形，这里是由 swissALTI3D 激光雷达生成的马特洪峰。</sub>
 </td>
-</tr>
-<tr>
 <td width="50%" valign="top">
 <picture>
 <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
 <img src=".github/assets/geolens-stac-imagery.jpg" alt="地图构建器显示纽约市和新泽西州北部上空四幅不同日期的 Sentinel-2 真彩色影像，引用自 Earth Search STAC 目录，旁边是图层列表和图例" width="100%">
 </picture>
 <br><sub>引用自 STAC 目录的 Sentinel-2 影像。影像保留在原处，按请求切片。</sub>
-</td>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-share-embed-dark.png">
-<img src=".github/assets/geolens-share-embed.png" alt="地图的共享对话框：可见性设为“公开”，其他选项为“仅自己”和“所有团队成员”，另有共享链接和 iframe 嵌入代码" width="100%">
-</picture>
-<br><sub>可以只留给自己、向团队开放，或通过链接和嵌入代码公开地图。</sub>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png">
-<img src=".github/assets/geolens-admin-overview.png" alt="管理后台“概览”页面：所有系统运行正常，显示数据库、存储、缓存和瓦片缓存状态、数据集总数、最近新增和已用存储，旁边是管理菜单" width="100%">
-</picture>
-<br><sub>管理概览在数据集和存储总数旁边显示服务健康状况。</sub>
-</td>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-permissions-dark.png">
-<img src=".github/assets/geolens-admin-permissions.png" alt="管理后台“权限”页面：上传数据集、导出数据、编辑元数据和管理用户等权限，查看者、编辑者和管理员三个角色各有一个复选框" width="100%">
-</picture>
-<br><sub>查看者、编辑者和管理员三种角色，每个角色可单独开启或关闭各项权限。</sub>
 </td>
 </tr>
 </table>
@@ -137,7 +101,7 @@ GeoLens 面向空间数据分散在文件共享、PostGIS 数据库、网络服�
 flowchart LR
     subgraph IN ["导入数据"]
       F["文件<br/>GeoPackage · Shapefile · GeoParquet<br/>GeoTIFF · COPC · 3D Tiles"]
-      DB["现有 PostGIS 表"]
+      DB["数据库<br/>PostGIS 表 · SQL Server"]
       SVC["服务<br/>ArcGIS · WFS · OGC API Features"]
       ST["远程 STAC 资产"]
     end
@@ -160,9 +124,13 @@ flowchart LR
 ## 一个目录，汇集分散的数据
 
 - 上传 Shapefile、GeoPackage、GeoJSON、GeoParquet、FlatGeobuf、KML/KMZ、zip 压缩的 File Geodatabase、CSV、Excel 或 GeoTIFF（会转换为云优化 GeoTIFF）。3D Tiles 和 COPC 点云会托管起来，供 CesiumJS、QGIS 和 Potree 使用。
-- 原位提供 GeoLens 自身 PostGIS 数据库中已有的表，按需导入并刷新 WFS、ArcGIS 和 OGC API Features 图层，或引用远程 STAC 资产而不复制。
+- 原位提供 GeoLens 自身 PostGIS 数据库中已有的表，按需导入并刷新 WFS、ArcGIS 和 OGC API Features 图层以及 SQL Server 表，或引用远程 STAC 资产而不复制。
 - 在浏览器中绘制新数据集。
 - 通过模糊搜索查找数据，配置嵌入提供方后也可按含义搜索。可按类型、地点和时间筛选，把数据集归入集合，编辑元数据，并在数据集被替换后恢复其上一个版本。
+
+### 从 ArcGIS Online 迁移
+
+`geolens arcgis inventory` 读取 ArcGIS Online 组织或自托管的 ArcGIS 门户，报告哪些项目可以完整导入、部分导入或无法导入。它不会更改任何内容，也不需要 GeoLens 实例。随后 `geolens arcgis migrate` 会把图层、文件和 Web 地图连同所有者、文件夹和共享设置迁入 GeoLens，并生成一份损失报告，列出未能迁移的内容。[CLI 指南](https://docs.getgeolens.com/guides/cli/#arcgis-migration)有详细步骤。
 
 ## 了解每个数据集的来源
 
@@ -182,7 +150,7 @@ flowchart LR
 - 点、符号、热力图、聚类、线、箭头、面、3D 挤出、栅格和山体阴影图层，支持数据驱动样式、标注、图标、图案、筛选器和弹出窗口。地形来自您自己的高程模型。
 - 缓冲区、质心、裁剪、融合、空间连接、按位置选择、测量和相交。大多数操作可在地图上预览，每个结果都保存为新数据集，可在构建器或 CLI 中完成。
 - 故事地图带读者逐个场景浏览地图，支持 Markdown 文本、图片、按钮和分隔线。仪表板把指标、图表、筛选器和 Markdown 注释放在地图旁边。地图数据面板以表格或列表显示每个图层的行。
-- 公开地图和已发布的故事链接粘贴到 Slack、Teams 或社交媒体帖子中时，会显示标题和图片；地图可通过私有令牌嵌入其他网站。
+- 可将数据集、地图或故事共享给用户组、所有已登录用户或公众。公开地图和已发布的故事链接粘贴到 Slack、Teams 或社交媒体帖子中时，会显示标题和图片；地图可通过私有令牌嵌入其他网站。
 - 界面支持英语、西班牙语、法语、德语和简体中文。
 
 ## 在任何地方使用数据
@@ -218,7 +186,7 @@ QGIS 可以把同一个 API 添加为 OGC API Features 连接，做法见 [QGIS 
 
 数据可导出为 GeoJSON、Shapefile、GeoPackage、CSV、FlatGeobuf、GeoParquet、PMTiles 或云优化 GeoTIFF。
 
-`geolens` CLI 可发布文件并应用目录清单，Python 和 TypeScript SDK 覆盖整个 API，只读 MCP 服务器让 AI 代理搜索目录。[API 参考](https://docs.getgeolens.com/guides/api/)和 [SDK 指南](https://docs.getgeolens.com/guides/sdk/)有详细说明，[示例库](https://geolens-io.github.io/geolens-examples/)提供可运行的代码，涵盖 MapLibre、Leaflet、OpenLayers、ArcGIS Maps SDK、QGIS 和 DuckDB。
+`geolens` CLI 可发布文件并应用目录清单，Python 和 TypeScript SDK 覆盖整个 API，MCP 服务器让 AI 代理搜索目录，并在使用 `map_author` API 密钥时创建地图并设置样式。[API 参考](https://docs.getgeolens.com/guides/api/)和 [SDK 指南](https://docs.getgeolens.com/guides/sdk/)有详细说明，[示例库](https://geolens-io.github.io/geolens-examples/)提供可运行的代码，涵盖 MapLibre、Leaflet、OpenLayers、ArcGIS Maps SDK、QGIS 和 DuckDB。
 
 ## 可选的 AI
 
@@ -235,15 +203,7 @@ GeoLens 可以回答关于数据集的问题，根据自然语言请求编辑地
 
 ## 安装
 
-需要 Git、curl 和带 Compose 插件的 Docker。[安装指南](https://docs.getgeolens.com/guides/quickstart/install/)列出了所需的版本、内存和端口。
-
-```sh
-curl -fsSL https://getgeolens.com/install.sh | sh    # clone, generate secrets, start the stack
-cd geolens
-grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin password
-```
-
-打开 http://localhost:8080，以 `admin` 和该密码登录。每个[发布版本](https://github.com/geolens-io/geolens/releases)都附带 `SHA256SUMS` 文件，可在运行前用来校验 `install.sh`。如需改为从源码构建，请克隆仓库并运行 `bash scripts/install.sh`；首次构建需要 5-10 分钟。
+[快速开始](#快速开始)中有安装命令。[安装指南](https://docs.getgeolens.com/guides/quickstart/install/)列出了所需的版本、内存和端口。每个[发布版本](https://github.com/geolens-io/geolens/releases)都附带 `SHA256SUMS` 文件，可在运行前用来校验 `install.sh`。如需改为从源码构建，请克隆仓库并运行 `bash scripts/install.sh`；首次构建需要 5-10 分钟。
 
 生产环境请阅读[云部署指南](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/)，其中也列出了外部数据库的要求。Docker Compose 是受支持的方式，[geolens-deployments](https://github.com/geolens-io/geolens-deployments) 提供社区维护的 Helm chart，以及适用于 AWS ECS Fargate 和 Azure Container Apps 的 Terraform 方案。
 
@@ -266,7 +226,7 @@ geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City
 
 - GeoLens 不发送遥测数据。除默认底图瓦片以及您的用户注册的远程服务或 STAC 数据源外，它只会为管理员开启的功能发起出站连接。[EGRESS.md](EGRESS.md) 列出了这些连接，并说明如何在隔离网络中运行。
 - 没有 GeoLens 也能读取您的数据。矢量数据集是 `data` 模式中的普通 PostGIS 表，栅格是您自己存储（本地磁盘、S3/MinIO 或 Azure Blob）中的云优化 GeoTIFF，目录可通过 OGC API、STAC 和 DCAT 导出。
-- 登录使用本地账号或 OAuth 2.0/OIDC（Google、Microsoft、GitHub 或通用提供方），并提供角色、逐数据集权限、按用户的 API 密钥和审计日志。自助注册默认关闭。
+- 登录使用本地账号或 OAuth 2.0/OIDC（Google、Microsoft、GitHub 或通用提供方），并提供角色、用户组、逐数据集权限、按用户的 API 密钥和审计日志。自助注册默认关闭。
 - 在此仓库中发布的功能会一直免费。[EDITIONS.md](EDITIONS.md) 介绍了可选的付费支持和附加组件。
 
 ## 已知限制
@@ -274,7 +234,7 @@ geolens publish examples/manifests/first-catalog/city-parks.geojson --name "City
 - 受支持的安装方式 Docker Compose 运行在单台主机上。如需高可用，请为 API、worker、前端和 Titiler 各运行多个副本，连接支持自动故障转移的托管 PostgreSQL，并配置共享的对象存储和同一个 Valkey 或 Redis 缓存。使用 Azure Blob 或本地存储时，API 和 worker 副本还需要一个共享的暂存卷，因为只有 S3 会把上传文件保存在存储桶中。本地存储把所有文件都放在这个卷上，因此 Titiler 副本也要挂载它。[geolens-deployments](https://github.com/geolens-io/geolens-deployments) 提供社区维护的 Helm chart、适用于 AWS 和 Azure 的 Terraform 方案，以及 AWS、Azure、Google Cloud 和 DigitalOcean 的部署指南。GeoLens 本身不做数据库集群，也不从只读副本读取数据。
 - 每个部署对应一个组织。
 - 地形渲染假定高程单位为米；其他垂直单位会被夸大渲染。
-- GeoLens 自身的 REST API 在小版本之间可能变化（标准端点遵循各自的规范）。[CHANGELOG](CHANGELOG.md) 列出了契约变更，破坏性变更会让旧形式再兼容一个小版本。
+- GeoLens 自身的 REST API 在小版本之间可能变化（标准端点遵循各自的规范）。[CHANGELOG](CHANGELOG.md) 列出了契约变更。当变更会破坏调用方时，旧形式会继续可用，期限取下一个小版本和 90 天中较晚的一个，CHANGELOG 会记录移除日期。这涵盖 REST 路由和字段、客户端写入的地图和仪表板 JSON，以及 CLI 命令和标志；SDK 跟随 API，MCP 工具的名称和参数不在此列。
 
 ## 参与贡献
 
