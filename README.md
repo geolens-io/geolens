@@ -8,12 +8,12 @@
 <h1 align="center">GeoLens</h1>
 
 <p align="center">
-  <b>A self-hosted spatial data catalog and map builder that keeps track of where every dataset came from.</b>
+  <b>An open-source, self-hosted alternative to ArcGIS Online: a spatial data catalog with maps, stories and dashboards.</b>
 </p>
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><b>Live demo</b></a> ·
-  <a href="#install">Install</a> ·
+  <a href="#quick-start">Quick start</a> ·
   <a href="https://docs.getgeolens.com">Documentation</a> ·
   <a href="#use-the-data-from-anywhere">Connect QGIS or code</a> ·
   <a href="https://github.com/geolens-io/geolens/discussions">Discussions</a>
@@ -42,14 +42,27 @@
   <sub>Manhattan's buildings at their surveyed roof heights, colored by construction era, with the subway network. <a href="https://demo.getgeolens.com/maps">Browse the demo's maps</a>.</sub>
 </p>
 
-GeoLens is for teams whose spatial data is spread across file shares, PostGIS databases, web
-services and STAC catalogs. It puts that data in one searchable catalog, records where each
-dataset came from and checks whether the source is still current. Teams build and share maps in
-the browser, and QGIS, scripts and AI agents read the same data through OGC API and STAC. It runs
-on your own servers with Docker Compose, sends no telemetry and is licensed under Apache 2.0.
+GeoLens is for teams whose spatial data is spread across file shares, databases, web services and
+STAC catalogs. It puts that data in one searchable catalog and records where each dataset came
+from. Teams build maps, stories and dashboards in the browser and share them with groups or the
+public, and QGIS, scripts and AI agents read the same data through OGC API and STAC. It runs on
+your own servers with Docker Compose, sends no telemetry and is licensed under Apache 2.0.
 
 The [demo](https://demo.getgeolens.com) needs no install or account; sign in with Google, GitHub
 or Microsoft to use the map builder. Demo data may be wiped at any time.
+
+## Quick start
+
+You need Git, curl and Docker with the Compose plugin, with 8 GB of memory available to Docker.
+
+```sh
+curl -fsSL https://getgeolens.com/install.sh | sh    # clone, generate secrets, start the stack
+cd geolens
+grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin password
+```
+
+Open http://localhost:8080 and sign in as `admin` with that password. [Install](#install) covers
+verifying the script, building from source and running in production.
 
 ## A closer look
 
@@ -64,74 +77,26 @@ or Microsoft to use the map builder. Demo data may be wiped at any time.
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
-<img src=".github/assets/geolens-dataset-page.png" alt="The dataset page for Atlantic Hurricane Tracks: storm tracks on a map preview, badges for vector, uploaded, source fresh, published and public, and the feature count, geometry, CRS, version and column count" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-arcgis-webmap-dark.jpg">
+<img src=".github/assets/geolens-arcgis-webmap.jpg" alt="The map builder with a map of Cambridge street trees imported from an ArcGIS Online web map: trees colored by site type, neighborhood outlines and names, the layer list and a legend" width="100%">
 </picture>
-<br><sub>Each dataset has a page with its metadata and source, plus a map preview when it has an extent.</sub>
+<br><sub>An ArcGIS Online web map imported into GeoLens. Its colors, popups, outlines and zoom ranges carried over.</sub>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-import-preview-dark.png">
-<img src=".github/assets/geolens-import-preview.png" alt="The Import Data page's Service URL tab previewing the USGS Significant Earthquakes ArcGIS layer: CRS, geometry type, feature count, layer name and sample rows" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-story-dark.jpg">
+<img src=".github/assets/geolens-story.jpg" alt="A published story, Where the Atlantic's Major Hurricanes Go: a chapter with a cover photo and text beside a globe of storm tracks colored by Saffir-Simpson category, with the legend" width="100%">
 </picture>
-<br><sub>Before you import a service layer, GeoLens previews its columns and first rows.</sub>
+<br><sub>A story walks readers through a map chapter by chapter.</sub>
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
-<img src=".github/assets/geolens-version-history.png" alt="Version history of the Significant Volcanic Eruptions dataset: three GeoJSON versions with dates, file names and feature counts, the current one marked, and a Restore button on the previous version" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.jpg">
+<img src=".github/assets/geolens-dashboard.jpg" alt="A dashboard beside a map of recent earthquakes around the Pacific: the strongest magnitude in view, a bar chart of earthquakes per week and a list of the strongest events, all following the map view" width="100%">
 </picture>
-<br><sub>Each replacement is recorded in the history, and you can restore the previous version.</sub>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
-<img src=".github/assets/geolens-builder-style.png" alt="The map builder with the Restless Earth map on a globe: an earthquake heatmap along the Pacific plate boundaries, the grouped layer list and the heatmap style panel with its color ramps" width="100%">
-</picture>
-<br><sub>Layers render as points, symbols, heatmaps or clusters, and the ramp list can be limited to colorblind-safe ones.</sub>
-</td>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="The GeoLens map builder rendering the Matterhorn as 3D terrain from swissALTI3D lidar, with labeled peaks, climbing routes, the layer list and a legend" width="100%">
-</picture>
-<br><sub>3D terrain from your own elevation data, here the Matterhorn from swissALTI3D lidar.</sub>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
-<img src=".github/assets/geolens-stac-imagery.jpg" alt="The map builder showing four dated Sentinel-2 true-color scenes over New York City and northern New Jersey, referenced from the Earth Search STAC catalog, with the layer list and legend" width="100%">
-</picture>
-<br><sub>Sentinel-2 scenes referenced from a STAC catalog. The imagery stays where it is and is tiled on request.</sub>
-</td>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-share-embed-dark.png">
-<img src=".github/assets/geolens-share-embed.png" alt="The Share dialog for a map: visibility set to Public, with Only you and All team members as the other options, a share link and an iframe embed code" width="100%">
-</picture>
-<br><sub>Keep a map to yourself, open it to your team, or make it public with a link and embed code.</sub>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png">
-<img src=".github/assets/geolens-admin-overview.png" alt="The admin Overview page: All Systems Operational, with database, storage, cache and tile cache status, total datasets, recent additions and storage used, beside the admin menu" width="100%">
-</picture>
-<br><sub>The admin overview shows service health next to dataset and storage totals.</sub>
-</td>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-permissions-dark.png">
-<img src=".github/assets/geolens-admin-permissions.png" alt="The admin Permissions page: capabilities such as Upload Datasets, Export Data, Edit Metadata and Manage Users, with a checkbox for each of the viewer, editor and admin roles" width="100%">
-</picture>
-<br><sub>Viewer, editor and admin roles, with each capability switched on or off per role.</sub>
+<br><sub>A dashboard puts indicators, charts and lists beside the map, and they follow what's in view.</sub>
 </td>
 </tr>
 </table>
@@ -142,7 +107,7 @@ or Microsoft to use the map builder. Demo data may be wiped at any time.
 flowchart LR
     subgraph IN ["Bring data in"]
       F["Files<br/>GeoPackage · Shapefile · GeoParquet<br/>GeoTIFF · COPC · 3D Tiles"]
-      DB["Existing PostGIS tables"]
+      DB["Databases<br/>PostGIS tables · SQL Server"]
       SVC["Services<br/>ArcGIS · WFS · OGC API Features"]
       ST["Remote STAC assets"]
     end
@@ -168,12 +133,20 @@ flowchart LR
   Geodatabase, CSV, Excel or GeoTIFF (converted to Cloud-Optimized GeoTIFF). 3D Tiles and COPC
   point clouds are hosted for CesiumJS, QGIS and Potree.
 - Serve tables already in GeoLens's PostGIS database in place, import WFS, ArcGIS and OGC API
-  Features layers and refresh them on demand, or reference remote STAC assets without copying
-  them.
+  Features layers and SQL Server tables and refresh them on demand, or reference remote STAC
+  assets without copying them.
 - Draw new datasets in the browser.
 - Find data with fuzzy search, or by meaning once an embedding provider is configured. Filter by
   type, place and time, group datasets into collections, edit metadata and restore a dataset's
   previous version after a replacement.
+
+### Coming from ArcGIS Online
+
+`geolens arcgis inventory` reads an ArcGIS Online organization or a self-hosted ArcGIS portal and
+reports what would carry over to GeoLens. It changes nothing and needs no GeoLens instance. `geolens
+arcgis migrate` then moves layers, files and web maps into GeoLens with their owners, folders and
+sharing, and writes a loss report of what didn't carry over. The [CLI
+guide](https://docs.getgeolens.com/guides/cli/#arcgis-migration) walks through it.
 
 ## Know where every dataset came from
 
@@ -203,8 +176,9 @@ schema changes before they reach your maps. If a service disappears, the importe
 - Story maps walk readers through a map scene by scene, with Markdown text, images, buttons and
   separators. Dashboards put indicators, charts, filters and Markdown notes beside a map. A Map
   data panel shows the rows behind each layer, as a table or a list.
-- Public maps and published stories show their title and image when pasted into Slack, Teams or
-  social posts, and maps embed in other sites with private tokens.
+- Share a dataset, map or story with groups, with everyone signed in, or with the public. Public
+  maps and published stories show their title and image when pasted into Slack, Teams or social
+  posts, and maps embed in other sites with private tokens.
 - The interface is in English, Spanish, French, German and Simplified Chinese.
 
 ## Use the data from anywhere
@@ -255,15 +229,6 @@ MapLibre, Leaflet, OpenLayers, the ArcGIS Maps SDK, QGIS and DuckDB.
 
 ## Optional AI
 
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-ask-ai-dark.png">
-    <img src=".github/assets/geolens-ask-ai.png" alt="The Ask AI panel on the Major Hurricane Tracks dataset answering 'How many of these hurricanes made landfall?' with 119 of 202, a two-row count table, a note on how it read the landfall column, and an Open in builder button" width="100%">
-  </picture>
-  <br>
-  <sub>"How many of these hurricanes made landfall?" returns the count, a table and the assumption the answer rests on.</sub>
-</p>
-
 GeoLens can answer questions about a dataset, edit maps from plain-language requests, draft
 metadata and search in natural language. It works with any OpenAI-compatible endpoint, including
 a local server such as Ollama, and with Claude through Anthropic, Microsoft Foundry, Amazon Bedrock
@@ -272,20 +237,11 @@ works without it.
 
 ## Install
 
-You need Git, curl and Docker with the Compose plugin. The
+[Quick start](#quick-start) has the install command. The
 [Install Guide](https://docs.getgeolens.com/guides/quickstart/install/) lists the versions, memory
-and ports it expects.
-
-```sh
-curl -fsSL https://getgeolens.com/install.sh | sh    # clone, generate secrets, start the stack
-cd geolens
-grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin password
-```
-
-Open http://localhost:8080 and sign in as `admin` with that password. Each
-[release](https://github.com/geolens-io/geolens/releases) includes a `SHA256SUMS` file for checking
-`install.sh` before you run it. To build from source instead, clone the repository and run
-`bash scripts/install.sh`; the first build takes 5-10 minutes.
+and ports it expects. Each [release](https://github.com/geolens-io/geolens/releases) includes a
+`SHA256SUMS` file for checking `install.sh` before you run it. To build from source instead, clone
+the repository and run `bash scripts/install.sh`; the first build takes 5-10 minutes.
 
 For production, read the
 [cloud deployment guide](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/), which
@@ -328,7 +284,7 @@ sizes and options.
   `data` schema, rasters are Cloud-Optimized GeoTIFFs in your own storage (local disk, S3/MinIO or
   Azure Blob), and the catalog exports through OGC API, STAC and DCAT.
 - Sign-in uses local accounts or OAuth 2.0/OIDC (Google, Microsoft, GitHub or a generic provider),
-  with roles, per-dataset permissions, per-user API keys and an audit log. Self-registration is
+  with roles, groups, per-dataset permissions, per-user API keys and an audit log. Self-registration is
   off by default.
 - Features released in this repository stay free.
   [EDITIONS.md](EDITIONS.md) describes the optional paid support and add-ons.
