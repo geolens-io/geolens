@@ -16,7 +16,7 @@ import { useEdition } from '@/hooks/use-edition';
 import { demChipGlyph, getLayerColors } from '@/components/map/layer-icons';
 import { getMap, uploadThumbnail, uploadOgImage } from '@/api/maps';
 import { extractPlaceholders, validatePlaceholders } from '@/lib/popup-template';
-import type { MapBasemapConfig, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
+import type { MapBasemapConfig, MapBookmark, MapLayerDiffRequest, MapLayerInput, MapLayerPatch, MapLayerResponse, MapResponse, MapTerrainConfig, MapUpdateRequest } from '@/types/api';
 import { usePluginStore } from '@/stores/map-plugin-store';
 import { useAuthStore } from '@/stores/auth-store';
 import { getDefaultPluginIds, resolveAvailablePluginIds, samePluginIds } from '@/components/map-plugins';
@@ -1000,11 +1000,16 @@ interface SaveState {
   dashboard: DashboardDraft;
   savedDashboard: DashboardDraft;
   dashboardEdited: boolean;
+  /** The Builder's bookmarks; a save sends them only when `bookmarksEdited`. */
+  bookmarks?: MapBookmark[];
+  bookmarksEdited?: boolean;
   /**
    * Told what a save sends, so the saved dashboard coming back isn't taken for
    * another editor's; the returned callback hears whether the server stored it.
    */
   onDashboardSave?: (draft: DashboardDraft) => (stored: boolean) => void;
+  /** Told the bookmarks a save sends; the returned callback hears whether the server stored them. */
+  onBookmarksSave?: (sent: MapBookmark[]) => (stored: boolean) => void;
   mapInstanceRef: React.RefObject<MaplibreMap | null>;
   setHasUnsavedChanges: (v: boolean) => void;
   hasUnsavedChanges: boolean;
@@ -1049,6 +1054,7 @@ const SAVE_SNAPSHOT_FIELDS = [
   'showAttributeTable',
   'dockNotes',
   'dashboard',
+  'bookmarks',
   'localBasemap',
   'showBasemapLabels',
   'basemapConfig',
@@ -1155,6 +1161,8 @@ export function useBuilderSave(state: SaveState) {
       dashboard,
       savedDashboard,
       dashboardEdited: sendDashboard,
+      bookmarks,
+      bookmarksEdited: sendBookmarks,
       localBasemap,
       localLayers,
       groupMeta = {},
@@ -1283,13 +1291,15 @@ export function useBuilderSave(state: SaveState) {
       ...(sendDashboard
         ? { dashboard_config: dashboardSavePayload(dashboard, localLayers, savedDashboard) }
         : {}),
+      ...(sendBookmarks && bookmarks ? { bookmarks } : {}),
     };
     const persistableLayers = prepareLayersForPersistence(localLayers, groupMeta);
 
     const settleDashboard = sendDashboard
       ? state.onDashboardSave?.(canonicalDashboard(dashboard, localLayers))
       : undefined;
-    // Set once a PUT carrying the dashboard succeeds; every PUT below does.
+    const settleBookmarks = sendBookmarks && bookmarks ? state.onBookmarksSave?.(bookmarks) : undefined;
+    // Set once a PUT carrying the dashboard and bookmarks succeeds; every PUT below does.
     let dashboardStored = false;
     const putMap = async (data: MapUpdateRequest) => {
       const saved = await updateMap.mutateAsync({ id, data });
@@ -1398,6 +1408,7 @@ export function useBuilderSave(state: SaveState) {
       toast.error(t('toasts.saveFailed'));
     } finally {
       settleDashboard?.(dashboardStored);
+      settleBookmarks?.(dashboardStored);
       inFlightRegistrationsRef.current.delete(registrations);
       saveFence.settle(id);
     }

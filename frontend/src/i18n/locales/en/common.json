@@ -275,7 +275,8 @@
     },
     "anonMapRecovery": "This map may be private. Sign in to check whether your account can open it.",
     "map": {
-      "ariaLabel": "Map viewer"
+      "ariaLabel": "Map viewer",
+      "bookmarks": "Bookmarks"
     }
   },
   "actions": {

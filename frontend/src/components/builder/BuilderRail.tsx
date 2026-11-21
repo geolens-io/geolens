@@ -1,14 +1,15 @@
 import { useCallback, useMemo, lazy, Suspense } from 'react';
 import { useTranslation } from 'react-i18next';
 import type { TFunction } from 'i18next';
-import { FileText, History, Sparkles, ChevronRight, Loader2, BotOff, FlaskConical, LayoutDashboard } from 'lucide-react';
+import { FileText, History, Sparkles, ChevronRight, Loader2, BotOff, FlaskConical, LayoutDashboard, Bookmark } from 'lucide-react';
 import { Link } from 'react-router';
 import { LazyLoadErrorBoundary } from '@/components/error/LazyLoadErrorBoundary';
 import { cn } from '@/lib/utils';
 import { useAnalysisJobStore } from '@/stores/analysis-job-store';
 import { Button } from '@/components/ui/button';
 import type { Map as MaplibreMap } from 'maplibre-gl';
-import type { MapLayerResponse } from '@/types/api';
+import type { MapBookmark, MapLayerResponse } from '@/types/api';
+import { BookmarksPanel } from '@/components/builder/BookmarksPanel';
 import type { LayerActions } from '@/components/builder/ChatPanel';
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import type { ViewportContext } from '@/components/builder/chat-suggestions';
@@ -91,17 +92,17 @@ function AIDisabledState() {
   );
 }
 
-export type RailPanel = 'notes' | 'dashboard' | 'history' | 'analysis' | 'ai' | null;
+export type RailPanel = 'notes' | 'dashboard' | 'bookmarks' | 'history' | 'analysis' | 'ai' | null;
 
 /**
  * A rail button's accessible name and whether it shows the 6px presence dot:
- * Notes with text, and Dashboard with widgets. The dot is decorative and the
+ * Notes with text, Dashboard with widgets, and Bookmarks with any. The dot is decorative and the
  * state lives in the name, since aria-label replaces the button's subtree.
  */
 export function railButtonPresence(
   id: Exclude<RailPanel, null>,
   label: string,
-  { notes, widgetCount }: { notes: string; widgetCount: number },
+  { notes, widgetCount, bookmarkCount = 0 }: { notes: string; widgetCount: number; bookmarkCount?: number },
   t: TFunction<'builder'>,
 ): { label: string; dot: boolean } {
   if (id === 'notes' && notes.trim().length > 0) {
@@ -109,6 +110,9 @@ export function railButtonPresence(
   }
   if (id === 'dashboard' && widgetCount > 0) {
     return { label: t('rail.dashboardButtonWithWidgets', { count: widgetCount }), dot: true };
+  }
+  if (id === 'bookmarks' && bookmarkCount > 0) {
+    return { label: t('rail.bookmarksButtonWithCount', { count: bookmarkCount }), dot: true };
   }
   return { label, dot: false };
 }
@@ -124,6 +128,9 @@ interface BuilderRailProps {
   // Dashboard
   dashboard?: DashboardDraft;
   onDashboardChange?: (draft: DashboardDraft) => void;
+  // Bookmarks
+  bookmarks?: readonly MapBookmark[];
+  onBookmarksChange?: (next: MapBookmark[]) => void;
   /** The Builder's map once loaded; the dashboard preview reads its view. */
   map?: MaplibreMap | null;
   // AI Chat
@@ -173,6 +180,8 @@ export function BuilderRail({
   onNotesChange,
   dashboard,
   onDashboardChange,
+  bookmarks,
+  onBookmarksChange,
   map,
   mapId,
   layers,
@@ -226,6 +235,7 @@ export function BuilderRail({
   }, [activePanel, onPanelChange]);
 
   const widgetCount = dashboard?.widgets.length ?? 0;
+  const bookmarkCount = bookmarks?.length ?? 0;
 
   const railButtons = useMemo(() => [
     {
@@ -239,6 +249,13 @@ export function BuilderRail({
       id: 'dashboard' as const,
       icon: LayoutDashboard,
       label: t('dock.dashboard'),
+      disabled: false,
+      unavailable: false,
+    },
+    {
+      id: 'bookmarks' as const,
+      icon: Bookmark,
+      label: t('dock.bookmarks'),
       disabled: false,
       unavailable: false,
     },
@@ -278,7 +295,7 @@ export function BuilderRail({
           className="w-11 bg-background border-s flex flex-col items-center pt-2.5 gap-1 shrink-0"
         >
           {railButtons.map((btn) => {
-            const presence = railButtonPresence(btn.id, btn.label, { notes, widgetCount }, t);
+            const presence = railButtonPresence(btn.id, btn.label, { notes, widgetCount, bookmarkCount }, t);
             return (
             <button
               key={btn.id}
@@ -348,6 +365,7 @@ export function BuilderRail({
               <span id="builder-rail-panel-title" className="text-sm font-medium">
                 {activePanel === 'notes' && t('dock.notes', { defaultValue: 'Notes' })}
                 {activePanel === 'dashboard' && t('dock.dashboard')}
+                {activePanel === 'bookmarks' && t('dock.bookmarks')}
                 {activePanel === 'history' && t('dock.history', { defaultValue: 'History' })}
                 {activePanel === 'analysis' && t('analysisTools.title', { defaultValue: 'Analysis' })}
                 {activePanel === 'ai' && (aiAvailable
@@ -396,6 +414,10 @@ export function BuilderRail({
                   />
                 </Suspense>
               </LazyLoadErrorBoundary>
+            )}
+
+            {activePanel === 'bookmarks' && bookmarks && onBookmarksChange && (
+              <BookmarksPanel bookmarks={bookmarks} onChange={onBookmarksChange} map={map ?? null} />
             )}
 
             {activePanel === 'history' && (

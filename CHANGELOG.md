@@ -8,7 +8,7 @@ and releases use semantic versioning.
 ## [Unreleased]
 
 ### Added
-- Maps hold bookmarks: a name and an area, with an optional rotation and tilt, in display order. The maps API and the SDKs carry an optional `bookmarks` list (up to 100) on create and update, and the map and shared map responses always return one. The ArcGIS web map import carries a web map's bookmarks.
+- Maps hold bookmarks: a name and an area, with an optional rotation and tilt, in display order. The maps API and the SDKs carry an optional `bookmarks` list (up to 100) on create and update, and the map and shared map responses always return one. The ArcGIS web map import carries a web map's bookmarks. The map builder has a Bookmarks panel to add the current view, rename, reorder and delete bookmarks, and the viewer, share links and embeds have a Bookmarks control that jumps to one.
 
 ### Changed
 - Overlay authors: `EXTENSION_API_VERSION` is now 24. `ProcessingPort` gains the required `resolve_manifest_collection`, `add_dataset_to_manifest_collection`, `apply_manifest_attributes` and `apply_manifest_maps` methods, which the publish manifest will call. An overlay that wraps the default port by delegation only needs to declare 24.

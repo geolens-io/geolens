@@ -221,6 +221,7 @@ function PublicViewer() {
                   datasetLinksAllowed={!data.has_non_public_layers}
                   showAttributeTable={data.show_attribute_table}
                   overlays={mapOverlays}
+                  bookmarks={data.bookmarks}
                 />
               </Suspense>
             </MapErrorBoundary>

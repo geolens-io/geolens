@@ -1,7 +1,7 @@
 import { lazy, Suspense, useState, useEffect, useRef, useCallback, useMemo, type ReactNode } from 'react';
 import { useParams, Link } from 'react-router';
 import { useTranslation } from 'react-i18next';
-import { FileText, History, Sparkles, Info, FlaskConical, Loader2, LayoutDashboard } from 'lucide-react';
+import { FileText, History, Sparkles, Info, FlaskConical, Loader2, LayoutDashboard, Bookmark } from 'lucide-react';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { ApiError } from '@/api/client';
 import {
@@ -324,7 +324,10 @@ export function MapBuilderPage() {
     dashboard: layers.dashboard,
     savedDashboard: layers.savedDashboard,
     dashboardEdited: layers.dashboardEdited,
+    bookmarks: layers.bookmarks,
+    bookmarksEdited: layers.bookmarksEdited,
     onDashboardSave: layers.beginDashboardSave,
+    onBookmarksSave: layers.beginBookmarksSave,
     mapInstanceRef,
     setHasUnsavedChanges: layers.setHasUnsavedChanges,
     hasUnsavedChanges: layers.hasUnsavedChanges,
@@ -1009,6 +1012,8 @@ export function MapBuilderPage() {
     onNotesChange: setDockNotes,
     dashboard: layers.dashboard,
     onDashboardChange: layers.handleDashboardChange,
+    bookmarks: layers.bookmarks,
+    onBookmarksChange: layers.handleBookmarksChange,
     map: mapInstance,
     mapId: id,
     layers: layers.localLayers,
@@ -1026,7 +1031,7 @@ export function MapBuilderPage() {
     onAnalysisJobChange: handleAnalysisJobChange,
     onMarkDirty: handleMarkDirty,
     viewport,
-  }), [railPanel, aiAvailable, dockNotes, layers.dashboard, layers.handleDashboardChange, mapInstance, id, layers.localLayers, layers.layersMapId, layers.expandedLayerId, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport, handleAnalysisJobChange]);
+  }), [railPanel, aiAvailable, dockNotes, layers.dashboard, layers.handleDashboardChange, layers.bookmarks, layers.handleBookmarksChange, mapInstance, id, layers.localLayers, layers.layersMapId, layers.expandedLayerId, layers.chatLayerActions, layers.handleQueryResult, layers.handleDismissEphemeral, layers.ephemeralResult, analysisPrefill, mapInstanceRef, handleMarkDirty, viewport, handleAnalysisJobChange]);
 
   const mobileRailButtons = useMemo(() => [
     {
@@ -1040,6 +1045,13 @@ export function MapBuilderPage() {
       id: 'dashboard' as const,
       icon: LayoutDashboard,
       label: t('dock.dashboard'),
+      disabled: false,
+      unavailable: false,
+    },
+    {
+      id: 'bookmarks' as const,
+      icon: Bookmark,
+      label: t('dock.bookmarks'),
       disabled: false,
       unavailable: false,
     },
@@ -1070,6 +1082,8 @@ export function MapBuilderPage() {
 
   const railSheetTitle = railPanel === 'dashboard'
     ? t('dock.dashboard')
+    : railPanel === 'bookmarks'
+    ? t('dock.bookmarks')
     : railPanel === 'history'
     ? t('dock.history', { defaultValue: 'History' })
     : railPanel === 'analysis'
@@ -1081,6 +1095,8 @@ export function MapBuilderPage() {
       : t('dock.notes', { defaultValue: 'Notes' });
   const railSheetDescription = railPanel === 'dashboard'
     ? t('dock.dashboardDescription')
+    : railPanel === 'bookmarks'
+    ? t('bookmarks.description')
     : railPanel === 'history'
     ? t('history.timelineLabel', { defaultValue: 'Map edit history' })
     : railPanel === 'analysis'
@@ -2090,7 +2106,7 @@ export function MapBuilderPage() {
                     disabled={btn.disabled}
                     data-unavailable={btn.unavailable || undefined}
                     title={btn.label}
-                    aria-label={railButtonPresence(btn.id, btn.label, { notes: dockNotes, widgetCount: dashboardWidgetCount }, t).label}
+                    aria-label={railButtonPresence(btn.id, btn.label, { notes: dockNotes, widgetCount: dashboardWidgetCount, bookmarkCount: layers.bookmarks.length }, t).label}
                     aria-pressed={railPanel === btn.id}
                     aria-busy={btn.id === 'analysis' && analysisJobRunning}
                     className={cn(
@@ -2108,7 +2124,7 @@ export function MapBuilderPage() {
                       <btn.icon className="h-4 w-4" aria-hidden="true" />
                     )}
                     {/* Mobile counterpart of BuilderRail's presence dot (the rail is hidden at <800px). */}
-                    {railButtonPresence(btn.id, btn.label, { notes: dockNotes, widgetCount: dashboardWidgetCount }, t).dot && (
+                    {railButtonPresence(btn.id, btn.label, { notes: dockNotes, widgetCount: dashboardWidgetCount, bookmarkCount: layers.bookmarks.length }, t).dot && (
                       <span
                         aria-hidden="true"
                         className="absolute -top-0.5 -end-0.5 size-1.5 rounded-full bg-primary"
