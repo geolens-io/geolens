@@ -13631,7 +13631,11 @@
         "additionalProperties": false,
         "properties": {
           "manifest_version": {
-            "const": "1",
+            "description": "Manifest format. Version 2 adds `client`, which it requires, and `upload:<job_id>` sources.",
+            "enum": [
+              "1",
+              "2"
+            ],
             "title": "Manifest Version",
             "type": "string"
           },
@@ -13651,6 +13655,17 @@
             "default": false,
             "title": "Dry Run",
             "type": "boolean"
+          },
+          "client": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestClient"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The publishing client. Required in version 2, refused in 1."
           }
         },
         "required": [
@@ -13737,6 +13752,56 @@
           "title"
         ],
         "title": "ManifestCatalog",
+        "type": "object"
+      },
+      "ManifestClient": {
+        "additionalProperties": false,
+        "description": "The publishing client that built the manifest.",
+        "properties": {
+          "id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          },
+          "app": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          }
+        },
+        "required": [
+          "id",
+          "version"
+        ],
+        "title": "ManifestClient",
         "type": "object"
       },
       "ManifestContact": {
@@ -13970,10 +14035,10 @@
             "type": "string"
           },
           "uri": {
-            "description": "Relative path (no `..` traversal), HTTP(S) URL, or s3:// storage URI.",
+            "description": "Relative path (no `..` traversal), HTTP(S) URL, s3:// storage URI, or, in manifest_version 2, `upload:<job_id>` naming a pending upload the caller made.",
             "maxLength": 2000,
             "minLength": 1,
-            "pattern": "^(?:(?:\\./)?[^\\s:/][^\\s:]*|https?://[^\\s]+|s3://[^\\s]+)$",
+            "pattern": "^(?:(?:\\./)?[^\\s:/][^\\s:]*|https?://[^\\s]+|s3://[^\\s]+|upload:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
             "title": "Uri",
             "type": "string"
           },
@@ -14032,7 +14097,7 @@
           "checksum": {
             "anyOf": [
               {
-                "description": "Declared SHA-256 digest of the source bytes, as 'sha256:<64 lowercase hex characters>'. Apply uses this only as a change-detection input alongside the rest of the entry; it is not verified against the fetched bytes. For a vector source, bump it when the file under a stable URI changes, to force apply to reclassify the entry as an update instead of skipping it. Manifest raster updates are not supported: do not set or change checksum on a raster_cog source, because a changed value there makes apply report that entry as an error ('Manifest raster updates are not supported; create a new raster dataset instead.'), not a skip. An unchanged raster entry, checksum included, still skips normally.",
+                "description": "Declared SHA-256 digest of the source bytes, as 'sha256:<64 lowercase hex characters>'. Required on an `upload:` source, where apply checks it against the uploaded file and refuses the entry when they differ. On any other source apply uses it only as a change-detection input alongside the rest of the entry; it is not verified against the fetched bytes. For a vector source, bump it when the file under a stable URI changes, to force apply to reclassify the entry as an update instead of skipping it. Manifest raster updates are not supported: once a raster_cog entry has published, a changed checksum, a new upload's included, makes apply report that entry as an error ('Manifest raster updates are not supported; create a new raster dataset instead.'), not a skip. An unchanged raster entry, checksum included, still skips normally.",
                 "maxLength": 71,
                 "minLength": 71,
                 "pattern": "^sha256:[0-9a-f]{64}$",

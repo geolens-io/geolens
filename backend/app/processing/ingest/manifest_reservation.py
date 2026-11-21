@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import desc, func, select, text
+from sqlalchemy import and_, bindparam, desc, func, not_, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,9 +22,12 @@ from app.platform.jobs.models import (
     MANIFEST_FINGERPRINT_METADATA_KEY,
     MANIFEST_STAGE_METADATA_KEY,
     IngestJob,
+    commit_attempted_marker,
+    dispatch_attempted,
 )
-from app.platform.jobs.sweep import settle_stale_jobs
+from app.platform.jobs.sweep import settle_stale_jobs, stale_pending_clauses
 from app.platform.refresh.job_runs import stored_review_reasons
+from app.platform.source_copies import EXISTING_DATASET_MARKERS
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
@@ -60,6 +63,85 @@ async def lock_manifest_key(db: AsyncSession, key: str) -> None:
     )
 
 
+def plain_upload():
+    """Predicate: an upload made to create a dataset, not to write into one."""
+    return and_(
+        IngestJob.dataset_id.is_(None),
+        *(
+            IngestJob.user_metadata[marker].astext.is_(None)
+            for marker in EXISTING_DATASET_MARKERS
+        ),
+    )
+
+
+def unclaimed_upload():
+    """Predicate: no manifest entry and no import commit has taken this upload."""
+    return and_(
+        IngestJob.user_metadata["manifest_key"].astext.is_(None),
+        ~dispatch_attempted(),
+    )
+
+
+async def claim_upload(
+    db: AsyncSession,
+    *,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None,
+    file_path: str,
+    owner: uuid.UUID,
+    metadata: dict[str, object],
+    dataset_id: uuid.UUID | None,
+    source_layer: str | None,
+) -> IngestJob | None:
+    """Make the caller's pending upload this entry's reservation. Does not commit.
+
+    One fenced pending -> running write: the row must still be the owner's
+    plain upload, unclaimed, at the attempt and file the caller checked. None
+    on a miss, which never says which condition failed.
+
+    The claim also writes the dispatch stamp, which shuts the import commit
+    door on this upload for good, and starts a fresh attempt: the upload keeps
+    its job id, so only the attempt tells this claim from a later one.
+    """
+    metadata = {**metadata, **commit_attempted_marker()}
+    values: dict[str, object] = {
+        "user_metadata": func.coalesce(
+            func.nullif(IngestJob.user_metadata, text("'null'::jsonb")),
+            text("'{}'::jsonb"),
+        ).op("||", return_type=JSONB)(
+            bindparam("manifest_fields", value=metadata, type_=JSONB)
+        ),
+        "source_layer": source_layer,
+    }
+    if dataset_id is not None:
+        values["dataset_id"] = dataset_id
+    if not await ledger.claim(
+        db,
+        job_id,
+        attempt_id,
+        new_attempt=True,
+        values=values,
+        require=(
+            IngestJob.created_by == owner,
+            IngestJob.file_path == file_path,
+            plain_upload(),
+            unclaimed_upload(),
+            # Not one the stale sweep could settle now, which the read checked
+            # before the hash and the key-lock wait.
+            not_(
+                and_(
+                    *stale_pending_clauses(
+                        datetime.now(timezone.utc),
+                        completion_bound=file_path.startswith("staging/"),
+                    )
+                )
+            ),
+        ),
+    ):
+        return None
+    return await db.get(IngestJob, job_id, populate_existing=True)
+
+
 async def latest_in_flight_manifest_job(db: AsyncSession, key: str) -> IngestJob | None:
     """The newest queued, running, or reserved job for ``key``, if any."""
     result = await db.execute(
@@ -84,8 +166,9 @@ async def held_entry(
     """The ``blocked`` result for an entry whose last apply is held for review.
 
     None unless applying the unchanged entry again would only repeat the hold:
-    the key's newest held job must carry ``fingerprint``, postdate the last
-    completed import, and still be acceptable: its acceptance unspent, the
+    the key's newest held job must carry ``fingerprint``, have its run admitted
+    after the last completed import finished (an upload's job is older than
+    its apply), and still be acceptable: its acceptance unspent, the
     dataset's data at the version it was held against, and the copy apply
     staged still on disk. A raw seed is the entry's own source, so applying
     again could not restage it.
@@ -98,7 +181,7 @@ async def held_entry(
                 IngestJob.user_metadata["manifest_key"].astext == entry.key,
                 DatasetRefreshRun.status == "blocked",
             )
-            .order_by(desc(IngestJob.created_at))
+            .order_by(desc(DatasetRefreshRun.created_at))
             .limit(1)
         )
     ).one_or_none()
@@ -109,7 +192,7 @@ async def held_entry(
     if (
         (job.user_metadata or {}).get(MANIFEST_FINGERPRINT_METADATA_KEY) != fingerprint
         or job.dataset_id != getattr(dataset, "id", None)
-        or job.created_at <= completed_job.created_at
+        or run.created_at <= (completed_job.completed_at or completed_job.created_at)
         or "acceptance_consumed_by_run_id" in verification
         or verification.get("live_version") != getattr(dataset, "current_version", None)
         or not job.file_path

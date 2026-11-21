@@ -12,6 +12,7 @@ from pydantic import (
     Field,
     ValidationInfo,
     field_validator,
+    model_validator,
 )
 
 from app.core.text import reject_html_markup
@@ -40,20 +41,25 @@ ManifestSourceUri = Annotated[
         pattern=(
             r"^(?:(?:\./)?[^\s:/][^\s:]*|"
             r"https?://[^\s]+|"
-            r"s3://[^\s]+)$"
+            r"s3://[^\s]+|"
+            r"upload:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
         ),
         description=(
-            "Relative path (no `..` traversal), HTTP(S) URL, or s3:// storage URI."
+            "Relative path (no `..` traversal), HTTP(S) URL, s3:// storage URI, "
+            "or, in manifest_version 2, `upload:<job_id>` naming a pending "
+            "upload the caller made."
         ),
     ),
 ]
+UPLOAD_URI_PREFIX = "upload:"
 ManifestUrl = Annotated[
     str,
     Field(max_length=2000, pattern=r"^https?://[^\s]+$"),
 ]
 ManifestCrs = Annotated[str, Field(pattern=r"^EPSG:[0-9]{1,6}$")]
-# A caller-declared digest for change detection only; apply never fetches the
-# source to verify it.
+# A caller-declared digest. Apply checks it against the bytes only for an
+# `upload:` source, whose file is already on the server; for any other source
+# it is a change-detection input and the source is never fetched to verify it.
 #
 # The exact length of 71 is a security bound. Python's `re`, used by the CLI's
 # JSON Schema mirror of this pattern, lets `$` match before a trailing newline;
@@ -71,14 +77,17 @@ ManifestChecksum = Annotated[
         pattern=r"^sha256:[0-9a-f]{64}$",
         description=(
             "Declared SHA-256 digest of the source bytes, as "
-            "'sha256:<64 lowercase hex characters>'. Apply uses this only as "
-            "a change-detection input alongside the rest of the entry; it is "
-            "not verified against the fetched bytes. For a vector source, "
+            "'sha256:<64 lowercase hex characters>'. Required on an "
+            "`upload:` source, where apply checks it against the uploaded "
+            "file and refuses the entry when they differ. On any other source "
+            "apply uses it only as a change-detection input alongside the rest "
+            "of the entry; it is not verified against the fetched bytes. For a "
+            "vector source, "
             "bump it when the file under a stable URI changes, to force "
             "apply to reclassify the entry as an update instead of "
-            "skipping it. Manifest raster updates are not supported: do not "
-            "set or change checksum on a raster_cog source, because a "
-            "changed value there makes apply report that entry as an error "
+            "skipping it. Manifest raster updates are not supported: once a "
+            "raster_cog entry has published, a changed checksum, a new "
+            "upload's included, makes apply report that entry as an error "
             "('Manifest raster updates are not supported; create a new "
             "raster dataset instead.'), not a skip. An unchanged raster "
             "entry, checksum included, still skips normally."
@@ -168,10 +177,14 @@ class ManifestSource(_ManifestBaseModel):
     @field_validator("uri")
     @classmethod
     def _require_source_type_extension(cls, uri: str, info: ValidationInfo) -> str:
-        """Keep the declared source modality aligned with its file path."""
+        """Keep the declared source modality aligned with its file path.
+
+        An ``upload:`` URI has no path; apply checks the upload's own file
+        name instead.
+        """
         source_type = info.data.get("type")
         allowed = MANIFEST_SOURCE_EXTENSIONS.get(str(source_type))
-        if allowed is None:
+        if allowed is None or uri.startswith(UPLOAD_URI_PREFIX):
             # The ``type`` field reports its own enum error.
             return uri
 
@@ -189,6 +202,12 @@ class ManifestSource(_ManifestBaseModel):
                 f"Manifest source type {source_type!r} requires one of: {expected}"
             )
         return uri
+
+    @model_validator(mode="after")
+    def _upload_requires_checksum(self) -> "ManifestSource":
+        if self.uri.startswith(UPLOAD_URI_PREFIX) and self.checksum is None:
+            raise ValueError("An upload: source requires checksum")
+        return self
 
 
 class ManifestMetadata(_ManifestBaseModel):
@@ -246,14 +265,33 @@ class ManifestDataset(_ManifestBaseModel):
     publication: ManifestPublication
 
 
+class ManifestClient(_ManifestBaseModel):
+    """The publishing client that built the manifest."""
+
+    id: NonEmptyString100
+    version: NonEmptyString100
+    app: Annotated[str, Field(min_length=1, max_length=200)] | None = None
+    project: NonEmptyString500 | None = None
+
+
 class ManifestApplyRequest(_ManifestBaseModel):
-    manifest_version: Literal["1"]
+    manifest_version: Literal["1", "2"] = Field(
+        description=(
+            "Manifest format. Version 2 adds `client`, which it requires, and "
+            "`upload:<job_id>` sources."
+        )
+    )
     catalog: ManifestCatalog
     # Keep one request from causing an unbounded number of remote downloads,
     # quota queries, transactions, and queued jobs. Callers can submit another
     # batch after this one completes.
     datasets: list[ManifestDataset] = Field(min_length=1, max_length=100)
     dry_run: bool = False
+    # Last, so generated SDK constructors keep their positional order.
+    client: ManifestClient | None = Field(
+        default=None,
+        description="The publishing client. Required in version 2, refused in 1.",
+    )
 
     @field_validator("datasets")
     @classmethod
@@ -270,6 +308,43 @@ class ManifestApplyRequest(_ManifestBaseModel):
             keys = ", ".join(duplicate_keys)
             raise ValueError(f"duplicate dataset key(s): {keys}")
         return datasets
+
+    @field_validator("datasets")
+    @classmethod
+    def upload_sources_must_be_unique(
+        cls, datasets: list[ManifestDataset]
+    ) -> list[ManifestDataset]:
+        """An upload becomes at most one entry's import, so it may appear once."""
+        seen: set[str] = set()
+        repeated: list[str] = []
+        for dataset in datasets:
+            for source in dataset.sources:
+                uri = source.uri
+                if not uri.startswith(UPLOAD_URI_PREFIX):
+                    continue
+                if uri in seen and uri not in repeated:
+                    repeated.append(uri)
+                seen.add(uri)
+        if repeated:
+            raise ValueError(f"duplicate upload source(s): {', '.join(repeated)}")
+        return datasets
+
+    @model_validator(mode="after")
+    def _fields_match_version(self) -> "ManifestApplyRequest":
+        if self.manifest_version == "2":
+            if self.client is None:
+                raise ValueError("manifest_version '2' requires client")
+            return self
+        # Supplied at all, null included: version 1 had no such field.
+        if "client" in self.model_fields_set:
+            raise ValueError("client requires manifest_version '2'")
+        if any(
+            source.uri.startswith(UPLOAD_URI_PREFIX)
+            for dataset in self.datasets
+            for source in dataset.sources
+        ):
+            raise ValueError("upload: sources require manifest_version '2'")
+        return self
 
 
 class ManifestApplyEntryResult(BaseModel):

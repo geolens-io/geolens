@@ -9,12 +9,14 @@ and releases use semantic versioning.
 
 ### Added
 - Maps hold bookmarks: a name and an area, with an optional rotation and tilt, in display order. The maps API and the SDKs carry an optional `bookmarks` list (up to 100) on create and update, and the map and shared map responses always return one. The ArcGIS web map import carries a web map's bookmarks. The map builder has a Bookmarks panel to add the current view, rename, reorder and delete bookmarks, and the viewer, share links and embeds have a Bookmarks control that jumps to one.
+- The publish manifest accepts `manifest_version: "2"`, which requires a `client` object naming the publishing app, and an `upload:<job_id>` source that names a file the caller uploaded with `POST /ingest/upload`. An upload source needs a `checksum`, the SHA-256 of the uploaded file, and apply refuses the entry when the file doesn't match it. The upload's own job becomes the import, and uploading the same file again for an unchanged entry answers `skip`.
 
 ### Changed
 - Overlay authors: `EXTENSION_API_VERSION` is now 24. `ProcessingPort` gains the required `resolve_manifest_collection`, `add_dataset_to_manifest_collection`, `apply_manifest_attributes` and `apply_manifest_maps` methods, which the publish manifest will call. An overlay that wraps the default port by delegation only needs to declare 24.
 - A dashboard's category selector lists its first ten values and shows the rest from a "Show more" button under the list, in place of a scroll box that cut the list with nothing to say so. A picked value further down stays listed.
 
 ### Fixed
+- `POST /ingest/commit-fan-out/{job_id}` refuses an upload that was already dispatched, through `POST /ingest/commit/{job_id}` or a publish manifest. It used to fan the upload out while the first import was already queued.
 - `geolens arcgis migrate` no longer overwrites a dataset visibility you changed in GeoLens when it reruns an item that stopped before its handover, for service and file items. The state file records the visibility each import or later write gave a dataset; any other was set in GeoLens and is kept and noted, as an edited title is. Later refreshes keep it too and still refresh the data, where they used to list the item as not up to date and skip the refresh, so a kept visibility no longer holds back `--cutover`. Sharing doesn't undo it either: a dataset made private in GeoLens isn't given a restricted item's groups, and each run lists that sharing as owed. A dataset GeoLens already held takes the plan's title and visibility when it is first adopted, and keeps a title or visibility edited after that. The first metadata write on a dataset fills only empty fields, so an attribution, license or organization set in GeoLens before it is kept and noted. Where the state file has no record, from an older CLI, a visibility that differs from the plan's is kept.
 
 ## [1.33.0] - 2026-11-19

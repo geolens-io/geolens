@@ -677,8 +677,10 @@ from .list_users_admin_users_get_sort import ListUsersAdminUsersGetSort
 from .manifest_apply_entry_result import ManifestApplyEntryResult
 from .manifest_apply_entry_result_action import ManifestApplyEntryResultAction
 from .manifest_apply_request import ManifestApplyRequest
+from .manifest_apply_request_manifest_version import ManifestApplyRequestManifestVersion
 from .manifest_apply_response import ManifestApplyResponse
 from .manifest_catalog import ManifestCatalog
+from .manifest_client import ManifestClient
 from .manifest_contact import ManifestContact
 from .manifest_dataset import ManifestDataset
 from .manifest_metadata import ManifestMetadata
@@ -1632,8 +1634,10 @@ __all__ = (
     "ManifestApplyEntryResult",
     "ManifestApplyEntryResultAction",
     "ManifestApplyRequest",
+    "ManifestApplyRequestManifestVersion",
     "ManifestApplyResponse",
     "ManifestCatalog",
+    "ManifestClient",
     "ManifestContact",
     "ManifestDataset",
     "ManifestMetadata",

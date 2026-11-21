@@ -7972,8 +7972,10 @@ export type ManifestApplyEntryResult = {
 export type ManifestApplyRequest = {
     /**
      * Manifest Version
+     *
+     * Manifest format. Version 2 adds `client`, which it requires, and `upload:<job_id>` sources.
      */
-    manifest_version: '1';
+    manifest_version: '1' | '2';
     catalog: ManifestCatalog;
     /**
      * Datasets
@@ -7983,6 +7985,10 @@ export type ManifestApplyRequest = {
      * Dry Run
      */
     dry_run?: boolean;
+    /**
+     * The publishing client. Required in version 2, refused in 1.
+     */
+    client?: ManifestClient | null;
 };
 
 /**
@@ -8020,6 +8026,30 @@ export type ManifestCatalog = {
      */
     organization?: string | null;
     contact?: ManifestContact | null;
+};
+
+/**
+ * ManifestClient
+ *
+ * The publishing client that built the manifest.
+ */
+export type ManifestClient = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * App
+     */
+    app?: string | null;
+    /**
+     * Project
+     */
+    project?: string | null;
 };
 
 /**
@@ -8128,7 +8158,7 @@ export type ManifestSource = {
     /**
      * Uri
      *
-     * Relative path (no `..` traversal), HTTP(S) URL, or s3:// storage URI.
+     * Relative path (no `..` traversal), HTTP(S) URL, s3:// storage URI, or, in manifest_version 2, `upload:<job_id>` naming a pending upload the caller made.
      */
     uri: string;
     /**
