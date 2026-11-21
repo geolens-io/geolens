@@ -96,10 +96,10 @@ ejecutar en producción.
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.png">
-<img src=".github/assets/geolens-dashboard.png" alt="Un panel de control de las parcelas de Cambridge: indicadores del número de parcelas y de la superficie, dos gráficos circulares de parcelas por distrito de zonificación, y notas sobre la llanura de inundación y las fuentes de los datos" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.jpg">
+<img src=".github/assets/geolens-dashboard.jpg" alt="Un panel de control junto a un mapa de terremotos recientes en torno al Pacífico: la magnitud más alta a la vista, un gráfico de barras de terremotos por semana y una lista de los más fuertes, todo siguiendo la vista del mapa" width="100%">
 </picture>
-<br><sub>Un panel de control resume los datos de un mapa en indicadores, gráficos y notas. Este oculta su mapa.</sub>
+<br><sub>Un panel de control coloca indicadores, gráficos y listas junto al mapa, y estos siguen lo que hay a la vista.</sub>
 </td>
 </tr>
 </table>

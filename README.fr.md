@@ -98,10 +98,10 @@ exécuter en production.
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.png">
-<img src=".github/assets/geolens-dashboard.png" alt="Un tableau de bord des parcelles de Cambridge : indicateurs du nombre de parcelles et de la superficie, deux diagrammes circulaires des parcelles par zone d’urbanisme, et des notes sur la zone inondable et les sources des données" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.jpg">
+<img src=".github/assets/geolens-dashboard.jpg" alt="Un tableau de bord à côté d’une carte des séismes récents autour du Pacifique : la plus forte magnitude visible, un diagramme en barres des séismes par semaine et une liste des plus forts, le tout suivant la vue de la carte" width="100%">
 </picture>
-<br><sub>Un tableau de bord résume les données d’une carte en indicateurs, graphiques et notes. Celui-ci masque sa carte.</sub>
+<br><sub>Un tableau de bord place des indicateurs, des graphiques et des listes à côté de la carte, et ils suivent ce qui est visible.</sub>
 </td>
 </tr>
 </table>

@@ -19,7 +19,7 @@ imagery (smaller).
 | `geolens-catalog-search{,-dark}.png` | Grid | Search by meaning with origin and freshness badges | Public catalog, signed out, search `where storms hit the coast` |
 | `geolens-arcgis-webmap{,-dark}.jpg` | Grid | A map imported from an ArcGIS Online web map, in the builder with its layer list and legend | **Cambridge Open Data: Street Trees From an ArcGIS Online Web Map** |
 | `geolens-story{,-dark}.jpg` | Grid | A published story as a reader sees it: a chapter beside a globe of storm tracks | **Where the Atlantic's Major Hurricanes Go**, signed out, first chapter |
-| `geolens-dashboard{,-dark}.png` | Grid | A dashboard as a reader sees it: indicators, two pie charts and notes, with the map hidden | **Cambridge Open Data: Land and Zoning in Numbers**, signed out |
+| `geolens-dashboard{,-dark}.jpg` | Grid | A dashboard as a reader sees it: the map with an indicator, a bar chart and a list that follow the map view | A throwaway copy of **Earthquake Dashboard: USGS M2.5+ Snapshot** with its map shown, signed out, panned to the western Pacific |
 | `geolens-provenance{,-dark}.png` | Provenance | Source tab of a live service import: owned copy, refresh and check times, Healthy, Fresh, No drift | **Recent Earthquakes (M2.5+, last 30 days)**, right after a refresh from the USGS service |
 | `geolens-qgis.png` | Use the data | QGIS 4 reading the demo over OGC API Features, with the connection open in the Browser panel | `https://demo.getgeolens.com/api/` with Recent Earthquakes, Significant Volcanic Eruptions, Tectonic Plate Boundaries and World Countries loaded |
 

@@ -95,10 +95,10 @@ der Produktion betreiben.
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.png">
-<img src=".github/assets/geolens-dashboard.png" alt="Ein Dashboard zu den Flurstücken von Cambridge: Kennzahlen zu Anzahl und Fläche der Flurstücke, zwei Kreisdiagramme der Flurstücke nach Nutzungsbezirk sowie Notizen zum Überschwemmungsgebiet und zu den Datenquellen" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.jpg">
+<img src=".github/assets/geolens-dashboard.jpg" alt="Ein Dashboard neben einer Karte der jüngsten Erdbeben rund um den Pazifik: die stärkste Magnitude im Kartenausschnitt, ein Balkendiagramm der Erdbeben pro Woche und eine Liste der stärksten Beben, alles folgt dem Kartenausschnitt" width="100%">
 </picture>
-<br><sub>Ein Dashboard fasst die Daten einer Karte in Kennzahlen, Diagrammen und Notizen zusammen. Dieses blendet seine Karte aus.</sub>
+<br><sub>Ein Dashboard stellt Kennzahlen, Diagramme und Listen neben die Karte, und sie folgen dem Kartenausschnitt.</sub>
 </td>
 </tr>
 </table>

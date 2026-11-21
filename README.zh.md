@@ -87,10 +87,10 @@ grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin pass
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.png">
-<img src=".github/assets/geolens-dashboard.png" alt="剑桥市地块仪表板：地块数量和土地面积指标，两个按分区划分地块的饼图，以及关于洪泛区和数据来源的注释" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.jpg">
+<img src=".github/assets/geolens-dashboard.jpg" alt="环太平洋近期地震地图旁的仪表板：当前视图内的最大震级、每周地震数量的柱状图以及最强地震的列表，全部随地图视图更新" width="100%">
 </picture>
-<br><sub>仪表板用指标、图表和注释汇总地图的数据。这个仪表板隐藏了自己的地图。</sub>
+<br><sub>仪表板把指标、图表和列表放在地图旁边，并随地图视图更新。</sub>
 </td>
 </tr>
 </table>

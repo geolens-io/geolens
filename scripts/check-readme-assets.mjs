@@ -40,8 +40,8 @@ const README_ASSETS = {
   'geolens-arcgis-webmap-dark.jpg': { width: 1600, height: 900 },
   'geolens-story.jpg': { width: 1600, height: 900 },
   'geolens-story-dark.jpg': { width: 1600, height: 900 },
-  'geolens-dashboard.png': { width: 1600, height: 900 },
-  'geolens-dashboard-dark.png': { width: 1600, height: 900 },
+  'geolens-dashboard.jpg': { width: 1600, height: 900 },
+  'geolens-dashboard-dark.jpg': { width: 1600, height: 900 },
 };
 
 const IMAGE_EXTENSIONS = new Set(['.png', '.jpg', '.jpeg', '.gif', '.webp', '.avif']);

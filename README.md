@@ -93,10 +93,10 @@ verifying the script, building from source and running in production.
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.png">
-<img src=".github/assets/geolens-dashboard.png" alt="A dashboard of Cambridge parcels: indicators for parcel counts and land area, two pie charts of parcels by zoning district, and notes on the floodplain and the data's sources" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.jpg">
+<img src=".github/assets/geolens-dashboard.jpg" alt="A dashboard beside a map of recent earthquakes around the Pacific: the strongest magnitude in view, a bar chart of earthquakes per week and a list of the strongest events, all following the map view" width="100%">
 </picture>
-<br><sub>A dashboard sums up a map's data in indicators, charts and notes. This one hides its map.</sub>
+<br><sub>A dashboard puts indicators, charts and lists beside the map, and they follow what's in view.</sub>
 </td>
 </tr>
 </table>
