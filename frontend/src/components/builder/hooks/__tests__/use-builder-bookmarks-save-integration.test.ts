@@ -210,6 +210,49 @@ describe('Builder bookmarks', () => {
     expect(result.current.hasUnsavedChanges).toBe(true);
   });
 
+  it('keeps an edit that matches a list saved elsewhere while its own save is still going', async () => {
+    const c: MapBookmark = { name: 'C', extent: [4, 4, 5, 5] };
+    const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), { initialProps: { mapData: mapWith([a]) } });
+    act(() => result.current.handleBookmarksChange([a, b]));
+    let finish: (value: unknown) => void = () => {};
+    mockUpdateMapMutateAsync.mockReturnValueOnce(new Promise((resolve) => { finish = resolve; }));
+    let saving: Promise<unknown> = Promise.resolve();
+    act(() => {
+      saving = result.current.handleSave();
+    });
+    await waitFor(() => expect(mockUpdateMapMutateAsync).toHaveBeenCalledOnce());
+    act(() => result.current.handleBookmarksChange([a, c]));
+
+    // Someone else's save of the same list arrives before this save is answered.
+    rerender({ mapData: mapWith([a, c]) });
+    expect(result.current.bookmarksEdited).toBe(true);
+
+    await act(async () => {
+      finish({ id: 'map-1' });
+      await saving;
+    });
+    rerender({ mapData: mapWith([a, b]) });
+    expect(result.current.bookmarks).toEqual([a, c]);
+    expect(result.current.bookmarksEdited).toBe(true);
+  });
+
+  it('shows what the saved list holds after its save, another editor\'s addition included', async () => {
+    const c: MapBookmark = { name: 'C', extent: [4, 4, 5, 5] };
+    const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), { initialProps: { mapData: mapWith([a]) } });
+    act(() => result.current.handleBookmarksChange([a, b]));
+    mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1' });
+    await act(async () => {
+      await result.current.handleSave();
+    });
+    // Saved, and shown as saved until the list comes back.
+    expect(result.current.bookmarks).toEqual([a, b]);
+    expect(result.current.bookmarksEdited).toBe(false);
+
+    rerender({ mapData: mapWith([a, b, c]) });
+    expect(result.current.bookmarks).toEqual([a, b, c]);
+    expect(result.current.bookmarksEdited).toBe(false);
+  });
+
   it('measures edits against the saved list again after a save fails', async () => {
     const { result } = renderHook(({ mapData }) => useCombinedBuilder(mapData), { initialProps: { mapData: mapWith([a]) } });
     act(() => result.current.handleBookmarksChange([a, b]));

@@ -195,23 +195,42 @@ export function useBuilderLayers(
   // The list a save sent that the saved list doesn't show yet. Until it does,
   // that list is what an edit is measured against: one put back to the older
   // saved list is still a change to what the save stores.
-  const [sentBookmarks, setSentBookmarks] = useState<MapBookmark[] | null>(null);
+  const [sentBookmarks, setSentBookmarks] = useState<{
+    mapId?: string;
+    list: MapBookmark[];
+    stored: boolean;
+  } | null>(null);
+  const sentBookmarksRef = useRef(sentBookmarks);
+  sentBookmarksRef.current = sentBookmarks;
   const editedBookmarks = bookmarkEdit && bookmarkEdit.mapId === mapId ? bookmarkEdit.list : null;
   useEffect(() => {
-    setSentBookmarks(null);
+    // A saved list that arrives while a save is still going, and isn't what
+    // that save sent, came from elsewhere: the save's own answer is still to
+    // come, so its list stays the measure and the edit stays.
+    const sent = sentBookmarksRef.current;
+    const awaited =
+      sent !== null && sent.mapId === mapId && !sent.stored && !sameBookmarks(sent.list, savedBookmarks);
+    if (!awaited) setSentBookmarks(null);
     setBookmarkEdit((edit) =>
-      edit && (edit.mapId !== mapId || sameBookmarks(edit.list, savedBookmarks)) ? null : edit,
+      edit && (edit.mapId !== mapId || (!awaited && sameBookmarks(edit.list, savedBookmarks))) ? null : edit,
     );
   }, [savedBookmarks, mapId]);
-  const bookmarks = editedBookmarks ?? savedBookmarks;
+  const pendingBookmarks = sentBookmarks && sentBookmarks.mapId === mapId ? sentBookmarks.list : null;
+  const bookmarks = editedBookmarks ?? pendingBookmarks ?? savedBookmarks;
   const bookmarksEdited =
-    editedBookmarks !== null && !sameBookmarks(editedBookmarks, sentBookmarks ?? savedBookmarks);
+    editedBookmarks !== null && !sameBookmarks(editedBookmarks, pendingBookmarks ?? savedBookmarks);
   const beginBookmarksSave = useCallback((sent: MapBookmark[]) => {
-    setSentBookmarks(sent);
+    setSentBookmarks({ mapId, list: sent, stored: false });
     return (stored: boolean) => {
-      if (!stored) setSentBookmarks((current) => (current === sent ? null : current));
+      setSentBookmarks((current) => {
+        if (current?.list !== sent) return current;
+        return stored ? { ...current, stored: true } : null;
+      });
+      // The server holds the list now, so an edit that is still that list is
+      // spent; whatever the saved list shows next is taken as it comes.
+      if (stored) setBookmarkEdit((edit) => (edit?.list === sent ? null : edit));
     };
-  }, []);
+  }, [mapId]);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
