@@ -177,7 +177,11 @@ async def test_add_dataset_refuses_a_caller_without_manage_collections(
 
     assert code == "A033"
     assert (
-        await test_db_session.scalar(select(func.count(CollectionDataset.dataset_id)))
+        await test_db_session.scalar(
+            select(func.count(CollectionDataset.dataset_id)).where(
+                CollectionDataset.collection_id == collection.id
+            )
+        )
         == 0
     )
 
@@ -194,7 +198,11 @@ async def test_add_dataset_refuses_a_caller_who_does_not_own_the_collection(
 
     assert code == "A033"
     assert (
-        await test_db_session.scalar(select(func.count(CollectionDataset.dataset_id)))
+        await test_db_session.scalar(
+            select(func.count(CollectionDataset.dataset_id)).where(
+                CollectionDataset.collection_id == collection.id
+            )
+        )
         == 0
     )
 

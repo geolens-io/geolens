@@ -7,6 +7,7 @@ code.
 
 from __future__ import annotations
 
+import contextlib
 import uuid
 from dataclasses import dataclass, field
 from typing import Any
@@ -16,9 +17,13 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity, IdentityRole, IdentitySnapshot
 from app.platform.extensions import get_processing_port
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import ADMITTED_PUBLISH_KEY_METADATA_KEY, IngestJob
 from app.platform.record_audience import opens_to_anonymous, publish_key_widening
-from app.platform.request_credential import is_publish_key
+from app.platform.request_credential import (
+    ApiKeyCredential,
+    acting_with,
+    is_publish_key,
+)
 from app.processing.ingest.manifest_schemas import (
     MAX_MANIFEST_ATTRIBUTES,
     ManifestApplyEntryResult,
@@ -173,12 +178,30 @@ class ManifestEntryFields:
 def report_entry(
     fields: ManifestEntryFields | None, result: ManifestApplyEntryResult
 ) -> ManifestApplyEntryResult:
-    """Give a version 2 entry's result its messages. A skip or a held run
-    changes nothing, so it has none to add."""
-    if fields is not None:
-        added = fields.messages if result.action in ("create", "update") else []
-        result.messages = [*(result.messages or []), *added]
+    """Give a version 2 entry's result its messages, whatever it did: a held
+    run still carries what the entry decided."""
+    if fields is not None and result.action != "error":
+        result.messages = [*(result.messages or []), *fields.messages]
     return result
+
+
+def _collection_message(code: str) -> ManifestMessage:
+    if code == COLLECTION_BUSY_CODE:
+        message = (
+            "Another change held the collection too long, so the dataset was "
+            "not added to it. Publishing again may add it."
+        )
+    else:
+        message = (
+            "The collection doesn't exist and you can't create it, or you "
+            "can't add datasets to it, so the dataset is published without one."
+        )
+    return ManifestMessage(
+        code=COLLECTION_REFUSED,
+        severity="warning",
+        message=message,
+        fix="Choose another collection.",
+    )
 
 
 async def resolve_entry_collection(
@@ -201,20 +224,34 @@ async def resolve_entry_collection(
         db, ref, user, may_create=not dry_run
     )
     if code is not None:
-        fields.messages.append(
-            ManifestMessage(
-                code=COLLECTION_REFUSED,
-                severity="warning",
-                message=(
-                    "The collection doesn't exist and you can't create it, or "
-                    "you can't add datasets to it, so the dataset is published "
-                    "without one."
-                ),
-                fix="Choose another collection.",
-            )
-        )
+        fields.messages.append(_collection_message(code))
         return
     fields.collection_id = collection_id
+
+
+async def attach_unchanged_entry(
+    db: AsyncSession,
+    dataset: ManifestDataset,
+    user: Identity,
+    fields: ManifestEntryFields | None,
+    dataset_id: uuid.UUID,
+    *,
+    dry_run: bool,
+) -> None:
+    """Add an unchanged version 2 entry's dataset to its collection, which the
+    publish that made it may have had to leave out. Nothing happens when it is
+    a member already; a refusal is warning A033, and a dry run only resolves.
+    """
+    if fields is None:
+        return
+    await resolve_entry_collection(db, dataset, user, fields, dry_run=dry_run)
+    if dry_run or fields.collection_id is None:
+        return
+    code = await get_processing_port().add_dataset_to_manifest_collection(
+        db, fields.collection_id, dataset_id, user
+    )
+    if code is not None:
+        fields.messages.append(_collection_message(code))
 
 
 def job_metadata_fields(
@@ -322,9 +359,10 @@ async def apply_dataset_fields(
         except ValueError:
             collection_id = None
         if collection_id is not None and submitter is not None:
-            code = await port.add_dataset_to_manifest_collection(
-                session, collection_id, dataset.id, submitter
-            )
+            with _as_publish_key(session, user_metadata):
+                code = await port.add_dataset_to_manifest_collection(
+                    session, collection_id, dataset.id, submitter
+                )
         if code is not None:
             details = {"collection_id": str(collection)}
             if code == COLLECTION_BUSY_CODE:
@@ -345,6 +383,23 @@ async def apply_dataset_fields(
                 },
             )
     record_manifest_tile_cache_version(job, dataset)
+
+
+def _as_publish_key(
+    session: AsyncSession, metadata: dict
+) -> contextlib.AbstractContextManager[None]:
+    """The scope of the publish key a job was queued or accepted with, so
+    the collection checks reach only the key owner's own collections."""
+    marker = metadata.get(ADMITTED_PUBLISH_KEY_METADATA_KEY)
+    if not marker:
+        return contextlib.nullcontext()
+    try:
+        key_id = uuid.UUID(str(marker))
+    except ValueError:
+        key_id = uuid.UUID(int=0)
+    return acting_with(
+        session, ApiKeyCredential(id=key_id, scope="publish", dataset_id=None)
+    )
 
 
 async def apply_fields_for_job(

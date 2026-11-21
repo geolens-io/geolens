@@ -409,10 +409,8 @@ class ManifestApplyRequest(_ManifestBaseModel):
         # Supplied at all, null included: version 1 had no such field.
         if "client" in self.model_fields_set:
             raise ValueError("client requires manifest_version '2'")
-        if self.public_fallback is not None or any(
-            dataset.visibility is not None
-            or dataset.collection is not None
-            or dataset.attributes is not None
+        if "public_fallback" in self.model_fields_set or any(
+            {"visibility", "collection", "attributes"} & dataset.model_fields_set
             for dataset in self.datasets
         ):
             raise ValueError(

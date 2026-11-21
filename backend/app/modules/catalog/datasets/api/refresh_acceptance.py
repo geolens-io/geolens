@@ -8,6 +8,7 @@ the upload its blocked job kept.
 from __future__ import annotations
 
 import uuid
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy import select, text
@@ -37,7 +38,8 @@ from app.platform.refresh.verification import (
     canonical_service_source_binding_fingerprint,
 )
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
-from app.platform.request_credential import is_publish_key
+from app.platform.record_audience import publish_key_widening
+from app.platform.request_credential import publish_key_id
 
 # What a manifest apply wrote on its job, so an accepted run publishes the
 # manifest's record metadata as the blocked one would have.
@@ -216,8 +218,11 @@ def _accepted_upload_metadata(
     run_id: uuid.UUID,
     fingerprint: str,
     held_version: int | None,
-    publish_key: bool = False,
+    publish_key: uuid.UUID | None = None,
+    record: Any = None,
 ) -> dict:
+    """The accepted job's metadata. ``publish_key`` is the accepting key's id
+    when one accepts, and ``record`` the dataset's record as it is now."""
     blocked = blocked_job.user_metadata or {}
     carried = {
         key: value
@@ -226,11 +231,19 @@ def _accepted_upload_metadata(
         or key.startswith("manifest_")
         or ("manifest_key" in blocked and key in _MANIFEST_RECORD_KEYS)
     }
-    if publish_key:
-        # The held entry may be another credential's, so the dataset keeps its
-        # visibility and status.
-        carried.pop("visibility", None)
-        carried.pop("record_status", None)
+    if publish_key is not None:
+        # The held entry may be another credential's: the key applies its
+        # visibility and status only where they don't widen what the dataset
+        # has, and the publish holds the run to the key's rules again.
+        carried[ADMITTED_PUBLISH_KEY_METADATA_KEY] = str(publish_key)
+        if record is None or publish_key_widening(
+            record.visibility,
+            record.record_status,
+            visibility=carried.get("visibility"),
+            record_status=carried.get("record_status"),
+        ):
+            carried.pop("visibility", None)
+            carried.pop("record_status", None)
     return {
         **carried,
         "reupload": True,
@@ -309,7 +322,8 @@ async def dispatch_upload_acceptance(
             run_id=run_id,
             fingerprint=fingerprint,
             held_version=held_version,
-            publish_key=is_publish_key(db),
+            publish_key=publish_key_id(db),
+            record=dataset.record,
         ),
     )
     await db.flush()

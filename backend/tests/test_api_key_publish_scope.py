@@ -1570,7 +1570,9 @@ def test_a_publish_keys_acceptance_keeps_the_datasets_publication():
         },
     )
 
-    def accepted(publish_key: bool) -> dict:
+    key_id = uuid.uuid4()
+
+    def accepted(publish_key: uuid.UUID | None, record=None) -> dict:
         return _accepted_upload_metadata(
             held,
             dataset_id=uuid.uuid4(),
@@ -1578,13 +1580,21 @@ def test_a_publish_keys_acceptance_keeps_the_datasets_publication():
             fingerprint="fingerprint",
             held_version=None,
             publish_key=publish_key,
+            record=record,
         )
 
-    withheld = accepted(True)
+    withheld = accepted(key_id)
     assert withheld["title"] == "Roads"
     assert "visibility" not in withheld and "record_status" not in withheld
-    assert accepted(False)["visibility"] == "public"
-    assert "publish_key=is_publish_key(db)" in inspect.getsource(
+    assert withheld["admitted_publish_key"] == str(key_id)
+    # Already public and published: nothing widens, so the key applies it.
+    kept = accepted(
+        key_id, SimpleNamespace(visibility="public", record_status="published")
+    )
+    assert (kept["visibility"], kept["record_status"]) == ("public", "published")
+    assert accepted(None)["visibility"] == "public"
+    assert "admitted_publish_key" not in accepted(None)
+    assert "publish_key=publish_key_id(db)" in inspect.getsource(
         dispatch_upload_acceptance
     )
 

@@ -12,7 +12,8 @@ before that could happen.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, MutableMapping
+from collections.abc import Iterator, Mapping, MutableMapping
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
@@ -152,6 +153,31 @@ def is_publish_key(session: AsyncSession) -> bool:
     """Whether a publish-scoped key authenticated this session's request."""
     credential = api_key_credential(session)
     return credential is not None and credential.scope == "publish"
+
+
+def publish_key_id(session: AsyncSession) -> uuid.UUID | None:
+    """The id of the publish-scoped key that authenticated this session, if one did."""
+    credential = api_key_credential(session)
+    return (
+        credential.id
+        if credential is not None and credential.scope == "publish"
+        else None
+    )
+
+
+@contextmanager
+def acting_with(session: AsyncSession, credential: ApiKeyCredential) -> Iterator[None]:
+    """Judge the block as a request ``credential`` authenticated, for work a
+    worker does on behalf of the request that queued it."""
+    previous = session.info.get(_SESSION_KEY)
+    record_api_key(session, credential)
+    try:
+        yield
+    finally:
+        if previous is None:
+            session.info.pop(_SESSION_KEY, None)
+        else:
+            session.info[_SESSION_KEY] = previous
 
 
 def refuse_publish_key(session: AsyncSession, message: str) -> None:

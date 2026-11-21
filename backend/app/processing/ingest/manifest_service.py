@@ -39,7 +39,11 @@ from app.platform.jobs.defer_guard import (
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
 from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
-from app.platform.request_credential import is_publish_key, refuse_publish_key
+from app.platform.request_credential import (
+    is_publish_key,
+    publish_key_id,
+    refuse_publish_key,
+)
 
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
@@ -52,6 +56,7 @@ from app.platform.jobs.models import (
 )
 from app.processing.ingest.manifest_dataset_fields import (
     ManifestEntryFields,
+    attach_unchanged_entry,
     report_entry,
     resolve_entry_collection,
 )
@@ -794,6 +799,8 @@ async def _reserve_entry(
         ),
         **downloading_stage_marker(),
     }
+    if fields is not None and (key_id := publish_key_id(db)) is not None:
+        metadata[ADMITTED_PUBLISH_KEY_METADATA_KEY] = str(key_id)
     if dataset_id is not None:
         metadata["reupload"] = True
         metadata["dataset_id"] = str(dataset_id)
@@ -801,8 +808,6 @@ async def _reserve_entry(
             # Version 1's comes from the intent, applied later over whatever
             # the visibility is by then, so the update keeps it.
             metadata.pop("visibility", None)
-        elif is_publish_key(db):
-            metadata[ADMITTED_PUBLISH_KEY_METADATA_KEY] = True
         metadata[ADMITTED_CAPABILITY_METADATA_KEY] = UPLOAD
         from app.modules.catalog.authorization import admitted_public_visibility
 
@@ -1160,6 +1165,9 @@ async def _reserve_or_settle_entry(
         if existing_dataset is None:
             raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED)
         await _admit_key_dataset(db, existing_dataset, user)
+        await attach_unchanged_entry(
+            db, dataset, user, fields, existing_dataset.id, dry_run=request.dry_run
+        )
         result = ManifestApplyEntryResult(
             dataset_key=dataset.key,
             action="skip",

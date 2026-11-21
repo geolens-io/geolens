@@ -43,6 +43,7 @@ from app.processing.ingest.manifest_dataset_fields import (
 )
 from app.processing.ingest.manifest_schemas import (
     MAX_MANIFEST_ATTRIBUTES,
+    ManifestApplyEntryResult,
     ManifestApplyRequest,
     ManifestAttribute,
 )
@@ -144,6 +145,17 @@ def test_version_1_refuses_the_version_2_fields():
             _request(_entry("k", **extra), version="1")
     with pytest.raises(ValidationError, match="manifest_version '2'"):
         _request(_entry("k"), version="1", public_fallback="internal")
+
+
+@pytest.mark.parametrize("field", ["visibility", "collection", "attributes"])
+def test_version_1_refuses_an_explicit_null_version_2_field(field):
+    with pytest.raises(ValidationError, match="manifest_version '2'"):
+        _request(_entry("k", **{field: None}), version="1")
+
+
+def test_version_1_refuses_an_explicit_null_public_fallback():
+    with pytest.raises(ValidationError, match="manifest_version '2'"):
+        _request(_entry("k"), version="1", public_fallback=None)
 
 
 def test_public_fallback_only_names_internal():
@@ -634,6 +646,47 @@ async def test_the_tail_drops_more_attributes_than_an_apply_accepts(
         await apply_dataset_fields(test_db_session, job, dataset, job.user_metadata)
 
     assert port.apply_manifest_attributes.await_count == int(applied)
+
+
+async def test_an_unchanged_reapply_adds_a_collection_left_out_while_busy(
+    test_db_session, clean_tables, monkeypatch
+):
+    import app.core.db as db_module
+
+    monkeypatch.setattr(
+        "app.modules.catalog.collections.manifest.WORKER_LOCK_TIMEOUT", "200ms"
+    )
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    collection = Collection(name="Retry parks", created_by=user.id)
+    test_db_session.add(collection)
+    await test_db_session.commit()
+    request = _request(_entry("fields-retry", collection={"id": str(collection.id)}))
+    response, _ = await _apply(test_db_session, user, request)
+    job = await test_db_session.get(IngestJob, response.results[0].job_id)
+
+    async with db_module.async_session() as holder:
+        await holder.execute(
+            text("SELECT id FROM catalog.collections WHERE id = :id FOR UPDATE"),
+            {"id": collection.id},
+        )
+        dataset = await _finalize(test_db_session, user, job)
+        await holder.rollback()
+    assert [w["details"].get("reason") for w in job.user_metadata["warnings"]] == [
+        "busy"
+    ]
+    dataset_id = dataset.id
+
+    again, queue = await _apply(test_db_session, user, request)
+
+    assert (again.results[0].action, again.results[0].messages) == ("skip", [])
+    queue.assert_not_awaited()
+    member = await test_db_session.scalar(
+        select(CollectionDataset.collection_id).where(
+            CollectionDataset.dataset_id == dataset_id
+        )
+    )
+    assert member == collection.id
 
 
 def test_the_tails_add_the_collection_after_their_slow_work():
@@ -1194,7 +1247,8 @@ async def test_a_publish_key_narrows_a_public_draft_as_it_publishes_it(
     job = await _run_update(test_db_session, result, task)
 
     assert job.user_metadata["visibility"] == "private"
-    assert job.user_metadata["admitted_publish_key"] is True
+    # The id of the key the publish holds the job to.
+    assert uuid.UUID(job.user_metadata["admitted_publish_key"])
     assert (job.status, job.error_message) == ("complete", None)
     # The row the worker commits: published, and never public while it is.
     assert await _record(test_db_session, dataset_id) == ("private", "published")
@@ -1356,6 +1410,74 @@ async def test_public_fallback_never_widens_a_publish_keys_private_dataset(
     assert result.errors == ["A publish key can't widen a dataset's visibility"]
     task.defer_async.assert_not_awaited()
     assert await _record(test_db_session, dataset_id) == ("private", "draft")
+
+
+@pytest.mark.usefixtures("_restricted_public")
+@pytest.mark.parametrize(
+    "fallback,ending", [(None, None), ("internal", "internal")], ids=["no", "fallback"]
+)
+async def test_a_non_admin_naming_public_on_an_update_while_restricted(
+    client, test_db_session, admin_auth_header, clean_tables, fallback, ending
+):
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    key = f"audience-restricted-named-{fallback or 'none'}"
+    dataset_id = await _manifest_dataset(
+        test_db_session, editor, key, "private", "draft"
+    )
+    extra = {} if fallback is None else {"public_fallback": fallback}
+
+    result, task = await _queue_update(
+        test_db_session,
+        editor,
+        await _uploaded(client, headers, key, visibility="public"),
+        **extra,
+    )
+
+    assert [(m.code, m.message.split(",")[0]) for m in result.messages] == [
+        ("A020", "Public visibility is restricted on this server")
+    ]
+    if ending is None:
+        assert result.action == "error", result
+        task.defer_async.assert_not_awaited()
+        assert await _record(test_db_session, dataset_id) == ("private", "draft")
+        return
+    assert result.action == "update", result
+    job = await _run_update(test_db_session, result, task)
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("internal", "published")
+
+
+async def test_a_held_entry_reapplied_keeps_its_a020_warning(
+    test_db_session, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "audience-held-a020"
+    dataset_id = await _published_by_manifest(test_db_session, user, key)
+
+    async def held(db, dataset, fingerprint, job, existing):
+        return ManifestApplyEntryResult(
+            dataset_key=dataset.key,
+            action="blocked",
+            dataset_id=dataset_id,
+            message="Held for review.",
+        )
+
+    with (
+        _forbid_public(),
+        patch("app.processing.ingest.manifest_service.held_entry", new=held),
+    ):
+        result, task = await _queue_update(
+            test_db_session,
+            user,
+            _entry(key, visibility="public"),
+            public_fallback="internal",
+        )
+
+    assert result.action == "blocked", result
+    assert [(m.code, m.severity) for m in result.messages] == [("A020", "warning")]
+    task.defer_async.assert_not_awaited()
 
 
 # ---------------------------------------------------------------------------
