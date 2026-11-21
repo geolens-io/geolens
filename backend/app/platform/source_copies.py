@@ -42,7 +42,7 @@ DUPLICATE_SOURCE_CODE = "duplicate_source"
 
 # A job carrying any of these writes into an existing dataset (a refresh or a
 # replacement), so it is never a second copy of its source.
-_EXISTING_DATASET_MARKERS = ("dataset_id", "reupload", "refresh")
+EXISTING_DATASET_MARKERS = ("dataset_id", "reupload", "refresh")
 
 # Request parameters a WFS or OGC API client adds to any URL; none of them
 # picks the service or the layer, unlike `typeName` or a MapServer `map`.
@@ -175,7 +175,7 @@ def job_source_identity(job: IngestJob) -> SourceIdentity | None:
     dataset, or a service type nothing can import.
     """
     metadata = job.user_metadata if isinstance(job.user_metadata, dict) else {}
-    if any(metadata.get(marker) for marker in _EXISTING_DATASET_MARKERS):
+    if any(metadata.get(marker) for marker in EXISTING_DATASET_MARKERS):
         return None
     database = read_source("database", metadata.get(DATABASE_SOURCE_METADATA_KEY))
     if isinstance(database, DatabaseSource):

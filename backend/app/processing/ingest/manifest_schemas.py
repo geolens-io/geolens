@@ -308,6 +308,26 @@ class ManifestApplyRequest(_ManifestBaseModel):
             raise ValueError(f"duplicate dataset key(s): {keys}")
         return datasets
 
+    @field_validator("datasets")
+    @classmethod
+    def upload_sources_must_be_unique(
+        cls, datasets: list[ManifestDataset]
+    ) -> list[ManifestDataset]:
+        """An upload becomes at most one entry's import, so it may appear once."""
+        seen: set[str] = set()
+        repeated: list[str] = []
+        for dataset in datasets:
+            for source in dataset.sources:
+                uri = source.uri
+                if not uri.startswith(UPLOAD_URI_PREFIX):
+                    continue
+                if uri in seen and uri not in repeated:
+                    repeated.append(uri)
+                seen.add(uri)
+        if repeated:
+            raise ValueError(f"duplicate upload source(s): {', '.join(repeated)}")
+        return datasets
+
     @model_validator(mode="after")
     def _fields_match_version(self) -> "ManifestApplyRequest":
         if self.manifest_version == "2":

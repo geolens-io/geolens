@@ -13,6 +13,7 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse
 
+import structlog
 from sqlalchemy import and_, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -28,7 +29,11 @@ from app.platform.jobs.models import (
     IngestJob,
 )
 from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS, may_be_stale
-from app.processing.ingest.manifest_reservation import claim_upload, unclaimed_upload
+from app.processing.ingest.manifest_reservation import (
+    claim_upload,
+    plain_upload,
+    unclaimed_upload,
+)
 from app.processing.ingest.manifest_schemas import (
     MANIFEST_SOURCE_EXTENSIONS,
     UPLOAD_URI_PREFIX,
@@ -40,6 +45,8 @@ from app.processing.ingest.manifest_schemas import (
 if TYPE_CHECKING:
     from app.core.identity import Identity
 
+log = structlog.get_logger()
+
 # A catalog record_status is an open set (an overlay may define
 # its own, #1183); validate against the live extension, never re-freeze it.
 ManifestPublicationIntent = str
@@ -50,6 +57,10 @@ ManifestSourceKind = Literal["local", "http", "storage", "upload"]
 UPLOAD_SOURCE_UNAVAILABLE = (
     "The upload this source names is unknown, has expired, or was already "
     "used. Upload the file again."
+)
+
+UPLOAD_READ_FAILED = (
+    "The uploaded file could not be read to check its checksum. Try again later."
 )
 
 # Reading the upload back is bounded like staging a downloaded source.
@@ -364,6 +375,7 @@ async def prepare_manifest_source(
                 and_(
                     IngestJob.status == "pending",
                     func.coalesce(IngestJob.file_path, "") != "",
+                    plain_upload(),
                     unclaimed_upload(),
                 ).label("claimable"),
             ).where(
@@ -459,6 +471,9 @@ async def _verify_upload_checksum(file_path: str, checksum: str) -> int:
         ) from exc
     except (OSError, RuntimeError) as exc:
         raise ManifestSourceError(UPLOAD_SOURCE_UNAVAILABLE) from exc
+    except Exception as exc:  # broad: a storage SDK error can name the endpoint and key
+        log.warning("manifest_upload_checksum_read_failed", exc_info=exc)
+        raise ManifestSourceError(UPLOAD_READ_FAILED) from exc
     if not hmac.compare_digest(f"sha256:{digest}", checksum):
         raise ManifestSourceError(
             "The uploaded file does not match the source's checksum. Send the "
@@ -483,7 +498,7 @@ async def _staged_upload_sha256(file_path: str) -> tuple[str, int]:
         chunks = get_storage().get_stream(resolve_current_storage_key(file_path))
         try:
             async for chunk in chunks:
-                digest.update(chunk)
+                await run_in_thread_draining(digest.update, chunk)
                 size_bytes += len(chunk)
         finally:
             aclose = getattr(chunks, "aclose", None)
@@ -499,9 +514,8 @@ async def _staged_upload_sha256(file_path: str) -> tuple[str, int]:
     try:
         if cancelled is not None:
             raise cancelled
-        while chunk := await run_in_thread_draining(handle.read, _CHECKSUM_CHUNK_BYTES):
-            digest.update(chunk)
-            size_bytes += len(chunk)
+        while read := await run_in_thread_draining(_hash_next_chunk, handle, digest):
+            size_bytes += read
     finally:
         await run_in_thread_draining(handle.close)
     return digest.hexdigest(), size_bytes
@@ -538,3 +552,10 @@ def skip_complete_message(prepared: ManifestPreparedSource) -> str:
         "inspected. Set checksum on the source to force a re-import "
         "when the file changes under a stable URI."
     )
+
+
+def _hash_next_chunk(handle, digest) -> int:
+    """Read and hash one chunk on a worker thread. Returns its length, 0 at the end."""
+    chunk = handle.read(_CHECKSUM_CHUNK_BYTES)
+    digest.update(chunk)
+    return len(chunk)

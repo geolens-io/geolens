@@ -36,6 +36,7 @@ from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     IngestJob,
+    dispatch_attempted,
 )
 
 # The three VRT regeneration doors create their job under this filename, and
@@ -312,7 +313,8 @@ async def fan_out(
 ) -> bool:
     """Move this attempt's pending parent to ``fanned_out``, before any child exists.
 
-    Returns whether it landed. Does not commit.
+    A job already dispatched as a whole, by an import commit or a manifest
+    apply, can't also fan out. Returns whether it landed. Does not commit.
     """
     return await _move(
         session,
@@ -320,6 +322,7 @@ async def fan_out(
         attempt_id,
         expect=("pending",),
         written={"status": "fanned_out", "completed_at": datetime.now(timezone.utc)},
+        require=(~dispatch_attempted(),),
     )
 
 

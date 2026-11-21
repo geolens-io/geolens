@@ -160,6 +160,52 @@ async def _complete(session, job_id: uuid.UUID, owner: uuid.UUID) -> uuid.UUID:
     return dataset.id
 
 
+async def _staged_row(
+    session,
+    owner: uuid.UUID,
+    *,
+    metadata: dict | None = None,
+    **columns,
+) -> IngestJob:
+    """A pending row naming a staged copy of the fixture, as the upload door leaves one."""
+    path = Path(settings.upload_staging_dir) / f"{uuid.uuid4()}_roads.geojson"
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_bytes(_ORIGINAL)
+    job = IngestJob(
+        status="pending",
+        created_by=owner,
+        source_filename="roads.geojson",
+        file_path=str(path),
+        user_metadata={
+            "staged_at": datetime.now(timezone.utc).isoformat(),
+            **(metadata or {}),
+        },
+        **columns,
+    )
+    session.add(job)
+    await session.commit()
+    await session.refresh(job)
+    return job
+
+
+async def _user_id(client: AsyncClient, headers: dict) -> uuid.UUID:
+    return uuid.UUID((await client.get("/auth/me/", headers=headers)).json()["id"])
+
+
+async def _owned_dataset(session, owner: uuid.UUID) -> uuid.UUID:
+    dataset = await create_dataset(
+        session,
+        created_by=owner,
+        name="Existing",
+        table_name=f"manifest_existing_{uuid.uuid4().hex[:10]}",
+        record_type="vector_dataset",
+        geometry_type="POINT",
+        feature_count=1,
+        column_info=[{"name": "name", "type": "text"}],
+    )
+    return dataset.id
+
+
 class TestApply:
     async def test_a_browser_geojson_upload_is_published_from_its_own_row(
         self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
@@ -445,21 +491,8 @@ class TestRefusals:
 class TestClaimFence:
     """The claim's own conditions, held even when the read before it passed."""
 
-    async def _pending_upload(self, session, owner: uuid.UUID) -> IngestJob:
-        path = Path(settings.upload_staging_dir) / f"{uuid.uuid4()}_roads.geojson"
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_bytes(_ORIGINAL)
-        job = IngestJob(
-            status="pending",
-            created_by=owner,
-            source_filename="roads.geojson",
-            file_path=str(path),
-            user_metadata={"staged_at": datetime.now(timezone.utc).isoformat()},
-        )
-        session.add(job)
-        await session.commit()
-        await session.refresh(job)
-        return job
+    async def _pending_upload(self, session, owner: uuid.UUID, **fields) -> IngestJob:
+        return await _staged_row(session, owner, **fields)
 
     async def _claim(self, session, job: IngestJob, owner: uuid.UUID, key: str):
         return await claim_upload(
@@ -482,6 +515,74 @@ class TestClaimFence:
         job_id = job.id
 
         assert await self._claim(test_db_session, job, admin, "fence-owner") is None
+        await test_db_session.rollback()
+        assert (await _row(test_db_session, job_id)).status == "pending"
+
+    async def test_the_claim_refuses_a_different_file(
+        self, test_db_session, clean_tables
+    ):
+        owner = await get_user_id(test_db_session, "admin")
+        job = await self._pending_upload(test_db_session, owner)
+        job_id = job.id
+
+        assert (
+            await claim_upload(
+                test_db_session,
+                job_id=job_id,
+                attempt_id=job.attempt_id,
+                file_path=job.file_path + ".other",
+                owner=owner,
+                metadata={"manifest_key": "fence-file"},
+                dataset_id=None,
+                source_layer=None,
+            )
+            is None
+        )
+        await test_db_session.rollback()
+        assert (await _row(test_db_session, job_id)).status == "pending"
+
+    async def test_the_claim_refuses_an_attempt_a_retry_replaced(
+        self, test_db_session, clean_tables
+    ):
+        owner = await get_user_id(test_db_session, "admin")
+        job = await self._pending_upload(test_db_session, owner)
+        job_id, checked_attempt, file_path = job.id, job.attempt_id, job.file_path
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job_id)
+            .values(attempt_id=uuid.uuid4())
+        )
+        await test_db_session.commit()
+
+        claimed = await claim_upload(
+            test_db_session,
+            job_id=job_id,
+            attempt_id=checked_attempt,
+            file_path=file_path,
+            owner=owner,
+            metadata={"manifest_key": "fence-attempt"},
+            dataset_id=None,
+            source_layer=None,
+        )
+
+        assert claimed is None
+        await test_db_session.rollback()
+        assert (await _row(test_db_session, job_id)).status == "pending"
+
+    async def test_the_claim_refuses_a_reupload_row(
+        self, test_db_session, clean_tables
+    ):
+        owner = await get_user_id(test_db_session, "admin")
+        dataset_id = await _owned_dataset(test_db_session, owner)
+        job = await self._pending_upload(
+            test_db_session,
+            owner,
+            dataset_id=dataset_id,
+            metadata={"reupload": True, "dataset_id": str(dataset_id)},
+        )
+        job_id = job.id
+
+        assert await self._claim(test_db_session, job, owner, "fence-reupload") is None
         await test_db_session.rollback()
         assert (await _row(test_db_session, job_id)).status == "pending"
 
@@ -702,6 +803,18 @@ class TestStagedBytes:
         assert ("sha256:" + digest, size) == (_checksum(_ORIGINAL), len(_ORIGINAL))
         assert read == ["tenants/t1/staging/job/capitals.geojson"]
 
+    async def test_a_symlink_out_of_staging_is_not_read(self, monkeypatch, tmp_path):
+        staging = tmp_path / "staging"
+        staging.mkdir()
+        monkeypatch.setattr(settings, "upload_staging_dir", str(staging))
+        outside = tmp_path / "elsewhere.geojson"
+        outside.write_bytes(_ORIGINAL)
+        link = staging / f"{uuid.uuid4()}_roads.geojson"
+        link.symlink_to(outside)
+
+        with pytest.raises(RuntimeError):
+            await manifest_sources._staged_upload_sha256(str(link))
+
     async def test_a_local_path_outside_staging_is_not_read(
         self, monkeypatch, tmp_path
     ):
@@ -711,3 +824,261 @@ class TestStagedBytes:
 
         with pytest.raises(RuntimeError):
             await manifest_sources._staged_upload_sha256(str(outside))
+
+
+_COMMIT_QUEUE = "app.processing.ingest.router.queue_ingest_job"
+
+
+class TestNotAPlainUpload:
+    @pytest.mark.parametrize(
+        "shape",
+        ["reupload", "refresh", "dataset_column", "url_import", "database_import"],
+    )
+    async def test_a_row_that_is_not_a_plain_upload_answers_like_an_unknown_id(
+        self,
+        client: AsyncClient,
+        editor_auth_header,
+        test_db_session,
+        clean_tables,
+        shape: str,
+    ):
+        editor = await _user_id(client, editor_auth_header)
+        if shape in ("reupload", "dataset_column"):
+            dataset_id = await _owned_dataset(test_db_session, editor)
+        fields = {
+            "reupload": lambda: {
+                "dataset_id": dataset_id,
+                "metadata": {"reupload": True, "dataset_id": str(dataset_id)},
+            },
+            "refresh": lambda: {"metadata": {"refresh": True}},
+            "dataset_column": lambda: {"dataset_id": dataset_id},
+            "url_import": lambda: {"source_url": "https://example.com/roads.geojson"},
+            "database_import": lambda: {
+                "metadata": {
+                    "database_source": {"connection": "c", "schema": "s", "table": "t"}
+                }
+            },
+        }[shape]()
+        row = await _staged_row(test_db_session, editor, **fields)
+        job_id, untouched = row.id, (row.status, dict(row.user_metadata))
+
+        answers = await _answers(
+            client, editor_auth_header, "web-shape", job_id, _checksum(_ORIGINAL)
+        )
+
+        assert answers == await _unknown_answers(
+            client, editor_auth_header, "web-shape"
+        )
+        job = await _row(test_db_session, job_id)
+        assert (job.status, job.user_metadata) == untouched
+
+    async def test_an_upload_committed_through_the_import_door_answers_like_an_unknown_id(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        job_id = await _upload(client, editor_auth_header)
+        with patch(_COMMIT_QUEUE, new=AsyncMock()):
+            commit = await client.post(
+                f"/ingest/commit/{job_id}",
+                json={"title": "Committed"},
+                headers=editor_auth_header,
+            )
+        assert commit.status_code == 202, commit.text
+
+        answers = await _answers(
+            client, editor_auth_header, "web-committed", job_id, _checksum(_ORIGINAL)
+        )
+
+        assert answers == await _unknown_answers(
+            client, editor_auth_header, "web-committed"
+        )
+        assert "manifest_key" not in (await _row(test_db_session, job_id)).user_metadata
+
+
+class TestDuringTheCheck:
+    async def test_a_cancel_between_the_hash_and_the_claim_claims_nothing(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        import app.core.db as db_module
+        from app.platform.jobs import ledger
+
+        job_id = await _upload(client, editor_auth_header)
+        real_hash = manifest_sources._staged_upload_sha256
+
+        async def _hash_then_cancel(file_path: str):
+            result = await real_hash(file_path)
+            async with db_module.async_session() as other:
+                job = await other.get(IngestJob, job_id)
+                await ledger.cancel(other, job, actor=job.created_by)
+                await other.commit()
+            return result
+
+        with patch.object(manifest_sources, "_staged_upload_sha256", _hash_then_cancel):
+            result = await _apply(
+                client,
+                editor_auth_header,
+                _manifest(_entry("web-cancelled", job_id, _checksum(_ORIGINAL))),
+            )
+
+        assert (result["action"], result["message"], result["queued"]) == (
+            "error",
+            UPLOAD_SOURCE_UNAVAILABLE,
+            0,
+        )
+        job = await _row(test_db_session, job_id)
+        assert job.status == "cancelled"
+        assert "manifest_key" not in job.user_metadata
+
+    async def test_the_checksum_time_limit_ends_the_entry_holding_nothing(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        import asyncio
+
+        import app.core.db as db_module
+
+        job_id = await _upload(client, editor_auth_header)
+        untouched = dict((await _row(test_db_session, job_id)).user_metadata)
+        released: list[bool] = []
+        seen_while_hashing: dict[str, object] = {}
+        real_release = manifest_sources.release_connection
+
+        async def _release(db):
+            await real_release(db)
+            released.append(db.in_transaction())
+
+        async def _slow_hash(file_path: str):
+            seen_while_hashing["released"] = list(released)
+            async with db_module.async_session() as other:
+                seen_while_hashing["key_free"] = await other.scalar(
+                    text(
+                        "SELECT pg_try_advisory_xact_lock("
+                        "hashtextextended('manifest_apply:web-slow', 0))"
+                    )
+                )
+                await other.rollback()
+            await asyncio.sleep(5)
+
+        with (
+            patch.object(manifest_sources, "UPLOAD_CHECKSUM_MAX_SECONDS", 0.5),
+            patch.object(manifest_sources, "release_connection", _release),
+            patch.object(manifest_sources, "_staged_upload_sha256", _slow_hash),
+        ):
+            result = await _apply(
+                client,
+                editor_auth_header,
+                _manifest(_entry("web-slow", job_id, _checksum(_ORIGINAL))),
+            )
+
+        assert result["action"] == "error"
+        assert "within 0.5 seconds" in result["message"]
+        # The connection went back to the pool and the key was free while it read.
+        assert seen_while_hashing == {"released": [False], "key_free": True}
+        job = await _row(test_db_session, job_id)
+        assert (job.status, job.user_metadata) == ("pending", untouched)
+
+    async def test_a_storage_error_while_hashing_is_not_echoed(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        job_id = await _upload(client, editor_auth_header)
+        leak = "https://minio.internal:9000/geolens/tenants/t1/staging/secret.geojson"
+
+        class _StorageError(Exception):
+            pass
+
+        with patch.object(
+            manifest_sources,
+            "_staged_upload_sha256",
+            new=AsyncMock(side_effect=_StorageError(leak)),
+        ):
+            answers = await _answers(
+                client, editor_auth_header, "web-storage", job_id, _checksum(_ORIGINAL)
+            )
+
+        assert {a["message"] for a in answers} == {manifest_sources.UPLOAD_READ_FAILED}
+        assert all("minio" not in str(a) for a in answers)
+
+    async def test_one_upload_named_twice_is_refused_before_any_read(
+        self, client: AsyncClient, editor_auth_header, clean_tables
+    ):
+        job_id = await _upload(client, editor_auth_header)
+        checksum = _checksum(_ORIGINAL)
+        hashing = AsyncMock(return_value=("0" * 64, 1))
+
+        with patch.object(manifest_sources, "_staged_upload_sha256", hashing):
+            response = await client.post(
+                "/ingest/manifest/apply",
+                json=_manifest(
+                    *(_entry(f"web-twice-{n}", job_id, checksum) for n in range(50)),
+                    dry_run=True,
+                ),
+                headers=editor_auth_header,
+            )
+
+        assert response.status_code == 422
+        assert f"duplicate upload source(s): upload:{job_id}" in response.text
+        hashing.assert_not_awaited()
+
+
+class TestFanOut:
+    async def _fan_out(self, client, headers, job_id):
+        with patch(
+            "app.platform.jobs.defer_guard.defer_with_orphan_guard", new=AsyncMock()
+        ):
+            return await client.post(
+                f"/ingest/commit-fan-out/{job_id}",
+                json={"layers": [{"layer_name": "capitals"}]},
+                headers=headers,
+            )
+
+    async def _layers_previewed(self, session, job_id):
+        await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job_id)
+            .values(
+                user_metadata=IngestJob.user_metadata.op("||")(
+                    text("""'{"all_layers": ["capitals"]}'::jsonb""")
+                )
+            )
+        )
+        await session.commit()
+
+    async def _children(self, session, job_id) -> int:
+        return await session.scalar(
+            select(func.count())
+            .select_from(IngestJob)
+            .where(IngestJob.user_metadata["fan_out_parent_id"].astext == str(job_id))
+        )
+
+    async def test_an_upload_a_manifest_claimed_cannot_fan_out(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        job_id = await _upload(client, editor_auth_header)
+        await self._layers_previewed(test_db_session, job_id)
+        await _apply(
+            client,
+            editor_auth_header,
+            _manifest(_entry("web-fan", job_id, _checksum(_ORIGINAL))),
+        )
+
+        response = await self._fan_out(client, editor_auth_header, job_id)
+
+        assert response.status_code == 409, response.text
+        assert (await _row(test_db_session, job_id)).status == "pending"
+        assert await self._children(test_db_session, job_id) == 0
+
+    async def test_an_upload_committed_through_the_import_door_cannot_fan_out(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        job_id = await _upload(client, editor_auth_header)
+        await self._layers_previewed(test_db_session, job_id)
+        with patch(_COMMIT_QUEUE, new=AsyncMock()):
+            commit = await client.post(
+                f"/ingest/commit/{job_id}",
+                json={"title": "Committed"},
+                headers=editor_auth_header,
+            )
+        assert commit.status_code == 202, commit.text
+
+        response = await self._fan_out(client, editor_auth_header, job_id)
+
+        assert response.status_code == 409, response.text
+        assert await self._children(test_db_session, job_id) == 0

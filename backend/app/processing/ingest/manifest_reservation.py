@@ -27,6 +27,7 @@ from app.platform.jobs.models import (
 )
 from app.platform.jobs.sweep import settle_stale_jobs
 from app.platform.refresh.job_runs import stored_review_reasons
+from app.platform.source_copies import EXISTING_DATASET_MARKERS
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
@@ -62,6 +63,17 @@ async def lock_manifest_key(db: AsyncSession, key: str) -> None:
     )
 
 
+def plain_upload():
+    """Predicate: an upload made to create a dataset, not to write into one."""
+    return and_(
+        IngestJob.dataset_id.is_(None),
+        *(
+            IngestJob.user_metadata[marker].astext.is_(None)
+            for marker in EXISTING_DATASET_MARKERS
+        ),
+    )
+
+
 def unclaimed_upload():
     """Predicate: no manifest entry and no import commit has taken this upload."""
     return and_(
@@ -83,9 +95,9 @@ async def claim_upload(
 ) -> IngestJob | None:
     """Make the caller's pending upload this entry's reservation. Does not commit.
 
-    One fenced pending -> running write: the row must still be the owner's,
-    unclaimed, at the attempt and file the caller checked. None on a miss,
-    which never says which condition failed.
+    One fenced pending -> running write: the row must still be the owner's
+    plain upload, unclaimed, at the attempt and file the caller checked. None
+    on a miss, which never says which condition failed.
 
     The claim also writes the dispatch stamp, which shuts the import commit
     door on this upload for good.
@@ -107,6 +119,7 @@ async def claim_upload(
         require=(
             IngestJob.created_by == owner,
             IngestJob.file_path == file_path,
+            plain_upload(),
             unclaimed_upload(),
         ),
     ):
