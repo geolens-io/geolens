@@ -53,15 +53,23 @@ from app.processing.ingest.manifest_sources import (
 
 PUBLIC_FALLBACK_KIND = "manifest_public_fallback"
 
-# What a held job publishes besides its source, which depends on who applies
-# and when, and so can differ for an unchanged entry.
-_COMPARED_KEYS = (
-    "visibility",
-    "record_status",
-    PUBLIC_FALLBACK_METADATA_KEY,
-    COLLECTION_METADATA_KEY,
-    ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
-)
+# What a job publishes besides its source, which depends on who applies and
+# when, and so can differ for an unchanged entry: the decision and the policy
+# a later door judges it by again.
+_POLICY_KEYS = ("visibility", "record_status", PUBLIC_FALLBACK_METADATA_KEY)
+# And what a held job, which the apply reserved in full, records besides.
+_HELD_KEYS = (COLLECTION_METADATA_KEY, ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY)
+
+
+def _same_policy(stored: dict, effective: dict, keys: tuple[str, ...] = ()) -> bool:
+    """Whether a stored job publishes as ``effective`` would, by the same
+    policy: the same fallback, and a publish key's limits when, and only
+    when, a key applies."""
+    return all(
+        stored.get(key) == effective.get(key) for key in (*_POLICY_KEYS, *keys)
+    ) and bool(stored.get(ADMITTED_PUBLISH_KEY_METADATA_KEY)) == bool(
+        effective.get(ADMITTED_PUBLISH_KEY_METADATA_KEY)
+    )
 
 
 def is_version_2(metadata: dict) -> bool:
@@ -184,7 +192,8 @@ async def in_flight_job_matches(
     job: IngestJob,
 ) -> bool:
     """Whether an in-flight job of an unchanged entry publishes what this
-    apply would. A version 1 apply reuses only a version 1 job."""
+    apply would, by the same policy. A version 1 apply reuses only a
+    version 1 job."""
     metadata = job.user_metadata or {}
     if fields is None:
         return not is_version_2(metadata)
@@ -200,7 +209,14 @@ async def in_flight_job_matches(
     except ManifestSourceError:
         fields.messages.clear()
         return False
-    return metadata.get("visibility") == fields.visibility
+    _, record_status = publication_to_catalog_fields(dataset.publication)
+    effective = {
+        "visibility": fields.visibility,
+        "record_status": record_status,
+        PUBLIC_FALLBACK_METADATA_KEY: fields.public_fallback,
+        ADMITTED_PUBLISH_KEY_METADATA_KEY: is_publish_key(db),
+    }
+    return _same_policy(metadata, effective)
 
 
 async def held_job_matches(
@@ -221,11 +237,7 @@ async def held_job_matches(
     stored = job.user_metadata or {}
     if is_version_2(stored) != (fields is not None):
         return False
-    return fields is None or (
-        all(stored.get(key) == effective.get(key) for key in _COMPARED_KEYS)
-        and bool(stored.get(ADMITTED_PUBLISH_KEY_METADATA_KEY))
-        == bool(effective.get(ADMITTED_PUBLISH_KEY_METADATA_KEY))
-    )
+    return fields is None or _same_policy(stored, effective, _HELD_KEYS)
 
 
 async def settle_stored_publication(

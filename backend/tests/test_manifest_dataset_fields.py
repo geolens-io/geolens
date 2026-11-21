@@ -897,6 +897,7 @@ async def _queue_update(session, user, entry: dict, **extra):
     task.defer_async = AsyncMock()
     port = MagicMock()
     port.reupload_file_task.return_value = task
+    port.manifest_v2_reupload_task.return_value = task
     with patch(
         "app.processing.ingest.manifest_service.get_catalog_port", return_value=port
     ):
@@ -915,8 +916,9 @@ async def _update(session, user, entry: dict) -> tuple[IngestJob, uuid.UUID]:
     return job, result.dataset_id
 
 
-async def _run_update(session, result, task) -> IngestJob:
-    """Run the reupload worker an update queued; the job as it ended."""
+async def _run_update(session, result, task, runner=None) -> IngestJob:
+    """Run the reupload worker an update queued, through ``runner`` (the
+    original task name by default); the job as it ended."""
     with (
         patch(
             "app.processing.ingest.service.resolve_file_path",
@@ -931,7 +933,7 @@ async def _run_update(session, result, task) -> IngestJob:
             "app.processing.ingest.tasks_staging.get_storage", return_value=AsyncMock()
         ),
     ):
-        await reupload_file(**task.defer_async.await_args.kwargs)
+        await (runner or reupload_file)(**task.defer_async.await_args.kwargs)
     return (
         await session.execute(
             select(IngestJob)
@@ -1701,6 +1703,82 @@ async def test_an_update_by_an_admin_demoted_before_it_publishes(
     assert await _record(test_db_session, dataset_id) == (ending, "published")
 
 
+@pytest.mark.parametrize("version", ["2", "1"], ids=["v2", "v1"])
+async def test_a_v2_replacement_is_queued_under_a_name_earlier_workers_lack(
+    test_db_session, clean_tables, version
+):
+    """An earlier worker would apply a v2 job's stored visibility without
+    judging it again; the name fences it off. Version 1 keeps the old name,
+    and the new name runs the same body."""
+    from app.processing.ingest.tasks import reupload_manifest_v2_file
+
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = f"fields-task-name-{version}"
+    dataset_id = await _published_by_manifest(test_db_session, user, key)
+    v2_task, v1_task = MagicMock(), MagicMock()
+    v2_task.defer_async, v1_task.defer_async = AsyncMock(), AsyncMock()
+    port = MagicMock()
+    port.manifest_v2_reupload_task.return_value = v2_task
+    port.reupload_file_task.return_value = v1_task
+    entry = _entry(key, title="Renamed")
+    with patch(
+        "app.processing.ingest.manifest_service.get_catalog_port", return_value=port
+    ):
+        response = await apply_manifest(
+            test_db_session,
+            _request(entry, version=version),
+            user,
+            _http_request(),
+        )
+    result = response.results[0]
+    assert result.action == "update", result
+
+    used, unused = (v2_task, v1_task) if version == "2" else (v1_task, v2_task)
+    used.defer_async.assert_awaited_once()
+    unused.defer_async.assert_not_awaited()
+    if version == "2":
+        job = await _run_update(
+            test_db_session, result, v2_task, runner=reupload_manifest_v2_file
+        )
+        assert (job.status, job.error_message) == ("complete", None)
+        assert await _record(test_db_session, dataset_id) == ("public", "published")
+
+
+@pytest.mark.parametrize(
+    "fallback,action",
+    [("internal", "busy"), (None, "skip")],
+    ids=["other-fallback", "same-policy"],
+)
+async def test_an_in_flight_job_is_reused_only_under_the_same_fallback_policy(
+    test_db_session, clean_tables, fallback, action
+):
+    """The running job named public with no fallback; this apply asks for
+    one. Were the restriction on when that job publishes, it would fail
+    where this request asked to fall back."""
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    entry = _entry("audience-in-flight-policy", visibility="public")
+    await _in_flight(
+        test_db_session,
+        user,
+        entry,
+        manifest_version="2",
+        manifest_requested_visibility="public",
+        visibility="public",
+    )
+    extra = {} if fallback is None else {"public_fallback": fallback}
+
+    response, queue = await _apply(test_db_session, user, _request(entry, **extra))
+
+    result = response.results[0]
+    if action == "busy":
+        assert (result.action, result.errors) == ("error", ["dataset_busy"]), result
+    else:
+        assert result.action == "skip", result
+    queue.assert_not_awaited()
+
+
 async def _in_flight(session, user, entry: dict, **metadata) -> IngestJob:
     """A running job of ``entry``'s key, as an earlier apply left it."""
     job = IngestJob(
@@ -1927,6 +2005,7 @@ async def test_a053_is_left_to_the_dry_run(test_db_session, clean_tables):
     task.defer_async = AsyncMock()
     port = MagicMock()
     port.reupload_file_task.return_value = task
+    port.manifest_v2_reupload_task.return_value = task
     with patch(
         "app.processing.ingest.manifest_service.get_catalog_port", return_value=port
     ):

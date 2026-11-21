@@ -448,3 +448,43 @@ async def test_an_accepted_run_with_attributes_needs_edit_metadata_when_it_publi
     assert job.status == "failed"
     assert "can no longer modify this dataset" in job.error_message
     assert await _record(test_db_session, held.dataset_id) == ("private", "draft")
+
+
+@pytest.mark.parametrize(
+    "version,name",
+    [
+        ("2", "app.ingest.tasks.reupload_manifest_v2_file"),
+        ("1", "app.ingest.tasks.reupload_verified_file"),
+    ],
+    ids=["v2", "v1"],
+)
+async def test_an_accepted_run_is_queued_under_its_versions_task_name(
+    test_db_session, clean_tables, version, name
+):
+    held = await _hold(
+        test_db_session,
+        record=("private", "draft"),
+        **(_v2() if version == "2" else {}),
+    )
+    dataset = (
+        await test_db_session.execute(
+            select(Dataset)
+            .options(selectinload(Dataset.record))
+            .where(Dataset.id == held.dataset_id)
+        )
+    ).scalar_one()
+    defer = AsyncMock()
+    with patch(
+        "app.modules.catalog.datasets.api.refresh_acceptance.defer_async_with_tenant",
+        new=defer,
+    ):
+        await dispatch_upload_acceptance(
+            test_db_session,
+            dataset=dataset,
+            dataset_id=held.dataset_id,
+            user=held.user,
+            run_id=held.run_id,
+            token=None,
+        )
+
+    assert defer.await_args.args[0].name == name

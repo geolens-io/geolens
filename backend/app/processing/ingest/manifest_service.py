@@ -56,6 +56,7 @@ from app.processing.ingest.manifest_dataset_fields import (
 )
 from app.processing.ingest.manifest_publication import (
     decide_publication,
+    is_version_2,
     entry_job_metadata,
     judge_update,
     in_flight_job_matches,
@@ -734,7 +735,12 @@ async def _queue_reupload_job(
     user: Identity,
     prepared: ManifestPreparedSource,
 ) -> None:
-    task = get_catalog_port().reupload_file_task()
+    port = get_catalog_port()
+    task = (
+        port.manifest_v2_reupload_task()
+        if is_version_2(job.user_metadata or {})
+        else port.reupload_file_task()
+    )
     file_path = job.file_path
     if not file_path:
         raise ManifestSourceError("Manifest reupload job is missing file_path")

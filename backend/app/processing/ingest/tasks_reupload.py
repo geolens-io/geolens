@@ -1037,6 +1037,20 @@ reupload_verified_file = task_app.task(
     name="app.ingest.tasks.reupload_verified_file",
 )
 
+# A manifest version 2 replacement is queued under its own name for rolling
+# upgrades: an earlier worker would apply the visibility and status its job
+# stored without judging them again against the record as it is then. A
+# kwarg can't fence that worker off (the signature ends in **kwargs), but
+# the name can: it raises TaskNotFound and nothing runs. The stale sweep then
+# fails the job and its run, which gives a consumed acceptance back, and the
+# caller applies again once the roll finishes.
+reupload_manifest_v2_file = task_app.task(
+    reupload_file.func,
+    queue="ingest",
+    retry=0,
+    name="app.ingest.tasks.reupload_manifest_v2_file",
+)
+
 
 def _file_refresh_error_code(exc: BaseException) -> str:
     """Map a file-reupload failure onto its run ``error_code``.

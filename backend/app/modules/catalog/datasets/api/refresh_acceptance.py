@@ -442,9 +442,16 @@ async def dispatch_upload_acceptance(
     )
     await db.commit()
 
+    port = get_catalog_port()
+    task = (
+        port.manifest_v2_reupload_task()
+        if accepted_metadata.get(MANIFEST_VERSION_METADATA_KEY) == "2"
+        else port.reupload_file_task()
+    )
+
     async def _defer() -> None:
         await defer_async_with_tenant(
-            get_catalog_port().reupload_file_task(),
+            task,
             job_id=str(job_id),
             attempt_id=str(attempt_id),
             dataset_id=str(dataset_id),

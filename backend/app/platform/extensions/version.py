@@ -167,7 +167,9 @@ logger = logging.getLogger(__name__)
 # 23 -> 24: ProcessingPort gained the required ``resolve_manifest_collection``,
 # ``add_dataset_to_manifest_collection``, ``apply_manifest_attributes`` and
 # ``apply_manifest_maps`` methods for publish manifest v2.
-EXTENSION_API_VERSION: int = 24
+# 24 -> 25: CatalogPort gained the required ``manifest_v2_reupload_task``, the
+# manifest version 2 replacement under a name earlier workers lack.
+EXTENSION_API_VERSION: int = 25
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:
