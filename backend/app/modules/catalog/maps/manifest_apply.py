@@ -208,7 +208,7 @@ def _walk_expression(node: Any, names: set[str]) -> None:
     Operands are walked by position. ``literal``, ``within`` and ``distance``
     operands and ``match`` labels are data. A ``get`` or ``has`` reads the
     feature with one operand or with ``["properties"]`` as the second, and
-    another object otherwise. ``semiliteral`` evaluates its array's items, and
+    another object otherwise; its name may be a string or a literal string. ``semiliteral`` evaluates its array's items, and
     ``format``, ``collator`` and ``number-format`` evaluate the values of
     their option objects; any other object operand is data.
     """
@@ -217,10 +217,13 @@ def _walk_expression(node: Any, names: set[str]) -> None:
     operator, operands = node[0], node[1:]
     if operator in _DATA_OPERATORS:
         return
-    if operator in ("get", "has") and operands and isinstance(operands[0], str):
+    key = operands[0] if operands else None
+    if isinstance(key, list) and len(key) == 2 and key[0] == "literal":
+        key = key[1]
+    if operator in ("get", "has") and isinstance(key, str):
         reads_feature = len(operands) == 1 or operands[1:] == [["properties"]]
         if reads_feature:
-            names.add(operands[0])
+            names.add(key)
         operands = operands[1:]
     elif operator == "semiliteral" and operands and isinstance(operands[0], list):
         operands = operands[0]

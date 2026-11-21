@@ -125,6 +125,20 @@ def test_version_2_may_leave_out_datasets():
     assert ManifestApplyRequest.model_validate(body).datasets == []
 
 
+async def test_version_1_without_datasets_answers_422_over_http(
+    client, editor_auth_header
+):
+    body = _body(version="1")
+    del body["maps"], body["datasets"]
+
+    response = await client.post(
+        "/ingest/manifest/apply", json=body, headers=editor_auth_header
+    )
+
+    assert response.status_code == 422
+    assert "datasets: Field required" in response.json()["detail"]
+
+
 def test_version_1_answers_missing_datasets_as_before():
     body = _body(version="1")
     del body["maps"], body["datasets"]
@@ -669,6 +683,9 @@ async def test_an_unknown_basemap_is_refused(test_db_session, clean_tables):
 
     assert result.action == "error"
     assert _codes(result) == [("A099", "error", None)]
+    [message] = result.messages
+    assert "no-such-basemap" in message.message
+    assert "GET /capabilities" in message.fix
 
 
 async def test_a_dry_run_writes_nothing_the_check_touched(
@@ -1526,6 +1543,9 @@ async def test_a_database_error_in_one_map_leaves_the_next_map_checked(
 # Each names the column written {c}; filled with a missing and a present name.
 _READS = {
     "get_with_properties": {"paint": {"circle-radius": ["get", "{c}", ["properties"]]}},
+    "get_with_a_literal_name": {
+        "paint": {"circle-radius": ["coalesce", ["get", ["literal", "{c}"]], 5]}
+    },
     "has_with_properties": {
         "paint": {
             "circle-color": ["case", ["has", "{c}", ["properties"]], "#000", "#fff"]
