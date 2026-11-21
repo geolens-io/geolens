@@ -253,6 +253,31 @@ describe('Builder bookmarks', () => {
     expect(result.current.bookmarksEdited).toBe(false);
   });
 
+  it('retires an edit that a list saved elsewhere already holds once its own save fails', async () => {
+    const c: MapBookmark = { name: 'C', extent: [4, 4, 5, 5] };
+    const { result, rerender } = renderHook(({ mapData }) => useCombinedBuilder(mapData), { initialProps: { mapData: mapWith([a]) } });
+    act(() => result.current.handleBookmarksChange([a, b]));
+    let fail: (reason: unknown) => void = () => {};
+    mockUpdateMapMutateAsync.mockReturnValueOnce(new Promise((_, reject) => { fail = reject; }));
+    let saving: Promise<unknown> = Promise.resolve();
+    act(() => {
+      saving = result.current.handleSave();
+    });
+    await waitFor(() => expect(mockUpdateMapMutateAsync).toHaveBeenCalledOnce());
+    act(() => result.current.handleBookmarksChange([a, c]));
+    rerender({ mapData: mapWith([a, c]) });
+    await act(async () => {
+      fail(new Error('offline'));
+      await saving;
+    });
+    expect(result.current.bookmarksEdited).toBe(false);
+
+    // The edit is gone, so a later addition from elsewhere shows.
+    rerender({ mapData: mapWith([a, c, b]) });
+    expect(result.current.bookmarks).toEqual([a, c, b]);
+    expect(result.current.bookmarksEdited).toBe(false);
+  });
+
   it('measures edits against the saved list again after a save fails', async () => {
     const { result } = renderHook(({ mapData }) => useCombinedBuilder(mapData), { initialProps: { mapData: mapWith([a]) } });
     act(() => result.current.handleBookmarksChange([a, b]));

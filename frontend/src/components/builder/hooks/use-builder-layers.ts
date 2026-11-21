@@ -21,10 +21,10 @@ import {
   type BuilderCamera,
 } from '@/components/builder/builder-camera';
 import { deepEqual } from '@/lib/deep-equal';
-import { sameBookmarks } from '@/lib/bookmarks';
 import type { MapBasemapConfig, MapBookmark, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
+import { useBookmarksDraft } from '@/components/builder/hooks/use-bookmarks-draft';
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
 import type { SaveBaselineSync, SaveFence } from '@/components/builder/hooks/use-builder-save';
 import {
@@ -186,51 +186,9 @@ export function useBuilderLayers(
   );
   const { dashboard, savedDashboard, setDashboard, beginSave: beginDashboardSave, dashboardEdited } =
     useDashboardDraft(mapData?.dashboard_config, mapId, mapData?.layers, localLayers, warnDashboardChanged);
-  // Unsaved bookmark edits over the saved list. An edit is dropped once the
-  // saved list holds it (a save's refetch), when it is put back as saved, and
-  // on another map, so a list that is no longer an edit can't hide or
-  // overwrite what someone else saves later.
   const savedBookmarks = useMemo(() => mapData?.bookmarks ?? [], [mapData?.bookmarks]);
-  const [bookmarkEdit, setBookmarkEdit] = useState<{ mapId?: string; list: MapBookmark[] } | null>(null);
-  // The list a save sent that the saved list doesn't show yet. Until it does,
-  // that list is what an edit is measured against: one put back to the older
-  // saved list is still a change to what the save stores.
-  const [sentBookmarks, setSentBookmarks] = useState<{
-    mapId?: string;
-    list: MapBookmark[];
-    stored: boolean;
-  } | null>(null);
-  const sentBookmarksRef = useRef(sentBookmarks);
-  sentBookmarksRef.current = sentBookmarks;
-  const editedBookmarks = bookmarkEdit && bookmarkEdit.mapId === mapId ? bookmarkEdit.list : null;
-  useEffect(() => {
-    // A saved list that arrives while a save is still going, and isn't what
-    // that save sent, came from elsewhere: the save's own answer is still to
-    // come, so its list stays the measure and the edit stays.
-    const sent = sentBookmarksRef.current;
-    const awaited =
-      sent !== null && sent.mapId === mapId && !sent.stored && !sameBookmarks(sent.list, savedBookmarks);
-    if (!awaited) setSentBookmarks(null);
-    setBookmarkEdit((edit) =>
-      edit && (edit.mapId !== mapId || (!awaited && sameBookmarks(edit.list, savedBookmarks))) ? null : edit,
-    );
-  }, [savedBookmarks, mapId]);
-  const pendingBookmarks = sentBookmarks && sentBookmarks.mapId === mapId ? sentBookmarks.list : null;
-  const bookmarks = editedBookmarks ?? pendingBookmarks ?? savedBookmarks;
-  const bookmarksEdited =
-    editedBookmarks !== null && !sameBookmarks(editedBookmarks, pendingBookmarks ?? savedBookmarks);
-  const beginBookmarksSave = useCallback((sent: MapBookmark[]) => {
-    setSentBookmarks({ mapId, list: sent, stored: false });
-    return (stored: boolean) => {
-      setSentBookmarks((current) => {
-        if (current?.list !== sent) return current;
-        return stored ? { ...current, stored: true } : null;
-      });
-      // The server holds the list now, so an edit that is still that list is
-      // spent; whatever the saved list shows next is taken as it comes.
-      if (stored) setBookmarkEdit((edit) => (edit?.list === sent ? null : edit));
-    };
-  }, [mapId]);
+  const { bookmarks, bookmarksEdited, setBookmarks, beginSave: beginBookmarksSave } =
+    useBookmarksDraft(savedBookmarks, mapId);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
@@ -1132,10 +1090,10 @@ export function useBuilderLayers(
   }, [setDashboard, requestCleanRecheck]);
 
   const handleBookmarksChange = useCallback((next: MapBookmark[]) => {
-    setBookmarkEdit(!sentBookmarks && sameBookmarks(next, savedBookmarks) ? null : { mapId, list: next });
+    setBookmarks(next);
     setHasUnsavedChanges(true);
     requestCleanRecheck();
-  }, [mapId, savedBookmarks, sentBookmarks, requestCleanRecheck]);
+  }, [setBookmarks, requestCleanRecheck]);
 
   // A visibility toggle is the only edit a user routinely undoes by repeating
   // it, so each one asks whether the map is back to the saved state.
