@@ -84,6 +84,26 @@ describe('category selector widget', () => {
     expect(screen.getAllByRole('checkbox')).toHaveLength(12);
   });
 
+  it('keeps the button, and the focus on it, when every value past the tenth is picked', async () => {
+    const user = userEvent.setup();
+    const many = {
+      ...data,
+      result: {
+        values: Array.from({ length: 12 }, (_, index) => ({ value: `Use ${index + 1}`, count: 20 - index })),
+        other_count: 0,
+      },
+    };
+    const picked = { column: 'land_use', label: 'Use 11, Use 12', values: ['Use 11', 'Use 12'] };
+    render(<CategorySelectorRenderer config={config} data={many} selection={picked} onSelect={vi.fn()} />);
+
+    // Both hidden values are picked, so all twelve stay listed and there is nothing more to show.
+    expect(screen.getAllByRole('checkbox')).toHaveLength(12);
+    const fewer = screen.getByRole('button', { name: 'Show fewer' });
+    await user.click(fewer);
+    expect(screen.getAllByRole('checkbox')).toHaveLength(12);
+    expect(screen.getByRole('button', { name: 'Show fewer' })).toHaveFocus();
+  });
+
   it('shows no button when every value fits', () => {
     render(<CategorySelectorRenderer config={config} data={data} onSelect={vi.fn()} />);
     expect(screen.queryByRole('button')).not.toBeInTheDocument();

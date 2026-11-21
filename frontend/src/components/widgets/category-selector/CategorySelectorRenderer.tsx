@@ -54,6 +54,8 @@ export default function CategorySelectorRenderer({
   const shown = options.filter(
     (option, index) => expanded || index < COLLAPSED_OPTIONS || picked.includes(option.key),
   );
+  // Picked values can keep every row listed while the list is folded.
+  const allShown = shown.length === options.length;
   const disabled = !onSelect;
   const choose = (key: SelectionValue, checked: boolean) => {
     const values = config.multiple
@@ -120,17 +122,17 @@ export default function CategorySelectorRenderer({
           })}
         </ul>
       </fieldset>
-      {options.length > COLLAPSED_OPTIONS && (expanded || shown.length < options.length) && (
+      {options.length > COLLAPSED_OPTIONS && (
         <Button
           type="button"
           variant="link"
           size="sm"
           className="px-1"
-          aria-expanded={expanded}
+          aria-expanded={allShown}
           aria-controls={`${idPrefix}-options`}
-          onClick={() => setExpanded(!expanded)}
+          onClick={() => setExpanded(!allShown)}
         >
-          {expanded
+          {allShown
             ? t('types.category_selector.showFewer')
             : t('types.category_selector.showMore', { count: options.length - shown.length })}
         </Button>
