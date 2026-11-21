@@ -1595,12 +1595,15 @@ jobs:
           echo "docker build failed (attempt $attempt/5), retrying in 10s..."
           sleep 10
           done
+          # The container is thrown away with the job, so durability buys
+          # nothing here and the flags below only remove disk waits.
           docker run -d --name test-postgres \
             -e POSTGRES_DB=postgres \
             -e POSTGRES_USER=geolens \
             -e POSTGRES_PASSWORD=geolens_test \
             -p 5432:5432 \
-            geolens-test-db
+            geolens-test-db \
+            -c fsync=off -c synchronous_commit=off -c full_page_writes=off
           for i in $(seq 1 30); do
             if docker exec test-postgres pg_isready -U geolens -d postgres >/dev/null 2>&1; then
               echo "PostgreSQL is ready"
