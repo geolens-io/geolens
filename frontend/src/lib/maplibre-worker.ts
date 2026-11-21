@@ -6,17 +6,14 @@ import { tileRetryProtocol } from './tile-retry-protocol';
 /**
  * Point maplibre-gl v6 at its worker file.
  *
- * v6 ships the worker as a separate ESM file resolved relative to
- * `import.meta.url`. `vite.config.ts` folds maplibre into the `map-vendor` chunk,
- * which moves `import.meta.url` away from the package directory, so the URL has
- * to be handed over explicitly.
- *
- * The `?worker&url` query is load-bearing: a plain `?url` emits the worker
- * without its `maplibre-gl-shared.mjs` sibling and fails silently in production
- * builds (vector tiles never request; upstream maplibre-gl-js#8186).
+ * v6 ships the worker as a separate, self-contained ESM file resolved relative
+ * to `import.meta.url`. `vite.config.ts` folds maplibre into the `map-vendor`
+ * chunk, which moves `import.meta.url` away from the package directory, so the
+ * URL has to be handed over explicitly. The `?worker&url` query makes Vite emit
+ * the worker as a hashed asset served from the app's own origin.
  *
  * This deliberately does not live in `main.tsx`: importing maplibre from the app
- * entry puts `map-vendor` (~295 kB gzip) in the eager entry graph, so every
+ * entry puts `map-vendor` (~345 kB gzip) in the eager entry graph, so every
  * login, admin and search page would download the mapping bundle, defeating the
  * lazy-route split in `App.tsx`. Import this module for its side effect from
  * each surface that constructs a map.
