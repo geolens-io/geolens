@@ -414,6 +414,167 @@ async def test_registration_accepts_an_existing_generated_geom_4326(
 # ---------------------------------------------------------------------------
 
 
+async def test_registration_of_a_table_whose_geom_is_itself_generated(
+    test_db_session,
+) -> None:
+    """A geom that derives itself gets the plain column and fill instead.
+
+    PostgreSQL refuses a generated column that references another
+    generated column, so registration falls back to the plain column
+    here; the table still registers and its features still read.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"gen_src_{uuid.uuid4().hex[:10]}"
+    await test_db_session.execute(
+        text(
+            f'CREATE TABLE data."{table_name}" ('
+            f"  gid serial PRIMARY KEY,"
+            f"  name text,"
+            f"  lon double precision,"
+            f"  lat double precision,"
+            f"  geom geometry(Point, 4326) GENERATED ALWAYS AS "
+            f"    (ST_SetSRID(ST_MakePoint(lon, lat), 4326)) STORED"
+            f")"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            f'INSERT INTO data."{table_name}" (name, lon, lat) '
+            f"VALUES ('a', :lon, :lat)"
+        ),
+        {"lon": _HERE[0], "lat": _HERE[1]},
+    )
+    await test_db_session.commit()
+
+    try:
+        await _register(test_db_session, table_name, admin_id)
+
+        is_generated, _ = await _geom_4326_info(test_db_session, table_name)
+        assert is_generated == "NEVER"
+        assert await test_db_session.scalar(
+            text(
+                f"SELECT ST_AsBinary(geom_4326) = ST_AsBinary(geom) "
+                f'FROM data."{table_name}"'
+            ),
+        )
+        assert await _features_at(test_db_session, table_name, _HERE) == 1
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+async def test_add_4326_column_twice_with_generated_is_a_no_op_the_second_time(
+    test_db_session,
+) -> None:
+    """A second generated add succeeds, on the probe and on the DDL."""
+    table_name = f"gen_twice_{uuid.uuid4().hex[:10]}"
+    await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
+
+    try:
+        await add_4326_column(
+            test_db_session, table_name, 4326, schema="data", generated=True
+        )
+        await test_db_session.commit()
+        await add_4326_column(
+            test_db_session, table_name, 4326, schema="data", generated=True
+        )
+        await test_db_session.commit()
+
+        is_generated, _ = await _geom_4326_info(test_db_session, table_name)
+        assert is_generated == "ALWAYS"
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+async def test_concurrent_generated_adds_both_succeed(test_db_session) -> None:
+    """Two sessions adding the generated column at once both succeed.
+
+    The second session probes before the first commits, so its probe sees
+    no column; its ALTER then waits on the first session's lock and must
+    land as a no-op rather than a duplicate-column error. The commit only
+    happens once the second session is confirmed waiting on the lock, so
+    the race is exercised rather than assumed.
+    """
+    import tests.conftest as conftest
+
+    table_name = f"gen_race_{uuid.uuid4().hex[:10]}"
+    await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
+
+    try:
+        await add_4326_column(
+            test_db_session, table_name, 4326, schema="data", generated=True
+        )
+        # Transaction still open: the lock is held and the column is
+        # invisible to other sessions.
+        async with conftest._client_session_factory() as second:
+            second_add = asyncio.create_task(
+                add_4326_column(second, table_name, 4326, schema="data", generated=True)
+            )
+            for _ in range(100):
+                waiting = await test_db_session.scalar(
+                    text(
+                        "SELECT EXISTS (SELECT 1 FROM pg_locks "
+                        "WHERE relation = to_regclass(:t) AND NOT granted)"
+                    ),
+                    {"t": f'data."{table_name}"'},
+                )
+                if waiting:
+                    break
+                await asyncio.sleep(0.1)
+            else:
+                second_add.cancel()
+                raise AssertionError(
+                    "the second session never waited on the lock, "
+                    "so the race was not exercised"
+                )
+            await test_db_session.commit()
+            await asyncio.wait_for(second_add, timeout=30)
+            await second.commit()
+
+        is_generated, _ = await _geom_4326_info(test_db_session, table_name)
+        assert is_generated == "ALWAYS"
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+async def test_a_feature_write_names_the_missing_geom_4326_column(
+    test_db_session,
+) -> None:
+    """No geom_4326 means a clear refusal, not an undefined-column error."""
+    from app.modules.catalog.features.service import _geom_4326_is_generated
+
+    table_name = f"gen_nocol_{uuid.uuid4().hex[:10]}"
+    await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
+
+    try:
+        with pytest.raises(
+            ValueError, match=f"Table '{table_name}' has no geom_4326 column"
+        ):
+            await _geom_4326_is_generated(test_db_session, table_name)
+        with pytest.raises(
+            ValueError, match=f"Table '{table_name}' has no geom_4326 column"
+        ):
+            await insert_feature(
+                test_db_session,
+                table_name,
+                {"type": "Point", "coordinates": [_HERE[0], _HERE[1]]},
+                {"name": "a"},
+                [{"name": "name", "type": "text"}],
+                "Point",
+                4326,
+            )
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+async def test_the_dry_run_exemption_matches_the_registration_expressions() -> None:
+    """The two literals the dry-run probe trusts are the ones registration writes."""
+    from app.modules.catalog.features.service import _REGISTERED_GEOM_4326_EXPRESSIONS
+
+    assert sorted(_REGISTERED_GEOM_4326_EXPRESSIONS) == sorted(
+        [_geom_4326_expr(4326).lower(), _geom_4326_expr(3857).lower()]
+    )
+
+
 async def test_an_out_of_band_geometry_update_renders_without_a_refresh(
     test_db_session,
 ) -> None:

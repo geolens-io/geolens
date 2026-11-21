@@ -894,6 +894,48 @@ async def test_a_generated_column_refuses_a_dry_run(
     assert free
 
 
+@pytest.mark.parametrize(
+    ("expression", "status"),
+    [
+        ("ST_Force2D(ST_CurveToLine(ST_SetSRID(geom, 4326)))", 200),
+        ("ST_SetSRID(geom, 4326)", 409),
+    ],
+    ids=["registration-expression", "other-expression"],
+)
+async def test_a_generated_geom_4326_allows_a_dry_run_only_with_the_registration_expression(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    relation_dataset,
+    expression,
+    status,
+):
+    """Registration's own generated column is safe to dry-run through.
+
+    Its expression runs only PostGIS functions on geom, so the rolled-back
+    insert cannot reach past the transaction through it. A geom_4326
+    generated with any other expression is still refused: the exemption
+    is by expression, not by column name.
+    """
+    name = f"test_dry_gen4326_{uuid.uuid4().hex[:8]}"
+    dataset_id = await relation_dataset(
+        name,
+        f"CREATE TABLE data.{name} ("
+        f"gid serial, geom geometry(Point, 4326), "
+        f"geom_4326 geometry(Geometry, 4326) GENERATED ALWAYS AS "
+        f"({expression}) STORED, name text, status text)",
+        drop=(f"DROP TABLE data.{name}",),
+    )
+
+    resp = await client.post(
+        _dry(dataset_id), json=_feature(POINT_A, name="a"), headers=admin_auth_header
+    )
+
+    if status == 200:
+        assert resp.status_code == 200, resp.text
+    else:
+        assert (resp.status_code, resp.json()["detail"]) == (409, _USER_CODE_REFUSAL)
+
+
 async def test_a_table_missing_at_the_check_is_never_inserted_into(
     client: AsyncClient,
     admin_auth_header: dict,

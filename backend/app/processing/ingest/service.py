@@ -799,10 +799,13 @@ async def register_existing_table(
     registration serves from the live table the owner keeps writing to
     directly. A later curved row degrades tiles/reads/analysis for that
     dataset only. STORED GENERATED ``geom_4326`` columns fall under the same
-    contract. Direct writes can also leave ``geom_4326`` stale or NULL,
-    invisible to every reader that filters on it; ``refresh_postgis``
+    contract. Direct writes can also leave a plain ``geom_4326`` stale or
+    NULL, invisible to every reader that filters on it; ``refresh_postgis``
     re-derives the column, and restores it plus its GiST index and the
     reader grant if the table was dropped and recreated without them.
+    Registration now creates ``geom_4326`` as a stored generated column
+    instead, which re-derives itself on every write, so it never goes
+    stale; a plain column the owner already had keeps the old behaviour.
 
     ``managed`` declares the caller created the table, so deleting the
     dataset may drop it again. Defaults False since the two register

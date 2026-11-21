@@ -8,7 +8,7 @@ and releases use semantic versioning.
 ## [Unreleased]
 
 ### Fixed
-- Registering an existing table no longer rewrites every row to fill `geom_4326`. Registration adds it as a stored generated column with the same expression the fill used, so PostgreSQL derives it as rows are written: one table rewrite with no dead tuples, and later writes made outside GeoLens stay visible without a refresh. Feature edits on a registered table write `geom` only and let the column derive itself. Tables that already carry a plain `geom_4326` keep it unchanged.
+- Registering an existing table no longer rewrites every row to fill `geom_4326`. Registration adds it as a stored generated column with the same expression the fill used, so PostgreSQL derives it as rows are written: one table rewrite with no dead tuples, and later writes made outside GeoLens stay visible without a refresh. Feature edits on a registered table write `geom` only and let the column derive itself. Tables that already carry a plain `geom_4326` keep it unchanged. For the table owner, the generated column changes three things: a write now fails when PostGIS cannot transform a coordinate ("Point outside of projection domain"), where it used to succeed and leave `geom_4326` stale; `ALTER COLUMN geom TYPE` and `DROP COLUMN geom` are refused until `geom_4326` is dropped first; and GeoLens 1.33 and earlier cannot edit features on a table registered this way, so feature edits on it fail after a rollback to 1.33 or earlier.
 
 ## [1.33.0] - 2026-11-19
 

@@ -74,9 +74,13 @@ async def add_4326_column(
     (:func:`_geom_4326_expr`), so readers see the same values. A plain
     ``geom_4326`` that already exists is left alone rather than converted,
     since converting it would rewrite the table this flag exists to avoid;
-    a generated one is already deriving itself. Registration passes this
-    flag; ingest staging and analysis outputs keep the plain column their
-    feature-edit writes expect to update directly.
+    a generated one is already deriving itself. A ``geom`` that is itself
+    a generated column cannot be referenced by another generated column,
+    so such a table gets the plain column and fill instead: the stored
+    values are the same, but later out-of-band writes to ``geom`` need a
+    refresh to show, as they did before this change. Registration passes
+    this flag; ingest staging and analysis outputs keep the plain column
+    their feature-edit writes expect to update directly.
     """
     tref = _qtable(table_name, schema=schema)
 
@@ -85,28 +89,39 @@ async def add_4326_column(
     # it the same way.
     rewrite_expr = _geom_4326_expr(source_srid)
 
+    write_generated = generated
     if generated:
-        existing = (
+        columns = (
             await session.execute(
                 text(
-                    "SELECT is_generated FROM information_schema.columns "
+                    "SELECT column_name, is_generated "
+                    "FROM information_schema.columns "
                     "WHERE table_schema = :schema AND table_name = :table "
-                    "  AND column_name = 'geom_4326'"
+                    "  AND column_name IN ('geom', 'geom_4326')"
                 ).bindparams(schema=schema, table=table_name)
             )
-        ).first()
-        if existing is None:
-            await session.execute(
-                text(
-                    # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
-                    f"ALTER TABLE {tref} "
-                    f"ADD COLUMN geom_4326 geometry(Geometry, 4326) "
-                    f"GENERATED ALWAYS AS ({rewrite_expr}) STORED"
-                )
+        ).all()
+        found = {row.column_name: row.is_generated for row in columns}
+        if "geom_4326" in found:
+            # A generated column already derives itself, and a plain one is
+            # left with its values: converting it would rewrite the table.
+            write_generated = None
+        elif found.get("geom") == "ALWAYS":
+            # PostgreSQL refuses a generated column that references another
+            # generated column, so a table whose geom derives itself gets
+            # the plain column and fill below instead.
+            write_generated = False
+
+    if write_generated is True:
+        await session.execute(
+            text(
+                # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
+                f"ALTER TABLE {tref} "
+                f"ADD COLUMN IF NOT EXISTS geom_4326 geometry(Geometry, 4326) "
+                f"GENERATED ALWAYS AS ({rewrite_expr}) STORED"
             )
-        # A generated column already derives itself, and a plain one is
-        # left with its values: converting it would rewrite the table.
-    else:
+        )
+    elif write_generated is False:
         await session.execute(
             text(
                 # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)

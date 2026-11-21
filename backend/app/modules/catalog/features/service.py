@@ -959,19 +959,40 @@ async def _geom_4326_is_generated(session: AsyncSession, table_name: str) -> boo
     Registration creates it that way, so it re-derives itself from geom
     and rejects a direct write; feature edits must write geom only and
     let the column follow. A plain column still takes the write pair.
+
+    Every caller is about to write geom_4326 when this answers False, so
+    a table with no geom_4326 column at all is refused here with the
+    cause, instead of failing later on the database's undefined-column
+    error.
     """
     from app.core.db.tenant_schema import tenant_data_schema
     from app.core.db.tenant_session import current_tenant_var
 
     schema = tenant_data_schema(current_tenant_var.get())
-    result = await session.execute(
-        text(
-            "SELECT is_generated FROM information_schema.columns "
-            "WHERE table_schema = :schema AND table_name = :t "
-            "AND column_name = 'geom_4326'"
-        ).bindparams(schema=schema, t=table_name)
-    )
-    return result.scalar_one_or_none() == "ALWAYS"
+    rows = (
+        await session.execute(
+            text(
+                "SELECT column_name, is_generated "
+                "FROM information_schema.columns "
+                "WHERE table_schema = :schema AND table_name = :t "
+                "AND column_name IN ('geom', 'geom_4326')"
+            ).bindparams(schema=schema, t=table_name)
+        )
+    ).all()
+    found = {row.column_name: row.is_generated for row in rows}
+    if not found:
+        # The table itself is missing, or it carries neither geometry
+        # column: the caller's own missing-table handling owns that
+        # failure, so answer False here rather than naming a column on
+        # a table that is not there.
+        return False
+    value = found.get("geom_4326")
+    if value is None:
+        raise ValueError(
+            f"Table '{table_name}' has no geom_4326 column, so a feature "
+            "write cannot store its render geometry."
+        )
+    return value == "ALWAYS"
 
 
 DryRunBlocker = Literal[
@@ -1000,6 +1021,23 @@ _COLUMN_TYPES = (
 
 _UNTRUSTED_VOLATILE = f"p.provolatile = 'v' AND NOT ({_trusted('p.oid', 'pg_proc')})"
 
+# The two generation expressions registration writes for geom_4326
+# (processing/ingest/metadata_projection._geom_4326_expr), lowercased as
+# PostgreSQL stores them: the 4326-source form and the projected-source
+# form. The layering rule keeps app.processing out of catalog, so the two
+# literals live here too; the registration suite pins them equal to the
+# registration expressions. A geom_4326 generated with one of these runs
+# only PostGIS functions on geom, so a dry-run insert cannot reach past
+# the transaction through it; any other generated column still refuses
+# the dry run.
+_REGISTERED_GEOM_4326_EXPRESSIONS = (
+    "st_force2d(st_curvetoline(st_setsrid(geom, 4326)))",
+    "st_force2d(st_transform(st_curvetoline(geom), 4326))",
+)
+_REGISTERED_GEOM_4326_EXPR_SQL = ", ".join(
+    f"'{expr}'" for expr in _REGISTERED_GEOM_4326_EXPRESSIONS
+)
+
 # Shapes whose insert or readback could run user code. Extension objects are
 # trusted because PostGIS declares its GiST support functions VOLATILE, and
 # element types are checked for JSON casts because the readback's to_jsonb
@@ -1015,7 +1053,10 @@ _USER_CODE = (
     "OR EXISTS (SELECT 1 FROM pg_index i JOIN pg_class ic ON ic.oid = i.indexrelid "
     f"WHERE i.indrelid = c.oid AND NOT ({_trusted('ic.relam', 'pg_am')})) "
     "OR EXISTS (SELECT 1 FROM pg_attribute a WHERE a.attrelid = c.oid "
-    "AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated <> '') "
+    "AND a.attnum > 0 AND NOT a.attisdropped AND a.attgenerated <> '' "
+    "AND NOT (a.attname = 'geom_4326' AND EXISTS (SELECT 1 FROM pg_attrdef ad "
+    "WHERE ad.adrelid = a.attrelid AND ad.adnum = a.attnum AND "
+    f"lower(pg_get_expr(ad.adbin, ad.adrelid)) IN ({_REGISTERED_GEOM_4326_EXPR_SQL})))) "
     f"OR EXISTS (SELECT 1 FROM ({_COLUMN_TYPES}) col WHERE NOT ("
     f"{_trusted('col.oid', 'pg_type')})) "
     f"OR EXISTS (SELECT 1 FROM ({_COLUMN_TYPES}) col JOIN pg_cast ca "
