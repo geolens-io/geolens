@@ -7475,7 +7475,7 @@ export type JobStatusBatchEntry = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning | ManifestCollectionRefusedWarning | ManifestAttributeUnmatchedWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning | ManifestCollectionRefusedWarning | ManifestAttributeUnmatchedWarning | ManifestPublicFallbackWarning>;
     /**
      * Can Retry
      */
@@ -7553,7 +7553,7 @@ export type JobStatusResponse = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning | ManifestCollectionRefusedWarning | ManifestAttributeUnmatchedWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning | ManifestCollectionRefusedWarning | ManifestAttributeUnmatchedWarning | ManifestPublicFallbackWarning>;
     /**
      * Progress
      */
@@ -8277,6 +8277,32 @@ export type ManifestMetadata = {
         number,
         number
     ] | null;
+};
+
+/**
+ * ManifestPublicFallbackDetail
+ */
+export type ManifestPublicFallbackDetail = {
+    /**
+     * Reason
+     *
+     * key: a publish key can't make anything public. restriction: public visibility is restricted to admins on this server.
+     */
+    reason: 'key' | 'restriction';
+};
+
+/**
+ * ManifestPublicFallbackWarning
+ *
+ * Publish manifest code A020: public was refused when the job ran, so
+ * the dataset was shared with the organization instead.
+ */
+export type ManifestPublicFallbackWarning = {
+    /**
+     * Kind
+     */
+    kind: 'manifest_public_fallback';
+    details: ManifestPublicFallbackDetail;
 };
 
 /**

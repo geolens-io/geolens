@@ -18,12 +18,15 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity, IdentityRole, IdentitySnapshot
 from app.core.permissions import EDIT_METADATA
 from app.platform.extensions import get_permission_extension, get_processing_port
-from app.platform.jobs.models import ADMITTED_PUBLISH_KEY_METADATA_KEY, IngestJob
-from app.platform.record_audience import opens_to_anonymous, publish_key_widening
+from app.platform.jobs.models import (
+    ADMITTED_CAPABILITY_METADATA_KEY,
+    ADMITTED_PUBLISH_KEY_METADATA_KEY,
+    MANIFEST_VERSION_METADATA_KEY,
+    IngestJob,
+)
 from app.platform.request_credential import (
     ApiKeyCredential,
     acting_with,
-    is_publish_key,
 )
 from app.processing.ingest.manifest_schemas import (
     MAX_MANIFEST_ATTRIBUTES,
@@ -35,7 +38,6 @@ from app.processing.ingest.manifest_schemas import (
 )
 from app.processing.ingest.manifest_sources import (
     ManifestSourceError,
-    publication_to_catalog_fields,
 )
 
 import structlog
@@ -53,13 +55,15 @@ ATTRIBUTE_UNMATCHED = "A092"
 TILE_CACHE_VERSION_METADATA_KEY = "manifest_tile_cache_version"
 COLLECTION_METADATA_KEY = "manifest_collection_id"
 ATTRIBUTES_METADATA_KEY = "manifest_attributes"
+REQUESTED_VISIBILITY_METADATA_KEY = "manifest_requested_visibility"
+PUBLIC_FALLBACK_METADATA_KEY = "manifest_public_fallback"
 
 # Job warning kinds, which a client reads as the codes beside them.
 COLLECTION_REFUSED_KIND = "manifest_collection_refused"
 ATTRIBUTE_UNMATCHED_KIND = "manifest_attribute_unmatched"
 
 
-def _public_refused(
+def public_refused_message(
     dataset: ManifestDataset, severity: str, *, publish_key: bool
 ) -> ManifestMessage:
     reason, fix = (
@@ -99,10 +103,9 @@ class ManifestEntryFields:
     public_fallback: str | None = None
     collection_id: uuid.UUID | None = None
     messages: list[ManifestMessage] = field(default_factory=list)
-    # Who was refused a named public, decided once the entry is known to
-    # change something: a skip writes nothing, so it applies no fallback.
-    public_refused_for_key: bool | None = None
-    edits_attributes: bool = False
+    # Whether the gate let the caller name public, for an entry that writes;
+    # a skip writes nothing, so it applies no fallback.
+    may_set_public: bool = True
 
     @classmethod
     def of(
@@ -114,63 +117,6 @@ class ManifestEntryFields:
         return cls(
             visibility=dataset.visibility, public_fallback=request.public_fallback
         )
-
-    def downgrade_or_refuse(
-        self, dataset: ManifestDataset, *, publish_key: bool
-    ) -> None:
-        """Handle a refused ``public``: write ``internal`` only when asked to."""
-        if self.public_fallback == "internal":
-            self.visibility = "internal"
-            self.messages.append(
-                _public_refused(dataset, "warning", publish_key=publish_key)
-            )
-            return
-        raise ManifestEntryRefused(
-            [_public_refused(dataset, "error", publish_key=publish_key)]
-        )
-
-    async def judge_update(
-        self,
-        db: AsyncSession,
-        user: Identity,
-        dataset: ManifestDataset,
-        existing: Any,
-    ) -> None:
-        """Hold an update to what the metadata edit lets the caller change.
-
-        Attribute text on an existing dataset needs ``edit_metadata``, as the
-        attribute edit does; the job then records that capability, which the
-        publish checks again. An omitted visibility keeps the dataset's, so
-        publishing a public draft opens it to anonymous readers without the
-        entry naming ``public``. A publish key may not do that: it is a
-        refused public, with the fallback to internal when asked. The publish
-        judges it again, holding the dataset's rows.
-        """
-        if dataset.attributes:
-            submitter = await load_submitter(db, user.id)
-            if (
-                submitter is None
-                or not await get_permission_extension().check_permission(
-                    db,
-                    submitter,
-                    EDIT_METADATA,
-                    user_roles={r.name for r in submitter.roles},
-                )
-            ):
-                raise ManifestSourceError(f"Missing permission: {EDIT_METADATA}")
-            self.edits_attributes = True
-        if not is_publish_key(db):
-            return
-        record = existing.record
-        await db.refresh(record, attribute_names=["visibility", "record_status"])
-        _, record_status = publication_to_catalog_fields(dataset.publication)
-        now = (record.visibility, record.record_status)
-        change = {"visibility": self.visibility, "record_status": record_status}
-        if self.visibility is None and opens_to_anonymous(*now, **change):
-            self.downgrade_or_refuse(dataset, publish_key=True)
-            change["visibility"] = self.visibility
-        if refusal := publish_key_widening(*now, **change):
-            raise ManifestSourceError(refusal)
 
     def note_edits_since_publish(
         self, dataset: ManifestDataset, completed_job: Any, existing: Any
@@ -199,13 +145,34 @@ class ManifestEntryFields:
             )
 
 
-def settle_refused_public(
-    fields: ManifestEntryFields | None, dataset: ManifestDataset
+def required_capabilities(metadata: dict, recorded: str | None) -> list[str]:
+    """What a job's submitter must still hold: the capability its door
+    recorded, and ``edit_metadata`` for a manifest job that writes attribute
+    text onto the dataset it replaces, as the attribute edit needs."""
+    needed = [recorded] if recorded is not None else []
+    edits_attributes = (
+        metadata.get("manifest_key")
+        and metadata.get("reupload")
+        and metadata.get(ATTRIBUTES_METADATA_KEY)
+    )
+    if edits_attributes and EDIT_METADATA not in needed:
+        needed.append(EDIT_METADATA)
+    return needed
+
+
+async def check_job_capabilities(
+    db: AsyncSession, user: Identity, metadata: dict
 ) -> None:
-    """Act on a named public the gate refused, once the entry is known to
-    write something."""
-    if fields is not None and fields.public_refused_for_key is not None:
-        fields.downgrade_or_refuse(dataset, publish_key=fields.public_refused_for_key)
+    """Refuse an entry whose job the caller's roles don't cover, judged as
+    the publish judges it, on the account as committed now."""
+    submitter = await load_submitter(db, user.id)
+    for capability in required_capabilities(
+        metadata, metadata.get(ADMITTED_CAPABILITY_METADATA_KEY)
+    ):
+        if submitter is None or not await get_permission_extension().check_permission(
+            db, submitter, capability, user_roles={r.name for r in submitter.roles}
+        ):
+            raise ManifestSourceError(f"Missing permission: {capability}")
 
 
 def report_entry(
@@ -241,16 +208,16 @@ async def resolve_entry_collection(
     db: AsyncSession,
     dataset: ManifestDataset,
     user: Identity,
-    fields: ManifestEntryFields,
+    fields: ManifestEntryFields | None,
     *,
     dry_run: bool,
 ) -> None:
-    """Resolve the entry's collection before anything is queued.
+    """Resolve a version 2 entry's collection before anything is queued.
 
     A refusal is warning A033 and the entry carries on without a collection.
     A dry run creates nothing and reports what an apply would.
     """
-    if dataset.collection is None:
+    if fields is None or dataset.collection is None:
         return
     ref = dataset.collection.model_dump(mode="json", exclude_none=True)
     collection_id, code = await get_processing_port().resolve_manifest_collection(
@@ -290,8 +257,14 @@ async def attach_unchanged_entry(
 def job_metadata_fields(
     dataset: ManifestDataset, fields: ManifestEntryFields
 ) -> dict[str, object]:
-    """The v2 keys of a manifest job's metadata, for the ingest tail to apply."""
-    metadata: dict[str, object] = {}
+    """The v2 keys of a manifest job's metadata: what the ingest tail applies,
+    and the request's version, visibility and fallback, from which later doors
+    judge the entry again."""
+    metadata: dict[str, object] = {MANIFEST_VERSION_METADATA_KEY: "2"}
+    if dataset.visibility is not None:
+        metadata[REQUESTED_VISIBILITY_METADATA_KEY] = dataset.visibility
+    if fields.public_fallback is not None:
+        metadata[PUBLIC_FALLBACK_METADATA_KEY] = fields.public_fallback
     if fields.visibility is not None:
         metadata["visibility"] = fields.visibility
     if fields.collection_id is not None:
@@ -356,7 +329,7 @@ def _stored_attributes(user_metadata: dict) -> list[dict[str, Any]]:
     return [entry.model_dump(exclude_none=True) for entry in checked]
 
 
-def _append_warning(job: Any, warning: dict[str, Any]) -> None:
+def append_job_warning(job: Any, warning: dict[str, Any]) -> None:
     warnings = list((job.user_metadata or {}).get("warnings", []))
     warnings.append(warning)
     job.user_metadata = {**(job.user_metadata or {}), "warnings": warnings}
@@ -400,7 +373,9 @@ async def apply_dataset_fields(
             details = {"collection_id": str(collection)}
             if code == COLLECTION_BUSY_CODE:
                 details["reason"] = "busy"
-            _append_warning(job, {"kind": COLLECTION_REFUSED_KIND, "details": details})
+            append_job_warning(
+                job, {"kind": COLLECTION_REFUSED_KIND, "details": details}
+            )
 
     attributes = _stored_attributes(user_metadata)
     if attributes and submitter is not None:
@@ -408,7 +383,7 @@ async def apply_dataset_fields(
             session, dataset.id, attributes, actor_id=submitter.id
         )
         if unmatched:
-            _append_warning(
+            append_job_warning(
                 job,
                 {
                     "kind": ATTRIBUTE_UNMATCHED_KIND,

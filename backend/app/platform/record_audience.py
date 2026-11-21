@@ -6,6 +6,8 @@ it leaves, at the request and again where a worker applies it later.
 
 from __future__ import annotations
 
+from dataclasses import dataclass
+
 VISIBILITY_ORDER = ("private", "restricted", "internal", "public")
 
 
@@ -44,3 +46,74 @@ def publish_key_widening(
     ):
         return "A publish key can't publish a public dataset"
     return None
+
+
+@dataclass(frozen=True)
+class Publication:
+    """The visibility and status an apply writes. ``visibility`` None keeps
+    the record's; ``fell_back_for`` names who was refused public when the
+    fallback wrote internal instead: ``"key"`` or ``"restriction"``."""
+
+    visibility: str | None
+    record_status: str
+    fell_back_for: str | None = None
+
+
+class PublicationRefused(Exception):
+    """The apply may not write what it asks for. ``reason`` is ``"key"`` or
+    ``"restriction"`` for a refused public, ``"widening"`` for a publish
+    key's widening, which ``message`` then states."""
+
+    def __init__(self, reason: str, message: str | None = None) -> None:
+        super().__init__(message or reason)
+        self.reason = reason
+        self.message = message
+
+
+def may_set_public(*, is_key: bool, is_admin: bool, restricted: bool) -> bool:
+    """Whether a caller may set ``public``: never with a publish key, and
+    only as an admin while public visibility is restricted."""
+    return not is_key and (is_admin or not restricted)
+
+
+def effective_publication(
+    requested_visibility: str | None,
+    record_status: str,
+    public_fallback: str | None,
+    *,
+    may_set_public: bool,
+    is_key: bool,
+    now: tuple[str, str] | None,
+) -> Publication:
+    """What a version 2 manifest entry writes onto its record.
+
+    ``now`` is the record's current ``(visibility, record_status)``, None for
+    a create. An omitted visibility keeps the record's, or is private on a
+    create. A refused ``public`` becomes internal when ``public_fallback`` is
+    ``"internal"`` and is refused otherwise. A publish key never opens a
+    record to anonymous readers, which is a refused public too, and never
+    widens. The status is the intent's. Raises ``PublicationRefused``.
+    """
+    visibility, fell_back_for = requested_visibility, None
+    refused_for = "key" if is_key else "restriction"
+    if visibility == "public" and (is_key or not may_set_public):
+        visibility, fell_back_for = _fall_back(public_fallback, refused_for)
+    if now is None:
+        return Publication(visibility or "private", record_status, fell_back_for)
+    if is_key:
+        if visibility is None and opens_to_anonymous(
+            *now, visibility=None, record_status=record_status
+        ):
+            visibility, fell_back_for = _fall_back(public_fallback, "key")
+        refusal = publish_key_widening(
+            *now, visibility=visibility, record_status=record_status
+        )
+        if refusal is not None:
+            raise PublicationRefused("widening", refusal)
+    return Publication(visibility, record_status, fell_back_for)
+
+
+def _fall_back(public_fallback: str | None, refused_for: str) -> tuple[str, str]:
+    if public_fallback == "internal":
+        return "internal", refused_for
+    raise PublicationRefused(refused_for)

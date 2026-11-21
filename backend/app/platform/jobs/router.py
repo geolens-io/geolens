@@ -53,6 +53,7 @@ from app.platform.jobs.schemas import (
     ReservedRenameWarning,
     StaleCleanupResponse,
     ManifestAttributeUnmatchedWarning,
+    ManifestPublicFallbackWarning,
     ManifestCollectionRefusedWarning,
     ZmDroppedWarning,
 )
@@ -667,6 +668,7 @@ _WARNING_MODELS: dict[str, Any] = {
     "zm_dropped": ZmDroppedWarning,
     "manifest_collection_refused": ManifestCollectionRefusedWarning,
     "manifest_attribute_unmatched": ManifestAttributeUnmatchedWarning,
+    "manifest_public_fallback": ManifestPublicFallbackWarning,
 }
 
 
@@ -702,6 +704,7 @@ async def _job_to_status_response(
         | ZmDroppedWarning
         | ManifestCollectionRefusedWarning
         | ManifestAttributeUnmatchedWarning
+        | ManifestPublicFallbackWarning
     ] = []
     archive_failed = False
     temporal_parse_errors: dict[TemporalParseKey, str] = {}

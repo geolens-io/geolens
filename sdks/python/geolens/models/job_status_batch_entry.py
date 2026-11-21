@@ -31,6 +31,7 @@ if TYPE_CHECKING:
     from ..models.manifest_collection_refused_warning import (
         ManifestCollectionRefusedWarning,
     )
+    from ..models.manifest_public_fallback_warning import ManifestPublicFallbackWarning
     from ..models.mercator_clip_warning import MercatorClipWarning
     from ..models.reserved_rename_warning import ReservedRenameWarning
     from ..models.zm_dropped_warning import ZmDroppedWarning
@@ -51,7 +52,8 @@ class JobStatusBatchEntry:
         current_step (JobStatusBatchEntryCurrentStepType0 | None | Unset):
         error_code (None | str | Unset):
         warnings (list[DbfTruncationCollisionWarning | ManifestAttributeUnmatchedWarning |
-            ManifestCollectionRefusedWarning | MercatorClipWarning | ReservedRenameWarning | ZmDroppedWarning] | Unset):
+            ManifestCollectionRefusedWarning | ManifestPublicFallbackWarning | MercatorClipWarning | ReservedRenameWarning |
+            ZmDroppedWarning] | Unset):
         can_retry (bool | Unset):  Default: False.
         refresh_run (JobRefreshRunSummary | None | Unset): The refresh run bound to a reupload or manifest update job.
     """
@@ -67,6 +69,7 @@ class JobStatusBatchEntry:
             DbfTruncationCollisionWarning
             | ManifestAttributeUnmatchedWarning
             | ManifestCollectionRefusedWarning
+            | ManifestPublicFallbackWarning
             | MercatorClipWarning
             | ReservedRenameWarning
             | ZmDroppedWarning
@@ -82,6 +85,9 @@ class JobStatusBatchEntry:
             DbfTruncationCollisionWarning,
         )
         from ..models.job_refresh_run_summary import JobRefreshRunSummary
+        from ..models.manifest_attribute_unmatched_warning import (
+            ManifestAttributeUnmatchedWarning,
+        )
         from ..models.manifest_collection_refused_warning import (
             ManifestCollectionRefusedWarning,
         )
@@ -140,6 +146,8 @@ class JobStatusBatchEntry:
                     warnings_item = warnings_item_data.to_dict()
                 elif isinstance(warnings_item_data, ManifestCollectionRefusedWarning):
                     warnings_item = warnings_item_data.to_dict()
+                elif isinstance(warnings_item_data, ManifestAttributeUnmatchedWarning):
+                    warnings_item = warnings_item_data.to_dict()
                 else:
                     warnings_item = warnings_item_data.to_dict()
 
@@ -191,6 +199,9 @@ class JobStatusBatchEntry:
         )
         from ..models.manifest_collection_refused_warning import (
             ManifestCollectionRefusedWarning,
+        )
+        from ..models.manifest_public_fallback_warning import (
+            ManifestPublicFallbackWarning,
         )
         from ..models.mercator_clip_warning import MercatorClipWarning
         from ..models.reserved_rename_warning import ReservedRenameWarning
@@ -281,6 +292,7 @@ class JobStatusBatchEntry:
                 DbfTruncationCollisionWarning
                 | ManifestAttributeUnmatchedWarning
                 | ManifestCollectionRefusedWarning
+                | ManifestPublicFallbackWarning
                 | MercatorClipWarning
                 | ReservedRenameWarning
                 | ZmDroppedWarning
@@ -297,6 +309,7 @@ class JobStatusBatchEntry:
                     DbfTruncationCollisionWarning
                     | ManifestAttributeUnmatchedWarning
                     | ManifestCollectionRefusedWarning
+                    | ManifestPublicFallbackWarning
                     | MercatorClipWarning
                     | ReservedRenameWarning
                     | ZmDroppedWarning
@@ -345,13 +358,21 @@ class JobStatusBatchEntry:
                         return warnings_item_type_4
                     except (TypeError, ValueError, AttributeError, KeyError):
                         pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        warnings_item_type_5 = (
+                            ManifestAttributeUnmatchedWarning.from_dict(data)
+                        )
+
+                        return warnings_item_type_5
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
                     if not isinstance(data, dict):
                         raise TypeError()
-                    warnings_item_type_5 = ManifestAttributeUnmatchedWarning.from_dict(
-                        data
-                    )
+                    warnings_item_type_6 = ManifestPublicFallbackWarning.from_dict(data)
 
-                    return warnings_item_type_5
+                    return warnings_item_type_6
 
                 warnings_item = _parse_warnings_item(warnings_item_data)
 

@@ -129,9 +129,12 @@ ADMITTED_CAPABILITY_METADATA_KEY = "admitted_capability"
 # public, which the publish checks they still are.
 ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY = "admitted_public_visibility"
 
-# Set when a publish key queued a manifest replacement, which the publish holds
-# to what a publish key may change on the dataset as it is then.
+# The id of the publish key that queued, accepted or retried a version 2
+# manifest job, whose limits the publish holds it to.
 ADMITTED_PUBLISH_KEY_METADATA_KEY = "admitted_publish_key"
+
+# A manifest job's request version; a job without it is version 1.
+MANIFEST_VERSION_METADATA_KEY = "manifest_version"
 
 # Set when the door admitted an admin-only raw seed source, a local staging
 # path or a same-bucket object key, which the publish checks they still are.
@@ -235,6 +238,9 @@ PUBLIC_METADATA_KEYS = frozenset(
         "manifest_attribution",
         "manifest_bbox",
         "manifest_collection_id",
+        MANIFEST_VERSION_METADATA_KEY,
+        "manifest_requested_visibility",
+        "manifest_public_fallback",
         # The outcome.
         "warnings",
         "origin_link_loss",

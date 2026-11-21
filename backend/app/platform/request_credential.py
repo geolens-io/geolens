@@ -180,6 +180,19 @@ def acting_with(session: AsyncSession, credential: ApiKeyCredential) -> Iterator
             session.info[_SESSION_KEY] = previous
 
 
+def stamp_publish_key(session: AsyncSession, metadata: dict) -> None:
+    """Record on a version 2 manifest job the publish key this request queues,
+    accepts or retries it with, so the publish holds it to that key's limits."""
+    from app.platform.jobs.models import (
+        ADMITTED_PUBLISH_KEY_METADATA_KEY,
+        MANIFEST_VERSION_METADATA_KEY,
+    )
+
+    key_id = publish_key_id(session)
+    if key_id is not None and metadata.get(MANIFEST_VERSION_METADATA_KEY) == "2":
+        metadata[ADMITTED_PUBLISH_KEY_METADATA_KEY] = str(key_id)
+
+
 def refuse_publish_key(session: AsyncSession, message: str) -> None:
     """Refuse a write a publish key's route allows but whose effect can't be undone."""
     if is_publish_key(session):

@@ -17,7 +17,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm import joinedload
 
-from app.core.permissions import EDIT_METADATA, UPLOAD
 from app.core.async_io import (
     run_in_thread_draining,
     run_in_thread_draining_capture_cancel,
@@ -40,16 +39,11 @@ from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS
 from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
 from app.platform.request_credential import (
-    is_publish_key,
-    publish_key_id,
     refuse_publish_key,
 )
 
 from app.platform.jobs import ledger
 from app.platform.jobs.models import (
-    ADMITTED_CAPABILITY_METADATA_KEY,
-    ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
-    ADMITTED_PUBLISH_KEY_METADATA_KEY,
     ADMITTED_RAW_SOURCE_METADATA_KEY,
     MANIFEST_FINGERPRINT_METADATA_KEY,
     IngestJob,
@@ -58,8 +52,14 @@ from app.processing.ingest.manifest_dataset_fields import (
     ManifestEntryFields,
     attach_unchanged_entry,
     report_entry,
-    settle_refused_public,
     resolve_entry_collection,
+)
+from app.processing.ingest.manifest_publication import (
+    decide_publication,
+    entry_job_metadata,
+    judge_update,
+    in_flight_job_matches,
+    held_job_matches,
 )
 from app.processing.ingest.manifest_reservation import (
     RESERVATION_LOST_MESSAGE,
@@ -84,7 +84,6 @@ from app.processing.ingest.manifest_sources import (
     ManifestSourceError,
     claim_upload_source,
     manifest_dataset_fingerprint,
-    manifest_job_metadata,
     parse_manifest_crs,
     prepare_manifest_source,
     publication_to_catalog_fields,
@@ -621,7 +620,7 @@ async def _classify_dataset(
     except HTTPException as exc:
         if fields is None or exc.status_code != 403:
             raise
-        fields.public_refused_for_key = is_publish_key(db)
+        fields.may_set_public = False
     prepared = await prepare_manifest_source(db, dataset, user)
     await _validate_prepared_source(db, prepared)
     await _authorize_prepared_source(db, prepared, user)
@@ -770,6 +769,32 @@ def _refuse_publish_key_remote_origin(db: AsyncSession, existing_dataset) -> Non
         )
 
 
+def _job_metadata(
+    db: AsyncSession,
+    dataset: ManifestDataset,
+    prepared: ManifestPreparedSource,
+    fingerprint: str,
+    user: Identity,
+    fields: ManifestEntryFields | None,
+    dataset_id: uuid.UUID | None,
+) -> dict[str, object]:
+    from app.modules.catalog.authorization import admitted_public_visibility
+
+    # What this entry's restricted-public gate decided, not a later read.
+    admitted = admitted_public_visibility(db, user.id)
+    return {
+        **entry_job_metadata(
+            db,
+            dataset,
+            prepared,
+            fingerprint,
+            fields,
+            dataset_id,
+            admitted_public=admitted,
+        )
+    }
+
+
 async def _reserve_entry(
     db: AsyncSession,
     dataset: ManifestDataset,
@@ -796,30 +821,9 @@ async def _reserve_entry(
     max_size_bytes = await _upload_max_size_bytes(db)
 
     metadata: dict[str, object] = {
-        **manifest_job_metadata(
-            dataset, prepared, fingerprint=fingerprint, fields=fields
-        ),
+        **_job_metadata(db, dataset, prepared, fingerprint, user, fields, dataset_id),
         **downloading_stage_marker(),
     }
-    if fields is not None and (key_id := publish_key_id(db)) is not None:
-        metadata[ADMITTED_PUBLISH_KEY_METADATA_KEY] = str(key_id)
-    if dataset_id is not None:
-        metadata["reupload"] = True
-        metadata["dataset_id"] = str(dataset_id)
-        if is_publish_key(db) and fields is None:
-            # Version 1's comes from the intent, applied later over whatever
-            # the visibility is by then, so the update keeps it.
-            metadata.pop("visibility", None)
-        metadata[ADMITTED_CAPABILITY_METADATA_KEY] = (
-            EDIT_METADATA if fields is not None and fields.edits_attributes else UPLOAD
-        )
-        from app.modules.catalog.authorization import admitted_public_visibility
-
-        # What this entry's restricted-public gate decided, not a later read.
-        if admitted_public_visibility(db, user.id):
-            metadata[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] = True
-        if prepared.kind not in ("http", "upload"):
-            metadata[ADMITTED_RAW_SOURCE_METADATA_KEY] = True
 
     # `running`, not `pending`: a pending row with no file_path and no queue
     # task is reapable by four actors while its source downloads; the lease is
@@ -1161,6 +1165,10 @@ async def _reserve_or_settle_entry(
         raise ManifestSourceError("Manifest source could not be prepared")
 
     if classification == "skip_in_flight" and job is not None:
+        if not await in_flight_job_matches(db, fields, dataset, job):
+            raise DatasetBusyError(
+                "The key's in-flight apply publishes otherwise than this one."
+            )
         result = _skip_result_for_in_flight(dataset, job)
         await db.commit()
         return result
@@ -1182,12 +1190,13 @@ async def _reserve_or_settle_entry(
         await db.commit()
         return result
 
-    settle_refused_public(fields, dataset)
     update_dataset_id: uuid.UUID | None = None
+    held: ManifestApplyEntryResult | None = None
     if classification == "update" and existing_dataset is not None:
         # Before the blocked and dry-run responses, which name the dataset.
         await _admit_key_dataset(db, existing_dataset, user)
-        if held := await held_entry(db, dataset, fingerprint, job, existing_dataset):
+        held = await held_entry(db, dataset, fingerprint, job, existing_dataset)
+        if fields is None and await held_job_matches(db, held, None, {}):
             await db.commit()
             return held
         # Run after authorization (to avoid leaking another user's dataset
@@ -1195,16 +1204,32 @@ async def _reserve_or_settle_entry(
         _validate_existing_dataset_update(existing_dataset, prepared)
         _refuse_publish_key_remote_origin(db, existing_dataset)
         update_dataset_id = existing_dataset.id
-        if fields is not None:
-            await fields.judge_update(db, user, dataset, existing_dataset)
-            if request.dry_run:
-                fields.note_edits_since_publish(dataset, job, existing_dataset)
-
-    refuse_used_upload(prepared)
-    if fields is not None:
-        await resolve_entry_collection(
-            db, dataset, user, fields, dry_run=request.dry_run
+        await judge_update(
+            db,
+            user,
+            fields,
+            dataset,
+            job,
+            existing_dataset,
+            metadata=_job_metadata(
+                db, dataset, prepared, fingerprint, user, fields, update_dataset_id
+            ),
+            dry_run=request.dry_run,
         )
+
+    await decide_publication(db, fields, dataset, existing_dataset)
+    await resolve_entry_collection(db, dataset, user, fields, dry_run=request.dry_run)
+    if fields is not None and await held_job_matches(
+        db,
+        held,
+        fields,
+        _job_metadata(
+            db, dataset, prepared, fingerprint, user, fields, update_dataset_id
+        ),
+    ):
+        await db.commit()
+        return held
+    refuse_used_upload(prepared)
     if request.dry_run:
         # A preview reserves nothing, so the key is left exactly as this entry
         # found it.

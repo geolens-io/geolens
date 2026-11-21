@@ -1310,8 +1310,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow, including the settlement of a contended or refused admission,
     # the records of an admin's raw seed source, restricted public intent and a
-    # publish key, and the gates a version 2 entry's visibility passes.
-    "backend/app/processing/ingest/manifest_service.py": 1305,
+    # publish key, and where a version 2 entry's publication is decided and a
+    # held or in-flight job is reused.
+    "backend/app/processing/ingest/manifest_service.py": 1330,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,
@@ -1362,14 +1363,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/publish_followups.py": 1477,
     # What every ingest strategy shares: the task app, job lifecycle and phase
     # sessions, finalization, and the reupload table swap and catalog write.
-    "backend/app/processing/ingest/tasks_common.py": 1449,
+    "backend/app/processing/ingest/tasks_common.py": 1452,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
     # review of the changes its preview showed, and the live-table comparison
     # that lets a refresh or file re-upload of unchanged data publish nothing,
     # and the rebuild of geometry from the columns a dataset's was built from.
-    "backend/app/processing/ingest/tasks_reupload.py": 2006,
+    "backend/app/processing/ingest/tasks_reupload.py": 2010,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1476,7 +1477,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # may see, and which groups can't read a dataset, share the permission
     # extension's one audience; map reads, and which groups can't read a map,
     # share the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1397,
+    "backend/app/modules/catalog/authorization.py": 1400,
 }
 
 

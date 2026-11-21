@@ -696,6 +696,9 @@ from .manifest_dataset_visibility_type_0 import ManifestDatasetVisibilityType0
 from .manifest_message import ManifestMessage
 from .manifest_message_severity import ManifestMessageSeverity
 from .manifest_metadata import ManifestMetadata
+from .manifest_public_fallback_detail import ManifestPublicFallbackDetail
+from .manifest_public_fallback_detail_reason import ManifestPublicFallbackDetailReason
+from .manifest_public_fallback_warning import ManifestPublicFallbackWarning
 from .manifest_publication import ManifestPublication
 from .manifest_source import ManifestSource
 from .manifest_source_type import ManifestSourceType
@@ -1664,6 +1667,9 @@ __all__ = (
     "ManifestMessageSeverity",
     "ManifestMetadata",
     "ManifestPublication",
+    "ManifestPublicFallbackDetail",
+    "ManifestPublicFallbackDetailReason",
+    "ManifestPublicFallbackWarning",
     "ManifestSource",
     "ManifestSourceType",
     "MapAccessResponse",

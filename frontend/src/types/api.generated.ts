@@ -12365,7 +12365,7 @@ export interface components {
             /** Error Code */
             error_code?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"] | components["schemas"]["ManifestPublicFallbackWarning"])[];
             /**
              * Can Retry
              * @default false
@@ -12417,7 +12417,7 @@ export interface components {
             /** Warning Message */
             warning_message?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"] | components["schemas"]["ManifestPublicFallbackWarning"])[];
             /** Progress */
             progress?: number | null;
             /** Current Step */
@@ -12930,6 +12930,28 @@ export interface components {
             attribution?: string | null;
             /** Bbox */
             bbox?: number[] | null;
+        };
+        /** ManifestPublicFallbackDetail */
+        ManifestPublicFallbackDetail: {
+            /**
+             * Reason
+             * @description key: a publish key can't make anything public. restriction: public visibility is restricted to admins on this server.
+             * @enum {string}
+             */
+            reason: "key" | "restriction";
+        };
+        /**
+         * ManifestPublicFallbackWarning
+         * @description Publish manifest code A020: public was refused when the job ran, so
+         *     the dataset was shared with the organization instead.
+         */
+        ManifestPublicFallbackWarning: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "manifest_public_fallback";
+            details: components["schemas"]["ManifestPublicFallbackDetail"];
         };
         /** ManifestPublication */
         ManifestPublication: {

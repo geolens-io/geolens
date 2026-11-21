@@ -47,11 +47,9 @@ from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     ADMITTED_CAPABILITY_METADATA_KEY,
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
-    ADMITTED_PUBLISH_KEY_METADATA_KEY,
     ADMITTED_RAW_SOURCE_METADATA_KEY,
     IngestJob,
 )
-from app.platform.record_audience import publish_key_widening
 from app.platform.refresh.service import (
     claim_run_for_job,
     record_refresh_failure,
@@ -60,6 +58,7 @@ from app.platform.refresh.service import (
 from app.processing.ingest.manifest_dataset_fields import (
     load_submitter,
     record_manifest_tile_cache_version,
+    required_capabilities,
 )
 from app.processing.ingest.publish_followups import (
     owed_followups,
@@ -67,7 +66,6 @@ from app.processing.ingest.publish_followups import (
 )
 from app.processing.ingest.tasks_common import (
     _current_tenant_schema,
-    _manifest_text,
     cleanup_step,
 )
 from app.processing.ingest.tasks_raster_common import (
@@ -615,7 +613,8 @@ async def require_submitter_can_write(
     """Raise ``WriteAccessRevoked`` unless the job's submitter may still write
     the dataset, as committed now, and their roles still grant ``capability``,
     the one the job's door admitted it under. With None, only the account and
-    owner-or-admin are checked. A job only an admin could queue, for a raw
+    owner-or-admin are checked. A manifest job carrying attribute text also
+    needs ``edit_metadata``, as the attribute edit does. A job only an admin could queue, for a raw
     seed source or public data under ``restrict_public_visibility``, also needs
     them to still be an admin.
 
@@ -641,31 +640,14 @@ async def require_submitter_can_write(
         )
     except HTTPException:
         raise WriteAccessRevoked from None
-    if capability is not None and not await get_permission_extension().check_permission(
-        session, submitter, capability, user_roles={r.name for r in submitter.roles}
-    ):
-        raise WriteAccessRevoked
     roles = {r.name for r in submitter.roles}
+    for each in required_capabilities(job.user_metadata or {}, capability):
+        if not await get_permission_extension().check_permission(
+            session, submitter, each, user_roles=roles
+        ):
+            raise WriteAccessRevoked
     if await _no_longer_admin_to_publish(session, job, roles):
         raise WriteAccessRevoked
-    if _widens_past_publish_key(job, dataset.record):
-        raise WideningRefused
-
-
-def _widens_past_publish_key(job: IngestJob, record: Any) -> bool:
-    """A publish key's manifest job whose visibility and status, applied to
-    the record as committed now, change more than the metadata edit lets a
-    publish key change."""
-    metadata = job.user_metadata or {}
-    if "manifest_key" not in metadata or not metadata.get(
-        ADMITTED_PUBLISH_KEY_METADATA_KEY
-    ):
-        return False
-    change = {
-        key: _manifest_text(metadata, key) for key in ("visibility", "record_status")
-    }
-    now = (record.visibility, record.record_status)
-    return publish_key_widening(*now, **change) is not None
 
 
 async def _no_longer_admin_to_publish(

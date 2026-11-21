@@ -131,13 +131,35 @@ class ManifestAttributeUnmatchedWarning(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ManifestPublicFallbackDetail(BaseModel):
+    reason: Literal["key", "restriction"] = Field(
+        description=(
+            "key: a publish key can't make anything public. restriction: "
+            "public visibility is restricted to admins on this server."
+        )
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestPublicFallbackWarning(BaseModel):
+    """Publish manifest code A020: public was refused when the job ran, so
+    the dataset was shared with the organization instead."""
+
+    kind: Literal["manifest_public_fallback"]
+    details: ManifestPublicFallbackDetail
+
+    model_config = ConfigDict(extra="forbid")
+
+
 IngestJobWarning = Annotated[
     ReservedRenameWarning
     | DbfTruncationCollisionWarning
     | MercatorClipWarning
     | ZmDroppedWarning
     | ManifestCollectionRefusedWarning
-    | ManifestAttributeUnmatchedWarning,
+    | ManifestAttributeUnmatchedWarning
+    | ManifestPublicFallbackWarning,
     Field(discriminator="kind"),
 ]
 

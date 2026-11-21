@@ -26,6 +26,7 @@ from app.platform.jobs.defer_guard import (
     make_ingest_job_failed_rollback,
 )
 from app.platform.jobs.models import (
+    MANIFEST_VERSION_METADATA_KEY,
     ADMITTED_CAPABILITY_METADATA_KEY,
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
     ADMITTED_PUBLISH_KEY_METADATA_KEY,
@@ -38,8 +39,17 @@ from app.platform.refresh.verification import (
     canonical_service_source_binding_fingerprint,
 )
 from app.platform.refresh.service import DatasetBusyError, create_pending_run
-from app.platform.record_audience import publish_key_widening
-from app.platform.request_credential import publish_key_id
+from app.modules.catalog.authorization import admitted_public_visibility
+from app.platform.record_audience import (
+    Publication,
+    PublicationRefused,
+    effective_publication,
+)
+from app.platform.request_credential import (
+    api_key_scope_refusal,
+    is_publish_key,
+    stamp_publish_key,
+)
 
 # What a manifest apply wrote on its job, so an accepted run publishes the
 # manifest's record metadata as the blocked one would have.
@@ -199,8 +209,8 @@ def _upload_unavailable(message: str) -> HTTPException:
     )
 
 
-# The blocked job's admissions, and a publish key's limits on what it widens,
-# follow it into the accepted upload.
+# The blocked job's admissions, and the publish key it was queued with, follow
+# it into the accepted upload.
 _CARRIED_KEYS = frozenset(
     {
         "srid_override",
@@ -218,11 +228,18 @@ def _accepted_upload_metadata(
     run_id: uuid.UUID,
     fingerprint: str,
     held_version: int | None,
-    publish_key: uuid.UUID | None = None,
-    record: Any = None,
+    publish_key: bool = False,
+    publication: Publication | None = None,
+    admitted_public: bool = False,
 ) -> dict:
-    """The accepted job's metadata. ``publish_key`` is the accepting key's id
-    when one accepts, and ``record`` the dataset's record as it is now."""
+    """The accepted job's metadata.
+
+    A version 2 job's ``publication`` is the one recomputed for the accepter,
+    which replaces the stored one, with whether the accepter was admitted to
+    set public. A version 1 job keeps its own, except that
+    a publish key's accept keeps the dataset's visibility and status, since
+    the held entry may be another credential's.
+    """
     blocked = blocked_job.user_metadata or {}
     carried = {
         key: value
@@ -231,19 +248,24 @@ def _accepted_upload_metadata(
         or key.startswith("manifest_")
         or ("manifest_key" in blocked and key in _MANIFEST_RECORD_KEYS)
     }
-    if publish_key is not None:
-        # The held entry may be another credential's: the key applies its
-        # visibility and status only where they don't widen what the dataset
-        # has, and the publish holds the run to the key's rules again.
-        carried[ADMITTED_PUBLISH_KEY_METADATA_KEY] = str(publish_key)
-        if record is None or publish_key_widening(
-            record.visibility,
-            record.record_status,
-            visibility=carried.get("visibility"),
-            record_status=carried.get("record_status"),
-        ):
-            carried.pop("visibility", None)
-            carried.pop("record_status", None)
+    if publication is not None:
+        carried.pop("visibility", None)
+        carried.pop(ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY, None)
+        if admitted_public:
+            carried[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] = True
+        if publication.visibility is not None:
+            carried["visibility"] = publication.visibility
+        carried["record_status"] = publication.record_status
+        if publication.fell_back_for is not None:
+            carried["warnings"] = [
+                {
+                    "kind": "manifest_public_fallback",
+                    "details": {"reason": publication.fell_back_for},
+                }
+            ]
+    elif publish_key:
+        carried.pop("visibility", None)
+        carried.pop("record_status", None)
     return {
         **carried,
         "reupload": True,
@@ -254,6 +276,48 @@ def _accepted_upload_metadata(
         "accepted_from_job_id": str(blocked_job.id),
         "accepted_dataset_version": held_version,
     }
+
+
+async def _accepted_publication(
+    db: AsyncSession, user: Identity, blocked_job: IngestJob, dataset: Any
+) -> Publication | None:
+    """A version 2 held entry's publication, judged for the accepter, the
+    record as it is now and the restriction as it is now; None for version 1.
+
+    A refusal refuses the accept, as the same apply by the accepter would be.
+    """
+    from app.modules.catalog import authorization
+    from app.modules.catalog.write_recheck import PUBLIC_VISIBILITY_DENIED
+
+    stored = blocked_job.user_metadata or {}
+    if stored.get(MANIFEST_VERSION_METADATA_KEY) != "2":
+        return None
+    requested = stored.get("manifest_requested_visibility")
+    may_set_public = True
+    try:
+        await authorization.check_public_visibility_allowed(db, user, requested)
+    except HTTPException as exc:
+        if exc.status_code != status.HTTP_403_FORBIDDEN:
+            raise
+        may_set_public = False
+    await db.refresh(dataset.record, attribute_names=["visibility", "record_status"])
+    try:
+        return effective_publication(
+            requested,
+            stored["record_status"],
+            stored.get("manifest_public_fallback"),
+            may_set_public=may_set_public,
+            is_key=is_publish_key(db),
+            now=(dataset.record.visibility, dataset.record.record_status),
+        )
+    except PublicationRefused as refused:
+        if refused.reason == "restriction":
+            raise HTTPException(
+                status_code=status.HTTP_403_FORBIDDEN, detail=PUBLIC_VISIBILITY_DENIED
+            ) from refused
+        raise api_key_scope_refusal(
+            refused.message or "A publish key can't make anything public"
+        ) from refused
 
 
 async def dispatch_upload_acceptance(
@@ -309,6 +373,17 @@ async def dispatch_upload_acceptance(
         )
 
     user_id = user.id
+    accepted_metadata = _accepted_upload_metadata(
+        blocked_job,
+        dataset_id=dataset_id,
+        run_id=run_id,
+        fingerprint=fingerprint,
+        held_version=held_version,
+        publish_key=is_publish_key(db),
+        publication=await _accepted_publication(db, user, blocked_job, dataset),
+        admitted_public=admitted_public_visibility(db, user_id),
+    )
+    stamp_publish_key(db, accepted_metadata)
     job = ledger.create(
         db,
         created_by=user_id,
@@ -316,15 +391,7 @@ async def dispatch_upload_acceptance(
         source_filename=blocked_job.source_filename,
         file_path=blocked_job.file_path,
         source_layer=blocked_job.source_layer,
-        user_metadata=_accepted_upload_metadata(
-            blocked_job,
-            dataset_id=dataset_id,
-            run_id=run_id,
-            fingerprint=fingerprint,
-            held_version=held_version,
-            publish_key=publish_key_id(db),
-            record=dataset.record,
-        ),
+        user_metadata=accepted_metadata,
     )
     await db.flush()
     try:

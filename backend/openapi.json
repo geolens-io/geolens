@@ -12706,6 +12706,7 @@
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
                   "manifest_attribute_unmatched": "#/components/schemas/ManifestAttributeUnmatchedWarning",
                   "manifest_collection_refused": "#/components/schemas/ManifestCollectionRefusedWarning",
+                  "manifest_public_fallback": "#/components/schemas/ManifestPublicFallbackWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
                   "reserved_rename": "#/components/schemas/ReservedRenameWarning",
                   "zm_dropped": "#/components/schemas/ZmDroppedWarning"
@@ -12730,6 +12731,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/ManifestAttributeUnmatchedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestPublicFallbackWarning"
                 }
               ]
             },
@@ -12894,6 +12898,7 @@
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
                   "manifest_attribute_unmatched": "#/components/schemas/ManifestAttributeUnmatchedWarning",
                   "manifest_collection_refused": "#/components/schemas/ManifestCollectionRefusedWarning",
+                  "manifest_public_fallback": "#/components/schemas/ManifestPublicFallbackWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
                   "reserved_rename": "#/components/schemas/ReservedRenameWarning",
                   "zm_dropped": "#/components/schemas/ZmDroppedWarning"
@@ -12918,6 +12923,9 @@
                 },
                 {
                   "$ref": "#/components/schemas/ManifestAttributeUnmatchedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestPublicFallbackWarning"
                 }
               ]
             },
@@ -14298,6 +14306,45 @@
           }
         },
         "title": "ManifestMetadata",
+        "type": "object"
+      },
+      "ManifestPublicFallbackDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "key: a publish key can't make anything public. restriction: public visibility is restricted to admins on this server.",
+            "enum": [
+              "key",
+              "restriction"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ManifestPublicFallbackDetail",
+        "type": "object"
+      },
+      "ManifestPublicFallbackWarning": {
+        "additionalProperties": false,
+        "description": "Publish manifest code A020: public was refused when the job ran, so\nthe dataset was shared with the organization instead.",
+        "properties": {
+          "kind": {
+            "const": "manifest_public_fallback",
+            "title": "Kind",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ManifestPublicFallbackDetail"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "ManifestPublicFallbackWarning",
         "type": "object"
       },
       "ManifestPublication": {

@@ -17,7 +17,6 @@ import pytest
 from fastapi import HTTPException, Request
 from pydantic import ValidationError
 from sqlalchemy import select, text, update
-from sqlalchemy.orm import selectinload
 
 from app.core.config import settings
 from app.modules.auth.models import User
@@ -43,7 +42,6 @@ from app.processing.ingest.manifest_dataset_fields import (
 )
 from app.processing.ingest.manifest_schemas import (
     MAX_MANIFEST_ATTRIBUTES,
-    ManifestApplyEntryResult,
     ManifestApplyRequest,
     ManifestAttribute,
 )
@@ -52,10 +50,6 @@ from app.processing.ingest.manifest_sources import (
     classify_manifest_source,
     manifest_dataset_fingerprint,
     manifest_job_metadata,
-)
-from app.processing.ingest.publication import (
-    WideningRefused,
-    require_submitter_can_write,
 )
 from app.processing.ingest.tasks import reupload_file
 from app.processing.ingest.tasks_common import IngestContext, _finalize_ingest
@@ -308,7 +302,7 @@ async def test_an_omitted_visibility_creates_a_private_dataset(
     response, _ = await _apply(test_db_session, user, _request(_entry("fields-omit")))
 
     job = await test_db_session.get(IngestJob, response.results[0].job_id)
-    assert "visibility" not in job.user_metadata
+    assert job.user_metadata["visibility"] == "private"
     dataset = await _finalize(test_db_session, user, job)
     assert dataset.record.visibility == "private"
     assert dataset.record.record_status == "published"
@@ -1348,48 +1342,6 @@ async def test_the_publish_lets_a_non_admin_publish_a_dataset_made_public_meanwh
     assert await _record(test_db_session, dataset_id) == ("public", "published")
 
 
-async def test_an_accepted_held_run_keeps_a_publish_keys_limits(
-    test_db_session, clean_tables
-):
-    from app.modules.catalog.datasets.api.refresh_acceptance import (
-        _accepted_upload_metadata,
-    )
-
-    user = await _admin(test_db_session)
-    key = "audience-accepted"
-    dataset_id = await _manifest_dataset(test_db_session, user, key, "public", "draft")
-    held = IngestJob(
-        user_metadata={
-            "manifest_key": key,
-            "record_status": "published",
-            "admitted_publish_key": True,
-        }
-    )
-    # Accepted by the owner's own session, not a key.
-    accepted = IngestJob(
-        created_by=user.id,
-        user_metadata=_accepted_upload_metadata(
-            held,
-            dataset_id=dataset_id,
-            run_id=uuid.uuid4(),
-            fingerprint="f",
-            held_version=1,
-        ),
-    )
-    dataset = (
-        await test_db_session.execute(
-            select(Dataset)
-            .options(selectinload(Dataset.record))
-            .where(Dataset.id == dataset_id)
-        )
-    ).scalar_one()
-
-    with pytest.raises(WideningRefused):
-        await require_submitter_can_write(
-            test_db_session, dataset, accepted, capability=None
-        )
-
-
 async def test_public_fallback_never_widens_a_publish_keys_private_dataset(
     client, test_db_session, admin_auth_header, clean_tables
 ):
@@ -1446,38 +1398,6 @@ async def test_a_non_admin_naming_public_on_an_update_while_restricted(
     job = await _run_update(test_db_session, result, task)
     assert (job.status, job.error_message) == ("complete", None)
     assert await _record(test_db_session, dataset_id) == ("internal", "published")
-
-
-async def test_a_held_entry_reapplied_keeps_its_a020_warning(
-    test_db_session, clean_tables
-):
-    _stage_fixture()
-    user = await _admin(test_db_session)
-    key = "audience-held-a020"
-    dataset_id = await _published_by_manifest(test_db_session, user, key)
-
-    async def held(db, dataset, fingerprint, job, existing):
-        return ManifestApplyEntryResult(
-            dataset_key=dataset.key,
-            action="blocked",
-            dataset_id=dataset_id,
-            message="Held for review.",
-        )
-
-    with (
-        _forbid_public(),
-        patch("app.processing.ingest.manifest_service.held_entry", new=held),
-    ):
-        result, task = await _queue_update(
-            test_db_session,
-            user,
-            _entry(key, visibility="public"),
-            public_fallback="internal",
-        )
-
-    assert result.action == "blocked", result
-    assert [(m.code, m.severity) for m in result.messages] == [("A020", "warning")]
-    task.defer_async.assert_not_awaited()
 
 
 async def _replayed_public_entry(client, session, headers, user, key) -> dict:
@@ -1581,15 +1501,18 @@ async def test_an_upload_only_owner_cannot_edit_attributes_through_an_update(
     assert await _record(test_db_session, dataset_id) == ("private", "published")
 
 
-async def test_attributes_need_edit_metadata_still_held_when_published(
-    client, test_db_session, admin_auth_header, clean_tables, monkeypatch
+@pytest.mark.parametrize(
+    "revoked", ["edit_metadata", "upload"], ids=["edit-metadata", "upload"]
+)
+async def test_attributes_need_both_capabilities_still_held_when_published(
+    client, test_db_session, admin_auth_header, clean_tables, monkeypatch, revoked
 ):
-    """Lost after queueing, the replacement fails whole, as every door's
-    recorded capability does: half a publish would replace the data and drop
-    the edits the entry asked for."""
+    """Lost after queueing, either fails the replacement whole, as every
+    door's recorded capability does: half a publish would replace the data
+    and drop the edits the entry asked for."""
     _stage_fixture()
     headers, editor = await _editor(client, test_db_session, admin_auth_header)
-    key = "attributes-revoked"
+    key = f"attributes-revoked-{revoked.replace('_', '-')}"
     dataset_id = await _manifest_dataset(
         test_db_session, editor, key, "private", "draft"
     )
@@ -1597,13 +1520,260 @@ async def test_attributes_need_edit_metadata_still_held_when_published(
     result, task = await _queue_update(test_db_session, editor, entry)
     assert result.action == "update", result
 
-    _editors_without(monkeypatch, "edit_metadata")
+    _editors_without(monkeypatch, revoked)
     job = await _run_update(test_db_session, result, task)
 
-    assert job.user_metadata["admitted_capability"] == "edit_metadata"
+    assert job.user_metadata["admitted_capability"] == "upload"
     assert job.status == "failed"
     assert "can no longer modify this dataset" in job.error_message
     assert await _record(test_db_session, dataset_id) == ("private", "draft")
+
+
+async def test_the_publish_falls_back_when_a_key_would_open_a_dataset_made_public(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    """Judged again when it publishes, a publish key's job takes its stored
+    fallback where the dataset became a public draft meanwhile."""
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "audience-key-raced-fallback"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "internal", "draft"
+    )
+    with _publish_key(test_db_session):
+        result, task = await _queue_update(
+            test_db_session,
+            user,
+            await _uploaded(client, admin_auth_header, key),
+            public_fallback="internal",
+        )
+    assert (result.action, result.messages) == ("update", []), result
+
+    await _set_record(test_db_session, dataset_id, "public", "draft")
+    job = await _run_update(test_db_session, result, task)
+
+    assert (job.status, job.error_message) == ("complete", None)
+    assert job.user_metadata["warnings"] == [
+        {"kind": "manifest_public_fallback", "details": {"reason": "key"}}
+    ]
+    assert await _record(test_db_session, dataset_id) == ("internal", "published")
+
+
+@pytest.mark.parametrize("fallback", [None, "internal"], ids=["no", "fallback"])
+async def test_the_publish_judges_a_named_public_by_the_restriction_as_it_is_then(
+    client, test_db_session, admin_auth_header, clean_tables, monkeypatch, fallback
+):
+    """Queued while public was allowed, published after an admin restricted it."""
+    import app.core.persistent_config as pc
+
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    key = f"audience-restricted-later-{fallback or 'none'}"
+    dataset_id = await _manifest_dataset(
+        test_db_session, editor, key, "private", "draft"
+    )
+    extra = {} if fallback is None else {"public_fallback": fallback}
+    result, task = await _queue_update(
+        test_db_session,
+        editor,
+        await _uploaded(client, headers, key, visibility="public"),
+        **extra,
+    )
+    assert (result.action, result.messages) == ("update", []), result
+
+    class _On:
+        async def get(self, _db):
+            return True
+
+        get_uncached = get
+
+    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", _On())
+    job = await _run_update(test_db_session, result, task)
+
+    if fallback is None:
+        assert job.status == "failed"
+        assert await _record(test_db_session, dataset_id) == ("private", "draft")
+        return
+    assert (job.status, job.error_message) == ("complete", None)
+    assert job.user_metadata["warnings"] == [
+        {"kind": "manifest_public_fallback", "details": {"reason": "restriction"}}
+    ]
+    assert await _record(test_db_session, dataset_id) == ("internal", "published")
+
+
+async def _in_flight(session, user, entry: dict, **metadata) -> IngestJob:
+    """A running job of ``entry``'s key, as an earlier apply left it."""
+    job = IngestJob(
+        source_filename="roads.geojson",
+        created_by=user.id,
+        status="running",
+        user_metadata={
+            "manifest_key": entry["key"],
+            "manifest_fingerprint": manifest_dataset_fingerprint(
+                _request(entry).datasets[0]
+            ),
+            "record_status": "published",
+            **metadata,
+        },
+    )
+    session.add(job)
+    await session.commit()
+    return job
+
+
+@pytest.mark.parametrize(
+    "stored,restricted",
+    [
+        ({"visibility": "public"}, False),
+        ({"manifest_version": "2", "visibility": "public"}, True),
+    ],
+    ids=["version-1-job", "decided-otherwise"],
+)
+async def test_an_in_flight_job_publishing_otherwise_is_not_reported_as_a_skip(
+    test_db_session, clean_tables, stored, restricted
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    entry = _entry("audience-in-flight", visibility="public")
+    await _in_flight(test_db_session, user, entry, **stored)
+
+    if restricted:
+        with _forbid_public():
+            response, queue = await _apply(
+                test_db_session, user, _request(entry, public_fallback="internal")
+            )
+    else:
+        response, queue = await _apply(test_db_session, user, _request(entry))
+
+    result = response.results[0]
+    assert (result.action, result.errors) == ("error", ["dataset_busy"]), result
+    queue.assert_not_awaited()
+
+
+async def test_a_publish_keys_create_without_visibility_is_private(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    """The stored ``private`` is judged again by the key rule when the
+    create runs, and passes."""
+    user = await _admin(test_db_session)
+    entry = await _uploaded(client, admin_auth_header, "audience-key-create")
+
+    with _publish_key(test_db_session):
+        response, queue = await _apply(test_db_session, user, _request(entry))
+
+    result = response.results[0]
+    assert (result.action, result.messages) == ("create", []), result
+    queue.assert_awaited_once()
+    job = await test_db_session.get(IngestJob, result.job_id)
+    assert job.user_metadata["visibility"] == "private"
+    assert uuid.UUID(job.user_metadata["admitted_publish_key"])
+    dataset = await _finalize(test_db_session, user, job)
+    assert (dataset.record.visibility, dataset.record.record_status) == (
+        "private",
+        "published",
+    )
+
+
+@pytest.mark.parametrize("fallback", [None, "internal"], ids=["no", "fallback"])
+async def test_a_create_by_an_admin_demoted_before_it_runs_is_judged_again(
+    client, test_db_session, admin_auth_header, clean_tables, monkeypatch, fallback
+):
+    """Admitted public as an admin while public was restricted; no longer an
+    admin when the create runs."""
+    import app.core.persistent_config as pc
+    from app.processing.ingest.publication import WideningRefused
+    from tests.write_recheck_races import _commit, _move_to_role
+
+    class _On:
+        async def get(self, _db):
+            return True
+
+        get_uncached = get
+
+    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", _On())
+    _stage_fixture()
+    _, admin_id = await create_user(client, admin_auth_header, "admin")
+    admin = await test_db_session.get(User, uuid.UUID(admin_id))
+    extra = {} if fallback is None else {"public_fallback": fallback}
+    response, _ = await _apply(
+        test_db_session,
+        admin,
+        _request(
+            _entry(f"audience-demoted-{fallback or 'none'}", visibility="public"),
+            **extra,
+        ),
+    )
+    result = response.results[0]
+    assert (result.action, result.messages) == ("create", []), result
+    job = await test_db_session.get(IngestJob, result.job_id)
+    assert job.user_metadata["visibility"] == "public"
+
+    await _commit(_move_to_role(admin.id, "editor"))
+
+    if fallback is None:
+        with pytest.raises(WideningRefused):
+            await _finalize(test_db_session, admin, job)
+        return
+    dataset = await _finalize(test_db_session, admin, job)
+    assert (dataset.record.visibility, dataset.record.record_status) == (
+        "internal",
+        "published",
+    )
+
+
+async def test_an_in_flight_job_deciding_the_same_is_reported_as_a_skip(
+    test_db_session, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    entry = _entry("audience-in-flight-same", visibility="public")
+    await _in_flight(
+        test_db_session,
+        user,
+        entry,
+        manifest_version="2",
+        manifest_requested_visibility="public",
+        visibility="public",
+    )
+
+    response, queue = await _apply(test_db_session, user, _request(entry))
+
+    assert response.results[0].action == "skip", response.results[0]
+    queue.assert_not_awaited()
+
+
+async def test_a_publish_key_cannot_retry_a_manifest_job(
+    client, test_db_session, admin_auth_header, clean_tables, tmp_path
+):
+    """Retry is not a door onto a stored manifest job: only the apply, which
+    holds the key's lock, and accept write one."""
+    from tests.test_api_key_publish_scope import _mint
+
+    user = await _admin(test_db_session)
+    staged = tmp_path / "roads.geojson"
+    staged.write_text("{}")
+    job = IngestJob(
+        source_filename="roads.geojson",
+        file_path=str(staged),
+        created_by=user.id,
+        status="failed",
+        user_metadata={
+            "manifest_key": "audience-retry",
+            "manifest_version": "2",
+            "manifest_collection_id": str(uuid.uuid4()),
+        },
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    publish = await _mint(client, admin_auth_header, "publish")
+
+    with patch("app.platform.jobs.router.queue_ingest_job", new=AsyncMock()) as queue:
+        retried = await client.post(f"/jobs/{job.id}/retry", headers=publish)
+
+    assert retried.status_code == 400, retried.text
+    queue.assert_not_awaited()
+    await test_db_session.refresh(job)
+    assert job.status == "failed"
 
 
 # ---------------------------------------------------------------------------
