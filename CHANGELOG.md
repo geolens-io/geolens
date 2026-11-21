@@ -9,6 +9,7 @@ and releases use semantic versioning.
 
 ### Added
 - Maps hold bookmarks: a name and an area, with an optional rotation and tilt, in display order. The maps API and the SDKs carry an optional `bookmarks` list (up to 100) on create and update, and the map and shared map responses always return one. The ArcGIS web map import carries a web map's bookmarks. The map builder has a Bookmarks panel to add the current view, rename, reorder and delete bookmarks, and the viewer, share links and embeds have a Bookmarks control that jumps to one.
+- The publish manifest accepts `manifest_version: "2"`, which requires a `client` object naming the publishing app, and an `upload:<job_id>` source that names a file the caller uploaded with `POST /ingest/upload`. An upload source needs a `checksum`, the SHA-256 of the uploaded file, and apply refuses the entry when the file doesn't match it. The upload's own job becomes the import, and uploading the same file again for an unchanged entry answers `skip`.
 
 ### Changed
 - Overlay authors: `EXTENSION_API_VERSION` is now 24. `ProcessingPort` gains the required `resolve_manifest_collection`, `add_dataset_to_manifest_collection`, `apply_manifest_attributes` and `apply_manifest_maps` methods, which the publish manifest will call. An overlay that wraps the default port by delegation only needs to declare 24.

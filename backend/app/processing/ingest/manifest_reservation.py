@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 import structlog
-from sqlalchemy import desc, func, select, text
+from sqlalchemy import and_, bindparam, desc, func, select, text
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -22,6 +22,8 @@ from app.platform.jobs.models import (
     MANIFEST_FINGERPRINT_METADATA_KEY,
     MANIFEST_STAGE_METADATA_KEY,
     IngestJob,
+    commit_attempted_marker,
+    dispatch_attempted,
 )
 from app.platform.jobs.sweep import settle_stale_jobs
 from app.platform.refresh.job_runs import stored_review_reasons
@@ -58,6 +60,58 @@ async def lock_manifest_key(db: AsyncSession, key: str) -> None:
         text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
         {"lock_key": f"manifest_apply:{key}"},
     )
+
+
+def unclaimed_upload():
+    """Predicate: no manifest entry and no import commit has taken this upload."""
+    return and_(
+        IngestJob.user_metadata["manifest_key"].astext.is_(None),
+        ~dispatch_attempted(),
+    )
+
+
+async def claim_upload(
+    db: AsyncSession,
+    *,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None,
+    file_path: str,
+    owner: uuid.UUID,
+    metadata: dict[str, object],
+    dataset_id: uuid.UUID | None,
+    source_layer: str | None,
+) -> IngestJob | None:
+    """Make the caller's pending upload this entry's reservation. Does not commit.
+
+    One fenced pending -> running write: the row must still be the owner's,
+    unclaimed, at the attempt and file the caller checked. None on a miss,
+    which never says which condition failed.
+
+    The claim also writes the dispatch stamp, which shuts the import commit
+    door on this upload for good.
+    """
+    metadata = {**metadata, **commit_attempted_marker()}
+    values: dict[str, object] = {
+        "user_metadata": func.coalesce(IngestJob.user_metadata, text("'{}'::jsonb")).op(
+            "||", return_type=JSONB
+        )(bindparam("manifest_fields", value=metadata, type_=JSONB)),
+        "source_layer": source_layer,
+    }
+    if dataset_id is not None:
+        values["dataset_id"] = dataset_id
+    if not await ledger.claim(
+        db,
+        job_id,
+        attempt_id,
+        values=values,
+        require=(
+            IngestJob.created_by == owner,
+            IngestJob.file_path == file_path,
+            unclaimed_upload(),
+        ),
+    ):
+        return None
+    return await db.get(IngestJob, job_id, populate_existing=True)
 
 
 async def latest_in_flight_manifest_job(db: AsyncSession, key: str) -> IngestJob | None:

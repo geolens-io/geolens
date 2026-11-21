@@ -1,4 +1,4 @@
-"""Service entry point for applying manifest v1 payloads."""
+"""Service entry point for applying manifest payloads."""
 
 from __future__ import annotations
 
@@ -70,11 +70,14 @@ from app.processing.ingest.manifest_schemas import (
 from app.processing.ingest.manifest_sources import (
     ManifestPreparedSource,
     ManifestSourceError,
-    classify_manifest_source,
+    claim_upload_source,
     manifest_dataset_fingerprint,
     manifest_job_metadata,
     parse_manifest_crs,
+    prepare_manifest_source,
     publication_to_catalog_fields,
+    refuse_used_upload,
+    skip_complete_message,
     validate_publication_intent,
 )
 from app.processing.ingest.pointcloud import require_pointcloud_file
@@ -179,9 +182,9 @@ async def _authorize_prepared_source(
     ownership record; treating knowledge of a path as authorization would
     turn the ingest worker into a cross-user storage reader. They remain an
     admin-only operator-seed workflow, while ordinary users use HTTPS
-    sources (shared SSRF validation and redirect hooks).
+    sources (shared SSRF validation and redirect hooks) or their own uploads.
     """
-    if prepared.kind == "http":
+    if prepared.kind in ("http", "upload"):
         return
 
     from app.core.tenancy import is_multi_tenant
@@ -392,6 +395,8 @@ async def _manifest_source_size_bytes(
 ) -> int:
     """Return the authoritative byte size for a prepared manifest source."""
     try:
+        if prepared.upload is not None:
+            return prepared.upload.size_bytes
         if prepared.kind == "storage":
             from app.platform.storage import get_storage
 
@@ -562,33 +567,6 @@ def _skip_result_for_in_flight(
     )
 
 
-def _skip_complete_message(prepared: ManifestPreparedSource) -> str:
-    """Explain a skip_complete result without promising a recovery path
-    `_validate_existing_dataset_update` would then refuse.
-
-    Matching the last completed entry means only that, not that the source
-    bytes were read: a stable URI whose file changed underneath it lands
-    here too, so the message says the source wasn't inspected.
-
-    Only vector entries are told to bump `checksum`. A bumped `raster_cog`
-    fingerprint would reach `_validate_existing_dataset_update` and be
-    rejected with "Manifest raster updates are not supported", so raster
-    entries get that rejection's guidance instead.
-    """
-    if prepared.source.type == "raster_cog":
-        return (
-            "Manifest dataset entry is unchanged; the source was not "
-            "inspected. Manifest raster updates are not supported; to "
-            "replace this dataset's data, create a new raster dataset "
-            "instead."
-        )
-    return (
-        "Manifest dataset entry is unchanged; the source was not "
-        "inspected. Set checksum on the source to force a re-import "
-        "when the file changes under a stable URI."
-    )
-
-
 async def _classify_dataset(
     db: AsyncSession,
     dataset: ManifestDataset,
@@ -621,7 +599,7 @@ async def _classify_dataset(
 
     intent_visibility, _ = publication_to_catalog_fields(dataset.publication)
     await check_public_visibility_allowed(db, user, intent_visibility)
-    prepared = await classify_manifest_source(dataset.sources[0])
+    prepared = await prepare_manifest_source(db, dataset, user)
     await _validate_prepared_source(db, prepared)
     await _authorize_prepared_source(db, prepared, user)
 
@@ -831,21 +809,27 @@ async def _reserve_entry(
         # What this entry's restricted-public gate decided, not a later read.
         if admitted_public_visibility(db, user.id):
             metadata[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] = True
-        if prepared.kind != "http":
+        if prepared.kind not in ("http", "upload"):
             metadata[ADMITTED_RAW_SOURCE_METADATA_KEY] = True
 
     # `running`, not `pending`. A pending row with no file_path and no queue
     # task is reapable by four actors while its source is still downloading;
-    # the fixed lease is not.
-    job = ledger.create(
-        db,
-        created_by=user.id,
-        status="running",
-        dataset_id=dataset_id,
-        source_filename=prepared.source_filename,
-        source_layer=prepared.source_layer,
-        user_metadata=metadata,
-    )
+    # the fixed lease is not. An upload's own row becomes the reservation, so
+    # its staged file stays attributed to the row that names it.
+    if prepared.kind == "upload":
+        job = await claim_upload_source(
+            db, prepared, user, metadata, dataset_id=dataset_id
+        )
+    else:
+        job = ledger.create(
+            db,
+            created_by=user.id,
+            status="running",
+            dataset_id=dataset_id,
+            source_filename=prepared.source_filename,
+            source_layer=prepared.source_layer,
+            user_metadata=metadata,
+        )
     try:
         await db.flush()
         await _commit_reservation(db)
@@ -1177,7 +1161,7 @@ async def _reserve_or_settle_entry(
             action="skip",
             job_id=job.id,
             dataset_id=job.dataset_id,
-            message=_skip_complete_message(prepared),
+            message=skip_complete_message(prepared),
         )
         await db.commit()
         return result
@@ -1195,6 +1179,7 @@ async def _reserve_or_settle_entry(
         _refuse_publish_key_remote_origin(db, existing_dataset)
         update_dataset_id = existing_dataset.id
 
+    refuse_used_upload(prepared)
     if request.dry_run:
         # A preview reserves nothing, so the key is left exactly as this entry
         # found it.

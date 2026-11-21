@@ -253,11 +253,18 @@ def create(
 
 
 async def claim(
-    session: AsyncSession, job_id: uuid.UUID, attempt_id: uuid.UUID
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None,
+    *,
+    values: Mapping[str, Any] | None = None,
+    require: Sequence[Any] = (),
 ) -> bool:
     """Move this attempt's pending job to running and start its lease.
 
-    Returns whether it landed. Does not commit.
+    ``values`` are further columns the claim writes, and ``require`` further
+    predicates the row must still meet. Returns whether it landed. Does not
+    commit.
     """
     now = datetime.now(timezone.utc)
     return await _move(
@@ -265,7 +272,13 @@ async def claim(
         job_id,
         attempt_id,
         expect=("pending",),
-        written={"status": "running", "started_at": now, "heartbeat_at": now},
+        written={
+            "status": "running",
+            "started_at": now,
+            "heartbeat_at": now,
+            **_extra(values),
+        },
+        require=require,
     )
 
 

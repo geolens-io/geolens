@@ -7,11 +7,17 @@ from attrs import define as _attrs_define
 
 from ..types import UNSET, Unset
 
+from ..models.manifest_apply_request_manifest_version import (
+    check_manifest_apply_request_manifest_version,
+)
+from ..models.manifest_apply_request_manifest_version import (
+    ManifestApplyRequestManifestVersion,
+)
 from typing import cast
-from typing import Literal
 
 if TYPE_CHECKING:
     from ..models.manifest_catalog import ManifestCatalog
+    from ..models.manifest_client import ManifestClient
     from ..models.manifest_dataset import ManifestDataset
 
 
@@ -22,19 +28,24 @@ T = TypeVar("T", bound="ManifestApplyRequest")
 class ManifestApplyRequest:
     """
     Attributes:
-        manifest_version (Literal['1']):
+        manifest_version (ManifestApplyRequestManifestVersion): Manifest format. Version 2 adds `client`, which it
+            requires, and `upload:<job_id>` sources.
         catalog (ManifestCatalog):
         datasets (list[ManifestDataset]):
+        client (ManifestClient | None | Unset): The publishing client. Required in version 2, refused in 1.
         dry_run (bool | Unset):  Default: False.
     """
 
-    manifest_version: Literal["1"]
+    manifest_version: ManifestApplyRequestManifestVersion
     catalog: ManifestCatalog
     datasets: list[ManifestDataset]
+    client: ManifestClient | None | Unset = UNSET
     dry_run: bool | Unset = False
 
     def to_dict(self) -> dict[str, Any]:
-        manifest_version = self.manifest_version
+        from ..models.manifest_client import ManifestClient
+
+        manifest_version: str = self.manifest_version
 
         catalog = self.catalog.to_dict()
 
@@ -42,6 +53,14 @@ class ManifestApplyRequest:
         for datasets_item_data in self.datasets:
             datasets_item = datasets_item_data.to_dict()
             datasets.append(datasets_item)
+
+        client: dict[str, Any] | None | Unset
+        if isinstance(self.client, Unset):
+            client = UNSET
+        elif isinstance(self.client, ManifestClient):
+            client = self.client.to_dict()
+        else:
+            client = self.client
 
         dry_run = self.dry_run
 
@@ -54,6 +73,8 @@ class ManifestApplyRequest:
                 "datasets": datasets,
             }
         )
+        if client is not UNSET:
+            field_dict["client"] = client
         if dry_run is not UNSET:
             field_dict["dry_run"] = dry_run
 
@@ -62,14 +83,13 @@ class ManifestApplyRequest:
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.manifest_catalog import ManifestCatalog
+        from ..models.manifest_client import ManifestClient
         from ..models.manifest_dataset import ManifestDataset
 
         d = dict(src_dict)
-        manifest_version = cast(Literal["1"], d.pop("manifest_version"))
-        if manifest_version != "1":
-            raise ValueError(
-                f"manifest_version must match const '1', got '{manifest_version}'"
-            )
+        manifest_version = check_manifest_apply_request_manifest_version(
+            d.pop("manifest_version")
+        )
 
         catalog = ManifestCatalog.from_dict(d.pop("catalog"))
 
@@ -80,12 +100,30 @@ class ManifestApplyRequest:
 
             datasets.append(datasets_item)
 
+        def _parse_client(data: object) -> ManifestClient | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                client_type_0 = ManifestClient.from_dict(data)
+
+                return client_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ManifestClient | None | Unset, data)
+
+        client = _parse_client(d.pop("client", UNSET))
+
         dry_run = d.pop("dry_run", UNSET)
 
         manifest_apply_request = cls(
             manifest_version=manifest_version,
             catalog=catalog,
             datasets=datasets,
+            client=client,
             dry_run=dry_run,
         )
 

@@ -12736,10 +12736,13 @@ export interface components {
         ManifestApplyRequest: {
             /**
              * Manifest Version
-             * @constant
+             * @description Manifest format. Version 2 adds `client`, which it requires, and `upload:<job_id>` sources.
+             * @enum {string}
              */
-            manifest_version: "1";
+            manifest_version: "1" | "2";
             catalog: components["schemas"]["ManifestCatalog"];
+            /** @description The publishing client. Required in version 2, refused in 1. */
+            client?: components["schemas"]["ManifestClient"] | null;
             /** Datasets */
             datasets: components["schemas"]["ManifestDataset"][];
             /**
@@ -12766,6 +12769,20 @@ export interface components {
             /** Organization */
             organization?: string | null;
             contact?: components["schemas"]["ManifestContact"] | null;
+        };
+        /**
+         * ManifestClient
+         * @description The publishing client that built the manifest.
+         */
+        ManifestClient: {
+            /** Id */
+            id: string;
+            /** Version */
+            version: string;
+            /** App */
+            app?: string | null;
+            /** Project */
+            project?: string | null;
         };
         /** ManifestContact */
         ManifestContact: {
@@ -12825,7 +12842,7 @@ export interface components {
             type: "vector" | "raster_cog";
             /**
              * Uri
-             * @description Relative path (no `..` traversal), HTTP(S) URL, or s3:// storage URI.
+             * @description Relative path (no `..` traversal), HTTP(S) URL, s3:// storage URI, or, in manifest_version 2, `upload:<job_id>` naming a pending upload the caller made.
              */
             uri: string;
             /** Title */
