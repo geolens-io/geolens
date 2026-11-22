@@ -1398,3 +1398,151 @@ async def test_an_apply_refuses_a_symbol_icon_that_isnt_a_name(
 
     assert _codes(result) == [("A099", "error", "parks")]
     assert await _count(test_db_session, Map) == 0
+
+
+@pytest.mark.parametrize("names_dataset", [True, False])
+@pytest.mark.parametrize("form", ["key", "id"])
+async def test_a_failed_entrys_dataset_supplies_no_layer(
+    test_db_session, clean_tables, form, names_dataset
+):
+    from app.processing.ingest.manifest_maps import run_manifest_maps
+    from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _published_under(test_db_session, admin.id, "qgis-parks", dataset_id)
+    request = _maps_only(
+        _map("qgis-map-a", _reference(form, dataset_id)),
+        datasets=[_local_dataset_entry("qgis-parks")],
+    )
+    results = [
+        ManifestApplyEntryResult(
+            dataset_key="qgis-parks",
+            action="error",
+            message="m",
+            dataset_id=dataset_id if names_dataset else None,
+        )
+    ]
+
+    [result] = await run_manifest_maps(test_db_session, request, admin, results)
+
+    assert _codes(result) == [("A052", "error", "parks")]
+    assert await _count(test_db_session, Map) == 0
+
+
+async def test_a_replacement_queued_while_the_apply_waits_answers_a052(
+    test_db_session, clean_tables
+):
+    import app.core.db as db_module
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    entry = _map("qgis-map-wait", _layer("parks", dataset_id=str(dataset_id)))
+    [created] = (await _apply(test_db_session, admin, entry)).maps
+    waiting_query = text(
+        "SELECT count(*) FROM pg_stat_activity "
+        "WHERE wait_event_type = 'Lock' AND datname = current_database()"
+    )
+
+    async with (
+        db_module.async_session() as holder,
+        db_module.async_session() as probe,
+    ):
+        await probe.execute(text("SELECT 1"))
+        await _lock_map_row(holder, created.map_id)
+        apply = asyncio.create_task(_apply(test_db_session, admin, entry))
+        for _ in range(200):
+            await probe.execute(text("SELECT pg_stat_clear_snapshot()"))
+            if apply.done() or await probe.scalar(waiting_query):
+                break
+            await asyncio.sleep(0.05)
+        assert not apply.done(), "the apply didn't wait for the map's lock"
+        # A replacement is queued while the apply waits for the map.
+        holder.add(
+            IngestJob(
+                source_filename="parks.fgb",
+                created_by=admin.id,
+                status="pending",
+                user_metadata={"reupload": True, "dataset_id": str(dataset_id)},
+            )
+        )
+        await holder.commit()
+        [result] = (await apply).maps
+
+    assert _codes(result) == [("A052", "error", "parks")]
+
+
+@pytest.mark.parametrize(
+    ("now", "planned", "refused"),
+    [("private", "public", False), ("public", "private", True)],
+)
+async def test_a_kept_layer_is_judged_on_what_the_request_publishes(
+    test_db_session, clean_tables, now, planned, refused
+):
+    from app.processing.ingest.manifest_maps import run_manifest_maps
+    from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
+
+    admin = await _admin(test_db_session)
+    listed = await _dataset(test_db_session, admin.id)
+    changed = await _dataset(test_db_session, admin.id, visibility=now)
+    await _published_under(test_db_session, admin.id, "qgis-changed", changed)
+    entry = _map("qgis-map-kept", _layer("listed", dataset_id=str(listed)))
+    [created] = (await _apply(test_db_session, admin, entry)).maps
+    test_db_session.add(
+        MapLayer(map_id=created.map_id, dataset_id=changed, sort_order=1)
+    )
+    await test_db_session.commit()
+    request = _maps_only(
+        {**entry, "visibility": "public"},
+        datasets=[{**_local_dataset_entry("qgis-changed"), "visibility": planned}],
+        dry_run=True,
+    )
+    results = [
+        ManifestApplyEntryResult(
+            dataset_key="qgis-changed",
+            action="update",
+            message="m",
+            dataset_id=changed,
+        )
+    ]
+
+    [result] = await run_manifest_maps(test_db_session, request, admin, results)
+
+    assert _codes(result) == ([("A020", "error", None)] if refused else [])
+
+
+async def test_a_kept_layer_survives_its_dataset_becoming_readable_mid_apply(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    editor, _ = await _person(client, test_db_session, admin_auth_header)
+    listed = await _dataset(test_db_session, editor.id)
+    hidden = await _dataset(test_db_session, admin.id, visibility="private")
+    entry = _map("qgis-map-hidden", _layer("listed", dataset_id=str(listed)))
+    [created] = (await _apply(test_db_session, editor, entry)).maps
+    # A layer added in GeoLens on a dataset the editor can't read now.
+    kept = MapLayer(
+        map_id=created.map_id,
+        dataset_id=hidden,
+        sort_order=1,
+        paint={"fill-color": "#123456"},
+    )
+    test_db_session.add(kept)
+    await test_db_session.commit()
+    kept_id = kept.id
+    record_id = select(Dataset.record_id).where(Dataset.id == hidden)
+
+    async def becomes_readable(other):
+        await other.execute(
+            update(Record)
+            .where(Record.id == record_id.scalar_subquery())
+            .values(visibility="public")
+        )
+
+    async with _racing_write(becomes_readable):
+        [result] = (await _apply(test_db_session, editor, entry)).maps
+
+    assert result.action == "update"
+    stored = await _layers(test_db_session, created.map_id)
+    survivor = [layer for layer in stored if layer.id == kept_id]
+    assert survivor and survivor[0].paint == {"fill-color": "#123456"}

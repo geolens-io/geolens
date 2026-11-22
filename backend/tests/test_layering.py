@@ -1218,8 +1218,11 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_semantic.py": 521,
         # A layer diff checks a changed filter against the caller's access and its widgets,
         # and stacks a map_author key's added layers on top; a full replace
-        # carries a publish manifest's layer keys.
-        "backend/app/modules/catalog/maps/service_diff.py": 467,
+        # carries a publish manifest's layer keys and the rows it keeps.
+        "backend/app/modules/catalog/maps/service_diff.py": 470,
+        # Map creates and updates hold the route policy a publish manifest
+        # reuses, with its layer keys and the rows it keeps.
+        "backend/app/modules/catalog/maps/service_update.py": 352,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,

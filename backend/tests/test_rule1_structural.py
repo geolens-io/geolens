@@ -1249,6 +1249,16 @@ _PORT_REACHED_MODULES: dict[str, tuple[str, frozenset[str]]] = {
 }
 
 
+# Port-reached functions that read a guarded model without a guard, each by
+# design. Asserted exact.
+_PORT_REACHED_ALLOWLIST: dict[str, str] = {
+    "app.modules.catalog.maps.manifest_apply._settling_now": (
+        "reads only whether a pending or running job writes into datasets "
+        "_readable_datasets already returned to the caller; returns no job"
+    ),
+}
+
+
 def _module_functions(module: Any) -> list[Any]:
     return [
         obj
@@ -1276,6 +1286,7 @@ def test_port_reached_catalog_reads_are_guarded() -> None:
         )
         fetching: set[str] = set()
         unguarded: list[str] = []
+        evidence_by_name: dict[str, str] = {}
         reached: set[str] = set()
         for fn in _module_functions(module):
             evidence, guards, map_fetch = _scan_effective(fn, _source_of(fn))
@@ -1284,12 +1295,21 @@ def test_port_reached_catalog_reads_are_guarded() -> None:
                 continue
             fetching.add(fn.__name__)
             if not guards or (map_fetch and not guards & _MAP_WRITE_GUARDS):
-                unguarded.append(f"{module_path}.{fn.__name__}: {evidence[0]}")
+                unguarded.append(f"{module_path}.{fn.__name__}")
+                evidence_by_name[f"{module_path}.{fn.__name__}"] = evidence[0]
         assert fetching, f"no fetch detected in {module_path}; the scan is blind"
-        assert not unguarded, (
+        missing = sorted(set(unguarded) - set(_PORT_REACHED_ALLOWLIST))
+        assert not missing, (
             "Rule 1 violation: port-reached function(s) fetch a guarded model "
-            "without a sanctioned guard:\n  " + "\n  ".join(unguarded)
+            "without a sanctioned guard:\n  "
+            + "\n  ".join(f"{name}: {evidence_by_name[name]}" for name in missing)
         )
+        stale = sorted(
+            name
+            for name in _PORT_REACHED_ALLOWLIST
+            if name.startswith(f"{module_path}.") and name not in unguarded
+        )
+        assert not stale, f"Stale _PORT_REACHED_ALLOWLIST entries: {stale}"
         missing = sorted(required - reached)
         assert not missing, f"{module_path} no longer calls {missing}"
 

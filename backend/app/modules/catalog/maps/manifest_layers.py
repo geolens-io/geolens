@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import itertools
+import uuid
 from typing import Any
 
 from app.modules.catalog.maps.models import MapLayer
@@ -36,9 +37,10 @@ def plan_layer_stack(
     stored: list[tuple[MapLayer, Any]],
     layers: list[MapLayerInput],
     keys: list[str],
-) -> tuple[list[MapLayerInput], list[str | None], list[MapLayer], int]:
+) -> tuple[list[MapLayerInput], list[str | None], list[MapLayer], int, list[uuid.UUID]]:
     """The layers an apply sends, their keys, the keyed layers it removes,
-    and how many layers the map then has.
+    how many layers the map then has, and the stored rows it keeps without
+    sending, which the save must not delete.
 
     ``stored`` pairs each of the map's layers with its dataset, None when the
     caller can't read it; ``layers`` and ``keys`` are the manifest's layers
@@ -76,4 +78,5 @@ def plan_layer_stack(
     readable_kept = [layer for layer, dataset in kept if dataset is not None]
     sent += [kept_layer(layer) for layer in readable_kept]
     sent_keys: list[str | None] = [*keys, *(None for _ in readable_kept)]
-    return sent, sent_keys, removed, len(entry.layers) + len(kept)
+    unsent = [layer.id for layer, dataset in kept if dataset is None]
+    return sent, sent_keys, removed, len(entry.layers) + len(kept), unsent

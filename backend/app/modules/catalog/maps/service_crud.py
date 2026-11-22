@@ -472,11 +472,13 @@ async def update_map(
     layers: list[dict] | None = None,
     user: Identity | None = None,
     expected_updated_at: datetime | None = None,
+    keep_layer_ids: Sequence[uuid.UUID] = (),
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Update map fields. If 'layers' key present, replace all layers.
 
     ``user`` is the caller the save acts for (None reads as anonymous). Layers
-    whose dataset map reads hide from it survive a replacement, and a stored
+    whose dataset map reads hide from it, and those in ``keep_layer_ids``,
+    survive a replacement, and a stored
     terrain binding to a DEM hidden from it survives a request naming no DEM.
     A ``dashboard_config`` is checked against the layers the map has after the
     save (``merge_dashboard``), and a layer filter the save changes against the
@@ -558,7 +560,9 @@ async def update_map(
         before = {}
         if map_obj.dashboard_config is not None or isinstance(dashboard_config, dict):
             before = await _stored_layers(session, map_id)
-        created_ids = await _replace_layers(session, map_id, layers, user)
+        created_ids = await _replace_layers(
+            session, map_id, layers, user, keep_layer_ids
+        )
         await touch_map(session, map_id)
         dashboard_config = _with_created_layer_ids(dashboard_config, created_ids)
     if dashboard_config is not _UNSET or before:

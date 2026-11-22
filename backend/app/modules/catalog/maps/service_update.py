@@ -109,6 +109,7 @@ async def apply_map_update(
     record_history: bool,
     ip_address: str | None,
     layer_keys: Sequence[str | None] | None = None,
+    keep_layer_ids: Sequence[uuid.UUID] = (),
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Apply ``body`` to ``map_obj`` for ``user`` and return ``update_map``'s tuple.
 
@@ -136,14 +137,15 @@ async def apply_map_update(
     the audit event records only the changed field names, so the caller
     records the change of visibility itself. ``layer_keys`` gives each of
     ``body.layers`` the ``manifest_key`` its row stores; without it no key
-    changes.
+    changes. A stored layer in ``keep_layer_ids`` that ``body.layers`` leaves
+    out is kept in its place, as a layer hidden from ``user`` is.
     """
     map_id = map_obj.id
     await _check_map_update(db, map_obj, body, user)
 
     changed_fields = list(body.model_dump(exclude_unset=True).keys())
     previous = {field: getattr(map_obj, field) for field in _HISTORY_FIELDS}
-    kwargs = _update_kwargs(body, layer_keys)
+    kwargs = {**_update_kwargs(body, layer_keys), "keep_layer_ids": keep_layer_ids}
     saved = await _save_map_update(db, map_id, body, user, kwargs)
     map_obj, layer_tuples = saved[0], saved[1]
 

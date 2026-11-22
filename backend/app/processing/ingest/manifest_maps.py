@@ -11,12 +11,13 @@ from collections.abc import Iterable, Sequence
 
 import structlog
 from fastapi import Request
-from sqlalchemy import desc, exists, or_, select
+from sqlalchemy import desc, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.identity import Identity
 from app.platform.extensions import get_processing_port
+from app.platform.jobs.in_flight import datasets_with_jobs_in_flight
 from app.platform.jobs.models import ACTIVE_STATUSES, IngestJob
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
@@ -67,30 +68,6 @@ async def ready_manifest_dataset_ids(
         .order_by(key, desc(IngestJob.completed_at), desc(IngestJob.created_at))
     )
     return {row[0]: row[1] for row in rows}
-
-
-async def datasets_with_jobs_in_flight(
-    db: AsyncSession, dataset_ids: Iterable[uuid.UUID]
-) -> set[uuid.UUID]:
-    """The datasets among ``dataset_ids`` that a pending or running job
-    writes into, in one query. The query runs even with no ids, so a dataset
-    the caller can't read costs the same queries as a missing one."""
-    wanted = set(dataset_ids)
-    target = IngestJob.user_metadata["dataset_id"].astext
-    rows = await db.execute(
-        select(IngestJob.dataset_id, target).where(
-            IngestJob.status.in_(ACTIVE_STATUSES),
-            or_(
-                IngestJob.dataset_id.in_(sorted(wanted)),
-                target.in_(sorted(str(dataset_id) for dataset_id in wanted)),
-            ),
-        )
-    )
-    found = set()
-    for dataset_id, named in rows:
-        found.add(dataset_id)
-        found.add(uuid.UUID(named) if named else None)
-    return found & wanted
 
 
 def _planned_publication(
@@ -165,8 +142,9 @@ async def run_manifest_maps(
             )
         ]
         # An entry that failed in this request supplies no dataset, not even
-        # the one an earlier publish left under its key.
-        not_ready = {r.dataset_key for r in dataset_results if r.action == "error"}
+        # the one an earlier publish left under its key, by key or by id.
+        failed = [r for r in dataset_results if r.action == "error"]
+        not_ready = {r.dataset_key for r in failed}
         pending: dict[str | uuid.UUID, tuple[str | None, str]] = {}
         unsettled = await datasets_with_jobs_in_flight(
             db,
@@ -175,6 +153,7 @@ async def run_manifest_maps(
                 *ready.values(),
             ],
         )
+        unsettled |= {ready[r.dataset_key] for r in failed if r.dataset_key in ready}
         for r in changing:
             if request.dry_run:
                 planned = _planned_publication(entries[r.dataset_key], r)

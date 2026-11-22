@@ -60,6 +60,10 @@ from app.modules.catalog.maps.service_groups import map_has_groups, map_visibili
 from app.modules.catalog.maps.service_update import apply_map_create, apply_map_update
 from app.modules.settings.basemaps import list_public_basemaps
 from app.platform.extensions import get_permission_extension
+from app.platform.jobs.in_flight import (
+    datasets_with_jobs_in_flight,
+    manifest_keys_with_jobs_in_flight,
+)
 from app.platform.record_audience import PublicationRefused, effective_publication
 from app.platform.request_credential import is_publish_key
 
@@ -154,6 +158,8 @@ class _Plan:
     layer_keys: list[str | None] = field(default_factory=list)
     # None keeps the map's.
     write_visibility: str | None = None
+    # Stored rows the apply leaves out of its layer list and must not delete.
+    keep_layer_ids: list[uuid.UUID] = field(default_factory=list)
 
 
 def _short(name: object, limit: int = _MAX_LISTED_NAME_LENGTH) -> str:
@@ -624,11 +630,16 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
     layers: list[MapLayerInput] = []
     keys: list[str] = []
     shows_non_public = False
-    datasets = request.datasets
+    datasets, unsettled = request.datasets, request.unsettled_dataset_ids
     if not request.dry_run:
-        datasets = await _readable_datasets(
-            session, _layer_dataset_ids([entry], request.dataset_ids_by_key), user
-        )
+        dataset_ids = _layer_dataset_ids([entry], request.dataset_ids_by_key)
+        datasets = await _readable_datasets(session, dataset_ids, user)
+        # Read again under this map's locks: a replacement queued while the
+        # apply waited for them is not the dataset the publish describes.
+        unsettled = {
+            *unsettled,
+            *await _settling_now(session, entry, set(datasets), request),
+        }
     for layer in entry.layers:
         dataset_id = (
             layer.dataset_id
@@ -642,8 +653,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         # describes yet, by key or by id.
         dataset = (
             datasets.get(dataset_id)
-            if dataset_id
-            and (planned is not None or dataset_id not in request.unsettled_dataset_ids)
+            if dataset_id and (planned is not None or dataset_id not in unsettled)
             else None
         )
         layer_messages, stored_layer = _check_layer(
@@ -660,14 +670,18 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
     if map_obj is not None:
         stored = await _stored_layers(session, map_obj.id, user)
         shows_non_public |= any(
-            dataset is not None and not dataset.public
+            not _planned_public(dataset, request.pending_datasets.get(layer.dataset_id))
             for layer, dataset in stored
-            if layer.manifest_key is None
+            if layer.manifest_key is None and dataset is not None
         )
         try:
-            plan.layers, plan.layer_keys, removed, total = plan_layer_stack(
-                entry, stored, layers, keys
-            )
+            (
+                plan.layers,
+                plan.layer_keys,
+                removed,
+                total,
+                plan.keep_layer_ids,
+            ) = plan_layer_stack(entry, stored, layers, keys)
         except ValidationError:
             messages.append(
                 _message(
@@ -729,6 +743,26 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         ],
     }
     return plan
+
+
+async def _settling_now(
+    session: AsyncSession,
+    entry: Any,
+    readable_ids: set[uuid.UUID],
+    request: _Request,
+) -> set[uuid.UUID]:
+    """Which of ``readable_ids``, the map's layer datasets the caller can
+    read, a pending or running job writes into now, by the dataset or by the
+    key that names it. No job is returned."""
+    keys = {layer.dataset_key for layer in entry.layers if layer.dataset_key}
+    busy_keys = await manifest_keys_with_jobs_in_flight(session, keys)
+    busy = await datasets_with_jobs_in_flight(session, readable_ids)
+    busy |= {
+        request.dataset_ids_by_key[key]
+        for key in busy_keys
+        if key in request.dataset_ids_by_key
+    } & readable_ids
+    return busy
 
 
 async def _refuse_unreadable_layers(
@@ -798,6 +832,7 @@ async def _write_map(
         record_history=False,
         ip_address=request.ip_address,
         layer_keys=plan.layer_keys,
+        keep_layer_ids=plan.keep_layer_ids,
     )
     after = map_obj.visibility
     await record_map_history_event(
