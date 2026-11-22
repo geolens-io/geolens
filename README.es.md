@@ -251,6 +251,18 @@ la memoria y los puertos que espera. Cada
 comprobar `install.sh` antes de ejecutarlo. Para compilar desde el código fuente, clona el
 repositorio y ejecuta `bash scripts/install.sh`; la primera compilación tarda 5-10 minutos.
 
+Las versiones más recientes incluyen también `install.sh.intoto.jsonl`, un registro firmado de
+procedencia de la compilación. El archivo de sumas solo puede mostrar que una descarga no se dañó,
+porque se publica en la misma versión. La procedencia muestra que `install.sh` salió de la etiqueta
+de la versión en este repositorio. Para comprobarla, descarga ambos archivos de la versión y
+ejecuta la [CLI de GitHub](https://cli.github.com/):
+
+```bash
+gh attestation verify install.sh --repo geolens-io/geolens \
+  --bundle install.sh.intoto.jsonl --source-ref refs/tags/vX.Y.Z \
+  --signer-workflow geolens-io/geolens/.github/workflows/publish.yml
+```
+
 Para producción, consulta la
 [guía de despliegue en la nube](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/),
 que también indica lo que necesita una base de datos externa. Docker Compose es la vía con soporte

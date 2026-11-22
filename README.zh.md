@@ -196,6 +196,14 @@ GeoLens 可以回答关于数据集的问题，根据自然语言请求编辑地
 
 [快速开始](#快速开始)中有安装命令。[安装指南](https://docs.getgeolens.com/guides/quickstart/install/)列出了所需的版本、内存和端口。每个[发布版本](https://github.com/geolens-io/geolens/releases)都附带 `SHA256SUMS` 文件，可在运行前用来校验 `install.sh`。如需改为从源码构建，请克隆仓库并运行 `bash scripts/install.sh`；首次构建需要 5-10 分钟。
 
+较新的发布版本还附带 `install.sh.intoto.jsonl`，这是一份经过签名的构建来源证明。校验和文件与安装脚本在同一个发布版本中，因此只能说明下载没有损坏。来源证明则说明 `install.sh` 出自本仓库的发布标签。要验证它，请从发布版本下载这两个文件，然后运行 [GitHub CLI](https://cli.github.com/)：
+
+```bash
+gh attestation verify install.sh --repo geolens-io/geolens \
+  --bundle install.sh.intoto.jsonl --source-ref refs/tags/vX.Y.Z \
+  --signer-workflow geolens-io/geolens/.github/workflows/publish.yml
+```
+
 生产环境请阅读[云部署指南](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/)，其中也列出了外部数据库的要求。Docker Compose 是受支持的方式，[geolens-deployments](https://github.com/geolens-io/geolens-deployments) 提供社区维护的 Helm chart，以及适用于 AWS ECS Fargate 和 Azure Container Apps 的 Terraform 方案。
 
 内置数据库每日备份，[备份指南](https://docs.getgeolens.com/guides/admin/backups/)涵盖异地复制和恢复。升级和回滚见 [UPGRADING.md](UPGRADING.md)，运维见 [RUNBOOK.md](RUNBOOK.md)，每一项设置见[配置参考](https://docs.getgeolens.com/guides/quickstart/configuration/)。
