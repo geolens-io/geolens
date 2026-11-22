@@ -12959,7 +12959,7 @@ export interface components {
              * @description A PNG or JPEG data URI, stored as the map's thumbnail once the map is written, with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling leaves the map's thumbnail as it is. One the storage step refuses or can't store is warning A072, and the map stays published.
              */
             thumbnail?: string | null;
-            /** @description Written, one line per item, in a block at the top of the map's notes, above a `---` line. A republish replaces the leading block only when it is exactly a block some publish of this map wrote; all other text is kept whole. Left out when the styling is kept, and cut to what fits the notes limit. When the notes leave no room for the block, none is written (info A071). */
+            /** @description Written, one line per item, in a block at the top of the map's notes, above a `---` line. A republish replaces the leading block only when it is exactly a block some publish of this map wrote; all other text is kept whole. Left out when the styling is kept, and cut to what fits the notes limit. When the notes leave no room for the block, none is written and an earlier publish's block is removed, while the rest of the notes is untouched (info A071). */
             loss_report?: components["schemas"]["ManifestLossReport"] | null;
             /**
              * Visibility

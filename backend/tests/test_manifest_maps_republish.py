@@ -1441,6 +1441,35 @@ async def test_full_notes_answer_info_in_both_runs_and_stay_whole(
     assert (await _map_row(test_db_session, created.map_id)).notes == full
 
 
+async def test_full_notes_drop_an_earlier_block_and_keep_the_users_text(
+    test_db_session, clean_tables
+):
+    """With no room for the new block, an earlier publish's block doesn't
+    stay behind as a stale one; the user's text is untouched."""
+    from sqlalchemy import update
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    entry = _publish(dataset_id, loss_report=_LOSS)
+    [created] = (await _apply(test_db_session, admin, entry)).maps
+    block = (await _map_row(test_db_session, created.map_id)).notes.split("\n---\n")[0]
+    user = "u" * (NOTES_LIMIT - 10)
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(notes=f"{block}\n---\n{user}")
+    )
+    await test_db_session.commit()
+
+    [result] = (await _apply(test_db_session, admin, entry)).maps
+
+    assert _codes(result) == [("A071", "info", None)]
+    assert "earlier publish's notes at the top were removed" in (
+        result.messages[0].message
+    )
+    assert (await _map_row(test_db_session, created.map_id)).notes == user
+
+
 async def test_a_dataset_a_kept_layer_drops_doesnt_refuse_a_public_map(
     client, test_db_session, admin_auth_header, clean_tables
 ):

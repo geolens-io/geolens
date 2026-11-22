@@ -599,7 +599,8 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 NOTES_NOT_WRITTEN,
                 "info",
                 "The map's notes leave no room for the publish notes, so none "
-                "were written. The notes in GeoLens are kept whole.",
+                "were written, and an earlier publish's notes at the top were "
+                "removed. The rest of the notes is kept as it was.",
             )
         )
     removed: list[MapLayer] = []

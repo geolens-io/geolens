@@ -515,7 +515,9 @@ class ManifestMap(_ManifestBaseModel):
             "block only when it is exactly a block some publish of this map "
             "wrote; all other text is kept whole. Left out when the styling "
             "is kept, and cut to what fits the notes limit. When the notes "
-            "leave no room for the block, none is written (info A071)."
+            "leave no room for the block, none is written and an earlier "
+            "publish's block is removed, while the rest of the notes is "
+            "untouched (info A071)."
         ),
     )
     visibility: Literal["private", "internal", "public"] | None = Field(
