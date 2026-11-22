@@ -48,10 +48,10 @@ def plan_layer_stack(
     ``stored`` pairs each of the map's layers with its dataset, None when the
     caller can't read it; ``layers`` and ``keys`` are the manifest's layers
     as stored and their keys. A keyed layer keeps its row, and with
-    ``keep_styling`` its stored styling and dataset too. A layer added in
-    GeoLens keeps its slot, and so does a layer the caller can't read, which
-    the save keeps; the manifest's layers take the other slots in manifest
-    order, the first on top. A readable keyed layer the manifest no longer
+    ``keep_styling`` its stored styling, dataset and slot too. A layer added
+    in GeoLens keeps its slot, and so does a layer the caller can't read,
+    which the save keeps; the manifest's other layers take the other slots in
+    manifest order, the first on top. A readable keyed layer the manifest no longer
     lists is removed with ``remove_missing`` and kept otherwise.
     """
     listed = {layer.key for layer in entry.layers}
@@ -66,7 +66,7 @@ def plan_layer_stack(
         if layer.manifest_key is None:
             return True
         if layer.manifest_key in listed:
-            return keep_styling and dataset is None
+            return keep_styling
         return dataset is None or not remove_missing
 
     kept = [(layer, dataset) for layer, dataset in stored if stays(layer, dataset)]
@@ -86,14 +86,14 @@ def plan_layer_stack(
         match = by_key.get(key)
         if match is not None and stays(*match):
             continue
-        update: dict[str, Any] = {"sort_order": next(free)}
-        if match is not None and keep_styling:
-            layer = kept_layer(match[0])
-        elif match is not None:
-            update["id"] = match[0].id
-        else:
-            update["id"] = None
-        sent.append(layer.model_copy(update=update))
+        sent.append(
+            layer.model_copy(
+                update={
+                    "id": match[0].id if match is not None else None,
+                    "sort_order": next(free),
+                }
+            )
+        )
         sent_keys.append(key)
     readable_kept = [layer for layer, dataset in kept if dataset is not None]
     sent += [kept_layer(layer) for layer in readable_kept]

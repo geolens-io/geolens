@@ -1223,8 +1223,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # A layer write takes the map row, then the datasets it adds layers on, before any layer row.
         "backend/app/modules/catalog/maps/service_layers.py": 379,
         # Map creates and updates hold the route policy a publish manifest
-        # reuses, with its layer keys and the rows it keeps.
-        "backend/app/modules/catalog/maps/service_update.py": 352,
+        # reuses, with its layer keys and the rows it keeps, and record which
+        # view fields a save changed.
+        "backend/app/modules/catalog/maps/service_update.py": 365,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,

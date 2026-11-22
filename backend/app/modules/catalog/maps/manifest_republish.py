@@ -7,9 +7,11 @@ aren't styling don't.
 
 from __future__ import annotations
 
+import hashlib
 import unicodedata
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 
 import structlog
@@ -20,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.modules.catalog.maps.models import MapEditHistoryEvent
+from app.modules.catalog.maps.service_update import VIEW_FIELDS
 
 log = structlog.get_logger()
 
@@ -59,9 +62,6 @@ OTHER_HISTORY_ACTIONS = frozenset(
         PUBLISH_ACTION,
     }
 )
-# A settings change is a styling edit only when it moves the view or the
-# basemap; notes, description and the other settings are not styling.
-_VIEW_FIELDS = ("center_lng", "center_lat", "zoom", "bearing", "pitch", "basemap_style")
 
 NOTES_SEPARATOR = "---"
 NOTES_LIMIT = 50_000
@@ -82,12 +82,22 @@ async def styling_edited_since_publish(
         )
         .scalar_subquery()
     )
+    # A settings change is a styling edit only when it moved the view or the
+    # basemap. An event from before ``view_changed`` was recorded lists only
+    # the fields sent, and counts when it sent any of them.
+    view_moved = or_(
+        and_(
+            event.details.has_key("view_changed"),
+            func.jsonb_array_length(event.details["view_changed"]) > 0,
+        ),
+        and_(
+            ~event.details.has_key("view_changed"),
+            event.details["changed_fields"].has_any(array(VIEW_FIELDS)),
+        ),
+    )
     styling_edit = or_(
         event.action.in_(sorted(STYLING_EDIT_ACTIONS - {"map.config_update"})),
-        and_(
-            event.action == "map.config_update",
-            event.details["changed_fields"].has_any(array(_VIEW_FIELDS)),
-        ),
+        and_(event.action == "map.config_update", view_moved),
     )
     return bool(
         await session.scalar(
@@ -131,44 +141,86 @@ def loss_lines(loss_report) -> list[str]:
     ]
 
 
+@dataclass(frozen=True)
+class ManagedNotes:
+    """The notes a publish writes, and the digest of its block, None when no
+    block fit."""
+
+    text: str
+    digest: str | None
+
+
+def _digest(block: str) -> str:
+    return hashlib.sha256(block.encode()).hexdigest()
+
+
+async def last_notes_digest(session: AsyncSession, map_id: uuid.UUID) -> str | None:
+    """The digest of the notes block the map's last publish wrote."""
+    event = MapEditHistoryEvent
+    return await session.scalar(
+        select(event.details["notes_digest"].astext)
+        .where(event.map_id == map_id, event.action == PUBLISH_ACTION)
+        .order_by(event.created_at.desc())
+        .limit(1)
+    )
+
+
+def _users_notes(existing: str, written_digest: str | None) -> str:
+    """``existing`` without the block the last publish wrote, when the notes
+    still start with that block, unchanged, and its divider. Anything else is
+    all the user's."""
+    rows = existing.splitlines(keepends=True)
+    for index, row in enumerate(rows):
+        if row.rstrip("\r\n") == NOTES_SEPARATOR:
+            block = "".join(rows[:index]).replace("\r\n", "\n").removesuffix("\n")
+            if written_digest is not None and _digest(block) == written_digest:
+                return "".join(rows[index + 1 :])
+            break
+    return existing
+
+
 def managed_notes(
     existing: str | None,
     lines: Sequence[str],
+    written_digest: str | None,
     limit: int = NOTES_LIMIT,
-) -> str:
-    """``existing`` notes with the managed block replaced by ``lines``.
+) -> ManagedNotes:
+    """The notes with a new block of ``lines`` above the user's.
 
-    The managed block is everything before the first line that is exactly
-    ``---``; what follows it is the user's and is kept whole. Notes with no
-    such line are all the user's. Lines are cut at the last whole one that
-    keeps the notes within ``limit``, with a count of the ones left out.
+    The user's notes are ``existing`` less the block the last publish wrote
+    (``written_digest``), and are never cut. The block takes the room the
+    limit leaves them: the first line and as many after it as fit, with a
+    count of the ones left out. No block is written when not even the first
+    line and the divider fit.
     """
-    user = existing or ""
-    rows = user.splitlines(keepends=True)
-    for index, row in enumerate(rows):
-        if row.rstrip("\r\n") == NOTES_SEPARATOR:
-            user = "".join(rows[index + 1 :])
-            break
+    user = _users_notes(existing or "", written_digest)
     tail = f"\n{NOTES_SEPARATOR}\n{user}"
-    return "\n".join(_fitting(lines, limit - len(tail))) + tail
+    shown = _fitting(lines, limit - len(tail))
+    if not shown:
+        return ManagedNotes(user, None)
+    block = "\n".join(shown)
+    return ManagedNotes(block + tail, _digest(block))
 
 
 def _fitting(lines: Sequence[str], room: int) -> list[str]:
-    """The longest run of ``lines`` from the start that fits in ``room``
-    characters joined, with a last line counting the ones left out."""
+    """The longest run of ``lines`` from the start, at least the first, that
+    fits in ``room`` characters joined, with a last line counting the ones
+    left out when it fits too. Empty when the first line doesn't fit."""
+    if not lines or len(lines[0]) > room:
+        return []
     sizes = [0]
     for line in lines:
         sizes.append(sizes[-1] + len(line))
-    for shown in range(len(lines), -1, -1):
-        size = sizes[shown] + max(shown - 1, 0)
-        if shown < len(lines):
-            note = f"... {len(lines) - shown} more entries"
-            size += len(note) + (1 if shown else 0)
-        if size <= room:
-            if shown < len(lines):
-                return [*lines[:shown], note]
-            return list(lines)
-    return []
+    for shown in range(len(lines), 0, -1):
+        size = sizes[shown] + shown - 1
+        if shown == len(lines):
+            if size <= room:
+                return list(lines)
+            continue
+        note = f"... {len(lines) - shown} more entries"
+        if size + 1 + len(note) <= room:
+            return [*lines[:shown], note]
+    return [lines[0]]
 
 
 async def store_manifest_thumbnail(

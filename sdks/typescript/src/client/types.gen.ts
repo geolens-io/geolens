@@ -8302,11 +8302,11 @@ export type ManifestMap = {
     /**
      * Thumbnail
      *
-     * A PNG or JPEG data URI, stored as the map's thumbnail once the map is written, with the thumbnail upload's checks. One that isn't stored is a warning (A099) and the map stays published.
+     * A PNG or JPEG data URI, stored as the map's thumbnail once the map is written, with the thumbnail upload's checks, when the manifest's styling is applied. One that isn't stored is a warning (A099) and the map stays published.
      */
     thumbnail?: string | null;
     /**
-     * Written, one line per item, in the managed block of the map's notes: the lines before the first line that is `---`. Text after that line is kept. Left out when the styling is kept.
+     * Written, one line per item, in a block at the top of the map's notes, above a `---` line. A republish replaces only the block the last publish wrote, when the notes still start with it unchanged; all other text is kept whole. Left out when the styling is kept, and cut to what fits the notes limit.
      */
     loss_report?: ManifestLossReport | null;
     /**

@@ -729,6 +729,7 @@ async def test_each_apply_records_one_manifest_publish_event(
     events = await _history(test_db_session, created.map_id)
 
     assert [e.action for e in events] == ["manifest.publish", "manifest.publish"]
+    assert events[0].details.pop("notes_digest")
     assert events[0].details == {
         "client_id": "geolens-qgis",
         "client_version": "0.2.0",

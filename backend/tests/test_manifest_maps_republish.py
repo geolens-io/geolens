@@ -6,6 +6,7 @@ Requirements: the docker database must be running with migrations applied.
 from __future__ import annotations
 
 import ast
+import hashlib
 from pathlib import Path
 
 import pytest
@@ -241,28 +242,79 @@ async def test_a_republish_after_a_kept_one_still_keeps(
     assert await _state(test_db_session, created.map_id) == before
 
 
+async def _builder_save(client, headers, session, map_id, **changes) -> None:
+    """A metadata save as the builder sends it: every setting, changed or not."""
+    map_obj = await _map_row(session, map_id)
+    payload = {
+        "name": map_obj.name,
+        "description": map_obj.description,
+        "notes": map_obj.notes,
+        "basemap_style": map_obj.basemap_style,
+        "show_basemap_labels": map_obj.show_basemap_labels,
+        "basemap_config": map_obj.basemap_config,
+        "terrain_config": map_obj.terrain_config,
+        "center_lng": map_obj.center_lng,
+        "center_lat": map_obj.center_lat,
+        "zoom": map_obj.zoom,
+        "bearing": map_obj.bearing,
+        "pitch": map_obj.pitch,
+        "plugins": map_obj.plugins,
+        "legend_title": None,
+        **changes,
+    }
+    response = await client.put(f"/maps/{map_id}", json=payload, headers=headers)
+    assert response.status_code == 200, response.text
+
+
 @pytest.mark.parametrize(
-    ("edit", "styling"),
+    ("changes", "styling"),
     [
         ({"zoom": 4}, "kept"),
+        ({"basemap_style": "openfreemap-dark"}, "kept"),
         ({"notes": "Mine"}, "applied"),
-        ({"description": "Mine"}, "applied"),
+        ({"description": "Mine", "name": "Renamed in GeoLens"}, "applied"),
+        ({}, "applied"),
     ],
 )
-async def test_a_settings_edit_counts_only_when_it_moves_the_view_or_basemap(
-    client, test_db_session, admin_auth_header, clean_tables, edit, styling
+async def test_a_builder_save_counts_only_when_it_moves_the_view_or_basemap(
+    client, test_db_session, admin_auth_header, clean_tables, changes, styling
 ):
     admin = await _admin(test_db_session)
     dataset_id = await _dataset(test_db_session, admin.id)
     [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
-    response = await client.put(
-        f"/maps/{created.map_id}", json=edit, headers=admin_auth_header
+    await _builder_save(
+        client, admin_auth_header, test_db_session, created.map_id, **changes
     )
-    assert response.status_code == 200, response.text
 
     [result] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
 
     assert result.styling == styling
+    assert _codes(result) == ([("A070", "info", None)] if styling == "kept" else [])
+
+
+async def test_a_settings_event_from_before_view_changed_counts_a_sent_view(
+    test_db_session, clean_tables
+):
+    """Older events list the fields sent; any view field among them counts."""
+    from app.modules.catalog.maps.service import record_map_history_event
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await record_map_history_event(
+        test_db_session,
+        map_id=created.map_id,
+        actor=admin,
+        target_type="map",
+        action="map.config_update",
+        summary="Updated map settings",
+        details={"changed_fields": ["notes", "zoom"]},
+    )
+    await test_db_session.commit()
+
+    [result] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    assert result.styling == "kept"
 
 
 async def test_a_reorder_in_the_builder_is_not_a_styling_edit(
@@ -353,23 +405,62 @@ def test_the_notes_limit_is_the_maps():
     assert MapUpdate.model_fields["notes"].metadata[-1].max_length == NOTES_LIMIT
 
 
-def test_the_managed_block_is_replaced_and_the_users_text_kept():
-    existing = "Published from old\nold: loss\n---\nMy notes\n---\nstill mine"
-
-    notes = managed_notes(existing, ["Published from new", "a: b"])
-
-    assert notes == "Published from new\na: b\n---\nMy notes\n---\nstill mine"
+_BLOCK = "Published from old\nold: loss"
+_WRITTEN = hashlib.sha256(_BLOCK.encode()).hexdigest()
 
 
-def test_notes_with_no_separator_are_all_the_users():
-    assert managed_notes("Written in GeoLens", ["P"]) == "P\n---\nWritten in GeoLens"
+def test_the_block_last_written_is_replaced_and_the_users_text_kept():
+    existing = f"{_BLOCK}\n---\nMy notes\n---\nstill mine"
+
+    notes = managed_notes(existing, ["Published from new", "a: b"], _WRITTEN)
+
+    assert notes.text == "Published from new\na: b\n---\nMy notes\n---\nstill mine"
+    assert notes.digest == hashlib.sha256(b"Published from new\na: b").hexdigest()
+
+
+@pytest.mark.parametrize(
+    ("existing", "written"),
+    [
+        # A map's own notes with a divider, before any publish wrote a block.
+        ("Survey instructions\n---\nObservations", None),
+        # Text typed above the block.
+        (f"Read me first\n{_BLOCK}\n---\nMine", _WRITTEN),
+        # The block deleted, a divider of the user's own left.
+        ("Intro\n---\nMine", _WRITTEN),
+        # The block edited by the user.
+        (f"{_BLOCK} (checked)\n---\nMine", _WRITTEN),
+        # No divider at all.
+        ("Written in GeoLens", _WRITTEN),
+    ],
+    ids=[
+        "legacy-divider",
+        "typed-above",
+        "block-deleted",
+        "block-edited",
+        "no-divider",
+    ],
+)
+def test_notes_the_last_publish_didnt_write_are_kept_whole(existing, written):
+    notes = managed_notes(existing, ["P"], written)
+
+    assert notes.text == f"P\n---\n{existing}"
+
+
+def test_a_block_saved_back_with_windows_line_endings_is_still_ours():
+    existing = _BLOCK.replace("\n", "\r\n") + "\r\n---\r\nMine\r\n"
+
+    assert managed_notes(existing, ["P"], _WRITTEN).text == "P\n---\nMine\r\n"
+
+
+def test_a_block_the_builder_trimmed_is_still_ours():
+    assert managed_notes(f"{_BLOCK}\n---", ["P"], _WRITTEN).text == "P\n---\n"
 
 
 def test_a_long_loss_report_is_cut_and_the_users_text_kept_whole():
     user = "u" * 30_000
     lines = ["Published", *(f"layers[{i}]: kind (detail)" for i in range(5_000))]
 
-    notes = managed_notes(f"x\n---\n{user}", lines)
+    notes = managed_notes(f"{_BLOCK}\n---\n{user}", lines, _WRITTEN).text
 
     assert len(notes) <= NOTES_LIMIT
     assert notes.endswith(f"\n---\n{user}")
@@ -378,6 +469,20 @@ def test_a_long_loss_report_is_cut_and_the_users_text_kept_whole():
     shown = len(managed) - 2
     assert managed[-1] == f"... {5_000 - shown} more entries"
     assert managed[1:-1] == lines[1 : shown + 1]
+
+
+@pytest.mark.parametrize("over", [0, 1])
+def test_notes_at_the_limit_keep_the_users_text_and_drop_the_block(over):
+    line = "Published from geolens-qgis 0.2.0 on 2026-11-22"
+    user = "u" * (NOTES_LIMIT - len(line) - len("\n---\n") + over)
+
+    notes = managed_notes(user, [line, "a: loss"], None)
+
+    if over == 0:
+        assert (notes.text, notes.digest is not None) == (f"{line}\n---\n{user}", True)
+    else:
+        assert (notes.text, notes.digest) == (user, None)
+    assert len(notes.text) <= NOTES_LIMIT
 
 
 async def test_a_publish_writes_the_managed_block_and_keeps_the_users_text(
@@ -533,3 +638,125 @@ async def test_a_kept_layer_is_judged_on_the_dataset_it_keeps(
     [result] = (await _apply(test_db_session, admin, _publish(named_now))).maps
 
     assert _codes(result) == [("A070", "info", None), ("A020", "error", None)]
+
+
+async def test_a_kept_publish_keeps_the_builders_layer_order(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    parks, names = await _layers(test_db_session, created.map_id)
+    response = await client.patch(
+        f"/maps/{created.map_id}/layers",
+        json={"order": [str(names.id), str(parks.id)]},
+        headers=admin_auth_header,
+    )
+    assert response.status_code == 200, response.text
+    with_trails = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(dataset_id)),
+        _layer("names", dataset_id=str(dataset_id)),
+        _layer("trails", dataset_id=str(dataset_id)),
+        styling="keep",
+    )
+
+    [result] = (await _apply(test_db_session, admin, with_trails)).maps
+
+    assert result.styling == "kept"
+    stored = await _layers(test_db_session, created.map_id)
+    print("DEBUG", [(layer.manifest_key, layer.sort_order) for layer in stored])
+    assert [layer.manifest_key for layer in stored] == ["names", "parks", "trails"]
+
+
+async def test_typing_above_the_block_keeps_that_text_on_the_next_publish(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    first = (await _map_row(test_db_session, created.map_id)).notes
+    await _builder_save(
+        client,
+        admin_auth_header,
+        test_db_session,
+        created.map_id,
+        notes=f"Read me first\n{first}",
+    )
+
+    await _apply(test_db_session, admin, _publish(dataset_id))
+
+    notes = (await _map_row(test_db_session, created.map_id)).notes
+    assert notes.endswith(f"\n---\nRead me first\n{first}")
+    [publish, republish] = [
+        e
+        for e in await _history(test_db_session, created.map_id)
+        if e.action == "manifest.publish"
+    ]
+    assert publish.details["notes_digest"] and republish.details["notes_digest"]
+
+
+async def test_full_notes_answer_info_in_both_runs_and_stay_whole(
+    test_db_session, clean_tables
+):
+    from sqlalchemy import update
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    full = "n" * NOTES_LIMIT
+    await test_db_session.execute(
+        update(Map).where(Map.id == created.map_id).values(notes=full)
+    )
+    await test_db_session.commit()
+
+    [checked] = (
+        await _apply(test_db_session, admin, _publish(dataset_id), dry_run=True)
+    ).maps
+    [applied] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    for result in (checked, applied):
+        assert (result.action, _codes(result)) == ("update", [("A099", "info", None)])
+        assert "no room" in result.messages[0].message
+    assert (await _map_row(test_db_session, created.map_id)).notes == full
+
+
+async def test_a_dataset_a_kept_layer_drops_doesnt_refuse_a_public_map(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    shown = await _dataset(test_db_session, admin.id)
+    discarded = await _dataset(test_db_session, admin.id, visibility="private")
+    [created] = (
+        await _apply(test_db_session, admin, _publish(shown, visibility="public"))
+    ).maps
+    await _edit_paint_in_the_builder(
+        client, admin_auth_header, test_db_session, created.map_id
+    )
+
+    [result] = (await _apply(test_db_session, admin, _publish(discarded))).maps
+
+    assert (result.action, result.styling, result.visibility) == (
+        "update",
+        "kept",
+        "public",
+    )
+    assert _codes(result) == [("A070", "info", None)]
+
+
+async def test_a_kept_publish_leaves_the_thumbnail(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await _edit_paint_in_the_builder(
+        client, admin_auth_header, test_db_session, created.map_id
+    )
+
+    [kept] = (
+        await _apply(test_db_session, admin, _publish(dataset_id, thumbnail=_PNG))
+    ).maps
+
+    assert (kept.styling, kept.messages[-1].code) == ("kept", "A070")
+    assert (await _map_row(test_db_session, created.map_id)).thumbnail_uri is None
