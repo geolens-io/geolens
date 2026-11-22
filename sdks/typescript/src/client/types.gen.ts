@@ -8296,7 +8296,7 @@ export type ManifestMap = {
     /**
      * Styling
      *
-     * Whether a republish replaces the map's styling: its view, basemap and its keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless the styling was edited in GeoLens since the last publish that replaced it, and answers info A070 when it keeps it. A kept layer keeps its dataset too, with warning A073 when the manifest names another. Name, description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's styling.
+     * Whether a republish replaces the map's styling: its view, basemap and its keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless styling it would write was edited in GeoLens since the last publish that replaced it, and answers info A070 when it keeps it. A view or basemap edit counts only when the manifest sends a `view` or `basemap_style` that would overwrite it. A kept layer keeps its dataset too, with warning A073 when the manifest names another. Name, description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's styling.
      */
     styling?: 'replace_if_unedited' | 'replace' | 'keep';
     /**

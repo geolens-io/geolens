@@ -1,8 +1,8 @@
 """Whether a manifest republish replaces a map's styling, and its notes block.
 
-A publish that applies styling sets the baseline. Builder edits to styling
-after it make ``replace_if_unedited`` keep the map's styling; edits that
-aren't styling don't.
+A publish that applies styling sets the baseline. Builder edits after it to
+styling this publish would write make ``replace_if_unedited`` keep the map's
+styling; other edits don't.
 """
 
 from __future__ import annotations
@@ -23,7 +23,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity
 from app.core.text import normalize_nfc
 from app.modules.catalog.maps.models import MapEditHistoryEvent
-from app.modules.catalog.maps.service_update import VIEW_FIELDS
+from app.modules.catalog.maps.service_update import CAMERA_FIELDS
 
 log = structlog.get_logger()
 
@@ -70,11 +70,23 @@ NOTES_SEPARATOR = "---"
 NOTES_LIMIT = 50_000
 
 
+def written_view_fields(entry) -> tuple[str, ...]:
+    """The view and basemap fields a publish of ``entry`` writes when it
+    applies styling: the camera with a ``view``, and ``basemap_style``."""
+    fields = CAMERA_FIELDS if entry.view is not None else ()
+    return (*fields, "basemap_style") if entry.basemap_style is not None else fields
+
+
 async def styling_edited_since_publish(
-    session: AsyncSession, map_id: uuid.UUID
+    session: AsyncSession, map_id: uuid.UUID, view_fields: Sequence[str]
 ) -> bool:
     """Whether the map's styling was edited after the last publish that
-    applied styling, or ever when no publish applied it."""
+    applied styling, or ever when no publish applied it.
+
+    A settings save counts only when it moved one of ``view_fields``, the
+    view and basemap fields this publish would write: a view the publish
+    leaves alone isn't overwritten, so moving it isn't an edit to keep.
+    """
     event = MapEditHistoryEvent
     baseline = func.coalesce(
         select(func.max(event.created_at))
@@ -86,23 +98,26 @@ async def styling_edited_since_publish(
         .scalar_subquery(),
         literal_column("'-infinity'::timestamptz"),
     )
-    # A settings change is a styling edit only when it moved the view or the
-    # basemap. An event from before ``view_changed`` was recorded lists only
-    # the fields sent, and counts when it sent any of them.
-    view_moved = or_(
-        and_(
-            event.details.has_key("view_changed"),
-            func.jsonb_array_length(event.details["view_changed"]) > 0,
-        ),
-        and_(
-            ~event.details.has_key("view_changed"),
-            event.details["changed_fields"].has_any(array(VIEW_FIELDS)),
-        ),
+    styling_edit = event.action.in_(
+        sorted(STYLING_EDIT_ACTIONS - {"map.config_update"})
     )
-    styling_edit = or_(
-        event.action.in_(sorted(STYLING_EDIT_ACTIONS - {"map.config_update"})),
-        and_(event.action == "map.config_update", view_moved),
-    )
+    if view_fields:
+        # An event from before ``view_changed`` was recorded lists only the
+        # fields sent, and counts when it sent any of them.
+        written = array(list(view_fields))
+        view_moved = or_(
+            and_(
+                event.details.has_key("view_changed"),
+                event.details["view_changed"].has_any(written),
+            ),
+            and_(
+                ~event.details.has_key("view_changed"),
+                event.details["changed_fields"].has_any(written),
+            ),
+        )
+        styling_edit = or_(
+            styling_edit, and_(event.action == "map.config_update", view_moved)
+        )
     return bool(
         await session.scalar(
             select(

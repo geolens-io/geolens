@@ -319,10 +319,21 @@ async def test_a_builder_save_counts_only_when_it_moves_the_view_or_basemap(
     assert _codes(result) == ([("A070", "info", None)] if styling == "kept" else [])
 
 
-async def test_the_builders_first_save_on_a_map_without_a_view_is_no_edit(
-    client, test_db_session, admin_auth_header, clean_tables
+_FITTED = {"center_lng": -89.654321, "center_lat": 39.781235, "zoom": 11.234568}
+
+
+def _camera(map_obj) -> dict:
+    return {field: getattr(map_obj, field) for field in _FITTED}
+
+
+@pytest.mark.parametrize(
+    ("sends_view", "styling"), [(False, "applied"), (True, "kept")]
+)
+async def test_a_camera_saved_on_a_map_without_a_view_counts_when_a_view_is_sent(
+    client, test_db_session, admin_auth_header, clean_tables, sends_view, styling
 ):
-    """The builder fits the layers and saves that camera."""
+    """The builder's first save stores the camera it shows, fitted or chosen.
+    A publish without a view leaves it; one with a view would overwrite it."""
     admin = await _admin(test_db_session)
     dataset_id = await _dataset(test_db_session, admin.id)
     entry = _publish(dataset_id, view=None)
@@ -332,15 +343,86 @@ async def test_the_builders_first_save_on_a_map_without_a_view_is_no_edit(
         admin_auth_header,
         test_db_session,
         created.map_id,
-        center_lng=-89.654321,
-        center_lat=39.781235,
-        zoom=11.234568,
+        **_FITTED,
         notes="Mine",
+    )
+    if sends_view:
+        entry = _publish(dataset_id)
+
+    [result] = (await _apply(test_db_session, admin, entry)).maps
+
+    assert result.styling == styling
+    assert _codes(result) == ([("A070", "info", None)] if sends_view else [])
+    assert _camera(await _map_row(test_db_session, created.map_id)) == _FITTED
+
+
+async def test_a_pan_stays_when_the_publish_sends_no_view(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await _builder_save(
+        client, admin_auth_header, test_db_session, created.map_id, zoom=4.0
+    )
+
+    [result] = (
+        await _apply(test_db_session, admin, _publish(dataset_id, view=None))
+    ).maps
+
+    assert result.styling == "applied"
+    assert (await _map_row(test_db_session, created.map_id)).zoom == 4.0
+
+
+@pytest.mark.parametrize(
+    ("sends_basemap", "styling"), [(False, "applied"), (True, "kept")]
+)
+async def test_a_basemap_choice_counts_only_when_the_publish_sends_one(
+    client, test_db_session, admin_auth_header, clean_tables, sends_basemap, styling
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await _builder_save(
+        client,
+        admin_auth_header,
+        test_db_session,
+        created.map_id,
+        basemap_style="openfreemap-dark",
+    )
+    entry = _publish(dataset_id, **({} if sends_basemap else {"basemap_style": None}))
+
+    [result] = (await _apply(test_db_session, admin, entry)).maps
+
+    assert result.styling == styling
+    stored = await _map_row(test_db_session, created.map_id)
+    assert stored.basemap_style == "openfreemap-dark"
+
+
+@pytest.mark.parametrize(
+    ("sent", "styling"),
+    [
+        # One step of the builder's rounding is a pan.
+        (-89.000001, "kept"),
+        # The stored full-precision value, resent rounded, is not.
+        (float(f"{-89.0000004999:.6f}"), "applied"),
+    ],
+)
+async def test_a_one_step_pan_counts_and_rounding_doesnt(
+    client, test_db_session, admin_auth_header, clean_tables, sent, styling
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    stored = -89.0000004999 if styling == "applied" else -89.0
+    entry = _publish(dataset_id, view={"center": [stored, 39.78], "zoom": 11.2})
+    [created] = (await _apply(test_db_session, admin, entry)).maps
+    await _builder_save(
+        client, admin_auth_header, test_db_session, created.map_id, center_lng=sent
     )
 
     [result] = (await _apply(test_db_session, admin, entry)).maps
 
-    assert result.styling == "applied"
+    assert result.styling == styling
 
 
 async def test_a_bearing_the_builder_reads_back_a_turn_away_is_no_edit(

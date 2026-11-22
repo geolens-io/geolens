@@ -49,6 +49,7 @@ from app.modules.catalog.maps.manifest_republish import (
     styling_applies,
     styling_edited_since_publish,
     written_notes_digests,
+    written_view_fields,
 )
 from app.modules.catalog.maps.manifest_messages import (
     NO_MAP_PERMISSION,
@@ -511,7 +512,9 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         )
     styling_applied = True
     if map_obj is not None:
-        edited = await styling_edited_since_publish(session, map_obj.id)
+        edited = await styling_edited_since_publish(
+            session, map_obj.id, written_view_fields(entry)
+        )
         styling_applied = styling_applies(entry.styling, edited=edited)
         if not styling_applied and entry.styling == "replace_if_unedited":
             messages.append(
