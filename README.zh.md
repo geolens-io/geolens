@@ -196,7 +196,7 @@ GeoLens 可以回答关于数据集的问题，根据自然语言请求编辑地
 
 [快速开始](#快速开始)中有安装命令。[安装指南](https://docs.getgeolens.com/guides/quickstart/install/)列出了所需的版本、内存和端口。每个[发布版本](https://github.com/geolens-io/geolens/releases)都附带 `SHA256SUMS` 文件，可在运行前用来校验 `install.sh`。如需改为从源码构建，请克隆仓库并运行 `bash scripts/install.sh`；首次构建需要 5-10 分钟。
 
-较新的发布版本还附带 `install.sh.intoto.jsonl`，这是一份经过签名的构建来源证明。校验和文件与安装脚本在同一个发布版本中，因此只能说明下载没有损坏。来源证明则说明 `install.sh` 出自本仓库的发布标签。要验证它，请从发布版本下载这两个文件，然后运行 [GitHub CLI](https://cli.github.com/)：
+较新的发布版本还附带 `install.sh.intoto.jsonl`，这是一份经过签名的构建来源证明；如果某个版本签名失败，则不会附带该文件。校验和文件与安装脚本在同一个发布版本中，因此只能说明下载没有损坏。来源证明则说明 `install.sh` 出自本仓库的发布标签。要验证它，请从发布版本下载这两个文件，然后运行 [GitHub CLI](https://cli.github.com/)：
 
 ```bash
 gh attestation verify install.sh --repo geolens-io/geolens \

@@ -254,10 +254,11 @@ klonen Sie das Repository und führen `bash scripts/install.sh` aus; der erste B
 5-10 Minuten.
 
 Neuere Releases enthalten außerdem `install.sh.intoto.jsonl`, einen signierten Herkunftsnachweis
-des Builds. Die Prüfsummendatei kann nur zeigen, dass ein Download nicht beschädigt wurde, weil sie
-im selben Release liegt. Der Herkunftsnachweis zeigt, dass `install.sh` aus dem Release-Tag in
-diesem Repository stammt. Um ihn zu prüfen, laden Sie beide Dateien aus dem Release herunter und
-führen die [GitHub CLI](https://cli.github.com/) aus:
+des Builds, sofern das Signieren für dieses Release nicht fehlgeschlagen ist. Die Prüfsummendatei
+kann nur zeigen, dass ein Download nicht beschädigt wurde, weil sie im selben Release liegt. Der
+Herkunftsnachweis zeigt, dass `install.sh` aus dem Release-Tag in diesem Repository stammt. Um ihn
+zu prüfen, laden Sie beide Dateien aus dem Release herunter und führen die
+[GitHub CLI](https://cli.github.com/) aus:
 
 ```bash
 gh attestation verify install.sh --repo geolens-io/geolens \

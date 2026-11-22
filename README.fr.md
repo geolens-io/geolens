@@ -257,10 +257,11 @@ vérifier `install.sh` avant de l’exécuter. Pour compiler depuis les sources,
 lancez `bash scripts/install.sh` ; la première compilation prend 5-10 minutes.
 
 Les versions récentes incluent aussi `install.sh.intoto.jsonl`, une attestation de provenance
-signée. Le fichier de sommes de contrôle peut seulement montrer qu’un téléchargement n’a pas été
-corrompu, car il est publié dans la même version. La provenance montre que `install.sh` vient de
-l’étiquette de la version dans ce dépôt. Pour la vérifier, téléchargez les deux fichiers depuis la
-version et lancez la [CLI GitHub](https://cli.github.com/) :
+signée, sauf si la signature a échoué pour cette version. Le fichier de sommes de contrôle peut
+seulement montrer qu’un téléchargement n’a pas été corrompu, car il est publié dans la même
+version. La provenance montre que `install.sh` vient de l’étiquette de la version dans ce dépôt.
+Pour la vérifier, téléchargez les deux fichiers depuis la version et lancez la
+[CLI GitHub](https://cli.github.com/) :
 
 ```bash
 gh attestation verify install.sh --repo geolens-io/geolens \

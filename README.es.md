@@ -252,10 +252,11 @@ comprobar `install.sh` antes de ejecutarlo. Para compilar desde el código fuent
 repositorio y ejecuta `bash scripts/install.sh`; la primera compilación tarda 5-10 minutos.
 
 Las versiones más recientes incluyen también `install.sh.intoto.jsonl`, un registro firmado de
-procedencia de la compilación. El archivo de sumas solo puede mostrar que una descarga no se dañó,
-porque se publica en la misma versión. La procedencia muestra que `install.sh` salió de la etiqueta
-de la versión en este repositorio. Para comprobarla, descarga ambos archivos de la versión y
-ejecuta la [CLI de GitHub](https://cli.github.com/):
+procedencia de la compilación, salvo que la firma haya fallado en esa versión. El archivo de sumas
+solo puede mostrar que una descarga no se dañó, porque se publica en la misma versión. La
+procedencia muestra que `install.sh` salió de la etiqueta de la versión en este repositorio. Para
+comprobarla, descarga ambos archivos de la versión y ejecuta la
+[CLI de GitHub](https://cli.github.com/):
 
 ```bash
 gh attestation verify install.sh --repo geolens-io/geolens \
