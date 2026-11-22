@@ -1,5 +1,5 @@
-import { type ReactNode, useRef } from 'react';
-import { Database, Loader2, SearchX, Upload, X } from 'lucide-react';
+import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { AlignJustify, Database, Loader2, SearchX, StretchHorizontal, Upload, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { Link } from 'react-router';
@@ -8,11 +8,12 @@ import { ErrorState } from '@/components/layout/ErrorState';
 import { EmptyState } from '@/components/layout/EmptyState';
 import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Button } from '@/components/ui/button';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { SearchBar } from '@/components/search/SearchBar';
 import { SavedSearches } from '@/components/search/SavedSearches';
 import { FilterPanel } from '@/components/search/FilterPanel';
 import { SearchSpatialSheet } from '@/components/search/SearchSpatialSheet';
-import { SearchResultCard } from '@/components/search/SearchResultCard';
+import { SearchResultCard, type SearchResultDensity } from '@/components/search/SearchResultCard';
 import { DatasetCardSkeleton } from '@/components/search/DatasetCardSkeleton';
 import { Pagination } from '@/components/layout/Pagination';
 import { MapCard } from '@/components/maps/MapCard';
@@ -22,6 +23,14 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useUrlSearchSync } from '@/components/search/hooks/use-url-search-sync';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { usePermissions } from '@/hooks/use-permissions';
+import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
+import { readStorage, storageKeys, writeStorage } from '@/lib/storage';
+
+const COMPACT_PAGE_SIZE = 25;
+
+function readStoredDensity(): SearchResultDensity {
+  return readStorage(storageKeys.searchView) === 'compact' ? 'compact' : 'comfortable';
+}
 
 interface SearchControlsProps {
   totalResults: number | undefined;
@@ -70,7 +79,23 @@ export function SearchPage() {
   const hasActiveSearch = useSearchStore((s) =>
     Object.keys(s.toParams()).some((k) => k !== 'offset' && k !== 'limit'),
   );
+  const [density, setDensity] = useState<SearchResultDensity>(readStoredDensity);
+  const isCompact = density === 'compact';
+  // The status line and its trigger are held while a view change refetches, so
+  // a new page size does not announce an unchanged count again.
+  const announceHold = useRef<{ text: string; key: string } | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
+  const handleDensityChange = (value: string) => {
+    if (value !== 'comfortable' && value !== 'compact') return; // ToggleGroup sends '' on deselect
+    if (value === density) return;
+    announceHold.current = { text: liveStatusRef.current, key: searchKeyRef.current };
+    setDensity(value);
+    writeStorage(storageKeys.searchView, value);
+    useSearchStore.setState({
+      limit: value === 'compact' ? COMPACT_PAGE_SIZE : DEFAULT_PAGE_SIZE,
+      offset: 0,
+    });
+  };
   // Returns focus to the results container when pagination changes the set.
   const handlePageChange = (newOffset: number) => {
     useSearchStore.getState().setPage(newOffset);
@@ -89,7 +114,7 @@ export function SearchPage() {
   const hasMapTextQuery = mapQuery.length > 0;
   const isMapSearchPending = hasMapTextQuery && (isLoadingMaps || isFetchingMaps);
   const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;
-  const searchKey = JSON.stringify(searchParams);
+  const searchKeyNow = JSON.stringify(searchParams);
   const catalogEmpty = !!data && data.features.length === 0;
   const mapMatchText = hasMapMatches ? t('mapMatchCount', { count: mapResults?.total ?? 0 }) : '';
   const catalogText = catalogEmpty
@@ -107,9 +132,32 @@ export function SearchPage() {
           : mapMatchText
             ? `${catalogText}${catalogEmpty ? '.' : ','} ${mapMatchText}`
             : catalogText;
+  let liveText = liveStatus;
+  let searchKey = searchKeyNow;
+  if (announceHold.current) {
+    if (isFetching) {
+      liveText = announceHold.current.text;
+      searchKey = announceHold.current.key;
+    } else {
+      announceHold.current = null;
+    }
+  }
+  const liveStatusRef = useRef(liveText);
+  const searchKeyRef = useRef(searchKey);
+  liveStatusRef.current = liveText;
+  searchKeyRef.current = searchKey;
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
+
+  // A limit or offset in the URL wins over the stored view; otherwise a stored
+  // compact view starts at its own page size. Runs after the URL restore.
+  useEffect(() => {
+    if (readStoredDensity() !== 'compact') return;
+    const urlParams = new URLSearchParams(window.location.search);
+    if (urlParams.has('limit') || urlParams.has('offset')) return;
+    useSearchStore.setState({ limit: COMPACT_PAGE_SIZE });
+  }, []);
 
   return (
     <>
@@ -140,7 +188,7 @@ export function SearchPage() {
               </SearchControls>
             </section>
 
-            <LiveAnnouncement text={liveStatus} trigger={searchKey} />
+            <LiveAnnouncement text={liveText} trigger={searchKey} />
 
             {isFetching && data && (
               <div aria-hidden="true" className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
@@ -152,8 +200,8 @@ export function SearchPage() {
             {isLoading && !data && (
               <div role="status" aria-live="polite" className="grid gap-3">
                 <span className="sr-only">{t('loadingDatasets')}</span>
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <DatasetCardSkeleton key={i} />
+                {Array.from({ length: isCompact ? 8 : 4 }).map((_, i) => (
+                  <DatasetCardSkeleton key={i} compact={isCompact} />
                 ))}
               </div>
             )}
@@ -269,12 +317,27 @@ export function SearchPage() {
                   <h2 className="text-sm font-medium text-foreground">
                     {t('catalogResults', { count: totalMatched })}
                   </h2>
+                  <ToggleGroup
+                    type="single"
+                    value={density}
+                    onValueChange={handleDensityChange}
+                    aria-label={t('density.label')}
+                  >
+                    <ToggleGroupItem value="comfortable" size="sm" className="gap-1.5" aria-label={t('density.comfortable')} title={t('density.comfortable')}>
+                      <StretchHorizontal className="size-3.5" aria-hidden="true" />
+                      <span className="hidden sm:inline">{t('density.comfortable')}</span>
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="compact" size="sm" className="gap-1.5" aria-label={t('density.compact')} title={t('density.compact')}>
+                      <AlignJustify className="size-3.5" aria-hidden="true" />
+                      <span className="hidden sm:inline">{t('density.compact')}</span>
+                    </ToggleGroupItem>
+                  </ToggleGroup>
                 </div>
                 <section aria-label={t('results', { defaultValue: 'Search results' })}>
-                  <ul className="space-y-3">
+                  <ul className={isCompact ? 'space-y-1.5' : 'space-y-3'}>
                     {data.features.map((feature) => (
                       <li key={feature.id}>
-                        <SearchResultCard feature={feature} />
+                        <SearchResultCard feature={feature} density={density} />
                       </li>
                     ))}
                   </ul>

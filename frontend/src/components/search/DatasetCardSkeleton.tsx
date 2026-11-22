@@ -1,7 +1,21 @@
 import { Card } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 
-export function DatasetCardSkeleton() {
+export function DatasetCardSkeleton({ compact = false }: { compact?: boolean }) {
+  if (compact) {
+    return (
+      <div className="block" data-testid="dataset-card-skeleton-compact">
+        <Card density="flush" className="overflow-hidden border-border/60">
+          <div className="flex items-center gap-3 px-3 py-2.5">
+            <Skeleton className="h-5 w-14 rounded-md" />
+            <Skeleton className="h-4 w-1/2" />
+            <Skeleton className="ms-auto hidden h-4 w-24 md:block" />
+            <Skeleton className="hidden h-4 w-20 md:block" />
+          </div>
+        </Card>
+      </div>
+    );
+  }
   return (
     <div className="block">
       <Card density="flush" className="overflow-hidden border-border/60">

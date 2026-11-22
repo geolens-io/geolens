@@ -140,7 +140,17 @@ function buildAutoDescription(
   return t('card.autoDesc.fallback');
 }
 
-export const SearchResultCard = memo(function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
+export type SearchResultDensity = 'comfortable' | 'compact';
+
+interface SearchResultCardProps {
+  feature: OGCRecordResponse;
+  density?: SearchResultDensity;
+}
+
+export const SearchResultCard = memo(function SearchResultCard({
+  feature,
+  density = 'comfortable',
+}: SearchResultCardProps) {
   const { t, i18n } = useTranslation('search');
   const queryClient = useQueryClient();
   const { properties } = feature;
@@ -157,7 +167,8 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   // (Bearer attached) and returns a blob URL; genuine file-missing 404s are
   // cached in quicklook-cache.ts for the session.
   const featureId = feature.id as string;
-  const enableQuicklook = !isCollection && !isTable && Boolean(properties.has_quicklook);
+  const isCompact = density === 'compact';
+  const enableQuicklook = !isCompact && !isCollection && !isTable && Boolean(properties.has_quicklook);
   const { url: quicklookBlobUrl } = useQuicklook(
     enableQuicklook ? featureId : null,
     256,
@@ -197,6 +208,24 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
 
   const showStatusBadge = !isCollection && !!recordStatus && recordStatus !== 'published';
 
+  const updatedLabel = hasMissingProvenance
+    ? properties.created
+      ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
+      : noUpdateMetadataLabel
+    : t('card.updatedFallback', { time: updatedRelative, defaultValue: 'Updated {{time}}' });
+  const updatedTitle = hasMissingProvenance ? createdTime.absolute : updatedAbsolute;
+  const statusBadge =
+    showStatusBadge && recordStatus ? (
+      <Badge
+        variant={statusVariants[recordStatus] ?? 'outline'}
+        className={statusStyles[recordStatus] ?? 'text-xs'}
+      >
+        {t(`card.status.${recordStatus}`, {
+          defaultValue: recordStatus.charAt(0).toUpperCase() + recordStatus.slice(1),
+        })}
+      </Badge>
+    ) : null;
+
   // Warms the detail query on hover/focus so navigation doesn't pay chunk and
   // query serially; prefetchQuery is a no-op when the data is fresh.
   const prefetchDetail = () => {
@@ -208,11 +237,75 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
     });
   };
 
+  if (isCompact) {
+    const compactSpec = isCollection
+      ? properties.dataset_count != null
+        ? t('collection.datasetCount', { count: properties.dataset_count, defaultValue: '{{count}} datasets' })
+        : ''
+      : isTable
+        ? properties.column_count
+          ? t('card.tableRowsColsJoined', {
+              rows: t('card.tableRows', { count: properties.feature_count ?? 0 }),
+              cols: t('card.tableCols', { count: properties.column_count }),
+            })
+          : t('card.tableRows', { count: properties.feature_count ?? 0 })
+        : cardSpecs
+            .filter((spec) => spec.label !== properties.crs)
+            .map((spec) => spec.label)
+            .join(' · ');
+    const compactUpdated = isCollection
+      ? properties.created
+        ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
+        : ''
+      : updatedLabel;
+    const cell = 'min-w-0 truncate text-xs text-muted-foreground empty:hidden md:empty:block';
+
+    return (
+      <Link
+        to={linkPath}
+        className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        data-testid="search-result-card"
+        data-density="compact"
+        onMouseEnter={prefetchDetail}
+        onFocus={prefetchDetail}
+      >
+        <Card density="flush" className="cursor-pointer overflow-hidden border-border/50 bg-card/95 transition-[color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:border-primary/20 group-hover:bg-accent/30">
+          <div className="grid gap-0.5 px-3 py-2 md:grid-cols-[auto_minmax(0,1fr)_minmax(8rem,13rem)_minmax(7rem,12rem)_minmax(6.5rem,8rem)] md:items-center md:gap-x-4">
+            <div className="flex min-w-0 items-center gap-2 md:contents">
+              <RecordTypeBadge recordType={recordType} />
+              <div className="flex min-w-0 flex-1 items-center gap-2">
+                <h3
+                  className="min-w-0 truncate text-sm font-semibold leading-tight text-foreground transition-colors group-hover:text-primary"
+                  title={properties.title}
+                >
+                  {properties.title}
+                </h3>
+                {statusBadge && <span className="shrink-0">{statusBadge}</span>}
+              </div>
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 md:contents">
+              <span className={`${cell} font-mono tracking-wide`} title={compactSpec || undefined} data-testid="dataset-card-specs">
+                {compactSpec}
+              </span>
+              <span className={cell} title={sourceOrganization || undefined} data-testid={sourceOrganization ? 'dataset-card-source' : undefined}>
+                {sourceOrganization}
+              </span>
+              <span className={`${cell} md:text-end`} title={isCollection ? createdTime.absolute : updatedTitle} data-testid="dataset-card-updated-attribution">
+                {compactUpdated}
+              </span>
+            </div>
+          </div>
+        </Card>
+      </Link>
+    );
+  }
+
   return (
     <Link
       to={linkPath}
       className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       data-testid="search-result-card"
+      data-density="comfortable"
       onMouseEnter={prefetchDetail}
       onFocus={prefetchDetail}
     >
@@ -311,30 +404,10 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
 
                   {/* Updated time */}
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    {hasMissingProvenance ? (
-                      <span data-testid="dataset-card-updated-attribution" title={createdTime.absolute}>
-                        {properties.created
-                          ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
-                          : noUpdateMetadataLabel}
-                      </span>
-                    ) : (
-                      <span
-                        data-testid="dataset-card-updated-attribution"
-                        title={updatedAbsolute}
-                      >
-                        {t('card.updatedFallback', { time: updatedRelative, defaultValue: 'Updated {{time}}' })}
-                      </span>
-                    )}
-                    {showStatusBadge && recordStatus && (
-                      <Badge
-                        variant={statusVariants[recordStatus] ?? 'outline'}
-                        className={statusStyles[recordStatus] ?? 'text-xs'}
-                      >
-                        {t(`card.status.${recordStatus}`, {
-                          defaultValue: recordStatus.charAt(0).toUpperCase() + recordStatus.slice(1),
-                        })}
-                      </Badge>
-                    )}
+                    <span data-testid="dataset-card-updated-attribution" title={updatedTitle}>
+                      {updatedLabel}
+                    </span>
+                    {statusBadge}
                   </div>
                 </div>
 

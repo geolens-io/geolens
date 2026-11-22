@@ -1,5 +1,6 @@
 import { act } from 'react';
 import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
+import userEvent from '@testing-library/user-event';
 
 const statusTexts = () => screen.queryAllByRole('status').map((node) => node.textContent);
 import { SearchPage } from '@/pages/SearchPage';
@@ -40,8 +41,8 @@ vi.mock('@/components/search/FilterPanel', () => ({
 }));
 
 vi.mock('@/components/search/SearchResultCard', () => ({
-  SearchResultCard: ({ feature }: { feature: OGCRecordResponse }) => (
-    <article data-testid="search-result-card">{feature.properties.title}</article>
+  SearchResultCard: ({ feature, density }: { feature: OGCRecordResponse; density?: string }) => (
+    <article data-testid="search-result-card" data-density={density ?? 'comfortable'}>{feature.properties.title}</article>
   ),
 }));
 
@@ -158,6 +159,135 @@ describe('SearchPage', () => {
       error: null,
       isFetching: false,
     } as ReturnType<typeof useSearchResults>);
+  });
+
+  describe('result density', () => {
+    const densities = () => screen.getAllByTestId('search-result-card').map((c) => c.getAttribute('data-density'));
+
+    beforeEach(() => {
+      window.history.replaceState(null, '', '/');
+    });
+
+    it('defaults to comfortable rows and leaves the page size alone', () => {
+      render(<SearchPage />, { route: '/' });
+
+      expect(densities()).toEqual(['comfortable', 'comfortable']);
+      expect(screen.getByRole('radio', { name: 'Comfortable' })).toBeChecked();
+      expect(useSearchStore.getState().limit).toBe(10);
+    });
+
+    it('switches to compact, stores the choice and moves to 25 per page from the first page', async () => {
+      act(() => useSearchStore.setState({ offset: 20 }));
+      render(<SearchPage />, { route: '/' });
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Compact' }));
+
+      expect(densities()).toEqual(['compact', 'compact']);
+      expect(screen.getByRole('radio', { name: 'Compact' })).toBeChecked();
+      expect(localStorage.getItem('geolens-search-view')).toBe('compact');
+      expect(useSearchStore.getState().limit).toBe(25);
+      expect(useSearchStore.getState().offset).toBe(0);
+      expect(screen.getByRole('radio', { name: 'Compact' })).toHaveFocus();
+    });
+
+    it('returns to 10 per page when switching back to comfortable', async () => {
+      localStorage.setItem('geolens-search-view', 'compact');
+      render(<SearchPage />, { route: '/' });
+      act(() => useSearchStore.setState({ offset: 25 }));
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Comfortable' }));
+
+      expect(densities()).toEqual(['comfortable', 'comfortable']);
+      expect(localStorage.getItem('geolens-search-view')).toBe('comfortable');
+      expect(useSearchStore.getState().limit).toBe(10);
+      expect(useSearchStore.getState().offset).toBe(0);
+    });
+
+    it('uses a stored compact choice on load, with 25 per page', () => {
+      localStorage.setItem('geolens-search-view', 'compact');
+      render(<SearchPage />, { route: '/' });
+
+      expect(densities()).toEqual(['compact', 'compact']);
+      expect(useSearchStore.getState().limit).toBe(25);
+    });
+
+    it.each(['?limit=10', '?offset=20', '?q=rivers&limit=50'])(
+      'keeps the page size from the URL (%s) when the stored view is compact',
+      (search) => {
+        window.history.replaceState(null, '', `/${search}`);
+        const limitFromUrl = new URLSearchParams(search).get('limit');
+        if (limitFromUrl) act(() => useSearchStore.setState({ limit: Number(limitFromUrl) }));
+        localStorage.setItem('geolens-search-view', 'compact');
+        render(<SearchPage />, { route: '/' });
+
+        expect(densities()).toEqual(['compact', 'compact']);
+        expect(useSearchStore.getState().limit).toBe(limitFromUrl ? Number(limitFromUrl) : 10);
+      },
+    );
+
+    it('starts compact at 25 when the URL has other params but no limit or offset', () => {
+      window.history.replaceState(null, '', '/?q=rivers');
+      localStorage.setItem('geolens-search-view', 'compact');
+      render(<SearchPage />, { route: '/' });
+
+      expect(useSearchStore.getState().limit).toBe(25);
+    });
+
+    it('still works when storage throws', async () => {
+      const getItem = vi.spyOn(Storage.prototype, 'getItem').mockImplementation(() => {
+        throw new Error('denied');
+      });
+      const setItem = vi.spyOn(Storage.prototype, 'setItem').mockImplementation(() => {
+        throw new Error('denied');
+      });
+      try {
+        render(<SearchPage />, { route: '/' });
+        expect(densities()).toEqual(['comfortable', 'comfortable']);
+
+        await userEvent.click(screen.getByRole('radio', { name: 'Compact' }));
+        expect(densities()).toEqual(['compact', 'compact']);
+        expect(useSearchStore.getState().limit).toBe(25);
+      } finally {
+        getItem.mockRestore();
+        setItem.mockRestore();
+      }
+    });
+
+    it('labels the group and is operable from the keyboard', async () => {
+      render(<SearchPage />, { route: '/' });
+
+      expect(screen.getByRole('radiogroup', { name: 'Result view' })).toBeInTheDocument();
+      screen.getByRole('radio', { name: 'Comfortable' }).focus();
+      await userEvent.keyboard('{ArrowRight}{Enter}');
+
+      expect(screen.getByRole('radio', { name: 'Compact' })).toBeChecked();
+    });
+
+    it('does not announce the result count again when the view changes', async () => {
+      render(<SearchPage />, { route: '/' });
+      await waitFor(() => expect(statusTexts()).toContain('12 catalog results'));
+
+      mockUseSearchResults.mockReturnValue({
+        data: mockUseSearchResults().data,
+        isLoading: false,
+        error: null,
+        isFetching: true,
+      } as ReturnType<typeof useSearchResults>);
+      await userEvent.click(screen.getByRole('radio', { name: 'Compact' }));
+
+      expect(statusTexts()).toContain('12 catalog results');
+      expect(statusTexts()).not.toContain('Updating results...');
+    });
+
+    it('shows compact skeletons while loading in compact mode', () => {
+      localStorage.setItem('geolens-search-view', 'compact');
+      mockUseSearchResults.mockReturnValue({
+        data: undefined, isLoading: true, error: null, isFetching: true,
+      } as unknown as ReturnType<typeof useSearchResults>);
+      render(<SearchPage />, { route: '/' });
+
+      expect(screen.getAllByTestId('dataset-card-skeleton')).toHaveLength(8);
+    });
   });
 
   it('renders a compact search workspace for anonymous users', () => {

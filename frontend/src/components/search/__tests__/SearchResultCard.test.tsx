@@ -1,7 +1,10 @@
-import { render, screen, within } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
+import { getDataset } from '@/api/datasets';
 import type { OGCRecordResponse } from '@/types/api';
 import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
 import { SearchResultCard } from '../SearchResultCard';
+
+vi.mock('@/api/datasets', () => ({ getDataset: vi.fn(() => Promise.resolve({})) }));
 
 vi.mock('@/components/maps/hooks/use-quicklook', () => ({
   useQuicklook: vi.fn(() => ({ url: null, status: 'idle' })),
@@ -828,6 +831,100 @@ describe('SearchResultCard', () => {
       );
 
       expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Compact density', () => {
+    const compact = (feature: OGCRecordResponse) =>
+      render(<SearchResultCard feature={feature} density="compact" />);
+
+    it('shows type, title, spec, source and updated date on one row, without description or tags', () => {
+      compact(makeFeature());
+
+      const link = screen.getByTestId('search-result-card');
+      expect(link).toHaveAttribute('data-density', 'compact');
+      expect(link).toHaveAttribute('href', '/datasets/dataset-1');
+      const title = within(link).getByRole('heading', { level: 3, name: 'World Countries' });
+      expect(title).toHaveAttribute('title', 'World Countries');
+      expect(within(link).getByText('Vector')).toBeInTheDocument();
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('195 features');
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('Polygon');
+      expect(screen.getByTestId('dataset-card-source')).toHaveTextContent('Natural Earth');
+      expect(screen.getByTestId('dataset-card-updated-attribution')).toHaveTextContent(/^Updated /);
+      expect(screen.queryByTestId('dataset-card-description')).not.toBeInTheDocument();
+      expect(screen.queryByText('boundaries')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('table-thumbnail-icon')).not.toBeInTheDocument();
+    });
+
+    it('defaults to the comfortable layout', () => {
+      render(<SearchResultCard feature={makeFeature()} />);
+
+      expect(screen.getByTestId('search-result-card')).toHaveAttribute('data-density', 'comfortable');
+      expect(screen.getByTestId('dataset-card-description')).toBeInTheDocument();
+    });
+
+    it('shows the status badge only when the record is not published', () => {
+      const { unmount } = render(
+        <SearchResultCard feature={makeFeature({ record_status: 'published' })} density="compact" />,
+      );
+      expect(screen.queryByText('Published')).not.toBeInTheDocument();
+      expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+      unmount();
+
+      compact(makeFeature({ record_status: 'draft' }));
+      expect(screen.getByText('Draft')).toBeInTheDocument();
+    });
+
+    it('omits the source line when the dataset has no source organization', () => {
+      compact(makeFeature({ source_organization: null }));
+
+      expect(screen.queryByTestId('dataset-card-source')).not.toBeInTheDocument();
+    });
+
+    it('shows rows and columns for a table', () => {
+      compact(makeFeature({ record_type: 'table', geometry_type: null, feature_count: 42, column_count: 6 }));
+
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('42 rows');
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('6 cols');
+    });
+
+    it('shows raster bands in the spec', () => {
+      compact(makeFeature({ record_type: 'raster_dataset', geometry_type: null, band_count: 3, feature_count: null }));
+
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('3 bands');
+    });
+
+    it('shows a collection as badge, title and dataset count', () => {
+      compact(
+        makeFeature(
+          {
+            type: 'collection',
+            title: 'My Collection',
+            record_type: 'collection',
+            dataset_count: 7,
+            description: 'A set of datasets',
+            source_organization: 'Ignored',
+            record_status: 'draft',
+          },
+          { id: 'coll-1', geometry: null },
+        ),
+      );
+
+      const link = screen.getByTestId('search-result-card');
+      expect(link).toHaveAttribute('href', '/collections/coll-1');
+      expect(within(link).getByRole('heading', { name: 'My Collection' })).toBeInTheDocument();
+      expect(within(link).getByText('7 datasets')).toBeInTheDocument();
+      expect(screen.queryByText('A set of datasets')).not.toBeInTheDocument();
+      expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+    });
+
+    it('prefetches the dataset on hover and does not fetch a quicklook', async () => {
+      compact(makeFeature({ has_quicklook: true }));
+
+      fireEvent.mouseEnter(screen.getByTestId('search-result-card'));
+
+      await waitFor(() => expect(getDataset).toHaveBeenCalledWith('dataset-1'));
+      expect(useQuicklook).toHaveBeenCalledWith(null, 256, null);
     });
   });
 });
