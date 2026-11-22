@@ -412,7 +412,7 @@ _WRITTEN = hashlib.sha256(_BLOCK.encode()).hexdigest()
 def test_the_block_last_written_is_replaced_and_the_users_text_kept():
     existing = f"{_BLOCK}\n---\nMy notes\n---\nstill mine"
 
-    notes = managed_notes(existing, ["Published from new", "a: b"], _WRITTEN)
+    notes = managed_notes(existing, ["Published from new", "a: b"], {_WRITTEN})
 
     assert notes.text == "Published from new\na: b\n---\nMy notes\n---\nstill mine"
     assert notes.digest == hashlib.sha256(b"Published from new\na: b").hexdigest()
@@ -441,7 +441,7 @@ def test_the_block_last_written_is_replaced_and_the_users_text_kept():
     ],
 )
 def test_notes_the_last_publish_didnt_write_are_kept_whole(existing, written):
-    notes = managed_notes(existing, ["P"], written)
+    notes = managed_notes(existing, ["P"], () if written is None else {written})
 
     assert notes.text == f"P\n---\n{existing}"
 
@@ -449,18 +449,18 @@ def test_notes_the_last_publish_didnt_write_are_kept_whole(existing, written):
 def test_a_block_saved_back_with_windows_line_endings_is_still_ours():
     existing = _BLOCK.replace("\n", "\r\n") + "\r\n---\r\nMine\r\n"
 
-    assert managed_notes(existing, ["P"], _WRITTEN).text == "P\n---\nMine\r\n"
+    assert managed_notes(existing, ["P"], {_WRITTEN}).text == "P\n---\nMine\r\n"
 
 
 def test_a_block_the_builder_trimmed_is_still_ours():
-    assert managed_notes(f"{_BLOCK}\n---", ["P"], _WRITTEN).text == "P\n---\n"
+    assert managed_notes(f"{_BLOCK}\n---", ["P"], {_WRITTEN}).text == "P\n---\n"
 
 
 def test_a_long_loss_report_is_cut_and_the_users_text_kept_whole():
     user = "u" * 30_000
     lines = ["Published", *(f"layers[{i}]: kind (detail)" for i in range(5_000))]
 
-    notes = managed_notes(f"{_BLOCK}\n---\n{user}", lines, _WRITTEN).text
+    notes = managed_notes(f"{_BLOCK}\n---\n{user}", lines, {_WRITTEN}).text
 
     assert len(notes) <= NOTES_LIMIT
     assert notes.endswith(f"\n---\n{user}")
@@ -476,7 +476,7 @@ def test_notes_at_the_limit_keep_the_users_text_and_drop_the_block(over):
     line = "Published from geolens-qgis 0.2.0 on 2026-11-22"
     user = "u" * (NOTES_LIMIT - len(line) - len("\n---\n") + over)
 
-    notes = managed_notes(user, [line, "a: loss"], None)
+    notes = managed_notes(user, [line, "a: loss"], ())
 
     if over == 0:
         assert (notes.text, notes.digest is not None) == (f"{line}\n---\n{user}", True)
@@ -795,3 +795,41 @@ async def test_decomposed_text_in_the_block_still_matches_on_the_next_publish(
     assert notes.count("Published from") == 1
     assert notes.split("\n").count("---") == 1
     assert "Café" in notes
+
+
+async def test_the_notes_block_is_recognised_whatever_order_the_clocks_give(
+    test_db_session, clean_tables
+):
+    """Publish times come from the API hosts, so a later publish may carry
+    an earlier time; its block is still the one the notes hold."""
+    from datetime import timedelta
+
+    from sqlalchemy import update
+
+    from app.modules.catalog.maps.models import MapEditHistoryEvent
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (
+        await _apply(test_db_session, admin, _publish(dataset_id, loss_report=_LOSS))
+    ).maps
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    first, second = [
+        e
+        for e in await _history(test_db_session, created.map_id)
+        if e.action == "manifest.publish"
+    ]
+    assert first.details["notes_digest"] != second.details["notes_digest"]
+    # The second publish's host clock ran behind the first's.
+    await test_db_session.execute(
+        update(MapEditHistoryEvent)
+        .where(MapEditHistoryEvent.id == second.id)
+        .values(created_at=first.created_at - timedelta(minutes=5))
+    )
+    await test_db_session.commit()
+
+    await _apply(test_db_session, admin, _publish(dataset_id))
+
+    notes = (await _map_row(test_db_session, created.map_id)).notes
+    assert notes.count("Published from") == 1
+    assert notes.split("\n").count("---") == 1

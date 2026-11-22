@@ -10,7 +10,7 @@ from __future__ import annotations
 import hashlib
 import unicodedata
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 from dataclasses import dataclass
 from datetime import date
 
@@ -155,26 +155,35 @@ def _digest(block: str) -> str:
     return hashlib.sha256(block.encode()).hexdigest()
 
 
-async def last_notes_digest(session: AsyncSession, map_id: uuid.UUID) -> str | None:
-    """The digest of the notes block the map's last publish wrote."""
+async def written_notes_digests(
+    session: AsyncSession, map_id: uuid.UUID
+) -> frozenset[str]:
+    """The digests of every notes block a publish of the map wrote.
+
+    A set, not the last one: event times come from the API hosts, so the
+    newest event by time need not be the publish whose block the notes hold.
+    """
     event = MapEditHistoryEvent
-    return await session.scalar(
-        select(event.details["notes_digest"].astext)
-        .where(event.map_id == map_id, event.action == PUBLISH_ACTION)
-        .order_by(event.created_at.desc())
-        .limit(1)
+    digest = event.details["notes_digest"].astext
+    rows = await session.scalars(
+        select(digest).where(
+            event.map_id == map_id,
+            event.action == PUBLISH_ACTION,
+            digest.is_not(None),
+        )
     )
+    return frozenset(rows)
 
 
-def _users_notes(existing: str, written_digest: str | None) -> str:
-    """``existing`` without the block the last publish wrote, when the notes
-    still start with that block, unchanged, and its divider. Anything else is
+def _users_notes(existing: str, written: Collection[str]) -> str:
+    """``existing`` without its leading block when that block, unchanged, is
+    one a publish of the map wrote, followed by its divider. Anything else is
     all the user's."""
     rows = existing.splitlines(keepends=True)
     for index, row in enumerate(rows):
         if row.rstrip("\r\n") == NOTES_SEPARATOR:
             block = "".join(rows[:index]).replace("\r\n", "\n").removesuffix("\n")
-            if written_digest is not None and _digest(block) == written_digest:
+            if _digest(block) in written:
                 return "".join(rows[index + 1 :])
             break
     return existing
@@ -183,13 +192,13 @@ def _users_notes(existing: str, written_digest: str | None) -> str:
 def managed_notes(
     existing: str | None,
     lines: Sequence[str],
-    written_digest: str | None,
+    written: Collection[str],
     limit: int = NOTES_LIMIT,
 ) -> ManagedNotes:
     """The notes with a new block of ``lines`` above the user's.
 
-    The user's notes are ``existing`` less the block the last publish wrote
-    (``written_digest``), and are never cut. The block takes the room the
+    The user's notes are ``existing`` less a leading block whose digest is in
+    ``written``, the blocks the map's publishes wrote, and are never cut. The block takes the room the
     limit leaves them: the first line and as many after it as fit, with a
     count of the ones left out. No block is written when not even the first
     line and the divider fit.
@@ -197,7 +206,7 @@ def managed_notes(
     Fitted and hashed as the notes field stores them, NFC-normalized, so the
     digest matches the stored block on the next publish.
     """
-    user = normalize_nfc(_users_notes(existing or "", written_digest))
+    user = normalize_nfc(_users_notes(existing or "", written))
     lines = [normalize_nfc(line) for line in lines]
     tail = f"\n{NOTES_SEPARATOR}\n{user}"
     shown = _fitting(lines, limit - len(tail))

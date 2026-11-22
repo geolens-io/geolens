@@ -42,13 +42,13 @@ from app.modules.catalog.maps.manifest_columns import (
 from app.modules.catalog.maps.manifest_layers import plan_layer_stack
 from app.modules.catalog.maps.manifest_republish import (
     ManagedNotes,
-    last_notes_digest,
     loss_lines,
     managed_notes,
     publish_line,
     store_manifest_thumbnail,
     styling_applies,
     styling_edited_since_publish,
+    written_notes_digests,
 )
 from app.modules.catalog.maps.manifest_messages import (
     NO_MAP_PERMISSION,
@@ -573,7 +573,11 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             publish_line(request.client, datetime.now(UTC).date()),
             *(loss_lines(entry.loss_report) if styling_applied else ()),
         ],
-        await last_notes_digest(session, map_obj.id) if map_obj is not None else None,
+        (
+            await written_notes_digests(session, map_obj.id)
+            if map_obj is not None
+            else frozenset()
+        ),
     )
     if plan.notes.digest is None:
         messages.append(
