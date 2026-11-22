@@ -1424,6 +1424,46 @@ async def test_search_collections_counted_in_number_matched(
 
 
 @pytest.mark.anyio
+async def test_search_collection_feature_reports_its_update_time(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    clean_tables,
+):
+    """A collection match carries the collection's own update time as `updated`."""
+    session = test_db_session
+    admin_id = await get_user_id(session, "admin")
+    token = f"gcut{uuid.uuid4().hex[:8]}"
+    created_at = datetime(2026, 1, 1, tzinfo=timezone.utc)
+    updated_at = datetime(2026, 3, 1, 12, 30, tzinfo=timezone.utc)
+    session.add(
+        Collection(
+            name=f"{token} Collection",
+            description="Edited after it was made",
+            created_by=admin_id,
+            created_at=created_at,
+            updated_at=updated_at,
+        )
+    )
+    await session.commit()
+
+    resp = await client.get(
+        "/search/datasets/",
+        params={"q": token},
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 200
+    [properties] = [
+        f["properties"]
+        for f in resp.json()["features"]
+        if f["properties"].get("type") == "collection"
+    ]
+    assert datetime.fromisoformat(properties["updated"]) == updated_at
+    assert datetime.fromisoformat(properties["created"]) == created_at
+
+
+@pytest.mark.anyio
 async def test_search_collection_feature_license_from_members(
     client: AsyncClient,
     admin_auth_header: dict,

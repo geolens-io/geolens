@@ -383,12 +383,12 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
             {/* Collection footer */}
             {isCollection && (
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                {properties.created ? (
+                {properties.updated ? (
                   <span
                     data-testid="dataset-card-updated-attribution"
-                    title={createdTime.absolute}
+                    title={updatedTime.absolute}
                   >
-                    {t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })}
+                    {t('card.updatedFallback', { time: updatedTime.relative, defaultValue: 'Updated {{time}}' })}
                   </span>
                 ) : (
                   <span />
