@@ -15,8 +15,6 @@ from PIL import Image, UnidentifiedImageError
 
 from app.modules.catalog.stories import images
 
-FORMATS = ("PNG", "JPEG")
-
 
 def _png_bytes() -> bytes:
     buf = BytesIO()
@@ -31,20 +29,20 @@ def _jpeg_bytes() -> bytes:
 
 
 async def test_verify_image_bytes_accepts_png_and_jpeg() -> None:
-    await images.verify_image_bytes(_png_bytes(), FORMATS)
-    await images.verify_image_bytes(_jpeg_bytes(), FORMATS)
+    await images.verify_image_bytes(_png_bytes())
+    await images.verify_image_bytes(_jpeg_bytes())
 
 
 async def test_verify_image_bytes_rejects_random_bytes() -> None:
     with pytest.raises((UnidentifiedImageError, OSError, SyntaxError, ValueError)):
-        await images.verify_image_bytes(b"this is not an image" * 20, FORMATS)
+        await images.verify_image_bytes(b"this is not an image" * 20)
 
 
 async def test_verify_image_bytes_rejects_truncated_image() -> None:
     with pytest.raises((UnidentifiedImageError, OSError, SyntaxError, ValueError)):
-        await images.verify_image_bytes(_png_bytes()[:10], FORMATS)
+        await images.verify_image_bytes(_png_bytes()[:10])
     with pytest.raises((UnidentifiedImageError, OSError, SyntaxError, ValueError)):
-        await images.verify_image_bytes(_jpeg_bytes()[:20], FORMATS)
+        await images.verify_image_bytes(_jpeg_bytes()[:20])
 
 
 async def test_verify_image_bytes_runs_off_the_event_loop(
@@ -54,12 +52,12 @@ async def test_verify_image_bytes_runs_off_the_event_loop(
     seen_threads: set[int] = set()
     original = images._verify_image
 
-    def _recording(data: bytes, formats: tuple[str, ...]) -> str | None:
+    def _recording(data: bytes) -> None:
         seen_threads.add(threading.get_ident())
-        return original(data, formats)
+        original(data)
 
     monkeypatch.setattr(images, "_verify_image", _recording)
-    await images.verify_image_bytes(_png_bytes(), FORMATS)
+    await images.verify_image_bytes(_png_bytes())
     assert seen_threads, "verify did not run"
     assert threading.get_ident() not in seen_threads
 

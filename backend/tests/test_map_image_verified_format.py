@@ -2,10 +2,10 @@
 
 The thumbnail and social-card routes share ``store_map_image``: an image
 whose header declares dimensions past Pillow's decompression-bomb limit is
-an invalid image (400, nothing stored), and the stored extension follows
-the format the bytes carry. Only the PNG and JPEG openers see the bytes, so
-any other format is refused the same way, including one whose Pillow parser
-raises an error the route doesn't handle.
+an invalid image (400, nothing stored), as is one whose Pillow parser
+raises an error of its own. PNG and JPEG are stored under the extension of
+the format the bytes carry; any other format Pillow verifies is still
+accepted and keeps the extension its declared media type gives.
 """
 
 from __future__ import annotations
@@ -131,51 +131,12 @@ async def test_oversized_dimensions_answer_400_and_store_nothing(
     assert await _objects(prefix, map_id) == stored_before
 
 
-@pytest.mark.parametrize(("route", "prefix", "column"), ROUTES)
-async def test_png_declared_as_jpeg_is_stored_as_png(
-    client: AsyncClient,
-    admin_auth_header: dict,
-    test_db_session,
-    route: str,
-    prefix: str,
-    column: str,
-) -> None:
-    map_id = await _create_map(client, admin_auth_header)
-
-    resp = await client.put(
-        f"/maps/{map_id}/{route}/",
-        json={"data_uri": _data_uri("image/jpeg", _image_bytes("PNG"))},
-        headers=admin_auth_header,
+async def _upload(
+    client: AsyncClient, headers: dict, map_id: str, route: str, data_uri: str
+):
+    return await client.put(
+        f"/maps/{map_id}/{route}/", json={"data_uri": data_uri}, headers=headers
     )
-
-    assert resp.status_code == 204, resp.text
-    key = await _pointer(test_db_session, map_id, column)
-    assert key is not None
-    assert key.endswith(".png"), key
-    assert await _objects(prefix, map_id) == {key}
-
-
-@pytest.mark.parametrize(("route", "prefix", "column"), ROUTES)
-async def test_gif_declared_as_png_answers_400(
-    client: AsyncClient,
-    admin_auth_header: dict,
-    test_db_session,
-    route: str,
-    prefix: str,
-    column: str,
-) -> None:
-    map_id = await _create_map(client, admin_auth_header)
-
-    resp = await client.put(
-        f"/maps/{map_id}/{route}/",
-        json={"data_uri": _data_uri("image/png", _image_bytes("GIF"))},
-        headers=admin_auth_header,
-    )
-
-    assert resp.status_code == 400, resp.text
-    assert "payload is not a valid image" in resp.json()["detail"]
-    assert await _pointer(test_db_session, map_id, column) is None
-    assert await _objects(prefix, map_id) == set()
 
 
 @pytest.mark.parametrize(("route", "prefix", "column"), ROUTES)
@@ -189,10 +150,12 @@ async def test_dds_parser_error_answers_400(
 ) -> None:
     map_id = await _create_map(client, admin_auth_header)
 
-    resp = await client.put(
-        f"/maps/{map_id}/{route}/",
-        json={"data_uri": _data_uri("image/png", _dds_without_pixel_format_flags())},
-        headers=admin_auth_header,
+    resp = await _upload(
+        client,
+        admin_auth_header,
+        map_id,
+        route,
+        _data_uri("image/png", _dds_without_pixel_format_flags()),
     )
 
     assert resp.status_code == 400, resp.text
@@ -201,24 +164,83 @@ async def test_dds_parser_error_answers_400(
     assert await _objects(prefix, map_id) == set()
 
 
+async def _stored_key(
+    client: AsyncClient,
+    headers: dict,
+    session,
+    route: str,
+    prefix: str,
+    column: str,
+    data_uri: str,
+) -> str:
+    map_id = await _create_map(client, headers)
+    resp = await _upload(client, headers, map_id, route, data_uri)
+    assert resp.status_code == 204, resp.text
+    key = await _pointer(session, map_id, column)
+    assert key is not None
+    assert await _objects(prefix, map_id) == {key}
+    return key
+
+
 @pytest.mark.parametrize(("route", "prefix", "column"), ROUTES)
-async def test_mpo_jpeg_is_stored_as_jpg(
+@pytest.mark.parametrize(
+    ("image_format", "declared", "ext"),
+    [
+        pytest.param("PNG", "image/jpeg", ".png", id="png-declared-jpeg"),
+        pytest.param("JPEG", "image/png", ".jpg", id="jpeg-declared-png"),
+        pytest.param("MPO", "image/png", ".jpg", id="mpo-declared-png"),
+    ],
+)
+async def test_png_and_jpeg_are_stored_under_their_verified_extension(
     client: AsyncClient,
     admin_auth_header: dict,
     test_db_session,
     route: str,
     prefix: str,
     column: str,
+    image_format: str,
+    declared: str,
+    ext: str,
 ) -> None:
-    map_id = await _create_map(client, admin_auth_header)
-
-    resp = await client.put(
-        f"/maps/{map_id}/{route}/",
-        json={"data_uri": _data_uri("image/jpeg", _mpo_bytes())},
-        headers=admin_auth_header,
+    data = _mpo_bytes() if image_format == "MPO" else _image_bytes(image_format)
+    key = await _stored_key(
+        client,
+        admin_auth_header,
+        test_db_session,
+        route,
+        prefix,
+        column,
+        _data_uri(declared, data),
     )
+    assert key.endswith(ext), key
 
-    assert resp.status_code == 204, resp.text
-    key = await _pointer(test_db_session, map_id, column)
-    assert key is not None
-    assert key.endswith(".jpg"), key
+
+@pytest.mark.parametrize(("route", "prefix", "column"), ROUTES)
+@pytest.mark.parametrize(
+    ("declared", "ext"),
+    [
+        pytest.param("image/gif", ".png", id="declared-gif"),
+        pytest.param("image/png", ".png", id="declared-png"),
+        pytest.param("image/jpeg", ".jpg", id="declared-jpeg"),
+    ],
+)
+async def test_other_formats_are_accepted_under_the_declared_extension(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    route: str,
+    prefix: str,
+    column: str,
+    declared: str,
+    ext: str,
+) -> None:
+    key = await _stored_key(
+        client,
+        admin_auth_header,
+        test_db_session,
+        route,
+        prefix,
+        column,
+        _data_uri(declared, _image_bytes("GIF")),
+    )
+    assert key.endswith(ext), key

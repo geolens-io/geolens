@@ -850,8 +850,8 @@ class _MapImageKind:
     publish_key_target: str
 
 
-# The Pillow openers map image uploads accept, and the extension each stores.
-_MAP_IMAGE_EXTENSIONS = {"PNG": "png", "JPEG": "jpg"}
+# Pillow names a JPEG that carries a multi-picture segment MPO.
+_MAP_IMAGE_EXTENSIONS = {"PNG": "png", "JPEG": "jpg", "MPO": "jpg"}
 
 _MAP_IMAGE_KINDS = {
     "thumbnail": _MapImageKind(
@@ -911,7 +911,7 @@ async def store_map_image(
             detail="Body must be a base64-encoded data URI",
         )
     try:
-        _, encoded = data_uri.split(",", 1)
+        header, encoded = data_uri.split(",", 1)
         image_bytes = base64.b64decode(encoded)
     except (ValueError, UnicodeDecodeError):
         raise HTTPException(
@@ -919,19 +919,11 @@ async def store_map_image(
             detail="Invalid data URI or base64 encoding",
         )
 
-    # Image.verify() rejects random bytes and truncated images before
-    # anything is stored, and the extension follows the format the bytes
-    # declare, not the data URI's media type. It runs on the story decode
-    # threads, never on the event loop.
+    # Image.verify() rejects random bytes, truncated images and unreadable
+    # headers before anything is stored. It runs on the story decode threads,
+    # never on the event loop.
     try:
-        image_format = await verify_image_bytes(
-            image_bytes, tuple(_MAP_IMAGE_EXTENSIONS)
-        )
-        # The JPEG opener names a JPEG with a multi-picture segment MPO.
-        opener = "JPEG" if image_format == "MPO" else image_format
-        ext = _MAP_IMAGE_EXTENSIONS.get(opener or "")
-        if ext is None:
-            raise ValueError(f"Unsupported image format {image_format}")
+        image_format = await verify_image_bytes(image_bytes)
     except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
         logger.warning(
             f"{kind}_upload_invalid_image",
@@ -944,6 +936,11 @@ async def store_map_image(
             detail=f"{spec.label} payload is not a valid image",
         )
 
+    # PNG and JPEG are stored under the extension of the format the bytes
+    # carry; any other format keeps the one its declared media type gives.
+    ext = _MAP_IMAGE_EXTENSIONS.get(
+        image_format or "", "jpg" if "jpeg" in header else "png"
+    )
     # A fresh key per write, never one of two names per map.
     storage_key = new_map_asset_key(spec.storage_prefix, map_id, ext)
 

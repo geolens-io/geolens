@@ -356,36 +356,32 @@ def decode_story_image(data: bytes, plan: DecodePlan) -> StoryImage:
         raise _unreadable() from exc
 
 
-def _verify_image(data: bytes, formats: tuple[str, ...]) -> str | None:
+def _verify_image(data: bytes) -> str | None:
     """Return the Pillow format the header names, or raise when the bytes
-    do not open as a readable image in one of ``formats``. Blocking."""
+    do not open as a readable image. Blocking."""
     try:
-        # Only the named openers see the bytes; Pillow's other parsers raise
-        # errors outside the ones callers handle.
-        with Image.open(BytesIO(data), formats=formats) as image:
+        with Image.open(BytesIO(data)) as image:
             image_format = image.format
             image.verify()
-    except Image.DecompressionBombError as exc:
-        # Raised from open() on absurd header dimensions, and not an OSError.
-        raise ValueError("Image dimensions are too large") from exc
+    except (OSError, SyntaxError, ValueError):
+        # UnidentifiedImageError is an OSError; callers handle these as is.
+        raise
+    except Exception as exc:  # broad: Pillow's parsers, DecompressionBombError included, raise varied errors on hostile bytes
+        raise ValueError("Image could not be read") from exc
     return image_format
 
 
-async def verify_image_bytes(data: bytes, formats: tuple[str, ...]) -> str | None:
-    """Check the bytes are a readable image in one of the Pillow opener
-    ``formats``, on the decode threads, and return its Pillow format name.
-    The name can differ from the opener: the JPEG opener returns ``"MPO"``
-    for a JPEG with a multi-picture segment.
+async def verify_image_bytes(data: bytes) -> str | None:
+    """Check the bytes are a readable image, on the decode threads, and
+    return its Pillow format name (``"PNG"``, ``"JPEG"``, ...).
 
-    Blocking Pillow work only; raises the Pillow error, or ``ValueError``
-    for dimensions past Pillow's decompression-bomb limit, when the bytes
-    are not a readable image. A cancelled caller waits for the check to
-    finish, as in prepare_story_image.
+    Blocking Pillow work only; raises ``UnidentifiedImageError``,
+    ``OSError``, ``SyntaxError`` or ``ValueError`` when the bytes are not a
+    readable image. A cancelled caller waits for the check to finish, as in
+    prepare_story_image.
     """
     loop = asyncio.get_running_loop()
-    return await await_draining(
-        loop.run_in_executor(_decoder, _verify_image, data, formats)
-    )
+    return await await_draining(loop.run_in_executor(_decoder, _verify_image, data))
 
 
 async def prepare_story_image(data: bytes) -> StoryImage:
