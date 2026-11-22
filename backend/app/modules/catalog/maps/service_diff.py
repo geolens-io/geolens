@@ -27,6 +27,7 @@ from app.modules.catalog.maps.schemas import (
 from app.modules.catalog.maps.service_layers import (
     bulk_check_dataset_access,
     lock_map_layers,
+    lock_new_layer_datasets,
     touch_map,
 )
 from app.modules.catalog.maps.service_shared import (
@@ -151,6 +152,11 @@ async def apply_layer_diff(
     Refuses (422) a filter that puts a dashboard widget past the aggregate's limits.
     """
     await lock_map_layers(session, map_id)
+    # A diff can't repoint a layer, so only the added layers reference a
+    # dataset anew.
+    added_dataset_ids = [layer_data["dataset_id"] for layer_data in added]
+    if await lock_new_layer_datasets(session, added_dataset_ids):
+        raise PermissionError("Cannot access one or more layer datasets")
     # Read the stored dashboard and filters, not the copies the caller loaded.
     fresh = {"populate_existing": True}
     result = await session.execute(
@@ -186,7 +192,6 @@ async def apply_layer_diff(
     if final_layer_count > _MAX_LAYERS_PER_MAP:
         raise ValueError(f"Layer count exceeds maximum {_MAX_LAYERS_PER_MAP}")
 
-    added_dataset_ids = [layer_data["dataset_id"] for layer_data in added]
     accessible = await bulk_check_dataset_access(
         session, added_dataset_ids, user, user_roles
     )
@@ -357,7 +362,9 @@ async def _replace_layers(
     A stored layer ``layers`` leaves out is kept, in its place in the stack,
     when map reads hide its dataset from ``user`` or it is in
     ``keep_layer_ids``.
-    Applies default styles if paint/layout is None. Flushes but does NOT commit.
+    Applies default styles if paint/layout is None. Raises 403 when a dataset
+    a row is inserted or repointed onto is gone once the save holds it.
+    Flushes but does NOT commit.
 
     Returns ``{sent id: new id}`` for the rows this call created from a sent
     id. An id sent for two new layers is left out, since it names neither.
@@ -369,6 +376,26 @@ async def _replace_layers(
     )
     stored = list(existing_result.scalars().all())
     existing_by_id = {layer.id: layer for layer in stored}
+    stored_datasets = {layer.id: layer.dataset_id for layer in stored}
+    # Only a row this save inserts or repoints takes its dataset's key, so a
+    # save that keeps every row's dataset waits on no dataset change.
+    gone = await lock_new_layer_datasets(
+        session,
+        [
+            layer_data["dataset_id"]
+            for layer_data in layers
+            if stored_datasets.get(_coerce_uuid(layer_data.get("id")))
+            != layer_data["dataset_id"]
+        ],
+    )
+    if gone:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "message": "Cannot access one or more layer datasets",
+                "datasets": sorted(str(dataset_id) for dataset_id in gone),
+            },
+        )
     requested_ids = {_coerce_uuid(layer_data.get("id")) for layer_data in layers}
     unrequested = [layer for layer in stored if layer.id not in requested_ids]
     hidden_ids = await _unreadable_layer_ids(session, unrequested, user)
