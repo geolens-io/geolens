@@ -19,6 +19,7 @@ import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
 import { queryKeys } from '@/lib/query-keys';
 import { distinctDescription } from '@/lib/text';
 import { getDataset } from '@/api/datasets';
+import type { SearchResultDensity } from '@/lib/search-view';
 import type { OGCRecordResponse } from '@/types/api';
 
 const statusStyles: Record<string, string> = {
@@ -140,8 +141,6 @@ function buildAutoDescription(
   return t('card.autoDesc.fallback');
 }
 
-export type SearchResultDensity = 'comfortable' | 'compact';
-
 interface SearchResultCardProps {
   feature: OGCRecordResponse;
   density?: SearchResultDensity;
@@ -253,7 +252,16 @@ export const SearchResultCard = memo(function SearchResultCard({
             .filter((spec) => spec.label !== properties.crs)
             .map((spec) => spec.label)
             .join(' · ');
-    const compactUpdated = isCollection
+    const updatedAbbrev = isCollection
+      ? properties.created
+        ? createdTime.relative
+        : ''
+      : hasMissingProvenance
+        ? properties.created
+          ? createdTime.relative
+          : noUpdateMetadataLabel
+        : updatedRelative;
+    const updatedFull = isCollection
       ? properties.created
         ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
         : ''
@@ -270,28 +278,44 @@ export const SearchResultCard = memo(function SearchResultCard({
         onFocus={prefetchDetail}
       >
         <Card density="flush" className="cursor-pointer overflow-hidden border-border/50 bg-card/95 transition-[color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:border-primary/20 group-hover:bg-accent/30">
-          <div className="grid gap-0.5 px-3 py-2 md:grid-cols-[auto_minmax(0,1fr)_minmax(8rem,13rem)_minmax(7rem,12rem)_minmax(6.5rem,8rem)] md:items-center md:gap-x-4">
+          <div className="grid gap-0.5 px-3 py-2 md:min-h-11 md:grid-cols-[auto_minmax(0,1fr)_11rem_7rem] md:items-center md:gap-x-3">
             <div className="flex min-w-0 items-center gap-2 md:contents">
-              <RecordTypeBadge recordType={recordType} />
-              <div className="flex min-w-0 flex-1 items-center gap-2">
+              <RecordTypeBadge recordType={recordType} iconOnly className="shrink-0 px-1.5" />
+              <div className="flex min-w-0 flex-1 items-baseline gap-2">
                 <h3
                   className="min-w-0 truncate text-sm font-semibold leading-tight text-foreground transition-colors group-hover:text-primary"
                   title={properties.title}
                 >
                   {properties.title}
                 </h3>
-                {statusBadge && <span className="shrink-0">{statusBadge}</span>}
+                {sourceOrganization && (
+                  <span
+                    className="hidden max-w-40 shrink-[4] truncate text-xs text-muted-foreground md:inline"
+                    data-testid="dataset-card-source"
+                    title={sourceOrganization}
+                  >
+                    {sourceOrganization}
+                  </span>
+                )}
+                {statusBadge && <span className="shrink-0 self-center">{statusBadge}</span>}
               </div>
             </div>
-            <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-0.5 md:contents">
+            <div className="flex min-w-0 items-center gap-x-3 md:contents">
               <span className={`${cell} font-mono tracking-wide`} title={compactSpec || undefined} data-testid="dataset-card-specs">
                 {compactSpec}
               </span>
-              <span className={cell} title={sourceOrganization || undefined} data-testid={sourceOrganization ? 'dataset-card-source' : undefined}>
-                {sourceOrganization}
-              </span>
-              <span className={`${cell} md:text-end`} title={isCollection ? createdTime.absolute : updatedTitle} data-testid="dataset-card-updated-attribution">
-                {compactUpdated}
+              {sourceOrganization && (
+                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground md:hidden" title={sourceOrganization}>
+                  {sourceOrganization}
+                </span>
+              )}
+              <span
+                className={`${cell} ms-auto shrink-0 md:ms-0 md:shrink md:text-end`}
+                title={isCollection ? createdTime.absolute : updatedTitle}
+                data-testid="dataset-card-updated-attribution"
+              >
+                <span aria-hidden="true" data-testid="dataset-card-updated-visible">{updatedAbbrev}</span>
+                <span className="sr-only">{updatedFull}</span>
               </span>
             </div>
           </div>

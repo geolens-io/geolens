@@ -846,14 +846,44 @@ describe('SearchResultCard', () => {
       expect(link).toHaveAttribute('href', '/datasets/dataset-1');
       const title = within(link).getByRole('heading', { level: 3, name: 'World Countries' });
       expect(title).toHaveAttribute('title', 'World Countries');
-      expect(within(link).getByText('Vector')).toBeInTheDocument();
       expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('195 features');
       expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('Polygon');
       expect(screen.getByTestId('dataset-card-source')).toHaveTextContent('Natural Earth');
-      expect(screen.getByTestId('dataset-card-updated-attribution')).toHaveTextContent(/^Updated /);
       expect(screen.queryByTestId('dataset-card-description')).not.toBeInTheDocument();
       expect(screen.queryByText('boundaries')).not.toBeInTheDocument();
       expect(screen.queryByTestId('table-thumbnail-icon')).not.toBeInTheDocument();
+    });
+
+    it('shows the type as an icon-only badge named by the type', () => {
+      compact(makeFeature({ record_type: 'raster_dataset', geometry_type: null }));
+
+      const badge = screen.getByTitle('Raster');
+      expect(badge).toHaveTextContent('Raster');
+      expect(within(badge).getByText('Raster')).toHaveClass('sr-only');
+      expect(badge.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('shows the source inside the title cell only when there is one', () => {
+      const { unmount } = render(<SearchResultCard feature={makeFeature()} density="compact" />);
+      const title = screen.getByRole('heading', { level: 3, name: 'World Countries' });
+      const source = screen.getByTestId('dataset-card-source');
+      expect(title.parentElement).toContainElement(source);
+      expect(source).toHaveAttribute('title', 'Natural Earth');
+      unmount();
+
+      compact(makeFeature({ source_organization: null }));
+      expect(screen.queryByTestId('dataset-card-source')).not.toBeInTheDocument();
+    });
+
+    it('shows only the relative time, keeping the full sentence for assistive tech', () => {
+      compact(makeFeature());
+
+      const cell = screen.getByTestId('dataset-card-updated-attribution');
+      const visible = within(cell).getByTestId('dataset-card-updated-visible');
+      expect(visible).toHaveAttribute('aria-hidden', 'true');
+      expect(visible.textContent).not.toMatch(/updated/i);
+      expect(visible.textContent).not.toBe('');
+      expect(cell.querySelector('.sr-only')?.textContent).toMatch(/^Updated /);
     });
 
     it('defaults to the comfortable layout', () => {

@@ -203,33 +203,39 @@ describe('SearchPage', () => {
       expect(useSearchStore.getState().offset).toBe(0);
     });
 
-    it('uses a stored compact choice on load, with 25 per page', () => {
+    it('uses a stored compact choice on load, already on the first query', () => {
       localStorage.setItem('geolens-search-view', 'compact');
+      act(() => useSearchStore.getState().resetFilters());
+      const limitsSeen: number[] = [];
+      mockUseSearchResults.mockImplementation(() => {
+        limitsSeen.push(useSearchStore.getState().limit);
+        return {
+          data: { type: 'FeatureCollection', numberMatched: 1, numberReturned: 1, features: [makeFeature('dataset-1', 'A')] },
+          isLoading: false,
+          error: null,
+          isFetching: false,
+        } as unknown as ReturnType<typeof useSearchResults>;
+      });
       render(<SearchPage />, { route: '/' });
 
-      expect(densities()).toEqual(['compact', 'compact']);
-      expect(useSearchStore.getState().limit).toBe(25);
+      expect(densities()).toEqual(['compact']);
+      expect(new Set(limitsSeen)).toEqual(new Set([25]));
     });
 
-    it.each(['?limit=10', '?offset=20', '?q=rivers&limit=50'])(
-      'keeps the page size from the URL (%s) when the stored view is compact',
-      (search) => {
-        window.history.replaceState(null, '', `/${search}`);
-        const limitFromUrl = new URLSearchParams(search).get('limit');
-        if (limitFromUrl) act(() => useSearchStore.setState({ limit: Number(limitFromUrl) }));
-        localStorage.setItem('geolens-search-view', 'compact');
-        render(<SearchPage />, { route: '/' });
-
-        expect(densities()).toEqual(['compact', 'compact']);
-        expect(useSearchStore.getState().limit).toBe(limitFromUrl ? Number(limitFromUrl) : 10);
-      },
-    );
-
-    it('starts compact at 25 when the URL has other params but no limit or offset', () => {
-      window.history.replaceState(null, '', '/?q=rivers');
+    it('keeps 25 per page when "Clear search & filters" is used in compact', async () => {
       localStorage.setItem('geolens-search-view', 'compact');
+      act(() => useSearchStore.setState({ q: 'nothing here', limit: 25 }));
+      mockUseSearchResults.mockReturnValue({
+        data: { type: 'FeatureCollection', numberMatched: 0, numberReturned: 0, features: [] },
+        isLoading: false,
+        error: null,
+        isFetching: false,
+      } as unknown as ReturnType<typeof useSearchResults>);
       render(<SearchPage />, { route: '/' });
 
+      await userEvent.click(screen.getByRole('button', { name: 'Clear search & filters' }));
+
+      expect(useSearchStore.getState().q).toBe('');
       expect(useSearchStore.getState().limit).toBe(25);
     });
 

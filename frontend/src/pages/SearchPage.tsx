@@ -1,4 +1,4 @@
-import { type ReactNode, useEffect, useRef, useState } from 'react';
+import { type ReactNode, useRef, useState } from 'react';
 import { AlignJustify, Database, Loader2, SearchX, StretchHorizontal, Upload, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
@@ -13,7 +13,7 @@ import { SearchBar } from '@/components/search/SearchBar';
 import { SavedSearches } from '@/components/search/SavedSearches';
 import { FilterPanel } from '@/components/search/FilterPanel';
 import { SearchSpatialSheet } from '@/components/search/SearchSpatialSheet';
-import { SearchResultCard, type SearchResultDensity } from '@/components/search/SearchResultCard';
+import { SearchResultCard } from '@/components/search/SearchResultCard';
 import { DatasetCardSkeleton } from '@/components/search/DatasetCardSkeleton';
 import { Pagination } from '@/components/layout/Pagination';
 import { MapCard } from '@/components/maps/MapCard';
@@ -23,14 +23,8 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useUrlSearchSync } from '@/components/search/hooks/use-url-search-sync';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { usePermissions } from '@/hooks/use-permissions';
-import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
-import { readStorage, storageKeys, writeStorage } from '@/lib/storage';
-
-const COMPACT_PAGE_SIZE = 25;
-
-function readStoredDensity(): SearchResultDensity {
-  return readStorage(storageKeys.searchView) === 'compact' ? 'compact' : 'comfortable';
-}
+import { pageSizeFor, readStoredDensity, type SearchResultDensity } from '@/lib/search-view';
+import { storageKeys, writeStorage } from '@/lib/storage';
 
 interface SearchControlsProps {
   totalResults: number | undefined;
@@ -92,7 +86,7 @@ export function SearchPage() {
     setDensity(value);
     writeStorage(storageKeys.searchView, value);
     useSearchStore.setState({
-      limit: value === 'compact' ? COMPACT_PAGE_SIZE : DEFAULT_PAGE_SIZE,
+      limit: pageSizeFor(value),
       offset: 0,
     });
   };
@@ -149,15 +143,6 @@ export function SearchPage() {
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
-
-  // A limit or offset in the URL wins over the stored view; otherwise a stored
-  // compact view starts at its own page size. Runs after the URL restore.
-  useEffect(() => {
-    if (readStoredDensity() !== 'compact') return;
-    const urlParams = new URLSearchParams(window.location.search);
-    if (urlParams.has('limit') || urlParams.has('offset')) return;
-    useSearchStore.setState({ limit: COMPACT_PAGE_SIZE });
-  }, []);
 
   return (
     <>
