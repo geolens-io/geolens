@@ -22,6 +22,7 @@ and releases use semantic versioning.
 - A dashboard's category selector lists its first ten values and shows the rest from a "Show more" button under the list, in place of a scroll box that cut the list with nothing to say so. A picked value further down stays listed.
 
 ### Fixed
+- Accepting a held publish manifest run that would make a dataset public checks "Restrict Public Visibility to Admins" as it is at the time. A non-admin's accept made after the restriction was turned on is refused with 403, leaving the dataset and the held run as they were.
 - `/third-party-licenses.txt` now lists the libraries that MapLibre GL JS carries inside its own build (earcut, pbf, bidi-js and others). The notices used to cover only packages the app imports directly.
 - The `style.json` export and the builder no longer read a column from a `literal` value or a `match` label, and an expression such as `["get", "radius", ["at", 0, ["literal", [{...}]]]]` no longer makes the export drop that layer's columns.
 - `POST /ingest/commit-fan-out/{job_id}` refuses an upload that was already dispatched, through `POST /ingest/commit/{job_id}` or a publish manifest. It used to fan the upload out while the first import was already queued.

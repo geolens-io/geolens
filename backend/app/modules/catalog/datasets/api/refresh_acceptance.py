@@ -240,7 +240,8 @@ def _accepted_upload_metadata(
     which replaces the stored one, with whether the accepter was admitted to
     set public. A version 1 job keeps its own, except that
     a publish key's accept keeps the dataset's visibility and status, since
-    the held entry may be another credential's.
+    the held entry may be another credential's, and a public one it carries
+    is admitted for the accepter, whom the worker judges.
     """
     blocked = blocked_job.user_metadata or {}
     carried = {
@@ -268,6 +269,10 @@ def _accepted_upload_metadata(
     elif publish_key:
         carried.pop("visibility", None)
         carried.pop("record_status", None)
+    elif carried.get("visibility") == "public":
+        carried.pop(ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY, None)
+        if admitted_public:
+            carried[ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY] = True
     return {
         **carried,
         "reupload": True,
@@ -284,7 +289,9 @@ async def _accepted_publication(
     db: AsyncSession, user: Identity, blocked_job: IngestJob, dataset: Any
 ) -> Publication | None:
     """A version 2 held entry's publication, judged for the accepter, the
-    record as it is now and the restriction as it is now; None for version 1.
+    record as it is now and the restriction as it is now. None for version 1,
+    once a public it carries passes the restriction as it is now; a publish
+    key's accept drops it instead.
 
     A refusal refuses the accept, as the same apply by the accepter would be.
     The accept may keep or narrow the visibility the apply stored, never widen
@@ -295,6 +302,12 @@ async def _accepted_publication(
 
     stored = blocked_job.user_metadata or {}
     if stored.get(MANIFEST_VERSION_METADATA_KEY) != "2":
+        if (
+            "manifest_key" in stored
+            and stored.get("visibility") == "public"
+            and not is_publish_key(db)
+        ):
+            await authorization.check_public_visibility_allowed(db, user, "public")
         return None
     requested = stored.get("manifest_requested_visibility")
     may_set_public = True

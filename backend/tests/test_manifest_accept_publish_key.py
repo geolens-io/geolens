@@ -19,6 +19,7 @@ from app.modules.catalog.datasets.api.refresh_acceptance import (
     dispatch_upload_acceptance,
 )
 from app.modules.catalog.datasets.domain.models import Dataset, Record
+from app.modules.catalog.write_recheck import PUBLIC_VISIBILITY_DENIED
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.request_credential import (
@@ -202,6 +203,116 @@ async def test_a_publish_key_accepting_a_now_public_draft_falls_back(
         "manifest_public_fallback"
     ]
     assert await _record(test_db_session, held.dataset_id) == ("internal", "published")
+
+
+class _Restriction:
+    """``restrict_public_visibility``, switched by the test."""
+
+    on = False
+
+    async def get(self, _db):
+        return self.on
+
+    get_uncached = get
+
+
+@pytest.fixture
+def _restriction(monkeypatch) -> _Restriction:
+    import app.core.persistent_config as pc
+
+    restriction = _Restriction()
+    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", restriction)
+    return restriction
+
+
+async def _owned_by_an_editor(client, session, admin_auth_header, held):
+    _, user_id = await create_user(client, admin_auth_header, "editor")
+    editor = await session.get(User, uuid.UUID(user_id))
+    record_id = select(Dataset.record_id).where(Dataset.id == held.dataset_id)
+    await session.execute(
+        update(Record)
+        .where(Record.id == record_id.scalar_subquery())
+        .values(created_by=editor.id)
+    )
+    await session.commit()
+    return replace(held, user=editor)
+
+
+async def _consumed(session, run_id) -> bool:
+    verification = await session.scalar(
+        select(DatasetRefreshRun.verification)
+        .where(DatasetRefreshRun.id == run_id)
+        .execution_options(populate_existing=True)
+    )
+    return "acceptance_consumed_by_run_id" in verification
+
+
+async def test_an_owner_cannot_accept_a_held_v1_public_once_public_is_restricted(
+    client, test_db_session, admin_auth_header, clean_tables, _restriction
+):
+    """Held while anyone could set public; the restriction was turned on
+    before the non-admin owner accepted. Nothing changes until it is off."""
+    held = await _hold(
+        test_db_session, record=("private", "draft"), visibility="public"
+    )
+    held = await _owned_by_an_editor(client, test_db_session, admin_auth_header, held)
+    version = await test_db_session.scalar(
+        select(Dataset.current_version).where(Dataset.id == held.dataset_id)
+    )
+    _restriction.on = True
+
+    with pytest.raises(HTTPException) as refused:
+        await _accept(test_db_session, held, publish_key=False)
+
+    assert refused.value.status_code == 403
+    assert refused.value.detail == PUBLIC_VISIBILITY_DENIED
+    assert await _record(test_db_session, held.dataset_id) == ("private", "draft")
+    assert version == await test_db_session.scalar(
+        select(Dataset.current_version)
+        .where(Dataset.id == held.dataset_id)
+        .execution_options(populate_existing=True)
+    )
+    assert not await _consumed(test_db_session, held.run_id)
+
+    _restriction.on = False
+    job = await _accept(test_db_session, held, publish_key=False)
+
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, held.dataset_id) == ("public", "published")
+
+
+async def test_an_admin_accepts_a_held_v1_public_while_public_is_restricted(
+    test_db_session, clean_tables, _restriction
+):
+    """The worker checks again that the accepter is still an admin."""
+    held = await _hold(
+        test_db_session, record=("private", "draft"), visibility="public"
+    )
+    _restriction.on = True
+
+    job = await _accept(test_db_session, held, publish_key=False)
+
+    assert (job.status, job.error_message) == ("complete", None)
+    assert job.user_metadata["admitted_public_visibility"] is True
+    assert await _record(test_db_session, held.dataset_id) == ("public", "published")
+
+
+async def test_a_held_v1_run_carrying_no_public_is_accepted_while_public_is_restricted(
+    client, test_db_session, admin_auth_header, clean_tables, _restriction
+):
+    held = await _hold(
+        test_db_session, record=("private", "draft"), visibility="internal"
+    )
+    held = await _owned_by_an_editor(client, test_db_session, admin_auth_header, held)
+    _restriction.on = True
+
+    job = await _accept(test_db_session, held, publish_key=False)
+
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, held.dataset_id) == (
+        "internal",
+        "published",
+    )
 
 
 async def _someone_elses_collection(client, session, admin_auth_header) -> Collection:
