@@ -381,8 +381,24 @@ describe('SearchPage', () => {
 
       expect(new Set(liveAnnouncementProps.map((p) => p.trigger))).toEqual(new Set([settledTrigger]));
 
-      act(() => useSearchStore.getState().setPage(40));
+      // Paging back to where the reader started is still a page change.
+      act(() => useSearchStore.getState().setPage(30));
       expect(liveAnnouncementProps.at(-1)?.trigger).not.toBe(settledTrigger);
+    });
+
+    it('announces every later page change after a view change that left the page start alone', async () => {
+      render(<SearchPage />, { route: '/' });
+      await waitFor(() => expect(statusTexts()).toContain('12 catalog results'));
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Compact' }));
+      const afterToggle = liveAnnouncementProps.at(-1)?.trigger;
+
+      act(() => useSearchStore.getState().setPage(25));
+      const onPageTwo = liveAnnouncementProps.at(-1)?.trigger;
+      expect(onPageTwo).not.toBe(afterToggle);
+
+      act(() => useSearchStore.getState().setPage(0));
+      expect(liveAnnouncementProps.at(-1)?.trigger).not.toBe(onPageTwo);
     });
 
     it('holds the announcement through a pending refetch after a view change, but not a new query', async () => {

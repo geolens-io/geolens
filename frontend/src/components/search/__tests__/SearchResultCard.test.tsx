@@ -1013,12 +1013,16 @@ describe('SearchResultCard', () => {
     });
 
     it('prefetches the dataset on hover and does not fetch a quicklook', async () => {
+      // Earlier cards in this file also call the hook, so only this row's calls count.
+      vi.mocked(useQuicklook).mockClear();
       compact(makeFeature({ has_quicklook: true }));
 
       fireEvent.mouseEnter(screen.getByTestId('search-result-card'));
 
       await waitFor(() => expect(getDataset).toHaveBeenCalledWith('dataset-1'));
-      expect(useQuicklook).toHaveBeenCalledWith(null, 256, null);
+      const quicklookIds = vi.mocked(useQuicklook).mock.calls.map(([id]) => id);
+      expect(quicklookIds.length).toBeGreaterThan(0);
+      expect(quicklookIds.every((id) => id === null)).toBe(true);
     });
   });
 });

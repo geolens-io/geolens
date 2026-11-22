@@ -97,12 +97,21 @@ export function SearchPage() {
   const hasMapTextQuery = mapQuery.length > 0;
   const isMapSearchPending = hasMapTextQuery && (isLoadingMaps || isFetchingMaps);
   const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;
-  // The count doesn't depend on the page size, and a view change can also move
-  // the page start, so the announcement keeps the key it had across one.
+  // The announcement is triggered again by a change of search or page. The
+  // count doesn't depend on the page size, and a view change can also move the
+  // page start, so the params a view change leaves behind don't count as one.
   const rawSearchKey = announcementKey(searchParams);
-  const heldKey = useRef<{ raw: string; shown: string } | null>(null);
-  if (heldKey.current && heldKey.current.raw !== rawSearchKey) heldKey.current = null;
-  const searchKey = heldKey.current?.shown ?? rawSearchKey;
+  const announced = useRef<{ raw: string; revision: number; afterViewChange: string | null }>({
+    raw: rawSearchKey,
+    revision: 0,
+    afterViewChange: null,
+  });
+  if (announced.current.raw !== rawSearchKey) {
+    if (announced.current.afterViewChange !== rawSearchKey) announced.current.revision += 1;
+    announced.current.raw = rawSearchKey;
+    announced.current.afterViewChange = null;
+  }
+  const searchKey = String(announced.current.revision);
   const catalogEmpty = !!data && data.features.length === 0;
   const mapMatchText = hasMapMatches ? t('mapMatchCount', { count: mapResults?.total ?? 0 }) : '';
   const catalogText = catalogEmpty
@@ -142,7 +151,7 @@ export function SearchPage() {
     const size = pageSizeFor(value);
     const { offset: from } = useSearchStore.getState();
     useSearchStore.setState({ limit: size, offset: Math.floor(from / size) * size });
-    heldKey.current = { raw: announcementKey(useSearchStore.getState().toParams()), shown: searchKey };
+    announced.current.afterViewChange = announcementKey(useSearchStore.getState().toParams());
   };
   // While the other page size loads, the previous page is still on screen:
   // show no more of it than the chosen view holds. A settled page is shown
