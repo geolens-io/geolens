@@ -33,6 +33,14 @@ describe('SearchBar', () => {
     expect(useSearchStore.getState().offset).toBe(20);
   });
 
+  it('does not lower the placeholder opacity', () => {
+    render(<SearchBar />);
+
+    expect(screen.getByPlaceholderText(/search the catalog/i).className).not.toMatch(
+      /placeholder:text-muted-foreground\/\d+/,
+    );
+  });
+
   it('accepts typed input', async () => {
     const user = userEvent.setup();
     render(<SearchBar />);
