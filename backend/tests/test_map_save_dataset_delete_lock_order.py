@@ -21,6 +21,7 @@ from app.modules.catalog.datasets.domain.models import Dataset
 from app.modules.catalog.maps.models import MapLayer
 from app.processing.ingest.manifest_schemas import ManifestApplyRequest
 from app.processing.ingest.manifest_service import apply_manifest
+from tests.factories import create_dataset, create_user
 from tests.lock_wait import await_lock_wait_query
 from tests.test_dataset_delete_shared_maps import _vector_dataset
 from tests.test_embed_tokens import _cleanup_data_table
@@ -313,3 +314,56 @@ async def test_a_reorder_naming_a_layer_a_delete_removed_meanwhile_is_refused(
     assert resp.status_code == 400, resp.text
     assert resp.json()["detail"] == "Layer diff references layer ids outside this map"
     assert not [r for r in caplog.records if "Unhandled" in str(r.msg)]
+
+
+_MISSING_DATASET = "00000000-0000-4000-8000-000000004001"
+_UNKNOWN_LAYER = "00000000-0000-4000-8000-000000004002"
+
+
+async def _add_with_unknown_layer(client: AsyncClient, world, dataset_id: str):
+    return await client.patch(
+        f"/maps/{world['map_id']}/layers",
+        json={
+            "added": [{"dataset_id": dataset_id}],
+            "updated": [{"id": _UNKNOWN_LAYER, "opacity": 0.5}],
+        },
+        headers=world["headers"],
+    )
+
+
+@pytest.fixture
+async def hidden_dataset(client: AsyncClient, admin_auth_header, test_db_session):
+    """Another editor's private dataset the map's owner can't read."""
+    _, other_id = await create_user(client, admin_auth_header, "editor")
+    dataset = await create_dataset(
+        test_db_session, created_by=uuid.UUID(other_id), visibility="private"
+    )
+    await test_db_session.commit()
+    return dataset.id
+
+
+async def test_an_unreadable_added_dataset_answers_as_a_missing_one(
+    client: AsyncClient, world, hidden_dataset
+):
+    missing = await _add_with_unknown_layer(client, world, _MISSING_DATASET)
+    hidden = await _add_with_unknown_layer(client, world, str(hidden_dataset))
+
+    assert missing.status_code == 403, missing.text
+    assert (hidden.status_code, hidden.json()) == (403, missing.json())
+
+
+async def test_an_unreadable_added_dataset_under_a_change_is_not_waited_on(
+    client: AsyncClient, world, hidden_dataset
+):
+    missing = await _add_with_unknown_layer(client, world, _MISSING_DATASET)
+    async with db_module.async_session() as holder:
+        await holder.execute(
+            sa.select(Dataset.id).where(Dataset.id == hidden_dataset).with_for_update()
+        )
+        started = time.monotonic()
+        hidden = await _add_with_unknown_layer(client, world, str(hidden_dataset))
+        elapsed = time.monotonic() - started
+        await holder.rollback()
+
+    assert (hidden.status_code, hidden.json()) == (403, missing.json())
+    assert elapsed < 1, elapsed

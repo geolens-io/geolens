@@ -188,6 +188,14 @@ async def _apply_layer_diff(
     # A diff can't repoint a layer, so only the added layers reference a
     # dataset anew.
     added_dataset_ids = [layer_data["dataset_id"] for layer_data in added]
+    # Asked before the lock too, so a dataset the caller can't read answers
+    # as a missing one does and is never waited on.
+    if added_dataset_ids:
+        readable = await bulk_check_dataset_access(
+            session, added_dataset_ids, user, user_roles
+        )
+        if any(dataset_id not in readable for dataset_id in added_dataset_ids):
+            raise PermissionError("Cannot access one or more layer datasets")
     if await lock_new_layer_datasets(session, added_dataset_ids):
         raise PermissionError("Cannot access one or more layer datasets")
     # Read the stored dashboard and filters, not the copies the caller loaded.

@@ -1219,7 +1219,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # A layer diff checks a changed filter against the caller's access and its widgets,
         # and stacks a map_author key's added layers on top; a full replace
         # carries a publish manifest's layer keys and the rows it keeps.
-        "backend/app/modules/catalog/maps/service_diff.py": 530,
+        "backend/app/modules/catalog/maps/service_diff.py": 538,
         # A layer write takes the map row, then the datasets it adds layers on, before any layer row.
         "backend/app/modules/catalog/maps/service_layers.py": 379,
         # Map creates and updates hold the route policy a publish manifest
