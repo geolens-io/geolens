@@ -8,6 +8,7 @@ from __future__ import annotations
 import ast
 import hashlib
 from datetime import datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
 
@@ -24,6 +25,7 @@ from app.modules.catalog.maps.manifest_republish import (
 )
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.schemas import MapUpdate
+from app.modules.catalog.maps.service_update import _as_the_builder_saves, _view_moved
 from tests.test_manifest_maps_apply import (
     _PARKS,
     _apply,
@@ -487,21 +489,48 @@ async def test_a_basemap_choice_counts_only_when_the_publish_sends_one(
     assert stored.basemap_style == "openfreemap-dark"
 
 
+# Inputs with Number(v.toFixed(6)) as node computes it.
 @pytest.mark.parametrize(
-    ("sent", "styling"),
+    ("value", "javascript"),
     [
-        # One step of the builder's rounding is a pan.
-        (-89.000001, "kept"),
-        # The stored full-precision value, resent rounded, is not.
-        (float(f"{-89.0000004999:.6f}"), "applied"),
+        (0.0078125, "0.007813"),
+        (-0.0078125, "-0.007813"),
+        (179.9921875, "179.992188"),
+        (-179.9921875, "-179.992188"),
+        (179.9999995, "180.000000"),
+        (-89.0000004999, "-89.000000"),
+        (-89.0000005, "-89.000000"),
+        (1.5000005, "1.500001"),
+        (-0.0000005, "-0.000000"),
     ],
 )
-async def test_a_one_step_pan_counts_and_rounding_doesnt(
-    client, test_db_session, admin_auth_header, clean_tables, sent, styling
+def test_camera_values_round_as_the_builders_to_fixed(value, javascript):
+    assert _as_the_builder_saves(value) == Decimal(javascript)
+
+
+def test_view_fields_compare_as_the_builder_saves_them():
+    assert not _view_moved("bearing", -180.0, 180.0)
+    assert not _view_moved("center_lng", 179.9999995, -180.0)
+    assert not _view_moved("zoom", 11.23456789, 11.234568)
+    assert _view_moved("center_lng", -89.0000004999, -89.000001)
+    assert _view_moved("zoom", None, 3.0)
+
+
+@pytest.mark.parametrize(
+    ("stored", "sent", "styling"),
+    [
+        # One step at the builder's precision is a pan.
+        (-89.0, -89.000001, "kept"),
+        (-89.0000004999, -89.000001, "kept"),
+        # The stored full-precision value, resent as the builder rounds it, is not.
+        (-89.0000004999, -89.0, "applied"),
+    ],
+)
+async def test_a_pan_counts_at_the_builders_precision(
+    client, test_db_session, admin_auth_header, clean_tables, stored, sent, styling
 ):
     admin = await _admin(test_db_session)
     dataset_id = await _dataset(test_db_session, admin.id)
-    stored = -89.0000004999 if styling == "applied" else -89.0
     entry = _publish(dataset_id, view={"center": [stored, 39.78], "zoom": 11.2})
     [created] = (await _apply(test_db_session, admin, entry)).maps
     await _builder_save(

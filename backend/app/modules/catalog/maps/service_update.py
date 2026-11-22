@@ -2,6 +2,7 @@
 
 import uuid
 from collections.abc import Sequence
+from decimal import ROUND_HALF_UP, Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -39,26 +40,30 @@ _HISTORY_FIELDS = ("name", "visibility", "terrain_config", "basemap_config")
 # settings event records which of them changed value, not only which were sent.
 CAMERA_FIELDS = ("center_lng", "center_lat", "zoom", "bearing", "pitch")
 VIEW_FIELDS = (*CAMERA_FIELDS, "basemap_style")
-# The builder rounds the camera it saves to 6 decimals, which moves a value
-# by at most half a step; the rest allows for float error.
-_ROUNDING_NOISE = 5e-7 + 1e-9
+_BUILDER_STEP = Decimal("0.000001")
+
+
+def _as_the_builder_saves(value: float) -> Decimal:
+    """``value`` as the builder stores it, ``Number(value.toFixed(6))``:
+    the double's exact value rounded to 6 decimals, half away from zero."""
+    return Decimal(value).quantize(_BUILDER_STEP, rounding=ROUND_HALF_UP)
 
 
 def _view_moved(field: str, previous: Any, current: Any) -> bool:
     """Whether a save moved the stored view field.
 
     The builder saves the camera it shows, rounded to 6 decimals and with
-    its bearing in (-180, 180]. Neither moves a view, so a value that
-    differs by no more than the rounding or, for longitude and bearing, by
-    whole turns, is unchanged; a one-step change is a move. A value set
-    where none was stored is a move too.
+    its bearing in (-180, 180], so values are compared as it would save
+    them: a value that rounds to the same, or for longitude and bearing to
+    a whole number of turns away, is unchanged. A value set where none was
+    stored is a move.
     """
     if previous is None or current is None or field == "basemap_style":
         return current != previous
-    delta = current - previous
+    change = _as_the_builder_saves(current) - _as_the_builder_saves(previous)
     if field in ("bearing", "center_lng"):
-        delta = (delta + 180) % 360 - 180
-    return abs(delta) > _ROUNDING_NOISE
+        return change % 360 != 0
+    return change != 0
 
 
 async def apply_map_create(
