@@ -165,12 +165,13 @@ def derive_collection_license(licenses: Sequence[str | None] | None) -> str:
     return distinct.pop() if len(distinct) == 1 else "various"
 
 
+def _timestamp_text(value) -> str:
+    return value.isoformat() if hasattr(value, "isoformat") else str(value)
+
+
 def collection_search_feature(coll: dict, public_api_url: str) -> dict:
     """Serialize an augmented catalog Collection as a valid Record Feature."""
-    created_at = coll["created_at"]
-    created_text = (
-        created_at.isoformat() if hasattr(created_at, "isoformat") else str(created_at)
-    )
+    created_text = _timestamp_text(coll["created_at"])
     collection_time = {"timestamp": created_text}
     return {
         "type": "Feature",
@@ -195,6 +196,7 @@ def collection_search_feature(coll: dict, public_api_url: str) -> dict:
             "record_type": "collection",
             "dataset_count": coll["dataset_count"],
             "created": created_text,
+            "updated": _timestamp_text(coll["updated_at"]),
         },
         "links": [
             {
