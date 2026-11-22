@@ -9,6 +9,7 @@ and releases use semantic versioning.
 
 ### Fixed
 - Adding datasets to a collection while a publish manifest replaces one of them no longer fails with a server error. The add now waits for the dataset before it takes the collection, the order the publish uses, so the two can't deadlock; a wait longer than two seconds answers 409, which is safe to retry. A dataset deleted while the add waits answers 404 instead of a server error.
+- A map thumbnail or social card upload that Pillow can't read, such as an image whose header declares dimensions too large to open, answers 400 instead of a server error. A PNG or JPEG is stored under the extension of its actual format rather than the one its declared media type gives.
 
 ## [1.34.0] - 2026-11-22
 

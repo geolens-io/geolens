@@ -850,6 +850,9 @@ class _MapImageKind:
     publish_key_target: str
 
 
+# Pillow names a JPEG that carries a multi-picture segment MPO.
+_MAP_IMAGE_EXTENSIONS = {"PNG": "png", "JPEG": "jpg", "MPO": "jpg"}
+
 _MAP_IMAGE_KINDS = {
     "thumbnail": _MapImageKind(
         storage_prefix="maps/thumbnails",
@@ -916,11 +919,11 @@ async def store_map_image(
             detail="Invalid data URI or base64 encoding",
         )
 
-    # Image.verify() rejects random bytes, truncated images and mismatched
-    # MIME before anything is stored. It runs on the story decode threads,
+    # Image.verify() rejects random bytes, truncated images and unreadable
+    # headers before anything is stored. It runs on the story decode threads,
     # never on the event loop.
     try:
-        await verify_image_bytes(image_bytes)
+        image_format = await verify_image_bytes(image_bytes)
     except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
         logger.warning(
             f"{kind}_upload_invalid_image",
@@ -933,7 +936,11 @@ async def store_map_image(
             detail=f"{spec.label} payload is not a valid image",
         )
 
-    ext = "jpg" if "jpeg" in header else "png"
+    # PNG and JPEG are stored under the extension of the format the bytes
+    # carry; any other format keeps the one its declared media type gives.
+    ext = _MAP_IMAGE_EXTENSIONS.get(
+        image_format or "", "jpg" if "jpeg" in header else "png"
+    )
     # A fresh key per write, never one of two names per map.
     storage_key = new_map_asset_key(spec.storage_prefix, map_id, ext)
 
