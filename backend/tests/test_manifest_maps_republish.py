@@ -577,6 +577,98 @@ async def test_a_replace_after_an_edit_from_a_host_whose_clock_runs_ahead_resets
     assert result.styling == "applied"
 
 
+async def _move_event(session, map_id, action, by: timedelta) -> None:
+    """Shift the map's newest ``action`` event, as a row an API host's clock
+    stamped."""
+    from sqlalchemy import update
+
+    from app.modules.catalog.maps.models import MapEditHistoryEvent
+
+    [newest, *_] = [
+        e for e in reversed(await _history(session, map_id)) if e.action == action
+    ]
+    await session.execute(
+        update(MapEditHistoryEvent)
+        .where(MapEditHistoryEvent.id == newest.id)
+        .values(created_at=newest.created_at + by)
+    )
+    await session.commit()
+
+
+async def test_an_edit_after_a_publish_stamped_in_the_future_counts(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await _move_event(
+        test_db_session, created.map_id, "manifest.publish", timedelta(hours=1)
+    )
+    await _edit_paint_in_the_builder(
+        client, admin_auth_header, test_db_session, created.map_id
+    )
+
+    [result] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    assert (result.styling, _codes(result)) == ("kept", [("A070", "info", None)])
+
+
+async def test_a_replace_after_an_edit_stamped_in_the_future_resets(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await _edit_paint_in_the_builder(
+        client, admin_auth_header, test_db_session, created.map_id
+    )
+    await _move_event(
+        test_db_session, created.map_id, "layer.style_update", timedelta(hours=1)
+    )
+    await _apply(test_db_session, admin, _publish(dataset_id, styling="replace"))
+    await _builder_save(client, admin_auth_header, test_db_session, created.map_id)
+
+    [result] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    assert result.styling == "applied"
+
+
+async def test_events_of_one_transaction_list_in_the_order_recorded(
+    test_db_session, clean_tables
+):
+    from app.modules.catalog.maps.service import record_map_history_event
+    from app.modules.catalog.maps.service_history import list_map_history
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await _move_event(
+        test_db_session, created.map_id, "manifest.publish", timedelta(hours=1)
+    )
+    recorded = [
+        await record_map_history_event(
+            test_db_session,
+            map_id=created.map_id,
+            actor=admin,
+            target_type="map",
+            action=action,
+            summary=action,
+        )
+        for action in ("map.rename", "map.visibility_update")
+    ]
+    times = [event.created_at for event in recorded]
+    await test_db_session.commit()
+
+    events, _ = await list_map_history(test_db_session, created.map_id)
+
+    assert [e.action for e in events] == [
+        "map.visibility_update",
+        "map.rename",
+        "manifest.publish",
+    ]
+    assert times[0] < times[1]
+
+
 async def test_a_view_save_records_the_basemap_appearance_it_replaced(
     client, test_db_session, admin_auth_header, clean_tables
 ):
@@ -1222,8 +1314,8 @@ async def test_decomposed_text_in_the_block_still_matches_on_the_next_publish(
 async def test_the_notes_block_is_recognised_whatever_order_the_clocks_give(
     test_db_session, clean_tables
 ):
-    """Publish times come from the API hosts, so a later publish may carry
-    an earlier time; its block is still the one the notes hold."""
+    """A row from an older release can carry an earlier time than the
+    publish before it; its block is still the one the notes hold."""
     from datetime import timedelta
 
     from sqlalchemy import update

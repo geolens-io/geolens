@@ -193,9 +193,9 @@ async def written_notes_digests(
 ) -> frozenset[str]:
     """The digests of every notes block a publish of the map wrote.
 
-    A set, not the last one: events recorded before history times came from
-    the database carry their API host's time, so the newest event by time
-    need not be the publish whose block the notes hold.
+    A set, not the last one: the notes can hold an older publish's block,
+    such as one the user put back, so the newest publish need not be the
+    one whose block the notes hold.
     """
     event = MapEditHistoryEvent
     digest = event.details["notes_digest"].astext
