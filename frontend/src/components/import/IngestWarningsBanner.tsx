@@ -128,7 +128,10 @@ export function IngestWarningsBanner({
   const { t } = useTranslation('import');
   const [expanded, setExpanded] = useState(!compact);
   const detailsId = useId();
-  const warnings = job.warnings ?? [];
+  // A publish manifest's warnings are read by the publishing client.
+  const warnings = (job.warnings ?? []).filter(
+    (warning) => !warning.kind.startsWith('manifest_'),
+  );
   const temporalErrors = job.temporal_parse_errors ?? {};
   const hasTemporalErrors = Object.keys(temporalErrors).length > 0;
   const hasAny =

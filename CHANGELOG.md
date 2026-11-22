@@ -7,14 +7,39 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+- Adding datasets to a collection while a publish manifest replaces one of them no longer fails with a server error. The add now waits for the dataset before it takes the collection, the order the publish uses, so the two can't deadlock; a wait longer than two seconds answers 409, which is safe to retry. A dataset deleted while the add waits answers 404 instead of a server error.
+
+## [1.34.0] - 2026-11-22
+
+1.34.0 adds two migrations, and both only add. 0106 adds a nullable
+`bookmarks` column to maps; 0107 adds a nullable `manifest_key` to maps and to
+map layers, each with a partial unique index. Instances still on 1.33.0 keep
+serving while they run. `EXTENSION_API_VERSION` moves from 23 to 26. Publish
+manifest version 2 is a preview: nothing sends it yet, it may change in any
+release, and its `maps` section is only checked in a dry run. Version 1 is
+unchanged.
+
 ### Added
-- Maps hold bookmarks: a name and an area, with an optional rotation and tilt, in display order. The maps API and the SDKs carry an optional `bookmarks` list (up to 100) on create and update, and the map and shared map responses always return one. The ArcGIS web map import carries a web map's bookmarks.
+- A dataset made by an analysis shows a "Derived from" row in its Details list, linking the source dataset, naming the operation and linking a second input when there is one.
+- Maps hold bookmarks: a name and an area, with an optional rotation and tilt, in display order. The maps API and the SDKs carry an optional `bookmarks` list (up to 100) on create and update, and the map and shared map responses always return one. The ArcGIS web map import carries a web map's bookmarks. The map builder has a Bookmarks panel to add the current view, rename, reorder and delete bookmarks, and the viewer, share links and embeds have a Bookmarks control that jumps to one.
+- The publish manifest accepts `manifest_version: "2"`, which requires a `client` object naming the publishing app, and an `upload:<job_id>` source that names a file the caller uploaded with `POST /ingest/upload`. An upload source needs a `checksum`, the SHA-256 of the uploaded file, and apply refuses the entry when the file doesn't match it. The upload's own job becomes the import, and uploading the same file again for an unchanged entry answers `skip`. Version 2 is a preview and may change in any release until the desktop connectors ship; version 1 is stable.
+- Manifest version 2 datasets take `visibility`, `collection` and `attributes`, and the request takes `public_fallback`. Visibility comes from the explicit field, never from the publication intent, which sets only the record status: a create without it is private, and an update without it keeps the current level. A refused `public` is error `A020` for that entry, or `internal` with warning `A020` when `public_fallback` is `"internal"`; a publish key's update that would publish a public dataset counts as a refused `public`. The restriction on public visibility applies only to an entry that names `public`. A `collection` by id or name is resolved before anything is queued, and a refusal is warning `A033`. `attributes` save per-column title, description and units by the column name in the uploaded file, and a name that matches no column is job warning `A092`. Each result gains `messages`, and a dry run warns `A053` when the dataset's features were edited since the last publish. Job status `warnings` gain the kinds `manifest_collection_refused`, `manifest_attribute_unmatched` and `manifest_public_fallback`, the last when public is refused as a job runs or is accepted and the entry's fallback shares it with the organization instead.
+- Manifest version 2 takes `maps`, each with its layers, and a dry run checks them: a map key on a map the caller can't edit is `A050`, a layer whose dataset doesn't exist, hasn't finished publishing or can't be read is `A052`, unless the same request's `datasets` publishes that key, unknown `style_config` and `label_config` keys are dropped with `A062`, and a column the dataset lacks is `A063`. In version 2 `datasets` may be empty when `maps` isn't, and the response gains `maps`, one result per map with its `messages`. Maps aren't written yet: a request with maps that isn't a dry run is refused with 422 before anything is applied. Map and map layer keys are unique across the server and within their map; a duplicate starts without them and a transfer keeps them.
 
 ### Changed
-- Overlay authors: `EXTENSION_API_VERSION` is now 24. `ProcessingPort` gains the required `resolve_manifest_collection`, `add_dataset_to_manifest_collection`, `apply_manifest_attributes` and `apply_manifest_maps` methods, which the publish manifest will call. An overlay that wraps the default port by delegation only needs to declare 24.
+- The PostGIS table name under a dataset's title shows only to signed-in users who can edit the dataset. The Details list still shows it to everyone.
+- A dashboard panel says once at the top that its numbers follow the map view, instead of on every card. Where only some widgets follow the view, the others are labelled "Whole layer".
+- The basemap switcher button has a visible border and a layers badge, and is 44 px wide on phones.
+- The map engine moved from MapLibre GL JS 6.5 to 6.19. Labels in Devanagari, Khmer, Burmese and other complex scripts, and in Arabic and Hebrew, draw correctly, and globe and terrain camera, zoom and drag fixes land with it.
+- Overlay authors: `EXTENSION_API_VERSION` is now 26. `ProcessingPort` gains the required `resolve_manifest_collection`, `add_dataset_to_manifest_collection`, `apply_manifest_attributes` and `apply_manifest_maps(session, maps, user, *, dry_run, dataset_ids_by_key, pending_dataset_keys)` methods, which the publish manifest calls, and `CatalogPort` the required `manifest_v2_reupload_task`, which queues a manifest version 2 replacement under a name earlier workers lack. An overlay that wraps the default port by delegation only needs to declare 26.
 - A dashboard's category selector lists its first ten values and shows the rest from a "Show more" button under the list, in place of a scroll box that cut the list with nothing to say so. A picked value further down stays listed.
 
 ### Fixed
+- Accepting a held publish manifest run that would make a dataset public checks "Restrict Public Visibility to Admins" as it is at the time. A non-admin's accept made after the restriction was turned on is refused with 403, leaving the dataset and the held run as they were.
+- `/third-party-licenses.txt` now lists the libraries that MapLibre GL JS carries inside its own build (earcut, pbf, bidi-js and others). The notices used to cover only packages the app imports directly.
+- The `style.json` export and the builder no longer read a column from a `literal` value or a `match` label, and an expression such as `["get", "radius", ["at", 0, ["literal", [{...}]]]]` no longer makes the export drop that layer's columns.
+- `POST /ingest/commit-fan-out/{job_id}` refuses an upload that was already dispatched, through `POST /ingest/commit/{job_id}` or a publish manifest. It used to fan the upload out while the first import was already queued.
 - `geolens arcgis migrate` no longer overwrites a dataset visibility you changed in GeoLens when it reruns an item that stopped before its handover, for service and file items. The state file records the visibility each import or later write gave a dataset; any other was set in GeoLens and is kept and noted, as an edited title is. Later refreshes keep it too and still refresh the data, where they used to list the item as not up to date and skip the refresh, so a kept visibility no longer holds back `--cutover`. Sharing doesn't undo it either: a dataset made private in GeoLens isn't given a restricted item's groups, and each run lists that sharing as owed. A dataset GeoLens already held takes the plan's title and visibility when it is first adopted, and keeps a title or visibility edited after that. The first metadata write on a dataset fills only empty fields, so an attribution, license or organization set in GeoLens before it is kept and noted. Where the state file has no record, from an older CLI, a visibility that differs from the plan's is kept.
 - Registering an existing table no longer rewrites every row to fill `geom_4326`. Registration adds it as a stored generated column with the same expression the fill used, so PostgreSQL derives it as rows are written: one table rewrite with no dead tuples, and later writes made outside GeoLens stay visible without a refresh. Feature edits on a registered table write `geom` only and let the column derive itself. Tables that already carry a plain `geom_4326` keep it unchanged. Tables whose `geom` is already a generated column get a plain `geom_4326` instead, filled once. Later writes made outside GeoLens reach that column only after a refresh, and feature edits on those tables also write `geom_4326` directly. For the table owner, the generated column changes three things: a write now fails when PostGIS cannot transform a coordinate ("Point outside of projection domain"), where it used to succeed and leave `geom_4326` stale; `ALTER COLUMN geom TYPE` and `DROP COLUMN geom` are refused until `geom_4326` is dropped first; and GeoLens 1.33 and earlier cannot edit features on a table registered this way, so feature edits on it fail after a rollback to 1.33 or earlier.
 
@@ -7602,7 +7627,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.33.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.34.0...HEAD
+[1.34.0]: https://github.com/geolens-io/geolens/compare/v1.33.0...v1.34.0
 [1.33.0]: https://github.com/geolens-io/geolens/compare/v1.32.0...v1.33.0
 [1.32.0]: https://github.com/geolens-io/geolens/compare/v1.31.0...v1.32.0
 [1.31.0]: https://github.com/geolens-io/geolens/compare/v1.30.1...v1.31.0

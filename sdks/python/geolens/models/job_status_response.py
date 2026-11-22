@@ -26,6 +26,13 @@ if TYPE_CHECKING:
     from ..models.job_status_response_temporal_parse_errors import (
         JobStatusResponseTemporalParseErrors,
     )
+    from ..models.manifest_attribute_unmatched_warning import (
+        ManifestAttributeUnmatchedWarning,
+    )
+    from ..models.manifest_collection_refused_warning import (
+        ManifestCollectionRefusedWarning,
+    )
+    from ..models.manifest_public_fallback_warning import ManifestPublicFallbackWarning
     from ..models.mercator_clip_warning import MercatorClipWarning
     from ..models.reserved_rename_warning import ReservedRenameWarning
     from ..models.zm_dropped_warning import ZmDroppedWarning
@@ -51,8 +58,9 @@ class JobStatusResponse:
         error_code (None | str | Unset): Stable code for a fixed failure reason, so a client can show it in the reader's
             language; `error_message` keeps its English text. Null when the reason is free text.
         warning_message (None | str | Unset):
-        warnings (list[DbfTruncationCollisionWarning | MercatorClipWarning | ReservedRenameWarning | ZmDroppedWarning] |
-            Unset):
+        warnings (list[DbfTruncationCollisionWarning | ManifestAttributeUnmatchedWarning |
+            ManifestCollectionRefusedWarning | ManifestPublicFallbackWarning | MercatorClipWarning | ReservedRenameWarning |
+            ZmDroppedWarning] | Unset):
         progress (float | None | Unset):
         current_step (JobStatusResponseCurrentStepType0 | None | Unset):
         rows_processed (int | None | Unset):
@@ -78,6 +86,9 @@ class JobStatusResponse:
     warnings: (
         list[
             DbfTruncationCollisionWarning
+            | ManifestAttributeUnmatchedWarning
+            | ManifestCollectionRefusedWarning
+            | ManifestPublicFallbackWarning
             | MercatorClipWarning
             | ReservedRenameWarning
             | ZmDroppedWarning
@@ -97,8 +108,15 @@ class JobStatusResponse:
         from ..models.dbf_truncation_collision_warning import (
             DbfTruncationCollisionWarning,
         )
+        from ..models.manifest_attribute_unmatched_warning import (
+            ManifestAttributeUnmatchedWarning,
+        )
+        from ..models.manifest_collection_refused_warning import (
+            ManifestCollectionRefusedWarning,
+        )
         from ..models.mercator_clip_warning import MercatorClipWarning
         from ..models.reserved_rename_warning import ReservedRenameWarning
+        from ..models.zm_dropped_warning import ZmDroppedWarning
 
         id = str(self.id)
 
@@ -157,6 +175,12 @@ class JobStatusResponse:
                 elif isinstance(warnings_item_data, DbfTruncationCollisionWarning):
                     warnings_item = warnings_item_data.to_dict()
                 elif isinstance(warnings_item_data, MercatorClipWarning):
+                    warnings_item = warnings_item_data.to_dict()
+                elif isinstance(warnings_item_data, ZmDroppedWarning):
+                    warnings_item = warnings_item_data.to_dict()
+                elif isinstance(warnings_item_data, ManifestCollectionRefusedWarning):
+                    warnings_item = warnings_item_data.to_dict()
+                elif isinstance(warnings_item_data, ManifestAttributeUnmatchedWarning):
                     warnings_item = warnings_item_data.to_dict()
                 else:
                     warnings_item = warnings_item_data.to_dict()
@@ -243,6 +267,15 @@ class JobStatusResponse:
         )
         from ..models.job_status_response_temporal_parse_errors import (
             JobStatusResponseTemporalParseErrors,
+        )
+        from ..models.manifest_attribute_unmatched_warning import (
+            ManifestAttributeUnmatchedWarning,
+        )
+        from ..models.manifest_collection_refused_warning import (
+            ManifestCollectionRefusedWarning,
+        )
+        from ..models.manifest_public_fallback_warning import (
+            ManifestPublicFallbackWarning,
         )
         from ..models.mercator_clip_warning import MercatorClipWarning
         from ..models.reserved_rename_warning import ReservedRenameWarning
@@ -345,6 +378,9 @@ class JobStatusResponse:
         warnings: (
             list[
                 DbfTruncationCollisionWarning
+                | ManifestAttributeUnmatchedWarning
+                | ManifestCollectionRefusedWarning
+                | ManifestPublicFallbackWarning
                 | MercatorClipWarning
                 | ReservedRenameWarning
                 | ZmDroppedWarning
@@ -359,6 +395,9 @@ class JobStatusResponse:
                     data: object,
                 ) -> (
                     DbfTruncationCollisionWarning
+                    | ManifestAttributeUnmatchedWarning
+                    | ManifestCollectionRefusedWarning
+                    | ManifestPublicFallbackWarning
                     | MercatorClipWarning
                     | ReservedRenameWarning
                     | ZmDroppedWarning
@@ -389,11 +428,39 @@ class JobStatusResponse:
                         return warnings_item_type_2
                     except (TypeError, ValueError, AttributeError, KeyError):
                         pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        warnings_item_type_3 = ZmDroppedWarning.from_dict(data)
+
+                        return warnings_item_type_3
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        warnings_item_type_4 = (
+                            ManifestCollectionRefusedWarning.from_dict(data)
+                        )
+
+                        return warnings_item_type_4
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        warnings_item_type_5 = (
+                            ManifestAttributeUnmatchedWarning.from_dict(data)
+                        )
+
+                        return warnings_item_type_5
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
                     if not isinstance(data, dict):
                         raise TypeError()
-                    warnings_item_type_3 = ZmDroppedWarning.from_dict(data)
+                    warnings_item_type_6 = ManifestPublicFallbackWarning.from_dict(data)
 
-                    return warnings_item_type_3
+                    return warnings_item_type_6
 
                 warnings_item = _parse_warnings_item(warnings_item_data)
 

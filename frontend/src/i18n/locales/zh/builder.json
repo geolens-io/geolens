@@ -1228,7 +1228,8 @@
     "notes": "备注",
     "notesPlaceholder": "添加关于此地图的备注...",
     "dashboard": "仪表板",
-    "dashboardDescription": "读者在地图旁看到的小组件"
+    "dashboardDescription": "读者在地图旁看到的小组件",
+    "bookmarks": "书签"
   },
   "leaveWarning": {
     "title": "未保存的更改",
@@ -1376,7 +1377,9 @@
     "aiConfigureSettings": "在设置中配置",
     "notesButtonWithNotes": "备注（地图有备注）",
     "dashboardButtonWithWidgets_one": "仪表板（{{count}} 个组件）",
-    "dashboardButtonWithWidgets_other": "仪表板（{{count}} 个组件）"
+    "dashboardButtonWithWidgets_other": "仪表板（{{count}} 个组件）",
+    "bookmarksButtonWithCount_one": "书签（{{count}} 个已保存视图）",
+    "bookmarksButtonWithCount_other": "书签（{{count}} 个已保存视图）"
   },
   "stackRow": {
     "dragHandle": "拖拽以重新排序 {{name}}",
@@ -1594,5 +1597,19 @@
     "sourceBoundedGeojson": "有界 GeoJSON 聚合",
     "sourceFallback": "聚合备用方案"
   },
-  "mobileNotice": "地图构建器在较大的屏幕上使用效果最佳。此处的部分控件受到限制。"
+  "mobileNotice": "地图构建器在较大的屏幕上使用效果最佳。此处的部分控件受到限制。",
+  "bookmarks": {
+    "description": "读者可以跳转的已保存视图",
+    "add": "添加当前视图",
+    "addNoMap": "地图尚未就绪。",
+    "limitReached": "一张地图最多可有 {{count}} 个书签。",
+    "empty": "书签会保存地图视图，方便读者跳回该视图。",
+    "listLabel": "书签",
+    "defaultName": "书签 {{number}}",
+    "nameLabel": "书签 {{number}} 的名称",
+    "goTo": "转到 {{name}}",
+    "moveUp": "上移 {{name}}",
+    "moveDown": "下移 {{name}}",
+    "delete": "删除 {{name}}"
+  }
 }

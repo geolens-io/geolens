@@ -1238,7 +1238,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 615,
+        "backend/app/platform/extensions/defaults_processing_port.py": 624,
         "backend/app/platform/extensions/defaults_extensions.py": 436,
         "backend/app/modules/catalog/search/service_filters.py": 376,
     }
@@ -1292,7 +1292,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
 # These decomposition ceilings may shrink freely; the inclusion rule uses them
 # to avoid tracking the same module in both cap tables.
 _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
-    "backend/app/modules/catalog/maps/style_json.py": 1665,
+    "backend/app/modules/catalog/maps/style_json.py": 1672,
     "backend/app/modules/catalog/maps/style_import.py": 605,
     "backend/app/modules/catalog/maps/style_sanitizers.py": 151,
     "backend/app/modules/catalog/maps/router_assets.py": 190,
@@ -1308,9 +1308,11 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
 # Full paths cover oversized modules beyond the router glob.
 _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
-    # apply workflow, including the settlement of a contended or refused admission
-    # and the records of an admin's raw seed source and restricted public intent.
-    "backend/app/processing/ingest/manifest_service.py": 1291,
+    # apply workflow, including the settlement of a contended or refused admission,
+    # the records of an admin's raw seed source, restricted public intent and a
+    # publish key, where a version 2 entry's publication is decided and a held or
+    # in-flight job is reused, and the maps section's results beside the datasets'.
+    "backend/app/processing/ingest/manifest_service.py": 1339,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,
@@ -1361,14 +1363,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/publish_followups.py": 1477,
     # What every ingest strategy shares: the task app, job lifecycle and phase
     # sessions, finalization, and the reupload table swap and catalog write.
-    "backend/app/processing/ingest/tasks_common.py": 1447,
+    "backend/app/processing/ingest/tasks_common.py": 1452,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
     # review of the changes its preview showed, and the live-table comparison
     # that lets a refresh or file re-upload of unchanged data publish nothing,
-    # and the rebuild of geometry from the columns a dataset's was built from.
-    "backend/app/processing/ingest/tasks_reupload.py": 2002,
+    # the rebuild of geometry from the columns a dataset's was built from, and
+    # the task names that keep earlier workers off newer replacements.
+    "backend/app/processing/ingest/tasks_reupload.py": 2025,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1402,8 +1405,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Raster replacement owns conversion, read-back and published-object cleanup.
     "backend/app/processing/ingest/tasks_raster_replace.py": 608,
     # File and remote-source imports own publication fencing, heartbeat phases
-    # and failure settlement.
-    "backend/app/processing/ingest/tasks_vector.py": 1222,
+    # and failure settlement, and the task name that keeps earlier workers off
+    # a manifest version 2 create.
+    "backend/app/processing/ingest/tasks_vector.py": 1237,
     # GDAL environments, timeouts, reaping and error sanitization share one process
     # boundary.
     "backend/app/processing/ingest/ogr.py": 1950,
@@ -1419,7 +1423,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary. Registration creates geom_4326 as a stored
     # generated column rather than filling it with a full-table UPDATE.
-    "backend/app/processing/ingest/service.py": 1601,
+    "backend/app/processing/ingest/service.py": 1607,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 700,
@@ -1436,7 +1440,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/dependencies.py": 1008,
     # Map endpoints share response assembly, visibility and ownership checks,
     # and the map_author key's limits on the routes it may write.
-    "backend/app/modules/catalog/maps/router.py": 1523,
+    "backend/app/modules/catalog/maps/router.py": 1349,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
@@ -1483,7 +1487,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # may see, and which groups can't read a dataset, share the permission
     # extension's one audience; map reads, and which groups can't read a map,
     # share the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1397,
+    "backend/app/modules/catalog/authorization.py": 1400,
 }
 
 

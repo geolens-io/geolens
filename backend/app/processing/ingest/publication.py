@@ -24,7 +24,6 @@ from sqlalchemy.orm import joinedload
 
 from app.core.db.sqlstate import is_lock_conflict
 from app.core.failure_reason import FixedReason
-from app.core.identity import IdentityRole, IdentitySnapshot
 from app.platform.catalog_locks import (
     CatalogLockConflict,
     bump_tile_cache_version_on,
@@ -48,13 +47,21 @@ from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     ADMITTED_CAPABILITY_METADATA_KEY,
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
+    ADMITTED_PUBLISH_KEY_METADATA_KEY,
     ADMITTED_RAW_SOURCE_METADATA_KEY,
+    MANIFEST_VERSION_METADATA_KEY,
     IngestJob,
 )
 from app.platform.refresh.service import (
     claim_run_for_job,
     record_refresh_failure,
     record_refresh_success,
+)
+from app.processing.ingest.manifest_dataset_fields import (
+    as_publish_key,
+    load_submitter,
+    record_manifest_tile_cache_version,
+    required_capabilities,
 )
 from app.processing.ingest.publish_followups import (
     owed_followups,
@@ -178,6 +185,17 @@ class WriteAccessRevoked(Exception):
         super().__init__(
             "The account that started this job can no longer modify this "
             "dataset, so its data was not replaced."
+        )
+
+
+class WideningRefused(WriteAccessRevoked):
+    """The job would widen who reads its dataset past what its submitter may."""
+
+    def __init__(self) -> None:
+        Exception.__init__(
+            self,
+            "The account that started this job may not open this dataset to "
+            "more readers, so its data was not replaced.",
         )
 
 
@@ -555,6 +573,7 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
         published = await strategy.write(session, dataset)
         if published.tiles_changed:
             await bump_tile_cache_version_on(session, dataset)
+        record_manifest_tile_cache_version(job, dataset)
         values = dict(published.job_values or {})
         values["user_metadata"] = owed_followups(
             attempt_id,
@@ -591,24 +610,18 @@ async def _publish(strategy: ReplacementStrategy, attempt: _Attempt) -> bool:
     return False
 
 
-# In SQL, since processing may not import the auth models.
-_SUBMITTER = text(
-    "SELECT u.id, u.username, u.email, u.is_active, u.created_at, "
-    "ARRAY(SELECT r.name FROM catalog.user_roles ur "
-    "JOIN catalog.roles r ON r.id = ur.role_id WHERE ur.user_id = u.id) AS roles "
-    "FROM catalog.users u WHERE u.id = :uid"
-)
-
-
 async def require_submitter_can_write(
     session: AsyncSession, dataset: Any, job: IngestJob, *, capability: str | None
 ) -> None:
     """Raise ``WriteAccessRevoked`` unless the job's submitter may still write
     the dataset, as committed now, and their roles still grant ``capability``,
     the one the job's door admitted it under. With None, only the account and
-    owner-or-admin are checked. A job only an admin could queue, for a raw
-    seed source or public data under ``restrict_public_visibility``, also needs
-    them to still be an admin.
+    owner-or-admin are checked. A job a publish key queued or accepted is
+    judged as that key's request is, which reaches only its owner's own
+    datasets. A manifest job carrying attribute text also needs
+    ``edit_metadata``, as the attribute edit does. A job only an admin could
+    queue, for a raw seed source or public data under
+    ``restrict_public_visibility``, also needs them to still be an admin.
 
     Call holding the catalog rows, which an ownership transfer also takes.
     """
@@ -616,37 +629,35 @@ async def require_submitter_can_write(
 
     from app.platform.extensions import get_permission_extension, get_processing_port
 
-    row = None
-    if job.created_by is not None:
-        row = (await session.execute(_SUBMITTER, {"uid": job.created_by})).first()
-    if row is None or not row.is_active:
+    submitter = await load_submitter(session, job.created_by)
+    if submitter is None:
         raise WriteAccessRevoked
-    submitter = IdentitySnapshot(
-        id=row.id,
-        username=row.username,
-        email=row.email,
-        is_active=row.is_active,
-        roles=tuple(IdentityRole(name) for name in row.roles),
-        created_at=row.created_at,
-    )
     await session.refresh(
         dataset.record, attribute_names=["created_by", "visibility", "record_status"]
     )
+    metadata = job.user_metadata or {}
+    key_marked = bool(metadata.get(ADMITTED_PUBLISH_KEY_METADATA_KEY))
     try:
-        await get_processing_port().check_dataset_write_access(
-            session,
-            dataset,
-            dataset.id,
-            submitter,
-            user_roles={role.name for role in submitter.roles},
-        )
+        with as_publish_key(session, metadata):
+            await get_processing_port().check_dataset_write_access(
+                session,
+                dataset,
+                dataset.id,
+                submitter,
+                # The key's roles are resolved as its request's are.
+                user_roles=None
+                if key_marked
+                else {role.name for role in submitter.roles},
+            )
     except HTTPException:
         raise WriteAccessRevoked from None
-    if capability is not None and not await get_permission_extension().check_permission(
-        session, submitter, capability, user_roles=set(row.roles)
-    ):
-        raise WriteAccessRevoked
-    if await _no_longer_admin_to_publish(session, job, set(row.roles)):
+    roles = {r.name for r in submitter.roles}
+    for each in required_capabilities(job.user_metadata or {}, capability):
+        if not await get_permission_extension().check_permission(
+            session, submitter, each, user_roles=roles
+        ):
+            raise WriteAccessRevoked
+    if await _no_longer_admin_to_publish(session, job, roles):
         raise WriteAccessRevoked
 
 
@@ -654,8 +665,9 @@ async def _no_longer_admin_to_publish(
     session: AsyncSession, job: IngestJob, roles: set[str]
 ) -> bool:
     """A job only an admin could queue, whose submitter is no longer one: it
-    reads a raw seed source, or makes data public while the restricted-public
-    setting is still on."""
+    reads a raw seed source, or, for a version 1 job, makes data public while
+    the restricted-public setting is still on. A version 2 job's publication
+    is judged again where it is written, which can fall back to internal."""
     from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
 
     metadata = job.user_metadata or {}
@@ -663,7 +675,9 @@ async def _no_longer_admin_to_publish(
         return False
     if metadata.get(ADMITTED_RAW_SOURCE_METADATA_KEY):
         return True
-    if not metadata.get(ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY):
+    if not metadata.get(ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY) or (
+        metadata.get(MANIFEST_VERSION_METADATA_KEY) == "2"
+    ):
         return False
     return bool(await RESTRICT_PUBLIC_VISIBILITY.get(session))
 

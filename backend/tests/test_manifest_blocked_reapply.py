@@ -55,8 +55,9 @@ class _Held:
     run_id: uuid.UUID
 
 
-async def _held_apply(session) -> _Held:
-    """A manifest update that dropped a column and is now held for review."""
+async def _held_apply(session, request=None) -> _Held:
+    """A manifest update that dropped a column and is now held for review;
+    ``request`` is the update, the version 1 resurvey by default."""
     _stage_fixture()
     user = await _admin(session)
     table = f"manifest_held_{uuid.uuid4().hex[:10]}"
@@ -98,7 +99,9 @@ async def _held_apply(session) -> _Held:
     await session.commit()
 
     with _reupload_task() as task:
-        response = await apply_manifest(session, _resurveyed(), user, _http_request())
+        response = await apply_manifest(
+            session, request or _resurveyed(), user, _http_request()
+        )
     assert response.results[0].action == "update"
     await _run_worker(task)
     run = (

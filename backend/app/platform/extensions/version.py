@@ -167,7 +167,13 @@ logger = logging.getLogger(__name__)
 # 23 -> 24: ProcessingPort gained the required ``resolve_manifest_collection``,
 # ``add_dataset_to_manifest_collection``, ``apply_manifest_attributes`` and
 # ``apply_manifest_maps`` methods for publish manifest v2.
-EXTENSION_API_VERSION: int = 24
+# 24 -> 25: CatalogPort gained the required ``manifest_v2_reupload_task``, the
+# manifest version 2 replacement under a name earlier workers lack.
+# 25 -> 26: ``ProcessingPort.apply_manifest_maps`` gained the required
+# keyword-only ``dataset_ids_by_key`` and ``pending_dataset_keys``; it is now
+# ``apply_manifest_maps(session, maps, user, *, dry_run, dataset_ids_by_key,
+# pending_dataset_keys)``.
+EXTENSION_API_VERSION: int = 26
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

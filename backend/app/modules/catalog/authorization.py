@@ -50,6 +50,7 @@ from app.modules.catalog.write_recheck import (
     recheck_dataset_write_access,
 )
 from app.platform.catalog_locks import lock_catalog_rows
+from app.platform.record_audience import may_set_public
 from app.platform.request_credential import (
     DATASET_KEY_SCOPES,
     api_key_credential,
@@ -790,18 +791,20 @@ async def check_public_visibility_allowed(
     from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
 
     # Uncached: a cached read can hold the value from before a change committed.
-    if not await RESTRICT_PUBLIC_VISIBILITY.get_uncached(db):
-        return user_roles
-
-    if user_roles is None:
+    restricted = bool(await RESTRICT_PUBLIC_VISIBILITY.get_uncached(db))
+    if restricted and user_roles is None:
         user_roles = await get_user_roles(db, user)
-    if "admin" in user_roles:
+    if not may_set_public(
+        is_key=is_publish_key(db),
+        is_admin="admin" in (user_roles or ()),
+        restricted=restricted,
+    ):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail=PUBLIC_VISIBILITY_DENIED
+        )
+    if restricted:
         admit_public_visibility(db, user.id)
-        return user_roles
-
-    raise HTTPException(
-        status_code=status.HTTP_403_FORBIDDEN, detail=PUBLIC_VISIBILITY_DENIED
-    )
+    return user_roles
 
 
 async def can_download_raster_cog(

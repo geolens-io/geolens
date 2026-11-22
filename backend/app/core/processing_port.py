@@ -19,7 +19,7 @@ subsequent requests.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import date, datetime
 from typing import Any, Protocol, runtime_checkable
 
@@ -471,8 +471,10 @@ class ProcessingPort(Protocol):
     ) -> DatasetProtocol | None: ...
 
     # Publish manifest v2. Collection refusals come back as the warning code
-    # "A033" rather than raising; ``user`` is an Identity, ``ref`` is
-    # ``{"id": ...}`` or ``{"name": ...}``.
+    # "A033" rather than raising, and a collection row that stays locked as
+    # "collection_busy"; ``user`` is an Identity, ``ref`` is ``{"id": ...}``
+    # or ``{"name": ...}``. ``may_create=False`` writes nothing and answers a
+    # name the caller could create with ``(None, None)``.
     async def resolve_manifest_collection(
         self,
         session: AsyncSession,
@@ -500,6 +502,12 @@ class ProcessingPort(Protocol):
         actor_id: uuid.UUID,
     ) -> list[str]: ...
 
+    # ``maps`` are the request's ``ManifestMap`` entries and
+    # ``dataset_ids_by_key`` the dataset each layer ``dataset_key`` names,
+    # resolved by the caller; a key it couldn't resolve is absent.
+    # ``pending_dataset_keys`` are the keys of the request's own datasets,
+    # which a dry run may not find yet. Returns one ``ManifestMapResult``-shaped
+    # dict per map, in order.
     async def apply_manifest_maps(
         self,
         session: AsyncSession,
@@ -507,4 +515,6 @@ class ProcessingPort(Protocol):
         user: Identity,
         *,
         dry_run: bool,
-    ) -> list[Any]: ...
+        dataset_ids_by_key: Mapping[str, uuid.UUID],
+        pending_dataset_keys: Collection[str],
+    ) -> list[dict[str, Any]]: ...

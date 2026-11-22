@@ -49,6 +49,8 @@ BOOKKEEPING = {
     "s3_key_reaped_final": True,
     "manifest_stage": "downloading",
     "manifest_fingerprint": "sha256:0123",
+    "manifest_attributes": [{"source_name": "PARK_NAME", "title": "Park name"}],
+    "manifest_tile_cache_version": 3,
     "tileset_unpacked_bytes": 4096,
     "presigned": True,
     "s3_key": "staging/job/campus.zip",
@@ -63,6 +65,7 @@ BOOKKEEPING = {
     "start_data_revision": 3,
     "admitted_capability": "upload",
     "admitted_public_visibility": True,
+    "admitted_publish_key": True,
     "admitted_raw_source": True,
     "archive_error": "Could not archive staging/job/original.tif",
     "archive_pending": True,
@@ -83,6 +86,7 @@ USER_METADATA = {
     "fan_out_parent_id": str(uuid.uuid4()),
     "archive_failed": True,
     "archive_review": "original_missing",
+    "manifest_collection_id": str(uuid.uuid4()),
 }
 UNKNOWN = {"some_new_worker_state": {"attempt": 3}}
 BACKEND_APP = Path(__file__).resolve().parents[1] / "app"

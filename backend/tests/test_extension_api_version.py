@@ -157,11 +157,18 @@ class TestExtensionApiVersionConstant:
         that replaces the ``processing_port`` key without them fails manifest
         v2 applies.
 
+        v25 adds the required ``manifest_v2_reupload_task`` method to
+        ``CatalogPort``. An overlay that replaces the ``catalog_port`` key
+        without it fails every manifest version 2 replacement.
+
+        v26 adds the required keyword-only ``dataset_ids_by_key`` and
+        ``pending_dataset_keys`` to ``ProcessingPort.apply_manifest_maps``.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 24
+        assert EXTENSION_API_VERSION == 26
 
 
 class TestCheckExtensionApiVersion:

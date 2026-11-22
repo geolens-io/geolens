@@ -3142,3 +3142,51 @@ def test_a_mesh_only_terrain_layer_leaves_the_hillshade_its_raster_dem_source(
 
     [shaded] = [x for x in style["layers"] if x["type"] == "hillshade"]
     assert style["sources"][shaded["source"]]["type"] == "raster-dem"
+
+
+def _walked(node):
+    cols: set[str] = set()
+    style_json._walk_get_has_columns(node, cols)
+    return cols
+
+
+def test_walker_treats_match_labels_as_values_and_outputs_as_expressions():
+    node = ["match", ["get", "kind"], ["get", "has"], ["get", "out"], "#000"]
+    assert _walked(node) == {"kind", "out"}
+
+
+def test_walker_skips_literal_operands():
+    assert _walked(["literal", ["get", "x"]]) == set()
+
+
+def test_walker_reads_through_a_list_whose_head_is_a_list():
+    assert _walked([["get", "x"], ["has", "y"]]) == {"x", "y"}
+
+
+def test_walker_reads_get_with_an_object_expression_operand():
+    node = ["get", "radius", ["at", 0, ["literal", [{"radius": 5}]]]]
+    assert _walked(node) == {"radius"}
+    assert _walked(["get", "radius", ["get", "obj"]]) == {"radius", "obj"}
+
+
+def test_walker_keeps_legacy_filter_columns_through_the_normalizer():
+    layer = _layer(
+        paint={}, label_config=None, filter=["all", ["==", "status", "open"]]
+    )
+    assert style_json._data_driven_columns_for_layer(layer) == ["status"]
+
+
+def test_layer_with_a_dict_in_literal_paint_still_exports_its_columns():
+    layer = _layer(
+        paint={
+            "circle-radius": [
+                "get",
+                "radius",
+                ["at", 0, ["literal", [{"radius": 5}]]],
+            ],
+            "circle-color": ["get", "tint"],
+        },
+        label_config=None,
+        filter=None,
+    )
+    assert style_json._data_driven_columns_for_layer(layer) == ["radius", "tint"]

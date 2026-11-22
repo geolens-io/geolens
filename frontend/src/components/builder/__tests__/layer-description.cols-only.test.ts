@@ -206,3 +206,46 @@ describe('a projection too long for the request line', () => {
     expect(urlFor(SAVED_LAYERS.polygon, wide.slice(0, 3))).toContain('cols_only=true');
   });
 });
+
+describe('columns read by nested expressions', () => {
+  const cols = (value: unknown) => getDataDrivenColumnsForLayer({ paint: { 'circle-radius': value } }).sort();
+
+  it('treats match labels as values, and match inputs and outputs as expressions', () => {
+    expect(cols(['match', ['get', 'kind'], ['get', 'has'], ['get', 'out'], '#000'])).toEqual(['kind', 'out']);
+  });
+
+  it('does not read a column from a literal', () => {
+    expect(cols(['literal', ['get', 'x']])).toEqual([]);
+  });
+
+  it('reads a column named by the object operand of get', () => {
+    expect(cols(['get', 'radius', ['get', 'obj']])).toEqual(['obj', 'radius']);
+  });
+});
+
+describe('operands that are data, read through describeLayers', () => {
+  const describeFilter = (filter: unknown) => {
+    const { sources, tileColumns, layers } = describeLayers(
+      [toSyncInput({ ...SAVED_LAYERS.polygon, filter: filter as never })],
+      { ...RENDER_CONTEXTS.builder, colsOnly: true },
+    );
+    const id = layers[0].sourceId;
+    return { url: (sources.get(id) as { tiles: string[] }).tiles[0], cols: tileColumns.get(id) ?? [] };
+  };
+
+  it('leaves out a match label that looks like a get', () => {
+    const { cols, url } = describeFilter(['==', ['match', ['get', 'kind'], ['get', 'x'], 'a', 'b'], 'a']);
+    expect(cols).toContain('kind');
+    expect(cols).not.toContain('x');
+    expect(url).toContain('cols_only=true');
+  });
+
+  it('keeps cols_only on when a literal holds properties or an object', () => {
+    const { url } = describeFilter(['==', ['at', 0, ['literal', [['properties'], { a: 1 }]]], 1]);
+    expect(url).toContain('cols_only=true');
+  });
+
+  it('still requests a column read by a match output', () => {
+    expect(describeFilter(['==', ['match', ['get', 'kind'], 'a', ['get', 'y'], 'b'], 1]).cols).toContain('y');
+  });
+});

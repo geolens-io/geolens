@@ -24,10 +24,10 @@ Known limits (accepted):
 
 - Source-level detection: a call site inside dead code would still credit the
   handler. The behavioral 403 is covered by test_public_visibility_gate.py.
-- The manifest-apply body carries no ``visibility`` field — its publication
-  *intent* maps to one in ``publication_to_catalog_fields``. The walk cannot
-  see that by field name, so the route is pinned explicitly
-  (test_manifest_apply_routes_through_the_gate) rather than discovered.
+- A version 1 manifest entry carries no ``visibility`` field: its publication
+  *intent* maps to one in ``publication_to_catalog_fields``. A version 2 entry
+  carries an explicit one, which the walk finds. Both go through the same call
+  in ``_classify_dataset``, pinned by test_manifest_apply_routes_through_the_gate.
 - The ingest fan-out body also carries no ``visibility`` field; the cloned
   jobs inherit the parent job's user_metadata, so the handler gates that
   inherited value as defense-in-depth. Pinned explicitly for the same reason
@@ -50,7 +50,16 @@ _MUTATION_METHODS = {"POST", "PUT", "PATCH"}
 
 # Handlers whose gate call lives in a helper instead of the handler body.
 # Value: (module path, function name) whose source must contain the call.
-_DELEGATED_GATES: dict[str, tuple[str, str]] = {}
+_DELEGATED_GATES: dict[str, tuple[str, str]] = {
+    "app.modules.catalog.maps.router.update_map_endpoint": (
+        "app.modules.catalog.maps.service_update",
+        "_check_map_update",
+    ),
+    "app.processing.ingest.manifest_router.apply_manifest_endpoint": (
+        "app.processing.ingest.manifest_service",
+        "_classify_dataset",
+    ),
+}
 
 # Mutation routes whose body accepts `visibility` but which are deliberately
 # NOT gated, each with a written justification. Kept empty on purpose: every
@@ -211,10 +220,10 @@ def _source_of_key(key: str) -> str:
 
 @pytest.mark.architecture
 def test_manifest_apply_routes_through_the_gate() -> None:
-    """The manifest body has no `visibility` field — its publication intent
-    maps to one. Pin that the apply path's classification step calls the
-    gate, and that the route itself still exists (so this pin cannot outlive
-    the surface it covers)."""
+    """A version 1 entry's publication intent maps to a visibility, and a
+    version 2 entry names one. Pin that the apply path's classification step
+    calls the gate, and that the route itself still exists (so this pin cannot
+    outlive the surface it covers)."""
     from fastapi.routing import APIRoute, iter_route_contexts
 
     from app.api.main import app

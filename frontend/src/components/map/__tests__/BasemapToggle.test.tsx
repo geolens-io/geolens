@@ -38,6 +38,17 @@ describe('BasemapToggle', () => {
     expect(img).toHaveAttribute('alt', '');
   });
 
+  it('sizes the trigger 44 px on phones and 64 px from sm, with a layers badge and a visible border', () => {
+    render(<BasemapToggle value="dark" onChange={vi.fn()} />);
+
+    const button = screen.getByRole('button', { name: 'Change basemap' });
+    expect(button.querySelector('img')).toHaveClass('size-11', 'sm:size-16');
+    expect(button.querySelector('svg')).toBeInTheDocument();
+    expect(button).toHaveClass('border-foreground/70');
+    expect(button).not.toHaveClass('border-background');
+    expect(button).toHaveAttribute('aria-expanded', 'false');
+  });
+
   it('returns null when only one basemap is enabled', () => {
     const singleBasemap = [{ id: 'positron', label: 'Positron', url: '', enabled: true, is_preset: true }];
     mockUseBasemaps.mockReturnValue({ data: singleBasemap });

@@ -91,11 +91,75 @@ class ZmDroppedWarning(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ManifestCollectionRefusedDetail(BaseModel):
+    """The collection a manifest asked for that the dataset was not added to."""
+
+    collection_id: str
+    reason: Literal["refused", "busy"] = Field(
+        default="refused",
+        description=(
+            "refused: the submitter can't add datasets to the collection. "
+            "busy: another change held the collection too long; publishing "
+            "again may add the dataset."
+        ),
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestCollectionRefusedWarning(BaseModel):
+    """Publish manifest code A033: the dataset was published without its collection."""
+
+    kind: Literal["manifest_collection_refused"]
+    details: ManifestCollectionRefusedDetail
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestAttributeUnmatchedDetail(BaseModel):
+    source_names: list[str]
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestAttributeUnmatchedWarning(BaseModel):
+    """Publish manifest code A092: these attribute names matched no column."""
+
+    kind: Literal["manifest_attribute_unmatched"]
+    details: ManifestAttributeUnmatchedDetail
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestPublicFallbackDetail(BaseModel):
+    reason: Literal["key", "restriction"] = Field(
+        description=(
+            "key: a publish key can't make anything public. restriction: "
+            "public visibility is restricted to admins on this server."
+        )
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestPublicFallbackWarning(BaseModel):
+    """Publish manifest code A020: public was refused when the job ran, so
+    the dataset was shared with the organization instead."""
+
+    kind: Literal["manifest_public_fallback"]
+    details: ManifestPublicFallbackDetail
+
+    model_config = ConfigDict(extra="forbid")
+
+
 IngestJobWarning = Annotated[
     ReservedRenameWarning
     | DbfTruncationCollisionWarning
     | MercatorClipWarning
-    | ZmDroppedWarning,
+    | ZmDroppedWarning
+    | ManifestCollectionRefusedWarning
+    | ManifestAttributeUnmatchedWarning
+    | ManifestPublicFallbackWarning,
     Field(discriminator="kind"),
 ]
 

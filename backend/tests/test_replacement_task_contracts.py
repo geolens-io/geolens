@@ -198,3 +198,26 @@ def test_every_file_replacement_dispatch_queues_the_verified_name() -> None:
     # The old name stays registered for jobs already queued under it; only the
     # task registry imports it.
     assert old_task_users == {"processing/ingest/tasks.py"}
+
+
+def test_a_manifest_v2_replacement_has_its_own_name_on_the_same_body() -> None:
+    """Workers from before manifest version 2 lack the name, so they can't run
+    one; only the two manifest doors queue it."""
+    from app.platform.extensions.defaults_catalog_port import DefaultCatalogPort
+    from app.processing.ingest.tasks import reupload_file
+
+    task = DefaultCatalogPort().manifest_v2_reupload_task()
+    assert task.name == "app.ingest.tasks.reupload_manifest_v2_file"
+    assert task.func is reupload_file.func
+    dispatchers = {
+        path.relative_to(_APP).as_posix()
+        for path in sorted(_APP.rglob("*.py"))
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8")))
+        if isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "manifest_v2_reupload_task"
+    }
+    assert dispatchers == {
+        "modules/catalog/datasets/api/refresh_acceptance.py",
+        "processing/ingest/manifest_service.py",
+    }

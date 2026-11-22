@@ -523,7 +523,11 @@ class TestEveryPublicationStateWriterIsAccountedFor:
         exist yet, which no outstanding signature can name. ``service_groups.py``
         writes a map's visibility, ``stories/router.py`` and ``stories/groups.py``
         a story's, and ``group_sharing.py`` either's; no tile signature names a
-        map or a story.
+        map or a story. ``refresh_acceptance.py``, ``manifest_dataset_fields.py``
+        and ``manifest_publication.py``'s item writes fill a manifest job's
+        metadata, which the worker applies through the metadata edit (which
+        rolls the counter) or a create; ``manifest_publication.py``'s attribute
+        write sets a request's ``ManifestEntryFields``, not a record.
         """
         import pathlib
 
@@ -539,9 +543,18 @@ class TestEveryPublicationStateWriterIsAccountedFor:
                 "attr:visibility",
             ],
             "modules/catalog/group_sharing.py": ["values:visibility"],
+            "modules/catalog/datasets/api/refresh_acceptance.py": [
+                "item:record_status",
+                "item:visibility",
+            ],
             "modules/catalog/maps/service_groups.py": ["attr:visibility"],
             "modules/catalog/stories/groups.py": ["attr:visibility"],
             "modules/catalog/stories/router.py": ["attr:visibility"],
+            "processing/ingest/manifest_dataset_fields.py": ["item:visibility"],
+            "processing/ingest/manifest_publication.py": [
+                "attr:visibility",
+                "item:visibility",
+            ],
             "processing/ingest/tasks_common.py": ["attr:record_status"],
         }
 

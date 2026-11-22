@@ -1,7 +1,7 @@
 {
   "name": "frontend",
   "private": true,
-  "version": "1.33.0",
+  "version": "1.34.0",
   "type": "module",
   "license": "Apache-2.0",
   "author": "GeoLens contributors",
@@ -87,7 +87,7 @@
     "i18next": "^27.1.0",
     "laz-perf": "0.0.7",
     "lucide-react": "^1.71.0",
-    "maplibre-gl": "^6.5.0",
+    "maplibre-gl": "^6.19.0",
     "pmtiles": "^4.5.0",
     "proj4": "2.22.0",
     "radix-ui": "^1.8.1",

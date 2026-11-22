@@ -275,7 +275,8 @@
     },
     "anonMapRecovery": "此地图可能为私有。请登录以确认您的账户能否打开它。",
     "map": {
-      "ariaLabel": "地图查看器"
+      "ariaLabel": "地图查看器",
+      "bookmarks": "书签"
     }
   },
   "actions": {

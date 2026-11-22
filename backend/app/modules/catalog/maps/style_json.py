@@ -277,15 +277,22 @@ def _source_type_for_layer(layer: MapLayerResponse) -> str:
 
 def _walk_get_has_columns(node: Any, cols: set[str]) -> None:
     """Collect ``["get", col]`` / ``["has", col]`` column references from a
-    MapLibre expression (paint value or filter), recursing into nested arrays."""
+    MapLibre expression (paint value or filter), recursing into operands.
+
+    ``literal`` operands and ``match`` labels are data, not expressions, so a
+    ``["get", "x"]`` inside either is a value to compare, not a column read.
+    """
     if not isinstance(node, list) or not node:
         return
     head = node[0]
-    if head in {"get", "has"} and len(node) >= 2 and isinstance(node[1], str):
+    if head == "literal":
+        return
+    if head in ("get", "has") and len(node) >= 2 and isinstance(node[1], str):
         cols.add(node[1])
-        # A ["get", col] inside a larger expression can still nest further refs
-        # in later operands, so continue walking the remaining children.
-    for child in node:
+    last = len(node) - 1
+    for index, child in enumerate(node):
+        if head == "match" and index >= 2 and index % 2 == 0 and index < last:
+            continue
         _walk_get_has_columns(child, cols)
 
 

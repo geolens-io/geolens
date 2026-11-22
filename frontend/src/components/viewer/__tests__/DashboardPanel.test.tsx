@@ -526,6 +526,57 @@ describe('DashboardPanel', () => {
     expect(screen.getAllByText(/this dashboard hides its map/)).toHaveLength(1);
   });
 
+  describe('view-scope notes', () => {
+    const viewCount = { ...countWidget, scope: 'view' };
+    const viewChart = { ...chartWidget, scope: 'view' };
+    const subtitle = (name: string) => within(screen.getByRole('article', { name })).queryByText(/Whole layer/);
+
+    it('says once at the top that numbers follow the view, and not on any card', async () => {
+      const { map } = movableMap([-10, -5, 10, 5]);
+      render(<DashboardPanel config={dashboard([viewCount, viewChart])} layers={[layer()]} map={map} mapId="map-1" />);
+      expect(screen.getAllByText('Numbers follow the map view')).toHaveLength(1);
+      expect(screen.queryByText(/Follows the map view/)).not.toBeInTheDocument();
+      expect(screen.queryByText(/Whole layer/)).not.toBeInTheDocument();
+    });
+
+    it('labels a card that reads its whole layer when others follow the view', async () => {
+      const { map } = movableMap([-10, -5, 10, 5]);
+      render(
+        <DashboardPanel
+          config={dashboard([{ ...viewCount, title: 'Followed' }, { ...countWidget, id: '3c4d5e6f-7a8b-4c9d-8e0f-1a2b3c4d5e6f', title: 'Everything' }])}
+          layers={[layer()]}
+          map={map}
+          mapId="map-1"
+        />,
+      );
+      expect(screen.getAllByText('Numbers follow the map view')).toHaveLength(1);
+      expect(subtitle('Followed')).not.toBeInTheDocument();
+      const whole = within(screen.getByRole('article', { name: 'Everything' }));
+      expect(whole.getByText('City parcels').parentElement).toHaveTextContent('City parcels · Whole layer');
+    });
+
+    it('prints nothing when no widget follows the view', async () => {
+      render(<DashboardPanel config={dashboard([countWidget, chartWidget])} layers={[layer()]} map={null} mapId="map-1" />);
+      await screen.findByText('1,234');
+      expect(screen.queryByText('Numbers follow the map view')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Whole layer/)).not.toBeInTheDocument();
+    });
+
+    it('shows only the hidden-map line when the dashboard hides its map', async () => {
+      render(
+        <DashboardPanel
+          config={{ ...dashboard([viewCount, countWidget]), map_hidden: true } as DashboardConfig}
+          layers={[layer()]}
+          map={null}
+        />,
+      );
+      await screen.findAllByText('1,234');
+      expect(screen.getAllByText(/this dashboard hides its map/)).toHaveLength(1);
+      expect(screen.queryByText('Numbers follow the map view')).not.toBeInTheDocument();
+      expect(screen.queryByText(/Whole layer/)).not.toBeInTheDocument();
+    });
+  });
+
   it('stays quiet about the hidden map when every widget reads its layer', async () => {
     render(
       <DashboardPanel
@@ -654,7 +705,7 @@ describe('DashboardPanel', () => {
       />,
     );
     await waitFor(() => expect(fetchMock).toHaveBeenCalledWith(datasetId, { op: 'count' }, expect.anything()));
-    expect(screen.queryByText('Follows the map view')).not.toBeInTheDocument();
+    expect(screen.queryByText('Numbers follow the map view')).not.toBeInTheDocument();
   });
 
   it('keeps the open button labelled when a bottom panel is collapsed', async () => {

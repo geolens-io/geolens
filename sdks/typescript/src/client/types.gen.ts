@@ -7475,7 +7475,7 @@ export type JobStatusBatchEntry = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning | ManifestCollectionRefusedWarning | ManifestAttributeUnmatchedWarning | ManifestPublicFallbackWarning>;
     /**
      * Can Retry
      */
@@ -7553,7 +7553,7 @@ export type JobStatusResponse = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning | ManifestCollectionRefusedWarning | ManifestAttributeUnmatchedWarning | ManifestPublicFallbackWarning>;
     /**
      * Progress
      */
@@ -7964,6 +7964,12 @@ export type ManifestApplyEntryResult = {
      * Errors
      */
     errors?: Array<string>;
+    /**
+     * Messages
+     *
+     * Coded messages for the entry. Left out in manifest version 1.
+     */
+    messages?: Array<ManifestMessage> | null;
 };
 
 /**
@@ -7972,17 +7978,37 @@ export type ManifestApplyEntryResult = {
 export type ManifestApplyRequest = {
     /**
      * Manifest Version
+     *
+     * Manifest format. Version 2 adds `client`, which it requires, and `upload:<job_id>` sources. Version 2 is a preview and may change in any release until the desktop connectors ship; version 1 is stable.
      */
-    manifest_version: '1';
+    manifest_version: '1' | '2';
     catalog: ManifestCatalog;
     /**
      * Datasets
+     *
+     * Required, with at least one entry, in version 1. In version 2 it may be empty, or left out, when `maps` is not.
      */
-    datasets: Array<ManifestDataset>;
+    datasets?: Array<ManifestDataset>;
     /**
      * Dry Run
      */
     dry_run?: boolean;
+    /**
+     * The publishing client. Required in version 2, refused in 1.
+     */
+    client?: ManifestClient | null;
+    /**
+     * Public Fallback
+     *
+     * Version 2 only. When public visibility is refused for an entry, write it as internal with warning A020 instead of failing it.
+     */
+    public_fallback?: 'internal' | null;
+    /**
+     * Maps
+     *
+     * Version 2 only. Maps built from datasets the caller can read. For now maps are only checked: a request with maps must set `dry_run` to true, or it is refused before anything is applied.
+     */
+    maps?: Array<ManifestMap> | null;
 };
 
 /**
@@ -8001,6 +8027,59 @@ export type ManifestApplyResponse = {
      * Results
      */
     results: Array<ManifestApplyEntryResult>;
+    /**
+     * Maps
+     *
+     * One result per map, in request order. Left out in version 1.
+     */
+    maps?: Array<ManifestMapResult> | null;
+};
+
+/**
+ * ManifestAttribute
+ *
+ * Per-column text for the column named ``source_name`` in the uploaded file.
+ */
+export type ManifestAttribute = {
+    /**
+     * Source Name
+     */
+    source_name: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Units
+     */
+    units?: string | null;
+};
+
+/**
+ * ManifestAttributeUnmatchedDetail
+ */
+export type ManifestAttributeUnmatchedDetail = {
+    /**
+     * Source Names
+     */
+    source_names: Array<string>;
+};
+
+/**
+ * ManifestAttributeUnmatchedWarning
+ *
+ * Publish manifest code A092: these attribute names matched no column.
+ */
+export type ManifestAttributeUnmatchedWarning = {
+    /**
+     * Kind
+     */
+    kind: 'manifest_attribute_unmatched';
+    details: ManifestAttributeUnmatchedDetail;
 };
 
 /**
@@ -8020,6 +8099,77 @@ export type ManifestCatalog = {
      */
     organization?: string | null;
     contact?: ManifestContact | null;
+};
+
+/**
+ * ManifestClient
+ *
+ * The publishing client that built the manifest.
+ */
+export type ManifestClient = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * App
+     */
+    app?: string | null;
+    /**
+     * Project
+     */
+    project?: string | null;
+};
+
+/**
+ * ManifestCollectionRef
+ *
+ * A collection by id, or by name, which apply creates when the caller may.
+ */
+export type ManifestCollectionRef = {
+    /**
+     * Id
+     */
+    id?: string | null;
+    /**
+     * Name
+     */
+    name?: string | null;
+};
+
+/**
+ * ManifestCollectionRefusedDetail
+ *
+ * The collection a manifest asked for that the dataset was not added to.
+ */
+export type ManifestCollectionRefusedDetail = {
+    /**
+     * Collection Id
+     */
+    collection_id: string;
+    /**
+     * Reason
+     *
+     * refused: the submitter can't add datasets to the collection. busy: another change held the collection too long; publishing again may add the dataset.
+     */
+    reason?: 'refused' | 'busy';
+};
+
+/**
+ * ManifestCollectionRefusedWarning
+ *
+ * Publish manifest code A033: the dataset was published without its collection.
+ */
+export type ManifestCollectionRefusedWarning = {
+    /**
+     * Kind
+     */
+    kind: 'manifest_collection_refused';
+    details: ManifestCollectionRefusedDetail;
 };
 
 /**
@@ -8066,6 +8216,277 @@ export type ManifestDataset = {
     ];
     metadata?: ManifestMetadata | null;
     publication: ManifestPublication;
+    /**
+     * Visibility
+     *
+     * Who can see the dataset. Version 2 only. Omitted on create the dataset is private; omitted on update the current level is kept.
+     */
+    visibility?: 'private' | 'internal' | 'public' | null;
+    /**
+     * Collection to add the dataset to. Version 2 only. Adding needs the manage_collections permission and ownership of the collection; otherwise the entry carries warning A033.
+     */
+    collection?: ManifestCollectionRef | null;
+    /**
+     * Attributes
+     *
+     * Per-column title, description and units, by column name in the uploaded file. Version 2 only. A null field keeps the stored text; a name matching no column is warning A092.
+     */
+    attributes?: Array<ManifestAttribute> | null;
+};
+
+/**
+ * ManifestLossItem
+ */
+export type ManifestLossItem = {
+    /**
+     * Path
+     */
+    path: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Detail
+     */
+    detail?: string | null;
+};
+
+/**
+ * ManifestLossReport
+ */
+export type ManifestLossReport = {
+    /**
+     * Items
+     */
+    items?: Array<ManifestLossItem>;
+    /**
+     * Summary
+     */
+    summary?: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * ManifestMap
+ */
+export type ManifestMap = {
+    /**
+     * Key
+     *
+     * Stable map identity key, unique across the server. A key on a map the caller can't edit answers A050.
+     */
+    key: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Description
+     */
+    description?: string | null;
+    view?: ManifestMapView | null;
+    /**
+     * Basemap Style
+     *
+     * A basemap id from GET /capabilities.
+     */
+    basemap_style?: string | null;
+    /**
+     * Styling
+     *
+     * Whether a republish replaces the map's styling.
+     */
+    styling?: 'replace_if_unedited' | 'replace' | 'keep';
+    /**
+     * Thumbnail
+     *
+     * A PNG or JPEG data URI.
+     */
+    thumbnail?: string | null;
+    loss_report?: ManifestLossReport | null;
+    /**
+     * Visibility
+     *
+     * Who can see the map. Omitted on create the map is private; omitted on update the current level is kept.
+     */
+    visibility?: 'private' | 'internal' | 'public' | null;
+    /**
+     * Layers
+     */
+    layers: Array<ManifestMapLayer>;
+};
+
+/**
+ * ManifestMapLayer
+ *
+ * One map layer. Column names in its styling are the uploaded file's.
+ */
+export type ManifestMapLayer = {
+    /**
+     * Key
+     *
+     * Stable layer identity key, unique within its map.
+     */
+    key: string;
+    /**
+     * Dataset Key
+     *
+     * A dataset the caller published under this key. Exactly one of dataset_key and dataset_id.
+     */
+    dataset_key?: string | null;
+    /**
+     * Dataset Id
+     *
+     * A dataset already in GeoLens that the caller can read.
+     */
+    dataset_id?: string | null;
+    /**
+     * Display Name
+     */
+    display_name?: string | null;
+    /**
+     * Visible
+     */
+    visible?: boolean;
+    /**
+     * Opacity
+     */
+    opacity?: number;
+    /**
+     * Min Zoom
+     */
+    min_zoom?: number | null;
+    /**
+     * Max Zoom
+     */
+    max_zoom?: number | null;
+    /**
+     * Style Config
+     *
+     * The builder's style description. Unknown top-level keys are dropped with info A062.
+     */
+    style_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Paint
+     */
+    paint?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Layout
+     */
+    layout?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Filter
+     */
+    filter?: Array<unknown> | null;
+    /**
+     * Label Config
+     *
+     * Text labels. Unknown keys are dropped with info A062.
+     */
+    label_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Popup Config
+     */
+    popup_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Show In Legend
+     */
+    show_in_legend?: boolean;
+};
+
+/**
+ * ManifestMapResult
+ */
+export type ManifestMapResult = {
+    /**
+     * Map Key
+     */
+    map_key: string;
+    /**
+     * Action
+     *
+     * What apply did, or in a dry run would do, with the map. A map with an error message is `error`.
+     */
+    action: 'create' | 'update' | 'skip' | 'error';
+    /**
+     * Map Id
+     *
+     * The map the key names, when the caller may edit it.
+     */
+    map_id?: string | null;
+    /**
+     * Messages
+     */
+    messages?: Array<ManifestMessage>;
+};
+
+/**
+ * ManifestMapView
+ */
+export type ManifestMapView = {
+    /**
+     * Center
+     *
+     * Longitude and latitude, WGS84.
+     */
+    center: [
+        number,
+        number
+    ];
+    /**
+     * Zoom
+     */
+    zoom: number;
+    /**
+     * Bearing
+     */
+    bearing?: number;
+    /**
+     * Pitch
+     */
+    pitch?: number;
+};
+
+/**
+ * ManifestMessage
+ */
+export type ManifestMessage = {
+    /**
+     * Code
+     *
+     * Stable code, for example `A020`.
+     */
+    code: string;
+    /**
+     * Severity
+     */
+    severity: 'error' | 'warning' | 'info';
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Fix
+     */
+    fix?: string | null;
+    /**
+     * Layer
+     *
+     * The map layer key the message is about. Left out otherwise.
+     */
+    layer?: string | null;
 };
 
 /**
@@ -8104,6 +8525,32 @@ export type ManifestMetadata = {
 };
 
 /**
+ * ManifestPublicFallbackDetail
+ */
+export type ManifestPublicFallbackDetail = {
+    /**
+     * Reason
+     *
+     * key: a publish key can't make anything public. restriction: public visibility is restricted to admins on this server.
+     */
+    reason: 'key' | 'restriction';
+};
+
+/**
+ * ManifestPublicFallbackWarning
+ *
+ * Publish manifest code A020: public was refused when the job ran, so
+ * the dataset was shared with the organization instead.
+ */
+export type ManifestPublicFallbackWarning = {
+    /**
+     * Kind
+     */
+    kind: 'manifest_public_fallback';
+    details: ManifestPublicFallbackDetail;
+};
+
+/**
  * ManifestPublication
  */
 export type ManifestPublication = {
@@ -8128,7 +8575,7 @@ export type ManifestSource = {
     /**
      * Uri
      *
-     * Relative path (no `..` traversal), HTTP(S) URL, or s3:// storage URI.
+     * Relative path (no `..` traversal), HTTP(S) URL, s3:// storage URI, or, in manifest_version 2, `upload:<job_id>` naming a pending upload the caller made.
      */
     uri: string;
     /**

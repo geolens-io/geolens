@@ -677,11 +677,43 @@ from .list_users_admin_users_get_sort import ListUsersAdminUsersGetSort
 from .manifest_apply_entry_result import ManifestApplyEntryResult
 from .manifest_apply_entry_result_action import ManifestApplyEntryResultAction
 from .manifest_apply_request import ManifestApplyRequest
+from .manifest_apply_request_manifest_version import ManifestApplyRequestManifestVersion
 from .manifest_apply_response import ManifestApplyResponse
+from .manifest_attribute import ManifestAttribute
+from .manifest_attribute_unmatched_detail import ManifestAttributeUnmatchedDetail
+from .manifest_attribute_unmatched_warning import ManifestAttributeUnmatchedWarning
 from .manifest_catalog import ManifestCatalog
+from .manifest_client import ManifestClient
+from .manifest_collection_ref import ManifestCollectionRef
+from .manifest_collection_refused_detail import ManifestCollectionRefusedDetail
+from .manifest_collection_refused_detail_reason import (
+    ManifestCollectionRefusedDetailReason,
+)
+from .manifest_collection_refused_warning import ManifestCollectionRefusedWarning
 from .manifest_contact import ManifestContact
 from .manifest_dataset import ManifestDataset
+from .manifest_dataset_visibility_type_0 import ManifestDatasetVisibilityType0
+from .manifest_loss_item import ManifestLossItem
+from .manifest_loss_report import ManifestLossReport
+from .manifest_loss_report_summary import ManifestLossReportSummary
+from .manifest_map import ManifestMap
+from .manifest_map_layer import ManifestMapLayer
+from .manifest_map_layer_label_config_type_0 import ManifestMapLayerLabelConfigType0
+from .manifest_map_layer_layout_type_0 import ManifestMapLayerLayoutType0
+from .manifest_map_layer_paint_type_0 import ManifestMapLayerPaintType0
+from .manifest_map_layer_popup_config_type_0 import ManifestMapLayerPopupConfigType0
+from .manifest_map_layer_style_config_type_0 import ManifestMapLayerStyleConfigType0
+from .manifest_map_result import ManifestMapResult
+from .manifest_map_result_action import ManifestMapResultAction
+from .manifest_map_styling import ManifestMapStyling
+from .manifest_map_view import ManifestMapView
+from .manifest_map_visibility_type_0 import ManifestMapVisibilityType0
+from .manifest_message import ManifestMessage
+from .manifest_message_severity import ManifestMessageSeverity
 from .manifest_metadata import ManifestMetadata
+from .manifest_public_fallback_detail import ManifestPublicFallbackDetail
+from .manifest_public_fallback_detail_reason import ManifestPublicFallbackDetailReason
+from .manifest_public_fallback_warning import ManifestPublicFallbackWarning
 from .manifest_publication import ManifestPublication
 from .manifest_source import ManifestSource
 from .manifest_source_type import ManifestSourceType
@@ -1632,12 +1664,42 @@ __all__ = (
     "ManifestApplyEntryResult",
     "ManifestApplyEntryResultAction",
     "ManifestApplyRequest",
+    "ManifestApplyRequestManifestVersion",
     "ManifestApplyResponse",
+    "ManifestAttribute",
+    "ManifestAttributeUnmatchedDetail",
+    "ManifestAttributeUnmatchedWarning",
     "ManifestCatalog",
+    "ManifestClient",
+    "ManifestCollectionRef",
+    "ManifestCollectionRefusedDetail",
+    "ManifestCollectionRefusedDetailReason",
+    "ManifestCollectionRefusedWarning",
     "ManifestContact",
     "ManifestDataset",
+    "ManifestDatasetVisibilityType0",
+    "ManifestLossItem",
+    "ManifestLossReport",
+    "ManifestLossReportSummary",
+    "ManifestMap",
+    "ManifestMapLayer",
+    "ManifestMapLayerLabelConfigType0",
+    "ManifestMapLayerLayoutType0",
+    "ManifestMapLayerPaintType0",
+    "ManifestMapLayerPopupConfigType0",
+    "ManifestMapLayerStyleConfigType0",
+    "ManifestMapResult",
+    "ManifestMapResultAction",
+    "ManifestMapStyling",
+    "ManifestMapView",
+    "ManifestMapVisibilityType0",
+    "ManifestMessage",
+    "ManifestMessageSeverity",
     "ManifestMetadata",
     "ManifestPublication",
+    "ManifestPublicFallbackDetail",
+    "ManifestPublicFallbackDetailReason",
+    "ManifestPublicFallbackWarning",
     "ManifestSource",
     "ManifestSourceType",
     "MapAccessResponse",

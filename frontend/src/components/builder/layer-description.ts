@@ -162,11 +162,18 @@ export function getDataDrivenColumnsForLayer(
   if (typeof symbolCol === 'string' && symbolCol) cols.add(symbolCol);
   function walk(node: unknown): void {
     if (!Array.isArray(node) || node.length === 0) return;
+    if (node[0] === 'literal') return;
     if ((node[0] === 'get' || node[0] === 'has') && typeof node[1] === 'string') {
       cols.add(node[1]);
+      walk(node[2]);
       return;
     }
-    for (const child of node) walk(child);
+    // The labels of a match are values to compare, not expressions.
+    const last = node.length - 1;
+    node.forEach((child, i) => {
+      if (node[0] === 'match' && i >= 2 && i % 2 === 0 && i < last) return;
+      walk(child);
+    });
   }
   // A legacy property function names its column in `property`.
   function walkValue(value: unknown): void {

@@ -10,6 +10,29 @@ from typing import Any
 
 from app.core.failure_reason import FixedReason
 
+# The dataset version a held file replacement was held against, which its
+# acceptance must still find live. A manifest version 2 run keeps it under its
+# own key: an earlier API's accept reads only the first, finds none and refuses
+# the run as superseded, consuming nothing, instead of queueing it for a worker
+# that would publish it without judging it again.
+LIVE_VERSION_KEY = "live_version"
+MANIFEST_V2_LIVE_VERSION_KEY = "manifest_v2_live_version"
+
+
+def held_version_key(job_metadata: dict[str, Any]) -> str:
+    """The key a held run of this job stores its live version under."""
+    if job_metadata.get("manifest_version") == "2":
+        return MANIFEST_V2_LIVE_VERSION_KEY
+    return LIVE_VERSION_KEY
+
+
+def held_live_version(verification: dict[str, Any]) -> Any:
+    """The live version a held run stored, under either key."""
+    if LIVE_VERSION_KEY in verification:
+        return verification[LIVE_VERSION_KEY]
+    return verification.get(MANIFEST_V2_LIVE_VERSION_KEY)
+
+
 # Why a held file replacement can no longer be accepted: its acceptance would
 # publish an upload over data that replaced what the run was compared with.
 REVIEW_SUPERSEDED = (

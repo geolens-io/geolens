@@ -63,6 +63,8 @@ from app.processing.ingest.publication import (
     settle_replacement,
     settle_timed_out_execution,
 )
+from app.processing.ingest.manifest_dataset_fields import apply_fields_for_job
+from app.processing.ingest.manifest_publication import settle_stored_publication
 from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
@@ -821,7 +823,8 @@ class _FileReupload(_LiveComparison):
             data_revision=dataset.data_revision,
         )
         # What an acceptance of this run must still find live.
-        self.verification["live_version"] = dataset.current_version
+        held = refresh_policy.held_version_key(self.user_metadata)
+        self.verification[held] = dataset.current_version
         if self.verification["decision"] == "allowed":
             if self.compares_live:
                 await self._compare_live(session, dataset)
@@ -937,8 +940,14 @@ class _FileReupload(_LiveComparison):
         await apply_manifest_record_metadata(
             session, dataset.record, self.user_metadata
         )
+        publication = await settle_stored_publication(
+            session, uuid.UUID(self.job_id), dataset.record, self.user_metadata
+        )
         await apply_manifest_publication(
-            session, dataset, self.user_metadata, actor_id=uuid.UUID(self.user_id)
+            session, dataset, publication, actor_id=uuid.UUID(self.user_id)
+        )
+        await apply_fields_for_job(
+            session, uuid.UUID(self.job_id), dataset, self.user_metadata
         )
 
     def classify(self, exc: BaseException) -> Failure:
@@ -1027,6 +1036,20 @@ reupload_verified_file = task_app.task(
     queue="ingest",
     retry=0,
     name="app.ingest.tasks.reupload_verified_file",
+)
+
+# A manifest version 2 replacement is queued under its own name for rolling
+# upgrades: an earlier worker would apply the visibility and status its job
+# stored without judging them again against the record as it is then. A
+# kwarg can't fence that worker off (the signature ends in **kwargs), but
+# the name can: it raises TaskNotFound and nothing runs. The stale sweep then
+# fails the job and its run, which gives a consumed acceptance back, and the
+# caller applies again once the roll finishes.
+reupload_manifest_v2_file = task_app.task(
+    reupload_file.func,
+    queue="ingest",
+    retry=0,
+    name="app.ingest.tasks.reupload_manifest_v2_file",
 )
 
 

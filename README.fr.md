@@ -8,12 +8,12 @@
 <h1 align="center">GeoLens</h1>
 
 <p align="center">
-  <b>Un catalogue de données spatiales et un générateur de cartes auto-hébergés, qui gardent la trace de l’origine de chaque jeu de données.</b>
+  <b>Une alternative open source et auto-hébergée à ArcGIS Online : un catalogue de données spatiales avec cartes, récits et tableaux de bord.</b>
 </p>
 
 <p align="center">
   <a href="https://demo.getgeolens.com"><b>Démonstration en ligne</b></a> ·
-  <a href="#installation">Installation</a> ·
+  <a href="#démarrage-rapide">Démarrage rapide</a> ·
   <a href="https://docs.getgeolens.com">Documentation</a> ·
   <a href="#utiliser-les-données-partout">Connecter QGIS ou du code</a> ·
   <a href="https://github.com/geolens-io/geolens/discussions">Discussions</a>
@@ -43,15 +43,31 @@
 </p>
 
 GeoLens s’adresse aux équipes dont les données spatiales sont dispersées entre partages de
-fichiers, bases PostGIS, services web et catalogues STAC. Il les réunit dans un seul catalogue
-consultable, consigne l’origine de chaque jeu de données et vérifie que la source est toujours à
-jour. Les équipes créent et partagent des cartes dans le navigateur, et QGIS, les scripts et les
-agents IA lisent les mêmes données via OGC API et STAC. Il s’exécute sur vos propres serveurs avec
-Docker Compose, n’envoie aucune télémétrie et est publié sous licence Apache 2.0.
+fichiers, bases de données, services web et catalogues STAC. Il réunit ces données dans un seul
+catalogue consultable et consigne l’origine de chaque jeu de données. Les équipes créent des
+cartes, des récits et des tableaux de bord dans le navigateur et les partagent avec des groupes ou
+le public, et QGIS, les scripts et les agents IA lisent les mêmes données via OGC API et STAC. Il
+s’exécute sur vos propres serveurs avec Docker Compose, n’envoie aucune télémétrie et est publié
+sous licence Apache 2.0.
 
 La [démonstration](https://demo.getgeolens.com) ne demande ni installation ni compte ; connectez-vous
 avec Google, GitHub ou Microsoft pour utiliser le générateur de cartes. Les données de
 démonstration peuvent être effacées à tout moment.
+
+## Démarrage rapide
+
+Il vous faut Git, curl et Docker avec le plugin Compose, avec 8 Go de mémoire disponibles pour
+Docker.
+
+```sh
+curl -fsSL https://getgeolens.com/install.sh | sh    # clone, generate secrets, start the stack
+cd geolens
+grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin password
+```
+
+Ouvrez http://localhost:8080 et connectez-vous en tant que `admin` avec ce mot de passe.
+[Installation](#installation) explique comment vérifier le script, compiler depuis les sources et
+exécuter en production.
 
 ## De plus près
 
@@ -66,74 +82,26 @@ démonstration peuvent être effacées à tout moment.
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dataset-page-dark.png">
-<img src=".github/assets/geolens-dataset-page.png" alt="La page du jeu de données Atlantic Hurricane Tracks : trajectoires de tempêtes sur un aperçu cartographique, badges vectoriel, chargé, source à jour, publié et public, et le nombre d’entités, la géométrie, le SRC, la version et le nombre de colonnes" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-arcgis-webmap-dark.jpg">
+<img src=".github/assets/geolens-arcgis-webmap.jpg" alt="Le générateur de cartes avec une carte des arbres de rue de Cambridge importée d’une carte web ArcGIS Online : arbres colorés selon le type d’emplacement, contours et noms des quartiers, liste des couches et légende" width="100%">
 </picture>
-<br><sub>Chaque jeu de données a une page avec ses métadonnées et sa source, plus un aperçu cartographique lorsqu’il a une emprise.</sub>
+<br><sub>Une carte web ArcGIS Online importée dans GeoLens. Ses couleurs, fenêtres contextuelles, contours et plages de zoom ont été conservés.</sub>
 </td>
 </tr>
 <tr>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-import-preview-dark.png">
-<img src=".github/assets/geolens-import-preview.png" alt="L’onglet URL de service de la page Importer des données, avec l’aperçu de la couche ArcGIS USGS Significant Earthquakes : SRC, type de géométrie, nombre d’entités, nom de la couche et lignes d’exemple" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-story-dark.jpg">
+<img src=".github/assets/geolens-story.jpg" alt="Un récit publié, Where the Atlantic's Major Hurricanes Go : un chapitre avec une photo de couverture et du texte à côté d’un globe de trajectoires de tempêtes colorées selon la catégorie Saffir-Simpson, avec la légende" width="100%">
 </picture>
-<br><sub>Avant d’importer une couche de service, GeoLens en affiche les colonnes et les premières lignes.</sub>
+<br><sub>Un récit guide le lecteur dans une carte chapitre par chapitre.</sub>
 </td>
 <td width="50%" valign="top">
 <picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-version-history-dark.png">
-<img src=".github/assets/geolens-version-history.png" alt="Historique des versions du jeu de données Significant Volcanic Eruptions : trois versions GeoJSON avec dates, noms de fichiers et nombres d’entités, la version actuelle repérée et un bouton Restaurer sur la version précédente" width="100%">
+<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-dashboard-dark.jpg">
+<img src=".github/assets/geolens-dashboard.jpg" alt="Un tableau de bord à côté d’une carte des séismes récents autour du Pacifique : la plus forte magnitude visible, un diagramme en barres des séismes par semaine et une liste des plus forts, le tout suivant la vue de la carte" width="100%">
 </picture>
-<br><sub>Chaque remplacement est consigné dans l’historique, et vous pouvez restaurer la version précédente.</sub>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-builder-style-dark.png">
-<img src=".github/assets/geolens-builder-style.png" alt="Le générateur de cartes avec la carte Restless Earth sur un globe : une carte de chaleur des séismes le long des limites de plaques du Pacifique, la liste des couches groupées et le panneau de style de la carte de chaleur avec ses palettes de couleurs" width="100%">
-</picture>
-<br><sub>Les couches s’affichent en points, symboles, cartes de chaleur ou regroupements, et la liste des palettes peut se limiter à celles adaptées au daltonisme.</sub>
-</td>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-matterhorn-terrain-dark.jpg">
-<img src=".github/assets/geolens-matterhorn-terrain.jpg" alt="Le générateur de cartes GeoLens affichant le Cervin en terrain 3D à partir du lidar swissALTI3D, avec sommets nommés, itinéraires d’escalade, la liste des couches et une légende" width="100%">
-</picture>
-<br><sub>Un terrain 3D issu de vos propres données d’élévation, ici le Cervin à partir du lidar swissALTI3D.</sub>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-stac-imagery-dark.jpg">
-<img src=".github/assets/geolens-stac-imagery.jpg" alt="Le générateur de cartes affichant quatre scènes Sentinel-2 en vraies couleurs, à des dates différentes, au-dessus de New York et du nord du New Jersey, référencées depuis le catalogue STAC Earth Search, avec la liste des couches et la légende" width="100%">
-</picture>
-<br><sub>Des scènes Sentinel-2 référencées depuis un catalogue STAC. L’imagerie reste où elle est et est découpée en tuiles à la demande.</sub>
-</td>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-share-embed-dark.png">
-<img src=".github/assets/geolens-share-embed.png" alt="La boîte de dialogue de partage d’une carte : visibilité réglée sur Public, avec Vous seul et Tous les membres de l’équipe comme autres options, un lien de partage et un code d’intégration iframe" width="100%">
-</picture>
-<br><sub>Gardez une carte pour vous, ouvrez-la à votre équipe ou rendez-la publique avec un lien et un code d’intégration.</sub>
-</td>
-</tr>
-<tr>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-overview-dark.png">
-<img src=".github/assets/geolens-admin-overview.png" alt="La page Aperçu de l’administration : Tous les systèmes opérationnels, avec l’état de la base de données, du stockage, du cache et du cache de tuiles, le nombre total de jeux de données, les ajouts récents et l’espace utilisé, à côté du menu d’administration" width="100%">
-</picture>
-<br><sub>L’aperçu de l’administration montre l’état des services à côté des totaux de jeux de données et de stockage.</sub>
-</td>
-<td width="50%" valign="top">
-<picture>
-<source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-admin-permissions-dark.png">
-<img src=".github/assets/geolens-admin-permissions.png" alt="La page Permissions de l’administration : des capacités comme Télécharger des jeux de données, Exporter des données, Modifier les métadonnées et Gérer les utilisateurs, avec une case à cocher pour chacun des rôles Lecteur, Éditeur et Administrateur" width="100%">
-</picture>
-<br><sub>Les rôles lecteur, éditeur et administrateur, avec chaque capacité activée ou non par rôle.</sub>
+<br><sub>Un tableau de bord place des indicateurs, des graphiques et des listes à côté de la carte, et ils suivent ce qui est visible.</sub>
 </td>
 </tr>
 </table>
@@ -144,7 +112,7 @@ démonstration peuvent être effacées à tout moment.
 flowchart LR
     subgraph IN ["Apporter des données"]
       F["Fichiers<br/>GeoPackage · Shapefile · GeoParquet<br/>GeoTIFF · COPC · 3D Tiles"]
-      DB["Tables PostGIS existantes"]
+      DB["Bases de données<br/>Tables PostGIS · SQL Server"]
       SVC["Services<br/>ArcGIS · WFS · OGC API Features"]
       ST["Ressources STAC distantes"]
     end
@@ -170,12 +138,21 @@ flowchart LR
   zippées, CSV, Excel ou GeoTIFF (convertis en Cloud-Optimized GeoTIFF). Les jeux 3D Tiles et les
   nuages de points COPC sont hébergés pour CesiumJS, QGIS et Potree.
 - Servez sur place les tables déjà présentes dans la base PostGIS de GeoLens, importez des couches
-  WFS, ArcGIS et OGC API Features et actualisez-les à la demande, ou référencez des ressources
-  STAC distantes sans les copier.
+  WFS, ArcGIS et OGC API Features ainsi que des tables SQL Server et actualisez-les à la demande,
+  ou référencez des ressources STAC distantes sans les copier.
 - Dessinez de nouveaux jeux de données dans le navigateur.
 - Retrouvez les données par recherche approximative, ou par le sens une fois un fournisseur
   d’embeddings configuré. Filtrez par type, lieu et période, regroupez les jeux de données en
   collections, modifiez les métadonnées et restaurez la version précédente d'un jeu de données après un remplacement.
+
+### Migrer depuis ArcGIS Online
+
+`geolens arcgis inventory` lit une organisation ArcGIS Online ou un portail ArcGIS auto-hébergé et
+indique ce qui serait repris dans GeoLens. Il ne modifie rien et ne nécessite aucune instance
+GeoLens. `geolens arcgis migrate` déplace ensuite les couches, les fichiers et les cartes web vers
+GeoLens avec leurs propriétaires, leurs dossiers et leur partage, et écrit un rapport de pertes de
+ce qui n’a pas été repris. Le [guide de la
+CLI](https://docs.getgeolens.com/guides/cli/#arcgis-migration) le décrit pas à pas.
 
 ## Savoir d’où vient chaque jeu de données
 
@@ -209,9 +186,10 @@ fonctionner.
   Markdown, des images, des boutons et des séparateurs. Les tableaux de bord placent indicateurs,
   graphiques, filtres et notes en Markdown à côté d’une carte. Un panneau de données de la carte
   affiche les lignes de chaque couche, en tableau ou en liste.
-- Les cartes publiques et les récits publiés affichent leur titre et leur image lorsqu’ils sont
-  collés dans Slack, Teams ou les réseaux sociaux, et les cartes s’intègrent à d’autres sites avec
-  des jetons privés.
+- Partagez un jeu de données, une carte ou un récit avec des groupes, avec tous les utilisateurs
+  connectés ou avec le public. Les cartes publiques et les récits publiés affichent leur titre et
+  leur image lorsqu’ils sont collés dans Slack, Teams ou les réseaux sociaux, et les cartes
+  s’intègrent à d’autres sites avec des jetons privés.
 - L’interface est disponible en anglais, espagnol, français, allemand et chinois simplifié.
 
 ## Utiliser les données partout
@@ -254,22 +232,13 @@ Les données s’exportent en GeoJSON, Shapefile, GeoPackage, CSV, FlatGeobuf, G
 Cloud-Optimized GeoTIFF.
 
 La CLI `geolens` publie des fichiers et applique des manifestes de catalogue, des SDK Python et
-TypeScript couvrent l’API, et un serveur MCP en lecture seule permet aux agents IA de chercher dans
-le catalogue. La [référence de l’API](https://docs.getgeolens.com/guides/api/) et les
+TypeScript couvrent l’API, et un serveur MCP permet aux agents IA de chercher dans
+le catalogue et, avec une clé d’API `map_author`, de créer et styliser des cartes. La [référence de l’API](https://docs.getgeolens.com/guides/api/) et les
 [guides des SDK](https://docs.getgeolens.com/guides/sdk/) les documentent, et la
 [galerie d’exemples](https://geolens-io.github.io/geolens-examples/) propose du code exécutable
 pour MapLibre, Leaflet, OpenLayers, l’ArcGIS Maps SDK, QGIS et DuckDB.
 
 ## IA facultative
-
-<p align="center">
-  <picture>
-    <source media="(prefers-color-scheme: dark)" srcset=".github/assets/geolens-ask-ai-dark.png">
-    <img src=".github/assets/geolens-ask-ai.png" alt="Le panneau Demander à l’IA sur le jeu de données Major Hurricane Tracks répondant à « How many of these hurricanes made landfall? » par 119 sur 202, un tableau de comptage à deux lignes, une note sur la façon dont la colonne d’atterrissage a été interprétée et un bouton Ouvrir dans l’éditeur" width="100%">
-  </picture>
-  <br>
-  <sub>« How many of these hurricanes made landfall? » renvoie le décompte, un tableau et l’hypothèse sur laquelle repose la réponse.</sub>
-</p>
 
 GeoLens peut répondre à des questions sur un jeu de données, modifier des cartes à partir de
 demandes en langage courant, rédiger des métadonnées et chercher en langage naturel. Il fonctionne
@@ -280,17 +249,9 @@ workflow fonctionne sans elle.
 
 ## Installation
 
-Il vous faut Git, curl et Docker avec le plugin Compose. Le
+Le [démarrage rapide](#démarrage-rapide) donne la commande d’installation. Le
 [guide d’installation](https://docs.getgeolens.com/guides/quickstart/install/) indique les
-versions, la mémoire et les ports attendus.
-
-```sh
-curl -fsSL https://getgeolens.com/install.sh | sh    # clone, generate secrets, start the stack
-cd geolens
-grep '^GEOLENS_ADMIN_PASSWORD=' .env                  # the generated admin password
-```
-
-Ouvrez http://localhost:8080 et connectez-vous en tant que `admin` avec ce mot de passe. Chaque
+versions, la mémoire et les ports attendus. Chaque
 [version](https://github.com/geolens-io/geolens/releases) inclut un fichier `SHA256SUMS` pour
 vérifier `install.sh` avant de l’exécuter. Pour compiler depuis les sources, clonez le dépôt et
 lancez `bash scripts/install.sh` ; la première compilation prend 5-10 minutes.
@@ -339,7 +300,7 @@ donne les tailles et les options.
   stockage (disque local, S3/MinIO ou Azure Blob), et le catalogue s’exporte via OGC API, STAC et
   DCAT.
 - La connexion utilise des comptes locaux ou OAuth 2.0/OIDC (Google, Microsoft, GitHub ou un
-  fournisseur générique), avec rôles, permissions par jeu de données, clés d’API par utilisateur et
+  fournisseur générique), avec rôles, groupes, permissions par jeu de données, clés d’API par utilisateur et
   journal d’audit. L’inscription libre est désactivée par défaut.
 - Les fonctions publiées dans ce dépôt restent gratuites. [EDITIONS.md](EDITIONS.md) décrit le
   support payant et les modules complémentaires facultatifs.
@@ -361,8 +322,11 @@ donne les tailles et les options.
   rendu exagéré.
 - L’API REST propre à GeoLens peut changer entre versions mineures (les points de terminaison
   standard suivent leurs spécifications). Le [CHANGELOG](CHANGELOG.md) liste les changements de
-  contrat, et un changement incompatible conserve l’ancienne forme fonctionnelle pendant une
-  version mineure supplémentaire.
+  contrat. Lorsqu’un changement casse des clients, l’ancienne forme continue de fonctionner pendant
+  la plus longue des deux durées, la prochaine version mineure ou 90 jours, et le CHANGELOG
+  consigne sa date de retrait. Cela couvre les routes et les champs de l’API REST, le JSON de
+  cartes et de tableaux de bord écrit par les clients, et les commandes et options de la CLI ; les
+  SDK suivent l’API, et les noms et arguments des outils MCP ne sont pas couverts.
 
 ## Contribuer
 

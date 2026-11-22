@@ -120,6 +120,7 @@ def _reupload_task():
     task.defer_async = AsyncMock()
     port = MagicMock()
     port.reupload_file_task.return_value = task
+    port.manifest_v2_reupload_task.return_value = task
     with patch(
         "app.processing.ingest.manifest_service.get_catalog_port", return_value=port
     ):
