@@ -225,5 +225,10 @@
     "label": "结果视图",
     "comfortable": "舒适",
     "compact": "紧凑"
+  },
+  "compactColumns": {
+    "name": "名称",
+    "details": "详情",
+    "updated": "更新时间"
   }
 }

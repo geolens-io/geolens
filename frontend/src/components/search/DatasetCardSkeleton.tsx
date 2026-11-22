@@ -3,16 +3,18 @@ import { Skeleton } from '@/components/ui/skeleton';
 
 export function DatasetCardSkeleton({ compact = false }: { compact?: boolean }) {
   if (compact) {
+    // A row of the compact list's panel: two lines on a phone, one from md.
     return (
-      <div className="block" data-testid="dataset-card-skeleton-compact">
-        <Card density="flush" className="overflow-hidden border-border/60">
-          <div className="flex items-center gap-3 px-3 py-2.5">
-            <Skeleton className="h-5 w-14 rounded-md" />
-            <Skeleton className="h-4 w-1/2" />
-            <Skeleton className="ms-auto hidden h-4 w-24 md:block" />
-            <Skeleton className="hidden h-4 w-20 md:block" />
-          </div>
-        </Card>
+      <div
+        className="grid gap-1.5 border-t border-border/60 px-3 py-2 first:border-t-0 md:flex md:h-10 md:items-center md:gap-3 md:py-0 pointer-coarse:md:h-11"
+        data-testid="dataset-card-skeleton-compact"
+      >
+        <div className="flex items-center gap-2 md:contents">
+          <Skeleton className="h-5 w-7 shrink-0 rounded-md" />
+          <Skeleton className="h-4 w-2/5" />
+        </div>
+        <Skeleton className="h-3.5 w-3/5 md:ms-auto md:w-36" />
+        <Skeleton className="hidden h-3.5 w-16 md:block" />
       </div>
     );
   }

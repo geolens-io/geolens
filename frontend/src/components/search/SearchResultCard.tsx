@@ -254,6 +254,7 @@ export const SearchResultCard = memo(function SearchResultCard({
             .filter((spec) => spec.label !== properties.crs)
             .map((spec) => spec.label)
             .join(' · ');
+    // Shown bare in its own column; the full sentence stays for assistive tech.
     const updatedAbbrev = isCollection
       ? properties.created
         ? createdTime.relative
@@ -261,67 +262,76 @@ export const SearchResultCard = memo(function SearchResultCard({
       : hasMissingProvenance
         ? properties.created
           ? createdTime.relative
-          : noUpdateMetadataLabel
+          : '—'
         : updatedRelative;
     const updatedFull = isCollection
       ? properties.created
         ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
         : ''
       : updatedLabel;
-    const cell = 'min-w-0 truncate text-xs text-muted-foreground empty:hidden md:empty:block';
+    const meta = 'truncate text-xs text-muted-foreground';
 
+    // A row of SearchResultList's grid: its columns are that list's, so every
+    // row lines up. The title comes first in the source so the link is named
+    // by it; `order-first` puts the type icon back in front.
     return (
       <Link
         to={linkPath}
-        className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="group grid gap-y-0.5 px-3 py-2 outline-none transition-colors duration-200 ease-out hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:col-span-full md:min-h-10 md:grid-cols-subgrid md:items-center md:py-1.5 pointer-coarse:md:min-h-11"
         data-testid="search-result-card"
         data-density="compact"
         onMouseEnter={prefetchDetail}
         onFocus={prefetchDetail}
       >
-        <Card density="flush" className="cursor-pointer overflow-hidden border-border/50 bg-card/95 transition-[color,background-color,box-shadow,border-color] duration-200 ease-out group-hover:border-primary/20 group-hover:bg-accent/30">
-          <div className="grid gap-0.5 px-3 py-2 md:min-h-11 md:grid-cols-[auto_minmax(0,1fr)_11rem_7rem] md:items-center md:gap-x-3">
-            <div className="flex min-w-0 items-center gap-2 md:contents">
-              <RecordTypeBadge recordType={recordType} iconOnly className="shrink-0 px-1.5" />
-              <div className="flex min-w-0 flex-1 items-baseline gap-2">
-                <h3
-                  className="min-w-0 truncate text-sm font-semibold leading-tight text-foreground transition-colors group-hover:text-primary"
-                  title={properties.title}
-                >
-                  {properties.title}
-                </h3>
-                {sourceOrganization && (
-                  <span
-                    className="hidden max-w-40 shrink-[4] truncate text-xs text-muted-foreground md:inline"
-                    data-testid="dataset-card-source"
-                    title={sourceOrganization}
-                  >
-                    {sourceOrganization}
-                  </span>
-                )}
-                {statusBadge && <span className="shrink-0 self-center">{statusBadge}</span>}
-              </div>
-            </div>
-            <div className="flex min-w-0 items-center gap-x-3 md:contents">
-              <span className={`${cell} font-mono tracking-wide`} title={compactSpec || undefined} data-testid="dataset-card-specs">
-                {compactSpec}
-              </span>
+        <div className="flex min-w-0 items-center gap-2 md:contents">
+          <div className="flex min-w-0 flex-1 items-center gap-2">
+            {/* One line tall and clipped: a source that doesn't fit beside the
+                title wraps out of sight instead of being cut to a fragment. */}
+            <div className="flex h-5 min-w-0 flex-1 flex-wrap items-center gap-x-2 overflow-hidden">
+              <h3
+                className="max-w-full truncate text-sm font-semibold leading-5 text-foreground transition-colors group-hover:text-primary"
+                title={properties.title}
+              >
+                {properties.title}
+              </h3>
               {sourceOrganization && (
-                <span className="min-w-0 flex-1 truncate text-xs text-muted-foreground md:hidden" title={sourceOrganization}>
+                <span
+                  className={`hidden max-w-40 leading-5 md:block ${meta}`}
+                  data-testid="dataset-card-source"
+                  title={sourceOrganization}
+                >
                   {sourceOrganization}
                 </span>
               )}
-              <span
-                className={`${cell} ms-auto shrink-0 md:ms-0 md:shrink md:text-end`}
-                title={isCollection ? createdTime.absolute : updatedTitle}
-                data-testid="dataset-card-updated-attribution"
-              >
-                <span aria-hidden="true" data-testid="dataset-card-updated-visible">{updatedAbbrev}</span>
-                <span className="sr-only">{updatedFull}</span>
-              </span>
             </div>
+            {statusBadge && <span className="shrink-0">{statusBadge}</span>}
           </div>
-        </Card>
+          <RecordTypeBadge recordType={recordType} iconOnly className="order-first shrink-0 px-1.5" />
+        </div>
+        <div className="flex min-w-0 items-center gap-x-3 md:contents">
+          <div className="flex h-4 min-w-0 flex-1 flex-wrap items-center gap-x-3 overflow-hidden md:contents">
+            <span
+              className={`max-w-full font-mono tracking-wide empty:hidden md:max-w-64 md:empty:block ${meta}`}
+              title={compactSpec || undefined}
+              data-testid="dataset-card-specs"
+            >
+              {compactSpec}
+            </span>
+            {sourceOrganization && (
+              <span className={`max-w-full md:hidden ${meta}`} title={sourceOrganization}>
+                {sourceOrganization}
+              </span>
+            )}
+          </div>
+          <span
+            className="shrink-0 whitespace-nowrap text-xs text-muted-foreground md:text-end"
+            title={isCollection ? createdTime.absolute : updatedTitle}
+            data-testid="dataset-card-updated-attribution"
+          >
+            <span aria-hidden="true" data-testid="dataset-card-updated-visible">{updatedAbbrev}</span>
+            <span className="sr-only">{updatedFull}</span>
+          </span>
+        </div>
       </Link>
     );
   }

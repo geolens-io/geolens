@@ -188,7 +188,7 @@ describe('SearchPage', () => {
       expect(useSearchStore.getState().limit).toBe(10);
     });
 
-    it('switches to compact, stores the choice and moves to 25 per page from the first page', async () => {
+    it('switches to compact, stores the choice and moves to 25 per page', async () => {
       act(() => useSearchStore.setState({ offset: 20 }));
       render(<SearchPage />, { route: '/' });
 
@@ -212,7 +212,41 @@ describe('SearchPage', () => {
       expect(densities()).toEqual(['comfortable', 'comfortable']);
       expect(localStorage.getItem('geolens-search-view')).toBe('comfortable');
       expect(useSearchStore.getState().limit).toBe(10);
-      expect(useSearchStore.getState().offset).toBe(0);
+      // Result 26 was first on the page; the page of ten that holds it starts at 21.
+      expect(useSearchStore.getState().offset).toBe(20);
+    });
+
+    it('stays on the page that holds the first result shown when the view changes', async () => {
+      act(() => useSearchStore.setState({ offset: 60 }));
+      render(<SearchPage />, { route: '/' });
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Compact' }));
+      expect(useSearchStore.getState().offset).toBe(50);
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Comfortable' }));
+      expect(useSearchStore.getState().offset).toBe(50);
+    });
+
+    it('shows no more of the previous page than the chosen view holds while the next one loads', async () => {
+      localStorage.setItem('geolens-search-view', 'compact');
+      act(() => useSearchStore.getState().resetFilters());
+      mockUseSearchResults.mockReturnValue({
+        data: {
+          type: 'FeatureCollection',
+          numberMatched: 60,
+          numberReturned: 25,
+          features: Array.from({ length: 25 }, (_, i) => makeFeature(`dataset-${i + 1}`, `Dataset ${i + 1}`)),
+        },
+        isLoading: false,
+        error: null,
+        isFetching: false,
+      } as ReturnType<typeof useSearchResults>);
+      render(<SearchPage />, { route: '/' });
+      expect(densities()).toHaveLength(25);
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Comfortable' }));
+
+      expect(densities()).toEqual(Array.from({ length: 10 }, () => 'comfortable'));
     });
 
     it('uses a stored compact choice on load, already on the first query', () => {
@@ -325,6 +359,24 @@ describe('SearchPage', () => {
       expect(new Set(liveAnnouncementProps.map((p) => p.text))).toEqual(new Set(['12 catalog results']));
     });
 
+    it('keeps the announcement trigger when a view change moves the page start', async () => {
+      act(() => useSearchStore.setState({ offset: 30 }));
+      render(<SearchPage />, { route: '/' });
+      await waitFor(() => expect(statusTexts()).toContain('12 catalog results'));
+      const settledTrigger = liveAnnouncementProps.at(-1)?.trigger;
+      liveAnnouncementProps.length = 0;
+
+      await userEvent.click(screen.getByRole('radio', { name: 'Compact' }));
+      expect(useSearchStore.getState().offset).toBe(25);
+      await userEvent.click(screen.getByRole('radio', { name: 'Comfortable' }));
+      expect(useSearchStore.getState().offset).toBe(20);
+
+      expect(new Set(liveAnnouncementProps.map((p) => p.trigger))).toEqual(new Set([settledTrigger]));
+
+      act(() => useSearchStore.getState().setPage(40));
+      expect(liveAnnouncementProps.at(-1)?.trigger).not.toBe(settledTrigger);
+    });
+
     it('holds the announcement through a pending refetch after a view change, but not a new query', async () => {
       const populated = mockUseSearchResults();
       const { rerender } = render(<SearchPage />, { route: '/' });
@@ -365,7 +417,7 @@ describe('SearchPage', () => {
       } as unknown as ReturnType<typeof useSearchResults>);
       render(<SearchPage />, { route: '/' });
 
-      expect(screen.getAllByTestId('dataset-card-skeleton')).toHaveLength(8);
+      expect(screen.getAllByTestId('dataset-card-skeleton')).toHaveLength(12);
     });
   });
 

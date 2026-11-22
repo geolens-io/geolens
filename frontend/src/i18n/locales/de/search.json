@@ -225,5 +225,10 @@
     "label": "Ergebnisansicht",
     "comfortable": "Komfortabel",
     "compact": "Kompakt"
+  },
+  "compactColumns": {
+    "name": "Name",
+    "details": "Details",
+    "updated": "Aktualisiert"
   }
 }

@@ -854,6 +854,19 @@ describe('SearchResultCard', () => {
       expect(screen.queryByTestId('table-thumbnail-icon')).not.toBeInTheDocument();
     });
 
+    it('names the link by its title first, then the type', () => {
+      compact(makeFeature());
+
+      expect(screen.getByRole('link', { name: /^World Countries.*Vector/ })).toBeInTheDocument();
+    });
+
+    it('shows a dash for a dataset with no update metadata and keeps the words for assistive tech', () => {
+      compact(makeFeature({ never_edited: true, updated_by_display: null, created: null }));
+
+      expect(screen.getByTestId('dataset-card-updated-visible')).toHaveTextContent('—');
+      expect(screen.getByTestId('dataset-card-updated-attribution')).toHaveTextContent('No update metadata');
+    });
+
     it('shows the type as an icon-only badge named by the type', () => {
       compact(makeFeature({ record_type: 'raster_dataset', geometry_type: null }));
 

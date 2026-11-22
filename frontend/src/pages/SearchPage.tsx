@@ -13,7 +13,7 @@ import { SearchBar } from '@/components/search/SearchBar';
 import { SavedSearches } from '@/components/search/SavedSearches';
 import { FilterPanel } from '@/components/search/FilterPanel';
 import { SearchSpatialSheet } from '@/components/search/SearchSpatialSheet';
-import { SearchResultCard } from '@/components/search/SearchResultCard';
+import { SearchResultList, compactListPanel } from '@/components/search/SearchResultList';
 import { DatasetCardSkeleton } from '@/components/search/DatasetCardSkeleton';
 import { Pagination } from '@/components/layout/Pagination';
 import { MapCard } from '@/components/maps/MapCard';
@@ -49,6 +49,10 @@ function SearchControls({ totalResults, allTypesTotal, children }: SearchControl
   );
 }
 
+function announcementKey(params: Record<string, string>): string {
+  return JSON.stringify({ ...params, limit: undefined });
+}
+
 export function SearchPage() {
   const { t } = useTranslation('search');
   useDocumentTitle(t('common:pageTitle.search'));
@@ -75,16 +79,6 @@ export function SearchPage() {
   const [density, setDensity] = useState<SearchResultDensity>(readStoredDensity);
   const isCompact = density === 'compact';
   const resultsRef = useRef<HTMLDivElement>(null);
-  const handleDensityChange = (value: string) => {
-    if (value !== 'comfortable' && value !== 'compact') return; // ToggleGroup sends '' on deselect
-    if (value === density) return;
-    setDensity(value);
-    storeDensity(value);
-    useSearchStore.setState({
-      limit: pageSizeFor(value),
-      offset: 0,
-    });
-  };
   // Returns focus to the results container when pagination changes the set.
   const handlePageChange = (newOffset: number) => {
     useSearchStore.getState().setPage(newOffset);
@@ -103,8 +97,12 @@ export function SearchPage() {
   const hasMapTextQuery = mapQuery.length > 0;
   const isMapSearchPending = hasMapTextQuery && (isLoadingMaps || isFetchingMaps);
   const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;
-  // The count doesn't depend on the page size, so a view change must not re-trigger the announcement.
-  const searchKey = JSON.stringify({ ...searchParams, limit: undefined });
+  // The count doesn't depend on the page size, and a view change can also move
+  // the page start, so the announcement keeps the key it had across one.
+  const rawSearchKey = announcementKey(searchParams);
+  const heldKey = useRef<{ raw: string; shown: string } | null>(null);
+  if (heldKey.current && heldKey.current.raw !== rawSearchKey) heldKey.current = null;
+  const searchKey = heldKey.current?.shown ?? rawSearchKey;
   const catalogEmpty = !!data && data.features.length === 0;
   const mapMatchText = hasMapMatches ? t('mapMatchCount', { count: mapResults?.total ?? 0 }) : '';
   const catalogText = catalogEmpty
@@ -135,6 +133,17 @@ export function SearchPage() {
   ) {
     liveText = settledStatus.current.text;
   }
+  const handleDensityChange = (value: string) => {
+    if (value !== 'comfortable' && value !== 'compact') return; // ToggleGroup sends '' on deselect
+    if (value === density) return;
+    setDensity(value);
+    storeDensity(value);
+    // Stay on the page that holds the first result the reader was looking at.
+    const size = pageSizeFor(value);
+    const { offset: from } = useSearchStore.getState();
+    useSearchStore.setState({ limit: size, offset: Math.floor(from / size) * size });
+    heldKey.current = { raw: announcementKey(useSearchStore.getState().toParams()), shown: searchKey };
+  };
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
@@ -178,9 +187,9 @@ export function SearchPage() {
             )}
 
             {isLoading && !data && (
-              <div role="status" aria-live="polite" className="grid gap-3">
+              <div role="status" aria-live="polite" className={isCompact ? compactListPanel : 'grid gap-3'}>
                 <span className="sr-only">{t('loadingDatasets')}</span>
-                {Array.from({ length: isCompact ? 8 : 4 }).map((_, i) => (
+                {Array.from({ length: isCompact ? 12 : 4 }).map((_, i) => (
                   <DatasetCardSkeleton key={i} compact={isCompact} />
                 ))}
               </div>
@@ -303,24 +312,20 @@ export function SearchPage() {
                     onValueChange={handleDensityChange}
                     aria-label={t('density.label')}
                   >
-                    <ToggleGroupItem value="comfortable" size="sm" className="gap-1.5" aria-label={t('density.comfortable')} title={t('density.comfortable')}>
+                    <ToggleGroupItem value="comfortable" size="sm" className="gap-1.5 pointer-coarse:min-h-11 pointer-coarse:min-w-11" aria-label={t('density.comfortable')} title={t('density.comfortable')}>
                       <StretchHorizontal className="size-3.5" aria-hidden="true" />
                       <span className="hidden sm:inline">{t('density.comfortable')}</span>
                     </ToggleGroupItem>
-                    <ToggleGroupItem value="compact" size="sm" className="gap-1.5" aria-label={t('density.compact')} title={t('density.compact')}>
+                    <ToggleGroupItem value="compact" size="sm" className="gap-1.5 pointer-coarse:min-h-11 pointer-coarse:min-w-11" aria-label={t('density.compact')} title={t('density.compact')}>
                       <AlignJustify className="size-3.5" aria-hidden="true" />
                       <span className="hidden sm:inline">{t('density.compact')}</span>
                     </ToggleGroupItem>
                   </ToggleGroup>
                 </div>
                 <section aria-label={t('results', { defaultValue: 'Search results' })}>
-                  <ul className={isCompact ? 'space-y-1.5' : 'space-y-3'}>
-                    {data.features.map((feature) => (
-                      <li key={feature.id}>
-                        <SearchResultCard feature={feature} density={density} />
-                      </li>
-                    ))}
-                  </ul>
+                  {/* While the other page size loads, the previous page is still
+                      here: show no more of it than the chosen view holds. */}
+                  <SearchResultList features={data.features.slice(0, limit)} density={density} />
                 </section>
               </div>
             )}
