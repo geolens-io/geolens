@@ -833,3 +833,42 @@ async def test_the_notes_block_is_recognised_whatever_order_the_clocks_give(
     notes = (await _map_row(test_db_session, created.map_id)).notes
     assert notes.count("Published from") == 1
     assert notes.split("\n").count("---") == 1
+
+
+@pytest.mark.parametrize("case", ["bomb", "parser-raises", "gif"])
+async def test_a_thumbnail_the_upload_route_refuses_or_accepts_never_fails_the_publish(
+    test_db_session, clean_tables, case
+):
+    """The upload route's own rules: an unreadable image is a warning, and a
+    format Pillow verifies is stored, as the route stores it."""
+    from tests.test_map_image_verified_format import (
+        _data_uri,
+        _dds_without_pixel_format_flags,
+        _image_bytes,
+        _png_declaring,
+    )
+
+    image = {
+        "bomb": _png_declaring(100_000, 100_000),
+        "parser-raises": _dds_without_pixel_format_flags(),
+        "gif": _image_bytes("GIF"),
+    }[case]
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _publish(dataset_id, thumbnail=_data_uri("image/png", image)),
+        )
+    ).maps
+
+    assert result.action == "create"
+    stored = (await _map_row(test_db_session, result.map_id)).thumbnail_uri
+    if case == "gif":
+        assert (result.messages, bool(stored)) == ([], True)
+    else:
+        assert _codes(result) == [("A099", "warning", None)]
+        assert "not a valid image" in result.messages[0].message
+        assert stored is None
