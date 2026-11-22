@@ -514,6 +514,12 @@ def test_view_fields_compare_as_the_builder_saves_them():
     assert not _view_moved("zoom", 11.23456789, 11.234568)
     assert _view_moved("center_lng", -89.0000004999, -89.000001)
     assert _view_moved("zoom", None, 3.0)
+    # The schema bounds neither center coordinate, so any finite double can
+    # arrive or be stored.
+    assert not _view_moved("center_lng", 1e300, 1e300)
+    assert _view_moved("center_lng", 1e300, -89.0)
+    assert _view_moved("center_lat", 1e30, 1.5e30)
+    assert _view_moved("center_lat", float("inf"), 12.0)
 
 
 @pytest.mark.parametrize(

@@ -1,8 +1,9 @@
 """Map creates and updates with the checks, audit and history every caller needs."""
 
+import math
 import uuid
 from collections.abc import Sequence
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import ROUND_HALF_UP, Context, Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -41,12 +42,17 @@ _HISTORY_FIELDS = ("name", "visibility", "terrain_config", "basemap_config")
 CAMERA_FIELDS = ("center_lng", "center_lat", "zoom", "bearing", "pitch")
 VIEW_FIELDS = (*CAMERA_FIELDS, "basemap_style")
 _BUILDER_STEP = Decimal("0.000001")
+# Room for any finite double at 6 decimals; the default 28 digits refuse a
+# large one.
+_EXACT = Context(prec=400)
 
 
 def _as_the_builder_saves(value: float) -> Decimal:
     """``value`` as the builder stores it, ``Number(value.toFixed(6))``:
     the double's exact value rounded to 6 decimals, half away from zero."""
-    return Decimal(value).quantize(_BUILDER_STEP, rounding=ROUND_HALF_UP)
+    return Decimal(value).quantize(
+        _BUILDER_STEP, rounding=ROUND_HALF_UP, context=_EXACT
+    )
 
 
 def _view_moved(field: str, previous: Any, current: Any) -> bool:
@@ -60,9 +66,13 @@ def _view_moved(field: str, previous: Any, current: Any) -> bool:
     """
     if previous is None or current is None or field == "basemap_style":
         return current != previous
-    change = _as_the_builder_saves(current) - _as_the_builder_saves(previous)
+    if not (math.isfinite(previous) and math.isfinite(current)):
+        return current != previous
+    change = _EXACT.subtract(
+        _as_the_builder_saves(current), _as_the_builder_saves(previous)
+    )
     if field in ("bearing", "center_lng"):
-        return change % 360 != 0
+        return _EXACT.remainder(change, 360) != 0
     return change != 0
 
 
