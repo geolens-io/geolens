@@ -35,10 +35,12 @@ styling alone.
   `replace_if_unedited` publish keeps it hidden.
 - When styling is kept and the manifest points a layer's key at another
   dataset, the layer moves to that dataset and keeps its styling if the
-  geometry type matches and every column its styling, labels, popup, filter
-  and dashboard widgets read exists in the new dataset. Otherwise that layer
-  alone takes the manifest's styling, with a warning. Until this lands, the
-  layer stays on its earlier dataset and the publish answers warning `A073`.
+  styling still works there: the geometry type matches, and every column its
+  styling, labels, popup, filter and dashboard widgets read exists with a
+  type that supports how it is used (a graduated colour or a histogram needs
+  a number). Otherwise that layer alone takes the manifest's styling, with a
+  warning that names what didn't fit. Until this lands, the layer stays on
+  its earlier dataset and the publish answers warning `A073`.
 
 We considered recording a builder removal so that later publishes leave the
 layer out until the project drops it and adds it again. It adds state every
