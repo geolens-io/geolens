@@ -60,6 +60,17 @@ vi.mock('@/components/maps/MapCard', () => ({
   ),
 }));
 
+const liveAnnouncementProps: { text: string; trigger?: string }[] = [];
+vi.mock('@/components/ui/live-announcement', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/components/ui/live-announcement')>();
+  return {
+    LiveAnnouncement: (props: { text: string; trigger?: string }) => {
+      liveAnnouncementProps.push({ text: props.text, trigger: props.trigger });
+      return <actual.LiveAnnouncement {...props} />;
+    },
+  };
+});
+
 const mockUseSearchResults = vi.mocked(useSearchResults);
 const mockUseMapSearchResults = vi.mocked(useMapSearchResults);
 const initialSearchState = useSearchStore.getState();
@@ -166,6 +177,7 @@ describe('SearchPage', () => {
 
     beforeEach(() => {
       window.history.replaceState(null, '', '/');
+      liveAnnouncementProps.length = 0;
     });
 
     it('defaults to comfortable rows and leaves the page size alone', () => {
@@ -269,20 +281,26 @@ describe('SearchPage', () => {
       expect(screen.getByRole('radio', { name: 'Compact' })).toBeChecked();
     });
 
-    it('does not announce the result count again when the view changes', async () => {
+    it('never changes the announcement trigger or text when the view changes', async () => {
       render(<SearchPage />, { route: '/' });
       await waitFor(() => expect(statusTexts()).toContain('12 catalog results'));
+      liveAnnouncementProps.length = 0;
 
-      mockUseSearchResults.mockReturnValue({
-        data: mockUseSearchResults().data,
-        isLoading: false,
-        error: null,
-        isFetching: true,
-      } as ReturnType<typeof useSearchResults>);
       await userEvent.click(screen.getByRole('radio', { name: 'Compact' }));
+      await userEvent.click(screen.getByRole('radio', { name: 'Comfortable' }));
 
-      expect(statusTexts()).toContain('12 catalog results');
-      expect(statusTexts()).not.toContain('Updating results...');
+      expect(liveAnnouncementProps.length).toBeGreaterThan(0);
+      expect(new Set(liveAnnouncementProps.map((p) => p.trigger)).size).toBe(1);
+      expect(new Set(liveAnnouncementProps.map((p) => p.text))).toEqual(new Set(['12 catalog results']));
+    });
+
+    it('still re-triggers the announcement for a new query', async () => {
+      render(<SearchPage />, { route: '/' });
+      const before = liveAnnouncementProps.at(-1)?.trigger;
+
+      act(() => useSearchStore.getState().setQuery('roads'));
+
+      expect(liveAnnouncementProps.at(-1)?.trigger).not.toBe(before);
     });
 
     it('shows compact skeletons while loading in compact mode', () => {

@@ -75,14 +75,10 @@ export function SearchPage() {
   );
   const [density, setDensity] = useState<SearchResultDensity>(readStoredDensity);
   const isCompact = density === 'compact';
-  // The status line and its trigger are held while a view change refetches, so
-  // a new page size does not announce an unchanged count again.
-  const announceHold = useRef<{ text: string; key: string } | null>(null);
   const resultsRef = useRef<HTMLDivElement>(null);
   const handleDensityChange = (value: string) => {
     if (value !== 'comfortable' && value !== 'compact') return; // ToggleGroup sends '' on deselect
     if (value === density) return;
-    announceHold.current = { text: liveStatusRef.current, key: searchKeyRef.current };
     setDensity(value);
     writeStorage(storageKeys.searchView, value);
     useSearchStore.setState({
@@ -108,7 +104,8 @@ export function SearchPage() {
   const hasMapTextQuery = mapQuery.length > 0;
   const isMapSearchPending = hasMapTextQuery && (isLoadingMaps || isFetchingMaps);
   const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;
-  const searchKeyNow = JSON.stringify(searchParams);
+  // The count doesn't depend on the page size, so a view change must not re-trigger the announcement.
+  const searchKey = JSON.stringify({ ...searchParams, limit: undefined });
   const catalogEmpty = !!data && data.features.length === 0;
   const mapMatchText = hasMapMatches ? t('mapMatchCount', { count: mapResults?.total ?? 0 }) : '';
   const catalogText = catalogEmpty
@@ -126,20 +123,6 @@ export function SearchPage() {
           : mapMatchText
             ? `${catalogText}${catalogEmpty ? '.' : ','} ${mapMatchText}`
             : catalogText;
-  let liveText = liveStatus;
-  let searchKey = searchKeyNow;
-  if (announceHold.current) {
-    if (isFetching) {
-      liveText = announceHold.current.text;
-      searchKey = announceHold.current.key;
-    } else {
-      announceHold.current = null;
-    }
-  }
-  const liveStatusRef = useRef(liveText);
-  const searchKeyRef = useRef(searchKey);
-  liveStatusRef.current = liveText;
-  searchKeyRef.current = searchKey;
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
@@ -173,7 +156,7 @@ export function SearchPage() {
               </SearchControls>
             </section>
 
-            <LiveAnnouncement text={liveText} trigger={searchKey} />
+            <LiveAnnouncement text={liveStatus} trigger={searchKey} />
 
             {isFetching && data && (
               <div aria-hidden="true" className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
