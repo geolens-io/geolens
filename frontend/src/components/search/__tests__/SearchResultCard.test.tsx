@@ -326,6 +326,47 @@ describe('SearchResultCard', () => {
       expect(link).toHaveAttribute('href', '/collections/coll-1');
     });
 
+    it('dates a collection by its update time, not its creation time', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'My Collection',
+              record_type: 'collection',
+              created: '2020-01-15T12:00:00Z',
+              updated: '2024-06-15T12:00:00Z',
+            },
+            { id: 'coll-1', geometry: null },
+          )}
+        />,
+      );
+
+      const attribution = screen.getByTestId('dataset-card-updated-attribution');
+      expect(attribution).toHaveTextContent('Updated');
+      expect(attribution.title).toContain('2024');
+      expect(attribution.title).not.toContain('2020');
+    });
+
+    it('shows no update time for a collection that reports none', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'My Collection',
+              record_type: 'collection',
+              created: '2020-01-15T12:00:00Z',
+              updated: undefined,
+            },
+            { id: 'coll-1', geometry: null },
+          )}
+        />,
+      );
+
+      expect(screen.queryByTestId('dataset-card-updated-attribution')).not.toBeInTheDocument();
+    });
+
     it('renders dataset count badge and Collection type badge', () => {
       render(
         <SearchResultCard

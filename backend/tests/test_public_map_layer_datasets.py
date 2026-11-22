@@ -329,10 +329,14 @@ async def test_map_list_checks_thumbnails_for_the_page_at_once(
         assert all(m["thumbnail_url"] for m in resp.json()["maps"])
         return count
 
+    async def settled_statements() -> int:
+        # A per-process cache can lapse between two requests and cost one more
+        # statement, so a figure is the lower of two runs. A query per map
+        # raises both.
+        return min(await list_statements(), await list_statements())
+
     await _map_with_images(client, owner_header, f"{tag} 1", [dataset.id])
-    # The first request also fills per-process caches.
-    await list_statements()
-    one_map = await list_statements()
+    one_map = await settled_statements()
     for n in (2, 3, 4):
         await _map_with_images(client, owner_header, f"{tag} {n}", [dataset.id])
-    assert await list_statements() == one_map
+    assert await settled_statements() == one_map

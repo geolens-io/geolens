@@ -7,7 +7,6 @@ from __future__ import annotations
 import asyncio
 import logging
 import threading
-import time
 import uuid
 
 import pytest
@@ -230,7 +229,6 @@ async def test_a_save_that_adds_no_layer_waits_on_no_dataset_change(
             .where(Dataset.id == world["dataset_id"])
             .with_for_update()
         )
-        started = time.monotonic()
         if change == "put-paint":
             layer = {"id": layer_id, "dataset_id": str(world["dataset_id"])}
             resp = await client.put(
@@ -242,12 +240,12 @@ async def test_a_save_that_adds_no_layer_waits_on_no_dataset_change(
             resp = await client.patch(
                 f"/maps/{map_id}/layers", json=body, headers=world["headers"]
             )
-        elapsed = time.monotonic() - started
         assert holder.in_transaction()
         await holder.rollback()
 
+    # The row stays held past the answer, so a save that queued on it would
+    # have given up at the lock bound with a 409.
     assert resp.status_code == 200, resp.text
-    assert elapsed < 1, elapsed
 
 
 async def test_a_layer_update_a_delete_removed_meanwhile_is_refused(
@@ -374,13 +372,12 @@ async def test_an_unreadable_added_dataset_under_a_change_is_not_waited_on(
         await holder.execute(
             sa.select(Dataset.id).where(Dataset.id == hidden_dataset).with_for_update()
         )
-        started = time.monotonic()
         hidden = await _add_with_unknown_layer(client, world, str(hidden_dataset))
-        elapsed = time.monotonic() - started
+        assert holder.in_transaction()
         await holder.rollback()
 
+    # A save that queued on the held row would answer 409 at the lock bound.
     assert (hidden.status_code, hidden.json()) == (403, missing.json())
-    assert elapsed < 1, elapsed
 
 
 @pytest.mark.parametrize("writer", ["put", "manifest"])

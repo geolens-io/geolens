@@ -80,6 +80,7 @@ async def search_collections(
             "dataset_count": count_map.get(c.id, 0),
             "licenses": license_map.get(c.id, []),
             "created_at": c.created_at.isoformat(),
+            "updated_at": c.updated_at.isoformat(),
         }
         for c in collections
     ]
