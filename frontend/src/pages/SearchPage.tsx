@@ -144,6 +144,10 @@ export function SearchPage() {
     useSearchStore.setState({ limit: size, offset: Math.floor(from / size) * size });
     heldKey.current = { raw: announcementKey(useSearchStore.getState().toParams()), shown: searchKey };
   };
+  // While the other page size loads, the previous page is still on screen:
+  // show no more of it than the chosen view holds. A settled page is shown
+  // whole, since the first one can end with collection matches past its size.
+  const resizingPage = isFetching && limit !== settledStatus.current.limit;
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
@@ -323,9 +327,10 @@ export function SearchPage() {
                   </ToggleGroup>
                 </div>
                 <section aria-label={t('results', { defaultValue: 'Search results' })}>
-                  {/* While the other page size loads, the previous page is still
-                      here: show no more of it than the chosen view holds. */}
-                  <SearchResultList features={data.features.slice(0, limit)} density={density} />
+                  <SearchResultList
+                    features={resizingPage ? data.features.slice(0, limit) : data.features}
+                    density={density}
+                  />
                 </section>
               </div>
             )}

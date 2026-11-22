@@ -227,26 +227,34 @@ describe('SearchPage', () => {
       expect(useSearchStore.getState().offset).toBe(50);
     });
 
-    it('shows no more of the previous page than the chosen view holds while the next one loads', async () => {
+    it('trims the previous page to the chosen view while the next one loads, and shows a settled page whole', async () => {
       localStorage.setItem('geolens-search-view', 'compact');
       act(() => useSearchStore.getState().resetFilters());
-      mockUseSearchResults.mockReturnValue({
-        data: {
-          type: 'FeatureCollection',
-          numberMatched: 60,
-          numberReturned: 25,
-          features: Array.from({ length: 25 }, (_, i) => makeFeature(`dataset-${i + 1}`, `Dataset ${i + 1}`)),
-        },
-        isLoading: false,
-        error: null,
-        isFetching: false,
-      } as ReturnType<typeof useSearchResults>);
-      render(<SearchPage />, { route: '/' });
+      const page = (count: number, isFetching: boolean) =>
+        ({
+          data: {
+            type: 'FeatureCollection',
+            numberMatched: 60,
+            numberReturned: count,
+            features: Array.from({ length: count }, (_, i) => makeFeature(`dataset-${i + 1}`, `Dataset ${i + 1}`)),
+          },
+          isLoading: false,
+          error: null,
+          isFetching,
+        }) as ReturnType<typeof useSearchResults>;
+      mockUseSearchResults.mockReturnValue(page(25, false));
+      const { rerender } = render(<SearchPage />, { route: '/' });
       expect(densities()).toHaveLength(25);
 
+      // The 25 rows stay as placeholder data while the page of ten loads.
+      mockUseSearchResults.mockReturnValue(page(25, true));
       await userEvent.click(screen.getByRole('radio', { name: 'Comfortable' }));
-
       expect(densities()).toEqual(Array.from({ length: 10 }, () => 'comfortable'));
+
+      // The first page can end with collection matches beyond its size.
+      mockUseSearchResults.mockReturnValue(page(15, false));
+      rerender(<SearchPage />);
+      expect(densities()).toHaveLength(15);
     });
 
     it('uses a stored compact choice on load, already on the first query', () => {
