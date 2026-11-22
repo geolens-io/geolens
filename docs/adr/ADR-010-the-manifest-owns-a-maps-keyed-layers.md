@@ -52,11 +52,16 @@ result.
 
 ## Consequences
 
-The project is the source of truth for the published layers: what is in the
-project is on the map, and what the project dropped is gone. A builder edit
-survives a republish as styling, never as a change to the layer list. The
-publish result names every layer it removed (`A059`), so a publishing app
-can tell its user what a republish took off the map.
+The project is the source of truth for the keyed layers: what the project
+publishes is on the map, and a keyed layer the project dropped is gone,
+except under `keep` or when the publisher can't read its dataset. Layers
+added in the builder stay. A builder edit survives a republish as styling,
+never as a change to the keyed layer list. The publish result names every
+layer it removed (`A059`), so a publishing app can tell its user what a
+republish took off the map.
 
 Someone who removes a published layer in the builder sees it return on the
-next publish. Hiding it is the supported way to keep it off the map.
+next publish. Hiding it is the supported way to keep it off the map: the
+layer stays hidden while styling is kept, under `keep` or under
+`replace_if_unedited` once the edit is recorded, and a `replace` publish
+shows it again.
