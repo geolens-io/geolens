@@ -7,6 +7,9 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+### Fixed
+- Adding datasets to a collection while a publish manifest replaces one of them no longer fails with a server error. The add now waits for the dataset before it takes the collection, the order the publish uses, so the two can't deadlock; a wait longer than two seconds answers 409, which is safe to retry.
+
 ## [1.34.0] - 2026-11-22
 
 1.34.0 adds two migrations, and both only add. 0106 adds a nullable

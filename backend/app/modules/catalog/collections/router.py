@@ -40,6 +40,7 @@ from app.modules.catalog.collections.service import (
     get_collection_datasets,
     list_collections,
     lock_collection_for_write,
+    lock_datasets_for_membership,
     remove_dataset_from_collection,
     update_collection,
 )
@@ -356,6 +357,7 @@ async def add_datasets_endpoint(
     user_roles = await get_user_roles(db, user)
     await check_datasets_access_bulk(db, body.dataset_ids, user, user_roles)
 
+    await lock_datasets_for_membership(db, body.dataset_ids)
     await lock_collection_for_write(db, collection_id)
     try:
         count = await add_datasets_to_collection(

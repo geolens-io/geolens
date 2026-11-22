@@ -170,6 +170,29 @@ async def lock_collection_for_write(
     )
 
 
+async def lock_datasets_for_membership(
+    session: AsyncSession, dataset_ids: list[uuid.UUID]
+) -> None:
+    """Take ``KEY SHARE`` on the datasets a membership insert will reference,
+    in id order, before ``lock_collection_for_write``.
+
+    The insert's foreign-key check takes the same lock later. A manifest
+    publish holds its dataset row and then locks the collection, so a writer
+    that locked the collection first and then waited on the dataset would
+    close a deadlock. Only the wait is bounded; one that outlasts the bound
+    answers 409.
+    """
+    await bounded_row_lock(
+        session,
+        select(Dataset.id)
+        .where(Dataset.id.in_(dataset_ids))
+        .order_by(Dataset.id)
+        .with_for_update(read=True, key_share=True),
+        message=_COLLECTION_BUSY,
+        detail=_COLLECTION_BUSY,
+    )
+
+
 async def list_collections(
     session: AsyncSession,
     skip: int = 0,
