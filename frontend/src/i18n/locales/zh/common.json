@@ -8,7 +8,7 @@
   "delete": "删除",
   "confirm": "确认",
   "newVersion": {
-    "message": "GeoLens 有新版本可用",
+    "message": "本站已更新。重新加载以使用新版本。",
     "reload": "重新加载"
   },
   "close": "关闭",
