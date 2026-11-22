@@ -15,6 +15,13 @@ describe('useSearchStore', () => {
     expect(useSearchStore.getState().offset).toBe(0);
   });
 
+  it('setQuery with the query it already holds keeps the offset', () => {
+    useSearchStore.setState({ q: 'parks', offset: 20 });
+    useSearchStore.getState().setQuery('parks');
+
+    expect(useSearchStore.getState().offset).toBe(20);
+  });
+
   it('setFilter sets the filter key and resets offset', () => {
     useSearchStore.setState({ offset: 20 });
     useSearchStore.getState().setFilter('geometry_type', 'Polygon');

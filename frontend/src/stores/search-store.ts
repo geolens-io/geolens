@@ -99,7 +99,9 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
   ...initialState,
   resetEpoch: 0,
 
-  setQuery: (q) => set({ q, offset: 0 }),
+  // The search box writes its text back after a debounce, on load too, so
+  // an unchanged query must leave a page restored from the URL where it is.
+  setQuery: (q) => set((state) => (state.q === q ? state : { q, offset: 0 })),
 
   setFilter: (key, value) => set({ [key]: value, offset: 0 }),
 
