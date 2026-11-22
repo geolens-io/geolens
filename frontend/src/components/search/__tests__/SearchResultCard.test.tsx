@@ -545,6 +545,47 @@ describe('SearchResultCard', () => {
       expect(screen.queryByText(/cols/i)).not.toBeInTheDocument();
     });
 
+    describe('unknown row count', () => {
+      const renderTable = (feature_count: number | null, column_count: number | null) => {
+        render(
+          <SearchResultCard
+            feature={makeFeature({
+              record_type: 'table',
+              geometry_type: null,
+              description: undefined,
+              feature_count,
+              column_count,
+              crs: null,
+            })}
+          />,
+        );
+        const thumb = screen.getByTestId('table-thumbnail-icon').parentElement as HTMLElement;
+        return { thumb, text: thumb.textContent ?? '' };
+      };
+
+      it('null count with columns shows columns only', () => {
+        const { thumb, text } = renderTable(null, 5);
+        expect(text).toBe('5 cols');
+        expect(thumb).toHaveAttribute('aria-label', 'Table with 5 columns');
+        expect(screen.queryByText(/Table with 0 rows/)).not.toBeInTheDocument();
+        expect(screen.getByText('Geospatial dataset')).toBeInTheDocument();
+      });
+
+      it('null count without columns shows no counts', () => {
+        const { thumb, text } = renderTable(null, null);
+        expect(text).toBe('');
+        expect(thumb).toHaveAttribute('aria-label', 'Table');
+        expect(screen.getByText('Geospatial dataset')).toBeInTheDocument();
+      });
+
+      it('a real zero count still reads 0 rows', () => {
+        const { thumb, text } = renderTable(0, 5);
+        expect(text).toBe('0 rows · 5 cols');
+        expect(thumb).toHaveAttribute('aria-label', 'Table with 0 rows and 5 columns');
+        expect(screen.getByText('Table with 0 rows')).toBeInTheDocument();
+      });
+    });
+
     it('does NOT render ImageOff for table records', () => {
       render(
         <SearchResultCard

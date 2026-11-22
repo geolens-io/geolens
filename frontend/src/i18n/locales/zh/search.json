@@ -129,6 +129,7 @@
     "pointcloud": "点云",
     "tableAriaLabel": "包含 {{rows}} 行和 {{cols}} 列的表格",
     "tableAriaLabelNoCols": "包含 {{rows}} 行的表格",
+    "tableAriaLabelColsOnly": "包含 {{cols}} 列的表格",
     "tableRows_one": "{{count}} 行",
     "tableRows_other": "{{count}} 行",
     "tableCols_one": "{{count}} 列",

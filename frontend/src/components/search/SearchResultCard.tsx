@@ -132,7 +132,9 @@ function buildAutoDescription(
         count: properties.source_count,
       });
     case 'table':
-      return t('card.autoDesc.table', { count: properties.feature_count ?? 0 });
+      // An unknown row count is not an empty table.
+      if (properties.feature_count == null) break;
+      return t('card.autoDesc.table', { count: properties.feature_count });
     case 'tiles3d_dataset':
       return t('card.autoDesc.tiles3d');
     default:
@@ -156,6 +158,22 @@ export const SearchResultCard = memo(function SearchResultCard({
   const recordType = properties.record_type ?? 'vector_dataset';
   const isCollection = recordType === 'collection';
   const isTable = recordType === 'table';
+  const rowsKnown = properties.feature_count != null;
+  const colsKnown = !!properties.column_count;
+  const tableRowsText = rowsKnown ? t('card.tableRows', { count: properties.feature_count ?? 0 }) : '';
+  const tableColsText = colsKnown ? t('card.tableCols', { count: properties.column_count }) : '';
+  const tableThumbText =
+    rowsKnown && colsKnown
+      ? t('card.tableRowsColsJoined', { rows: tableRowsText, cols: tableColsText })
+      : tableRowsText || tableColsText;
+  const tableAriaLabel =
+    rowsKnown && colsKnown
+      ? t('card.tableAriaLabel', { rows: properties.feature_count, cols: properties.column_count })
+      : rowsKnown
+        ? t('card.tableAriaLabelNoCols', { rows: properties.feature_count })
+        : colsKnown
+          ? t('card.tableAriaLabelColsOnly', { cols: properties.column_count })
+          : t('card.table');
   const collectionDescription = isCollection ? distinctDescription(properties.title, properties.description) : undefined;
   const origin = datasetOrigin(properties);
   const linkPath = isCollection ? `/collections/${feature.id}` : `/datasets/${feature.id}`;
@@ -461,11 +479,7 @@ export const SearchResultCard = memo(function SearchResultCard({
                       <div
                         className="flex size-[132px] flex-col items-center justify-center gap-2 bg-type-table-bg text-type-table xl:size-[148px]"
                         role="img"
-                        aria-label={
-                          properties.column_count
-                            ? t('card.tableAriaLabel', { rows: properties.feature_count ?? 0, cols: properties.column_count })
-                            : t('card.tableAriaLabelNoCols', { rows: properties.feature_count ?? 0 })
-                        }
+                        aria-label={tableAriaLabel}
                       >
                         <Table2
                           className="h-10 w-10 opacity-80"
@@ -473,12 +487,7 @@ export const SearchResultCard = memo(function SearchResultCard({
                           data-testid="table-thumbnail-icon"
                         />
                         <span className="text-xs font-medium font-mono tabular-nums tracking-wide">
-                          {properties.column_count
-                            ? t('card.tableRowsColsJoined', {
-                                rows: t('card.tableRows', { count: properties.feature_count ?? 0 }),
-                                cols: t('card.tableCols', { count: properties.column_count }),
-                              })
-                            : t('card.tableRows', { count: properties.feature_count ?? 0 })}
+                          {tableThumbText}
                         </span>
                       </div>
                     ) : quicklookBlobUrl ? (

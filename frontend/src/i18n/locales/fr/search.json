@@ -129,6 +129,7 @@
     "updatedFallback": "Mis à jour il y a {{time}}",
     "tableAriaLabel": "Tableau avec {{rows}} lignes et {{cols}} colonnes",
     "tableAriaLabelNoCols": "Tableau avec {{rows}} lignes",
+    "tableAriaLabelColsOnly": "Tableau avec {{cols}} colonnes",
     "tableRows_one": "{{count}} ligne",
     "tableRows_other": "{{count}} lignes",
     "tableCols_one": "{{count}} col.",
