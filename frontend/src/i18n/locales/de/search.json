@@ -230,6 +230,7 @@
   "compactColumns": {
     "name": "Name",
     "details": "Details",
-    "updated": "Aktualisiert"
+    "updated": "Aktualisiert",
+    "collections": "Sammlungen"
   }
 }

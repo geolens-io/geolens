@@ -56,7 +56,7 @@ function announcementKey(params: Record<string, string>): string {
 export function SearchPage() {
   const { t } = useTranslation('search');
   useDocumentTitle(t('common:pageTitle.search'));
-  const { data, isLoading, error, isFetching, refetch } = useSearchResults();
+  const { data, isLoading, error, isFetching, isPlaceholderData, refetch } = useSearchResults();
   // Map search uses the visibility-scoped maps endpoint because catalog search indexes datasets only.
   const {
     data: mapResults,
@@ -154,9 +154,10 @@ export function SearchPage() {
     announced.current.afterViewChange = announcementKey(useSearchStore.getState().toParams());
   };
   // While the other page size loads, the previous page is still on screen:
-  // show no more of it than the chosen view holds. A settled page is shown
-  // whole, since the first one can end with collection matches past its size.
-  const resizingPage = isFetching && limit !== settledStatus.current.limit;
+  // show no more of it than the chosen view holds. The page itself is shown
+  // whole, cached or settled, since the first one can end with collection
+  // matches past its size.
+  const resizingPage = isPlaceholderData && limit !== settledStatus.current.limit;
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();

@@ -230,6 +230,7 @@
   "compactColumns": {
     "name": "名称",
     "details": "详情",
-    "updated": "更新时间"
+    "updated": "更新时间",
+    "collections": "集合"
   }
 }

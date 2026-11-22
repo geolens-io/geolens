@@ -230,7 +230,7 @@ describe('SearchPage', () => {
     it('trims the previous page to the chosen view while the next one loads, and shows a settled page whole', async () => {
       localStorage.setItem('geolens-search-view', 'compact');
       act(() => useSearchStore.getState().resetFilters());
-      const page = (count: number, isFetching: boolean) =>
+      const page = (count: number, isFetching: boolean, isPlaceholderData = false) =>
         ({
           data: {
             type: 'FeatureCollection',
@@ -241,15 +241,22 @@ describe('SearchPage', () => {
           isLoading: false,
           error: null,
           isFetching,
+          isPlaceholderData,
         }) as ReturnType<typeof useSearchResults>;
       mockUseSearchResults.mockReturnValue(page(25, false));
       const { rerender } = render(<SearchPage />, { route: '/' });
       expect(densities()).toHaveLength(25);
 
       // The 25 rows stay as placeholder data while the page of ten loads.
-      mockUseSearchResults.mockReturnValue(page(25, true));
+      mockUseSearchResults.mockReturnValue(page(25, true, true));
       await userEvent.click(screen.getByRole('radio', { name: 'Comfortable' }));
       expect(densities()).toEqual(Array.from({ length: 10 }, () => 'comfortable'));
+
+      // A page of ten already in the cache, refetching in the background,
+      // is that page: its collection matches past ten stay on screen.
+      mockUseSearchResults.mockReturnValue(page(15, true));
+      rerender(<SearchPage />);
+      expect(densities()).toHaveLength(15);
 
       // The first page can end with collection matches beyond its size.
       mockUseSearchResults.mockReturnValue(page(15, false));

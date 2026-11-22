@@ -2,13 +2,13 @@ import { render, screen, within } from '@/test/test-utils';
 import { SearchResultList } from '@/components/search/SearchResultList';
 import type { OGCRecordResponse } from '@/types/api';
 
-function makeFeature(id: string, title: string): OGCRecordResponse {
+function makeFeature(id: string, title: string, recordType = 'vector_dataset'): OGCRecordResponse {
   return {
     type: 'Feature',
     id,
     time: {},
     geometry: null,
-    properties: { title, record_type: 'vector_dataset', geometry_type: 'Point', feature_count: 3 },
+    properties: { title, record_type: recordType, geometry_type: 'Point', feature_count: 3 },
     links: [],
   } as unknown as OGCRecordResponse;
 }
@@ -43,5 +43,35 @@ describe('SearchResultList', () => {
       'compact',
       'compact',
     ]);
+    expect(screen.queryByTestId('search-result-collections')).not.toBeInTheDocument();
+  });
+
+  it('marks where the collection matches begin after the datasets, hidden from assistive tech', () => {
+    render(
+      <SearchResultList
+        features={[...features, makeFeature('coll-1', 'Parks', 'collection'), makeFeature('coll-2', 'Rivers', 'collection')]}
+        density="compact"
+      />,
+    );
+
+    const divider = screen.getByTestId('search-result-collections');
+    expect(divider).toHaveTextContent('Collections');
+    expect(divider).toHaveAttribute('aria-hidden', 'true');
+    const items = within(screen.getByRole('list')).getAllByRole('listitem');
+    expect(items).toHaveLength(4);
+    const cards = screen.getAllByTestId('search-result-card');
+    expect(divider.compareDocumentPosition(cards[1]) & Node.DOCUMENT_POSITION_PRECEDING).toBeTruthy();
+    expect(divider.compareDocumentPosition(cards[2]) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getAllByTestId('search-result-collections')).toHaveLength(1);
+  });
+
+  it('adds no collection marker when the page holds only collections or none', () => {
+    const { rerender } = render(
+      <SearchResultList features={[makeFeature('coll-1', 'Parks', 'collection')]} density="compact" />,
+    );
+    expect(screen.queryByTestId('search-result-collections')).not.toBeInTheDocument();
+
+    rerender(<SearchResultList features={features} density="comfortable" />);
+    expect(screen.queryByTestId('search-result-collections')).not.toBeInTheDocument();
   });
 });

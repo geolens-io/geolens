@@ -1103,6 +1103,43 @@ describe('SearchResultCard', () => {
       expect(cell.title).not.toContain('2020');
     });
 
+    it('dates a collection by its update time even when the result says it was never edited', () => {
+      compact(
+        makeFeature(
+          {
+            type: 'collection',
+            title: 'My Collection',
+            record_type: 'collection',
+            created: '2020-01-15T12:00:00Z',
+            updated: '2024-06-15T12:00:00Z',
+            never_edited: true,
+            updated_by_display: null,
+          },
+          { id: 'coll-1', geometry: null },
+        ),
+      );
+
+      const cell = screen.getByTestId('dataset-card-updated-attribution');
+      expect(cell.title).toContain('2024');
+      expect(cell.title).not.toContain('2020');
+      expect(cell).toHaveTextContent(/Updated/);
+    });
+
+    it('keeps a focus outline that forced colors can paint, shows a long source whole or not at all, and lets a phone title take two lines', () => {
+      compact(makeFeature({ source_organization: 'Department of Environmental Protection, Bureau of GIS' }));
+
+      const link = screen.getByTestId('search-result-card');
+      // A ring is a box-shadow, which forced colors removes; an inset outline survives.
+      expect(link.className).toContain('forced-colors:focus-visible:outline-solid');
+      expect(link.className).toContain('forced-colors:focus-visible:-outline-offset-2');
+      const source = screen.getByTestId('dataset-card-source');
+      expect(source.className).toContain('whitespace-nowrap');
+      expect(source.className).not.toMatch(/(^|\s)(truncate|max-w-\S+)(\s|$)/);
+      const title = within(link).getByRole('heading');
+      expect(title.className).toContain('line-clamp-2');
+      expect(title.className).toContain('md:line-clamp-1');
+    });
+
     it('gives a collection that reports no update time a dash, not its creation time', () => {
       compact(
         makeFeature(

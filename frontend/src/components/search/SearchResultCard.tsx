@@ -276,14 +276,20 @@ export const SearchResultCard = memo(function SearchResultCard({
     // A collection's creation time is not an update time, so a collection
     // that reports no update time gets a dash.
     const collectionUndated = isCollection && !properties.updated;
-    const updatedAbbrev = collectionUndated
-      ? '—'
+    const updatedAbbrev = isCollection
+      ? properties.updated
+        ? updatedTime.relative
+        : '—'
       : hasMissingProvenance
         ? properties.created
           ? createdTime.relative
           : '—'
         : updatedRelative;
-    const updatedFull = collectionUndated ? '' : updatedLabel;
+    const updatedFull = isCollection
+      ? properties.updated
+        ? t('card.updatedFallback', { time: updatedTime.relative, defaultValue: 'Updated {{time}}' })
+        : ''
+      : updatedLabel;
     const meta = 'truncate text-xs text-muted-foreground';
     // A dense row leaves out a healthy, fresh source and marks only one that needs attention.
     const sourceMissing = properties.source_health === 'missing' || properties.source_health === 'inaccessible';
@@ -303,26 +309,28 @@ export const SearchResultCard = memo(function SearchResultCard({
     return (
       <Link
         to={linkPath}
-        className="group grid gap-y-0.5 px-3 py-2 outline-none transition-colors duration-200 ease-out hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:col-span-full md:min-h-10 md:grid-cols-subgrid md:items-center md:py-1.5 pointer-coarse:md:min-h-11"
+        className="group grid gap-y-0.5 px-3 py-2 outline-none transition-colors duration-200 ease-out hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-solid forced-colors:focus-visible:-outline-offset-2 md:col-span-full md:min-h-10 md:grid-cols-subgrid md:items-center md:py-1.5 pointer-coarse:md:min-h-11"
         data-testid="search-result-card"
         data-density="compact"
         onMouseEnter={prefetchDetail}
         onFocus={prefetchDetail}
       >
-        <div className="flex min-w-0 items-center gap-2 md:contents">
-          <div className="flex min-w-0 flex-1 items-center gap-2">
-            {/* One line tall and clipped: a source that doesn't fit beside the
-                title wraps out of sight instead of being cut to a fragment. */}
-            <div className="flex h-5 min-w-0 flex-1 flex-wrap items-center gap-x-2 overflow-hidden">
+        <div className="flex min-w-0 items-start gap-2 md:contents">
+          <div className="flex min-w-0 flex-1 items-start gap-2 md:items-center">
+            {/* From md, one line tall and clipped: a source that doesn't fit
+                beside the title wraps out of sight instead of being cut to a
+                fragment. On a phone the title may take two lines, since
+                catalog names often differ only at the end. */}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 md:h-5 md:overflow-hidden">
               <h3
-                className="max-w-full truncate text-sm font-semibold leading-5 text-foreground transition-colors group-hover:text-primary"
+                className="line-clamp-2 max-w-full text-sm font-semibold leading-5 text-foreground wrap-break-word transition-colors group-hover:text-primary md:line-clamp-1"
                 title={properties.title}
               >
                 {properties.title}
               </h3>
               {sourceOrganization && (
                 <span
-                  className={`hidden max-w-40 leading-5 md:block ${meta}`}
+                  className="hidden shrink-0 whitespace-nowrap text-xs leading-5 text-muted-foreground md:block"
                   data-testid="dataset-card-source"
                   title={sourceOrganization}
                 >
@@ -351,7 +359,7 @@ export const SearchResultCard = memo(function SearchResultCard({
           </div>
           <span
             className="shrink-0 whitespace-nowrap text-xs text-muted-foreground md:text-end"
-            title={collectionUndated ? undefined : updatedTitle}
+            title={collectionUndated ? undefined : isCollection ? updatedTime.absolute : updatedTitle}
             data-testid="dataset-card-updated-attribution"
           >
             <span aria-hidden="true" data-testid="dataset-card-updated-visible">{updatedAbbrev}</span>

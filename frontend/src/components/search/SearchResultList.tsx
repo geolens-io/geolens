@@ -1,3 +1,4 @@
+import { Fragment } from 'react';
 import { useTranslation } from 'react-i18next';
 import { SearchResultCard } from './SearchResultCard';
 import type { SearchResultDensity } from '@/lib/search-view';
@@ -31,6 +32,8 @@ export function SearchResultList({ features, density }: SearchResultListProps) {
     );
   }
 
+  const firstCollection = features.findIndex((feature) => feature.properties?.record_type === 'collection');
+
   return (
     <div className={`${compactListPanel} ${compactGrid}`}>
       {/* Each row's link already names its type and says "Updated", so the
@@ -46,10 +49,23 @@ export function SearchResultList({ features, density }: SearchResultListProps) {
         <span className="eyebrow text-end">{t('compactColumns.updated')}</span>
       </div>
       <ul className={gridRow}>
-        {features.map((feature) => (
-          <li key={feature.id} className={`border-t border-border/60 first:border-t-0 ${gridRow}`}>
-            <SearchResultCard feature={feature} density="compact" />
-          </li>
+        {features.map((feature, index) => (
+          <Fragment key={feature.id}>
+            {index > 0 && index === firstCollection && (
+              // The page range counts datasets; this marks where the matching
+              // collections begin. Each link already names its type.
+              <li
+                aria-hidden="true"
+                className="border-t border-border/60 bg-muted/40 px-3 py-1.5 md:col-span-full"
+                data-testid="search-result-collections"
+              >
+                <span className="eyebrow">{t('compactColumns.collections')}</span>
+              </li>
+            )}
+            <li className={`border-t border-border/60 first:border-t-0 ${gridRow}`}>
+              <SearchResultCard feature={feature} density="compact" />
+            </li>
+          </Fragment>
         ))}
       </ul>
     </div>
