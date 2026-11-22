@@ -90,6 +90,12 @@ describe('SearchResultCard', () => {
       expect(specs).toHaveTextContent('EPSG:4326');
     });
 
+    it('groups the digits of large counts for the reader', () => {
+      render(<SearchResultCard feature={makeFeature({ feature_count: 32186 })} />);
+
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('32,186 features');
+    });
+
     it('renders Vector type badge', () => {
       render(<SearchResultCard feature={makeFeature({ record_type: undefined })} />);
 

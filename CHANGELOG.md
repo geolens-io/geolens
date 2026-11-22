@@ -27,6 +27,7 @@ and releases use semantic versioning.
 - A write to a row that another request deleted after this one read it, such as a map save whose layer a dataset delete removed mid-save, answers 409 `catalog_lock_conflict`, which is safe to retry, instead of a server error.
 - A map thumbnail or social card upload that Pillow can't read, such as an image whose header declares dimensions too large to open, answers 400 instead of a server error. A PNG or JPEG is stored under the extension of its actual format rather than the one its declared media type gives.
 - A collection in the catalog search results is dated by when it was last edited. Its card used to say "Updated" with the time the collection was created, because the search result carried no update time; it now does, as `updated`.
+- Counts on the catalog search page, such as "32,186 features", the result total and the filter counts, are grouped for the reader's language instead of printed as "32186".
 
 ## [1.34.0] - 2026-11-22
 
