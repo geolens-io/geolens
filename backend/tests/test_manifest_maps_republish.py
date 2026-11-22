@@ -7,12 +7,14 @@ from __future__ import annotations
 
 import ast
 import hashlib
+from datetime import datetime, timedelta
 from pathlib import Path
+from unittest.mock import patch
 
 import pytest
 from sqlalchemy import select
 
-from app.modules.catalog.maps import manifest_republish
+from app.modules.catalog.maps import manifest_apply, manifest_republish, service_history
 from app.modules.catalog.maps.manifest_republish import (
     NOTES_LIMIT,
     OTHER_HISTORY_ACTIONS,
@@ -213,6 +215,7 @@ async def test_a_builder_edit_keeps_every_styling_field_and_answers_a070(
     for result in (checked, kept):
         assert (result.action, result.styling) == ("update", "kept")
         assert _codes(result) == [("A070", "info", None)]
+        assert "since the last publish that replaced it" in result.messages[0].message
     assert await _state(test_db_session, created.map_id) == before
     map_obj = await _map_row(test_db_session, created.map_id)
     assert (map_obj.name, map_obj.description) == ("New name", "New description")
@@ -242,22 +245,42 @@ async def test_a_republish_after_a_kept_one_still_keeps(
     assert await _state(test_db_session, created.map_id) == before
 
 
+# The basemap appearance the builder sends when the map has none stored.
+_BUILDER_BASEMAP_CONFIG = {
+    "label_mode": "full",
+    "road_visibility": "full",
+    "boundary_visibility": "full",
+    "building_visibility": True,
+    "land_water_tone": "default",
+    "relief_contrast": None,
+    "opacity": 1,
+    "background_color": None,
+}
+# A view as a desktop GIS computes it, at full double precision.
+_DESKTOP_VIEW = {"center": [-89.6543210987654, 39.7812345678912], "zoom": 11.23456789}
+
+
+def _as_the_builder_reads(value):
+    """A stored camera value as the builder reads it back, 6 decimals."""
+    return None if value is None else float(f"{value:.6f}")
+
+
 async def _builder_save(client, headers, session, map_id, **changes) -> None:
-    """A metadata save as the builder sends it: every setting, changed or not."""
+    """A metadata save as the builder sends it: every setting, changed or
+    not, with the camera it shows and its default basemap appearance."""
     map_obj = await _map_row(session, map_id)
     payload = {
         "name": map_obj.name,
         "description": map_obj.description,
         "notes": map_obj.notes,
         "basemap_style": map_obj.basemap_style,
-        "show_basemap_labels": map_obj.show_basemap_labels,
-        "basemap_config": map_obj.basemap_config,
-        "terrain_config": map_obj.terrain_config,
-        "center_lng": map_obj.center_lng,
-        "center_lat": map_obj.center_lat,
-        "zoom": map_obj.zoom,
-        "bearing": map_obj.bearing,
-        "pitch": map_obj.pitch,
+        "show_basemap_labels": True,
+        "basemap_config": map_obj.basemap_config or _BUILDER_BASEMAP_CONFIG,
+        "terrain_config": None,
+        **{
+            field: _as_the_builder_reads(getattr(map_obj, field))
+            for field in ("center_lng", "center_lat", "zoom", "bearing", "pitch")
+        },
         "plugins": map_obj.plugins,
         "legend_title": None,
         **changes,
@@ -270,7 +293,10 @@ async def _builder_save(client, headers, session, map_id, **changes) -> None:
     ("changes", "styling"),
     [
         ({"zoom": 4}, "kept"),
+        # More than the builder's rounding.
+        ({"zoom": 11.234578}, "kept"),
         ({"basemap_style": "openfreemap-dark"}, "kept"),
+        ({"basemap_config": {**_BUILDER_BASEMAP_CONFIG, "opacity": 0.5}}, "applied"),
         ({"notes": "Mine"}, "applied"),
         ({"description": "Mine", "name": "Renamed in GeoLens"}, "applied"),
         ({}, "applied"),
@@ -281,15 +307,146 @@ async def test_a_builder_save_counts_only_when_it_moves_the_view_or_basemap(
 ):
     admin = await _admin(test_db_session)
     dataset_id = await _dataset(test_db_session, admin.id)
-    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    entry = _publish(dataset_id, view=_DESKTOP_VIEW)
+    [created] = (await _apply(test_db_session, admin, entry)).maps
     await _builder_save(
         client, admin_auth_header, test_db_session, created.map_id, **changes
     )
 
-    [result] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    [result] = (await _apply(test_db_session, admin, entry)).maps
 
     assert result.styling == styling
     assert _codes(result) == ([("A070", "info", None)] if styling == "kept" else [])
+
+
+async def test_the_builders_first_save_on_a_map_without_a_view_is_no_edit(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    """The builder fits the layers and saves that camera."""
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    entry = _publish(dataset_id, view=None)
+    [created] = (await _apply(test_db_session, admin, entry)).maps
+    await _builder_save(
+        client,
+        admin_auth_header,
+        test_db_session,
+        created.map_id,
+        center_lng=-89.654321,
+        center_lat=39.781235,
+        zoom=11.234568,
+        notes="Mine",
+    )
+
+    [result] = (await _apply(test_db_session, admin, entry)).maps
+
+    assert result.styling == "applied"
+
+
+async def test_a_bearing_the_builder_reads_back_a_turn_away_is_no_edit(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    """MapLibre shows a bearing of -180 as 180."""
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    entry = _publish(dataset_id, view={**_VIEW, "bearing": -180})
+    [created] = (await _apply(test_db_session, admin, entry)).maps
+    await _builder_save(
+        client, admin_auth_header, test_db_session, created.map_id, bearing=180.0
+    )
+
+    [result] = (await _apply(test_db_session, admin, entry)).maps
+
+    assert result.styling == "applied"
+
+
+class _HostClock(datetime):
+    """An API host's clock, ``offset`` off the database's."""
+
+    offset = timedelta(0)
+
+    @classmethod
+    def now(cls, tz=None):
+        return datetime.now(tz) + cls.offset
+
+
+def _host_clock_off_by(offset: timedelta):
+    clock = type("_Skewed", (_HostClock,), {"offset": offset})
+    return patch.object(service_history, "datetime", clock, create=True)
+
+
+async def test_an_edit_from_a_host_whose_clock_runs_behind_still_counts(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    with _host_clock_off_by(-timedelta(hours=1)):
+        await _edit_paint_in_the_builder(
+            client, admin_auth_header, test_db_session, created.map_id
+        )
+
+    [result] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    assert result.styling == "kept"
+
+
+async def test_a_replace_after_an_edit_from_a_host_whose_clock_runs_ahead_resets(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    with _host_clock_off_by(timedelta(hours=1)):
+        await _edit_paint_in_the_builder(
+            client, admin_auth_header, test_db_session, created.map_id
+        )
+    await _apply(test_db_session, admin, _publish(dataset_id, styling="replace"))
+
+    [result] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    assert result.styling == "applied"
+
+
+async def test_a_view_save_records_the_basemap_appearance_it_replaced(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    """The previous values are read under the map row lock, so a change
+    committed while the save waited for it is the one it replaced."""
+    from sqlalchemy import update
+
+    import app.core.db as db_module
+    from app.modules.catalog.maps import service_update
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    other_save = {**_BUILDER_BASEMAP_CONFIG, "opacity": 0.25}
+    real_lock = service_update.lock_map_layers
+
+    async def another_save_commits_first(session, map_id):
+        async with db_module.async_session() as other:
+            await other.execute(
+                update(Map).where(Map.id == map_id).values(basemap_config=other_save)
+            )
+            await other.commit()
+        await real_lock(session, map_id)
+
+    with patch.object(service_update, "lock_map_layers", another_save_commits_first):
+        await _builder_save(
+            client,
+            admin_auth_header,
+            test_db_session,
+            created.map_id,
+            basemap_config={**_BUILDER_BASEMAP_CONFIG, "opacity": 0.5},
+        )
+
+    [event] = [
+        e
+        for e in await _history(test_db_session, created.map_id)
+        if e.action == "map.basemap_update"
+    ]
+    assert event.details["previous"] == other_save
 
 
 async def test_a_settings_event_from_before_view_changed_counts_a_sent_view(
@@ -394,6 +551,91 @@ async def test_a_kept_replace_if_unedited_still_removes_dropped_layers(
     assert [
         layer.manifest_key for layer in await _layers(test_db_session, created.map_id)
     ] == ["parks"]
+
+
+@pytest.mark.parametrize("mode", ["replace_if_unedited", "keep"])
+async def test_a_kept_layer_says_it_still_shows_its_earlier_dataset(
+    client, test_db_session, admin_auth_header, clean_tables, mode
+):
+    admin = await _admin(test_db_session)
+    first = await _dataset(test_db_session, admin.id)
+    second = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(first))).maps
+    if mode == "replace_if_unedited":
+        await _edit_paint_in_the_builder(
+            client, admin_auth_header, test_db_session, created.map_id
+        )
+    moved = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(second), **_PARKS),
+        _layer("names", dataset_id=str(first)),
+        styling=mode,
+    )
+
+    [checked] = (await _apply(test_db_session, admin, moved, dry_run=True)).maps
+    [kept] = (await _apply(test_db_session, admin, moved)).maps
+
+    for result in (checked, kept):
+        assert result.styling == "kept"
+        [warning] = [m for m in result.messages if m.code == "A073"]
+        assert (warning.severity, warning.layer) == ("warning", "parks")
+        assert "still shows its earlier dataset" in warning.message
+    parks, names = await _layers(test_db_session, created.map_id)
+    assert (parks.dataset_id, names.dataset_id) == (first, first)
+
+
+async def test_a_kept_layer_on_a_dataset_the_request_creates_says_so(
+    test_db_session, clean_tables
+):
+    from app.processing.ingest.manifest_maps import run_manifest_maps
+    from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
+    from tests.test_manifest_maps_apply import _maps_only
+    from tests.test_manifest_maps_dry_run import _local_dataset_entry
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    request = _maps_only(
+        _entry(
+            "qgis-map-parks",
+            _layer("parks", dataset_key="qgis-new"),
+            _layer("names", dataset_id=str(dataset_id)),
+            styling="keep",
+        ),
+        datasets=[_local_dataset_entry("qgis-new")],
+        dry_run=True,
+    )
+    results = [
+        ManifestApplyEntryResult(dataset_key="qgis-new", action="create", message="m")
+    ]
+
+    [result] = await run_manifest_maps(test_db_session, request, admin, results)
+
+    assert _codes(result) == [("A073", "warning", "parks")]
+
+
+async def test_a_map_another_change_holds_answers_busy(test_db_session, clean_tables):
+    """Losing the wait for the map row is routine; the map says to retry."""
+    from sqlalchemy import text
+
+    import app.core.db as db_module
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    async with db_module.async_session() as other:
+        await other.execute(
+            text("SELECT 1 FROM catalog.maps WHERE id = :id FOR UPDATE"),
+            {"id": created.map_id},
+        )
+        with patch.object(manifest_apply, "log") as logged:
+            [result] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+        await other.rollback()
+
+    assert result.action == "error"
+    assert "Another change to this map is in progress" in result.messages[0].message
+    logged.exception.assert_not_called()
 
 
 # ---------------------------------------------------------------------------
@@ -578,7 +820,7 @@ async def test_a_thumbnail_is_stored_and_a_bad_one_is_a_warning(
     assert (stored.action, stored.messages) == ("create", [])
     assert first_uri
     assert bad.action == "update"
-    assert _codes(bad) == [("A099", "warning", None)]
+    assert _codes(bad) == [("A072", "warning", None)]
     assert "not a valid image" in bad.messages[0].message
     assert (await _map_row(test_db_session, bad.map_id)).thumbnail_uri == first_uri
 
@@ -598,7 +840,7 @@ async def test_a_publish_key_adds_a_thumbnail_but_never_replaces_one(
     ).maps
 
     assert first.messages == []
-    assert _codes(second) == [("A099", "warning", None)]
+    assert _codes(second) == [("A072", "warning", None)]
     assert "publish key" in second.messages[0].message
     assert await test_db_session.scalar(select(Map.thumbnail_uri)) is not None
 
@@ -640,7 +882,12 @@ async def test_a_kept_layer_is_judged_on_the_dataset_it_keeps(
 
     [result] = (await _apply(test_db_session, admin, _publish(named_now))).maps
 
-    assert _codes(result) == [("A070", "info", None), ("A020", "error", None)]
+    assert _codes(result) == [
+        ("A070", "info", None),
+        ("A073", "warning", "parks"),
+        ("A073", "warning", "names"),
+        ("A020", "error", None),
+    ]
 
 
 async def test_a_kept_publish_keeps_the_builders_layer_order(
@@ -668,7 +915,6 @@ async def test_a_kept_publish_keeps_the_builders_layer_order(
 
     assert result.styling == "kept"
     stored = await _layers(test_db_session, created.map_id)
-    print("DEBUG", [(layer.manifest_key, layer.sort_order) for layer in stored])
     assert [layer.manifest_key for layer in stored] == ["names", "parks", "trails"]
 
 
@@ -719,7 +965,7 @@ async def test_full_notes_answer_info_in_both_runs_and_stay_whole(
     [applied] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
 
     for result in (checked, applied):
-        assert (result.action, _codes(result)) == ("update", [("A099", "info", None)])
+        assert (result.action, _codes(result)) == ("update", [("A071", "info", None)])
         assert "no room" in result.messages[0].message
     assert (await _map_row(test_db_session, created.map_id)).notes == full
 
@@ -744,7 +990,11 @@ async def test_a_dataset_a_kept_layer_drops_doesnt_refuse_a_public_map(
         "kept",
         "public",
     )
-    assert _codes(result) == [("A070", "info", None)]
+    assert _codes(result) == [
+        ("A070", "info", None),
+        ("A073", "warning", "parks"),
+        ("A073", "warning", "names"),
+    ]
 
 
 async def test_a_kept_publish_leaves_the_thumbnail(
@@ -872,7 +1122,7 @@ async def test_a_thumbnail_the_upload_route_refuses_or_accepts_never_fails_the_p
     if case == "gif":
         assert (result.messages, bool(stored)) == ([], True)
     else:
-        assert _codes(result) == [("A099", "warning", None)]
+        assert _codes(result) == [("A072", "warning", None)]
         assert "not a valid image" in result.messages[0].message
         assert stored is None
 
@@ -925,6 +1175,6 @@ async def test_a_publish_whose_map_changed_before_its_thumbnail_keeps_the_newer_
         ).maps
 
     assert after_b["uri"]
-    assert _codes(a) == [("A099", "warning", None)]
+    assert _codes(a) == [("A072", "warning", None)]
     assert "changed after this publish" in a.messages[0].message
     assert (await _map_row(test_db_session, a.map_id)).thumbnail_uri == after_b["uri"]

@@ -54,6 +54,9 @@ from app.modules.catalog.maps.manifest_messages import (
     NO_MAP_PERMISSION,
     TABLE_LAYER,
     STYLING_KEPT,
+    NOTES_NOT_WRITTEN,
+    THUMBNAIL_NOT_STORED,
+    KEPT_LAYER_DATASET,
     KEY_NOT_WRITABLE,
     DATASET_NOT_READY,
     LAYER_REMOVED,
@@ -92,6 +95,7 @@ from app.modules.catalog.maps.service import (
 from app.modules.catalog.maps.service_groups import map_has_groups, map_visibility_for
 from app.modules.catalog.maps.service_update import apply_map_create, apply_map_update
 from app.modules.settings.basemaps import list_public_basemaps
+from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.extensions import get_permission_extension
 from app.platform.jobs.in_flight import (
     datasets_with_jobs_in_flight,
@@ -102,6 +106,7 @@ from app.platform.request_credential import is_publish_key
 MAP_KEY_NOT_WRITABLE = "This map key belongs to a map you can't edit."
 MAP_CHECK_FAILED = "This map could not be checked. Try again."
 MAP_APPLY_FAILED = "This map could not be published. Try again."
+MAP_BUSY = "Another change to this map is in progress. Try again shortly."
 
 log = structlog.get_logger()
 # One answer for a dataset that doesn't exist, isn't ready and can't be read,
@@ -513,8 +518,8 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 _message(
                     STYLING_KEPT,
                     "info",
-                    "The map was edited in GeoLens since the last publish, so "
-                    "its styling was kept.",
+                    "The map's styling was edited in GeoLens since the last "
+                    "publish that replaced it, so its styling was kept.",
                     fix='Send styling "replace" to replace it.',
                 )
             )
@@ -533,6 +538,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
     layers: list[MapLayerInput] = []
     keys: list[str] = []
     non_public_by_key: dict[str, bool] = {}
+    dataset_by_key: dict[str, uuid.UUID | None] = {}
     datasets, unsettled = request.datasets, request.unsettled_dataset_ids
     if not request.dry_run:
         dataset_ids = _layer_dataset_ids([entry], request.dataset_ids_by_key)
@@ -559,6 +565,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             if dataset_id and (planned is not None or dataset_id not in unsettled)
             else None
         )
+        dataset_by_key[layer.key] = dataset_id
         layer_messages, stored_layer = _check_layer(
             layer, dataset_id, dataset, pending=planned is not None
         )
@@ -584,7 +591,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
     if plan.notes.digest is None:
         messages.append(
             _message(
-                OTHER_REFUSAL,
+                NOTES_NOT_WRITTEN,
                 "info",
                 "The map's notes leave no room for the publish notes, so none "
                 "were written. The notes in GeoLens are kept whole.",
@@ -633,6 +640,9 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 )
             )
             total = 0
+        messages.extend(
+            _kept_datasets(stored, dataset_by_key, kept=not styling_applied)
+        )
     else:
         plan.layers, plan.layer_keys = plan_layer_stack(entry, [], layers, keys)[:2]
         total = len(entry.layers)
@@ -696,6 +706,30 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         ],
     }
     return plan
+
+
+def _kept_datasets(
+    stored: Iterable[tuple[MapLayer, _Dataset | None]],
+    dataset_by_key: Mapping[str, uuid.UUID | None],
+    *,
+    kept: bool,
+) -> Iterable[dict[str, Any]]:
+    """When the styling is ``kept``, a warning for each matched keyed layer
+    whose manifest dataset, None for one the request creates, it leaves
+    unshown."""
+    if not kept:
+        return
+    for layer, _ in stored:
+        key = layer.manifest_key
+        if key in dataset_by_key and dataset_by_key[key] != layer.dataset_id:
+            yield _message(
+                KEPT_LAYER_DATASET,
+                "warning",
+                f"Layer {_short(key)} still shows its earlier dataset, because "
+                "the map's styling was kept.",
+                fix='Send styling "replace" to show the new dataset.',
+                layer=key,
+            )
 
 
 async def _settling_now(
@@ -846,6 +880,9 @@ async def _apply_map(session: AsyncSession, entry: Any, request: _Request) -> di
     except HTTPException as exc:
         await session.rollback()
         return _error_result(entry.key, _refusal(exc))
+    except CatalogLockConflict:
+        await session.rollback()
+        return _error_result(entry.key, MAP_BUSY)
     except Exception:  # broad: one map's failure must not fail the other maps
         await session.rollback()
         log.exception("manifest_map_apply_failed", map_key=entry.key)
@@ -856,7 +893,7 @@ async def _apply_map(session: AsyncSession, entry: Any, request: _Request) -> di
             session, result["map_id"], entry.thumbnail, request.user, plan.published_at
         )
         if refused is not None:
-            warning = _message(OTHER_REFUSAL, "warning", refused)
+            warning = _message(THUMBNAIL_NOT_STORED, "warning", refused)
             result = {**result, "messages": [*result["messages"], warning]}
     return result
 

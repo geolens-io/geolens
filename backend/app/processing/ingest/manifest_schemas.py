@@ -478,9 +478,10 @@ class ManifestMap(_ManifestBaseModel):
             "does. `keep` never does, and keeps keyed layers the manifest no "
             "longer lists. `replace_if_unedited` does unless the styling was "
             "edited in GeoLens since the last publish that replaced it, and "
-            "answers info A070 when it keeps it. Name, description, notes, "
-            "visibility and new layers are applied in every mode, and a new "
-            "map takes the manifest's styling."
+            "answers info A070 when it keeps it. A kept layer keeps its "
+            "dataset too, with warning A073 when the manifest names another. "
+            "Name, description, notes, visibility and new layers are applied "
+            "in every mode, and a new map takes the manifest's styling."
         ),
     )
     thumbnail: (
@@ -499,17 +500,18 @@ class ManifestMap(_ManifestBaseModel):
             "A PNG or JPEG data URI, stored as the map's thumbnail once the "
             "map is written, with the thumbnail upload's checks, when the "
             "manifest's styling is applied. One that isn't stored is a "
-            "warning (A099) and the map stays published."
+            "warning (A072) and the map stays published."
         ),
     )
     loss_report: ManifestLossReport | None = Field(
         default=None,
         description=(
             "Written, one line per item, in a block at the top of the map's "
-            "notes, above a `---` line. A republish replaces only the block "
-            "the last publish wrote, when the notes still start with it "
-            "unchanged; all other text is kept whole. Left out when the "
-            "styling is kept, and cut to what fits the notes limit."
+            "notes, above a `---` line. A republish replaces the leading "
+            "block only when it is exactly a block some publish of this map "
+            "wrote; all other text is kept whole. Left out when the styling "
+            "is kept, and cut to what fits the notes limit. When the notes "
+            "leave no room for the block, none is written (info A071)."
         ),
     )
     visibility: Literal["private", "internal", "public"] | None = Field(

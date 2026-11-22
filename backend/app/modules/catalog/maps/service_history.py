@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import uuid
-from datetime import datetime, timezone
 from typing import Any
 
 from fastapi.encoders import jsonable_encoder
@@ -34,7 +33,12 @@ async def record_map_history_event(
     target_name: str | None = None,
     details: dict[str, Any] | None = None,
 ) -> MapEditHistoryEvent:
-    """Add a map edit history row to the current transaction."""
+    """Add a map edit history row to the current transaction.
+
+    ``created_at`` is the database's clock when the row is inserted, not the
+    API host's and not the transaction's start: writers record their event
+    while holding the map row, so the times order the events as the lock did.
+    """
     event = MapEditHistoryEvent(
         map_id=map_id,
         actor_id=_actor_id(actor),
@@ -45,7 +49,7 @@ async def record_map_history_event(
         action=action,
         summary=summary,
         details=jsonable_encoder(details or {}),
-        created_at=datetime.now(timezone.utc),
+        created_at=func.clock_timestamp(),
     )
     session.add(event)
     await session.flush()

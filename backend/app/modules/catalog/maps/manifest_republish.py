@@ -16,7 +16,7 @@ from datetime import date, datetime
 
 import structlog
 from fastapi import HTTPException
-from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy import and_, exists, func, literal_column, or_, select
 from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -30,7 +30,8 @@ log = structlog.get_logger()
 PUBLISH_ACTION = "manifest.publish"
 # The builder's history actions that edit styling a publish writes: the
 # layers' paint, layout, style, labels, popup, filter, opacity, visible flag
-# and name, and the map's basemap and view.
+# and name, and the map's view and basemap choice (``basemap_style``), which
+# ``map.config_update`` records in ``view_changed``.
 STYLING_EDIT_ACTIONS = frozenset(
     {
         "layer.replace",
@@ -43,12 +44,12 @@ STYLING_EDIT_ACTIONS = frozenset(
         "layer.visibility_update",
         "layer.rename",
         "map.import_style",
-        "map.basemap_update",
         "map.config_update",
     }
 )
-# Every other history action. A publish never writes what these change, or
-# writes it on every publish whatever the styling decision.
+# Every other history action. A publish never writes what these change, such
+# as the basemap's appearance (``basemap_config``) or terrain, or writes it on
+# every publish whatever the styling decision.
 OTHER_HISTORY_ACTIONS = frozenset(
     {
         "layer.add",
@@ -58,6 +59,7 @@ OTHER_HISTORY_ACTIONS = frozenset(
         "map.create",
         "map.rename",
         "map.visibility_update",
+        "map.basemap_update",
         "map.terrain_update",
         "map.import_arcgis_webmap",
         PUBLISH_ACTION,
@@ -74,14 +76,15 @@ async def styling_edited_since_publish(
     """Whether the map's styling was edited after the last publish that
     applied styling, or ever when no publish applied it."""
     event = MapEditHistoryEvent
-    baseline = (
+    baseline = func.coalesce(
         select(func.max(event.created_at))
         .where(
             event.map_id == map_id,
             event.action == PUBLISH_ACTION,
             event.details["styling_applied"].as_boolean(),
         )
-        .scalar_subquery()
+        .scalar_subquery(),
+        literal_column("'-infinity'::timestamptz"),
     )
     # A settings change is a styling edit only when it moved the view or the
     # basemap. An event from before ``view_changed`` was recorded lists only
@@ -106,7 +109,7 @@ async def styling_edited_since_publish(
                 exists().where(
                     event.map_id == map_id,
                     styling_edit,
-                    or_(baseline.is_(None), event.created_at > baseline),
+                    event.created_at > baseline,
                 )
             )
         )
@@ -160,8 +163,9 @@ async def written_notes_digests(
 ) -> frozenset[str]:
     """The digests of every notes block a publish of the map wrote.
 
-    A set, not the last one: event times come from the API hosts, so the
-    newest event by time need not be the publish whose block the notes hold.
+    A set, not the last one: events recorded before history times came from
+    the database carry their API host's time, so the newest event by time
+    need not be the publish whose block the notes hold.
     """
     event = MapEditHistoryEvent
     digest = event.details["notes_digest"].astext
@@ -273,9 +277,7 @@ async def store_manifest_thumbnail(
                 )
             detail = detail.get("message", "")
         return f"The thumbnail wasn't stored: {detail}"
-    except (
-        Exception
-    ):  # broad: the map is published; a thumbnail failure is only a warning
+    except Exception:  # broad: a thumbnail failure is only a warning
         await session.rollback()
         log.exception("manifest_map_thumbnail_failed", map_id=str(map_id))
         return "The thumbnail wasn't stored. Try again."

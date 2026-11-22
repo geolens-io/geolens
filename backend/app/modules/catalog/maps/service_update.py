@@ -2,6 +2,7 @@
 
 import uuid
 from collections.abc import Sequence
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -37,6 +38,28 @@ _HISTORY_FIELDS = ("name", "visibility", "terrain_config", "basemap_config")
 # The map's view and basemap. The builder sends them on every save, so a
 # settings event records which of them changed value, not only which were sent.
 VIEW_FIELDS = ("center_lng", "center_lat", "zoom", "bearing", "pitch", "basemap_style")
+# The builder rounds the camera it saves to 6 decimals.
+_VIEW_PRECISION = 1e-6
+
+
+def _view_moved(field: str, previous: Any, current: Any) -> bool:
+    """Whether a save moved the stored view field.
+
+    The builder saves the camera it shows: rounded to 6 decimals, its
+    bearing in (-180, 180], and fitted to the layers when no view was
+    stored. None of that moves a view, so a value that was NULL, or that
+    differs only within the rounding or, for longitude and bearing, by whole
+    turns, is unchanged. Compared with a tolerance because JavaScript and
+    Python round exact ties differently.
+    """
+    if previous is None:
+        return False
+    if field == "basemap_style" or current is None:
+        return current != previous
+    delta = current - previous
+    if field in ("bearing", "center_lng"):
+        delta = (delta + 180) % 360 - 180
+    return abs(delta) > _VIEW_PRECISION
 
 
 async def apply_map_create(
@@ -151,7 +174,7 @@ async def apply_map_update(
     if record_history and any(getattr(body, f) is not None for f in VIEW_FIELDS):
         # The values compared with are read under the lock the save holds.
         await lock_map_layers(db, map_id)
-        await db.refresh(map_obj, attribute_names=list(VIEW_FIELDS))
+        await db.refresh(map_obj, attribute_names=[*_HISTORY_FIELDS, *VIEW_FIELDS])
     previous = {f: getattr(map_obj, f) for f in (*_HISTORY_FIELDS, *VIEW_FIELDS)}
     kwargs = {**_update_kwargs(body, layer_keys), "keep_layer_ids": keep_layer_ids}
     saved = await _save_map_update(db, map_id, body, user, kwargs)
@@ -344,7 +367,9 @@ async def _record_update_history(
             {
                 "changed_fields": config_fields,
                 "view_changed": [
-                    f for f in VIEW_FIELDS if getattr(map_obj, f) != previous[f]
+                    f
+                    for f in VIEW_FIELDS
+                    if _view_moved(f, previous[f], getattr(map_obj, f))
                 ],
             },
         ),
