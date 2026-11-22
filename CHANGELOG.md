@@ -16,6 +16,7 @@ and releases use semantic versioning.
 ### Changed
 - The reload prompt shown after an upgrade now says the site was updated, instead of announcing a new version of GeoLens.
 - `PUT /maps/{id}` with a view field or `basemap_style` waits at most two seconds for a map another change holds, then answers 409, as layer saves already do; it used to wait for the other change to finish.
+- A collection's update time, shown on its search card and used by the Collections page's "Last updated" sort, now moves when datasets are added to or removed from it, and just after a member dataset is deleted.
 - Overlay authors: `EXTENSION_API_VERSION` is now 27. `ProcessingPort.apply_manifest_maps` writes maps outside a dry run and takes `apply_manifest_maps(session, maps, user, *, dry_run, dataset_ids_by_key, pending_datasets, unsettled_dataset_ids, public_fallback, client, ip_address)`, where `pending_datasets` maps the key and the dataset id of each of the request's entries that change their dataset to the visibility and status the entry publishes, and `unsettled_dataset_ids` names the datasets a job is still replacing. An overlay that wraps the default port by delegation only needs to declare 27.
 
 ### Fixed
