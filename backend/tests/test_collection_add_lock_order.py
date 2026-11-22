@@ -80,3 +80,44 @@ async def test_add_waits_on_a_held_dataset_without_holding_the_collection(
             .where(CollectionDataset.collection_id == collection_id)
         )
     assert members == 1
+
+
+@pytest.mark.parametrize("member", [False, True])
+async def test_add_refuses_a_dataset_deleted_while_it_waited(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, member: bool
+) -> None:
+    collection_id = uuid.UUID(
+        (await create_collection_via_api(client, admin_auth_header))["id"]
+    )
+    dataset = await create_dataset(
+        test_db_session, created_by=None, name=f"Doomed {uuid.uuid4().hex[:6]}"
+    )
+    path = f"/catalog/collections/{collection_id}/datasets/"
+    body = {"dataset_ids": [str(dataset.id)]}
+    if member:
+        added = await client.post(path, json=body, headers=admin_auth_header)
+        assert added.status_code == 200, added.text
+
+    async with db_module.async_session() as deleting:
+        await deleting.execute(sa.delete(Dataset).where(Dataset.id == dataset.id))
+        deleting_pid = await deleting.scalar(sa.text("SELECT pg_backend_pid()"))
+        adding = asyncio.create_task(
+            client.post(path, json=body, headers=admin_auth_header)
+        )
+        try:
+            await await_lock_wait_query(blocked_by=deleting_pid)
+            await deleting.commit()
+        finally:
+            # The add waits on the dataset row until this transaction ends.
+            await deleting.rollback()
+            resp = await adding
+
+    assert resp.status_code == 404, resp.text
+    assert resp.json()["detail"] == "Dataset not found"
+    async with db_module.async_session() as session:
+        members = await session.scalar(
+            sa.select(sa.func.count())
+            .select_from(CollectionDataset)
+            .where(CollectionDataset.collection_id == collection_id)
+        )
+    assert members == 0

@@ -180,9 +180,10 @@ async def lock_datasets_for_membership(
     publish holds its dataset row and then locks the collection, so a writer
     that locked the collection first and then waited on the dataset would
     close a deadlock. Only the wait is bounded; one that outlasts the bound
-    answers 409.
+    answers 409. A dataset deleted while the lock waited answers the 404 the
+    access check gives, with the transaction rolled back.
     """
-    await bounded_row_lock(
+    locked = await bounded_row_lock(
         session,
         select(Dataset.id)
         .where(Dataset.id.in_(dataset_ids))
@@ -191,6 +192,11 @@ async def lock_datasets_for_membership(
         message=_COLLECTION_BUSY,
         detail=_COLLECTION_BUSY,
     )
+    if set(locked.scalars()) != set(dataset_ids):
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
 
 
 async def list_collections(
