@@ -273,16 +273,17 @@ export const SearchResultCard = memo(function SearchResultCard({
             .map((spec) => spec.label)
             .join(' · ');
     // Shown bare in its own column; the full sentence stays for assistive tech.
-    // The search API gives a collection only its creation time, which is not
-    // an update time, so its cell holds a dash.
-    const updatedAbbrev = isCollection
+    // A collection's creation time is not an update time, so a collection
+    // that reports no update time gets a dash.
+    const collectionUndated = isCollection && !properties.updated;
+    const updatedAbbrev = collectionUndated
       ? '—'
       : hasMissingProvenance
         ? properties.created
           ? createdTime.relative
           : '—'
         : updatedRelative;
-    const updatedFull = isCollection ? '' : updatedLabel;
+    const updatedFull = collectionUndated ? '' : updatedLabel;
     const meta = 'truncate text-xs text-muted-foreground';
     // A dense row leaves out a healthy, fresh source and marks only one that needs attention.
     const sourceMissing = properties.source_health === 'missing' || properties.source_health === 'inaccessible';
@@ -350,7 +351,7 @@ export const SearchResultCard = memo(function SearchResultCard({
           </div>
           <span
             className="shrink-0 whitespace-nowrap text-xs text-muted-foreground md:text-end"
-            title={isCollection ? undefined : updatedTitle}
+            title={collectionUndated ? undefined : updatedTitle}
             data-testid="dataset-card-updated-attribution"
           >
             <span aria-hidden="true" data-testid="dataset-card-updated-visible">{updatedAbbrev}</span>

@@ -1039,10 +1039,40 @@ describe('SearchResultCard', () => {
       expect(screen.queryByText('Draft')).not.toBeInTheDocument();
     });
 
-    it('gives a collection no update time, since the search result carries only its creation time', () => {
+    it('dates a collection by its update time', () => {
       compact(
         makeFeature(
-          { type: 'collection', title: 'My Collection', record_type: 'collection', dataset_count: 7 },
+          {
+            type: 'collection',
+            title: 'My Collection',
+            record_type: 'collection',
+            dataset_count: 7,
+            created: '2020-01-15T12:00:00Z',
+            updated: '2024-06-15T12:00:00Z',
+            never_edited: undefined,
+          },
+          { id: 'coll-1', geometry: null },
+        ),
+      );
+
+      const cell = screen.getByTestId('dataset-card-updated-attribution');
+      expect(screen.getByTestId('dataset-card-updated-visible')).not.toHaveTextContent('—');
+      expect(cell).toHaveTextContent(/Updated/);
+      expect(cell.title).toContain('2024');
+      expect(cell.title).not.toContain('2020');
+    });
+
+    it('gives a collection that reports no update time a dash, not its creation time', () => {
+      compact(
+        makeFeature(
+          {
+            type: 'collection',
+            title: 'My Collection',
+            record_type: 'collection',
+            dataset_count: 7,
+            created: '2020-01-15T12:00:00Z',
+            updated: undefined,
+          },
           { id: 'coll-1', geometry: null },
         ),
       );
