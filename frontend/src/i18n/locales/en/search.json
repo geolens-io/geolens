@@ -129,6 +129,7 @@
     "pointcloud": "Point cloud",
     "tableAriaLabel": "Table with {{rows}} rows and {{cols}} columns",
     "tableAriaLabelNoCols": "Table with {{rows}} rows",
+    "tableAriaLabelColsOnly": "Table with {{cols}} columns",
     "tableRows_one": "{{count}} row",
     "tableRows_other": "{{count}} rows",
     "tableCols_one": "{{count}} col",
