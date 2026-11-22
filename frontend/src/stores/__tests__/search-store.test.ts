@@ -213,6 +213,52 @@ describe('useSearchStore', () => {
     useSearchStore.getState().restoreParams({ q: 'test' });
     expect(useSearchStore.getState().resetEpoch).toBe(epoch);
   });
+
+  describe('page size of the remembered result view', () => {
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    it('starts at 25 when the stored view is compact', async () => {
+      localStorage.setItem('geolens-search-view', 'compact');
+      vi.resetModules();
+      const fresh = await import('@/stores/search-store');
+
+      expect(fresh.useSearchStore.getState().limit).toBe(25);
+    });
+
+    it('resetFilters keeps the stored view\'s page size', () => {
+      localStorage.setItem('geolens-search-view', 'compact');
+      useSearchStore.setState({ limit: 10, q: 'x' });
+      useSearchStore.getState().resetFilters();
+
+      expect(useSearchStore.getState().limit).toBe(25);
+    });
+
+    it('restoreParams uses it only when the URL has neither limit nor offset', () => {
+      localStorage.setItem('geolens-search-view', 'compact');
+      const { restoreParams } = useSearchStore.getState();
+
+      restoreParams({ q: 'rivers' });
+      expect(useSearchStore.getState().limit).toBe(25);
+      restoreParams({ q: 'rivers', limit: '50' });
+      expect(useSearchStore.getState().limit).toBe(50);
+      restoreParams({ offset: '20' });
+      expect(useSearchStore.getState().limit).toBe(10);
+    });
+
+    it('writes limit=25 in compact and no limit in comfortable', () => {
+      useSearchStore.setState({ limit: 10 });
+      expect(useSearchStore.getState().toParams().limit).toBeUndefined();
+
+      localStorage.setItem('geolens-search-view', 'compact');
+      useSearchStore.setState({ limit: 25 });
+      expect(useSearchStore.getState().toParams().limit).toBe('25');
+      // A limit of 10 from a link must survive in the URL, or a reload would jump to 25.
+      useSearchStore.setState({ limit: 10 });
+      expect(useSearchStore.getState().toParams().limit).toBe('10');
+    });
+  });
 });
 
 /** Produces a value of the same type as `current`, guaranteed different. */

@@ -221,5 +221,16 @@
     "clearArea": "Borrar área",
     "polygonSelected_one": "{{count}} polígono seleccionado",
     "polygonSelected_other": "{{count}} polígonos seleccionados"
+  },
+  "density": {
+    "label": "Vista de resultados",
+    "comfortable": "Cómoda",
+    "compact": "Compacta"
+  },
+  "compactColumns": {
+    "name": "Nombre",
+    "details": "Detalles",
+    "updated": "Actualizado",
+    "collections": "Colecciones"
   }
 }

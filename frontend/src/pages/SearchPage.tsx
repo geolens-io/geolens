@@ -1,5 +1,5 @@
-import { type ReactNode, useRef } from 'react';
-import { Database, Loader2, SearchX, Upload, X } from 'lucide-react';
+import { type ReactNode, useRef, useState } from 'react';
+import { AlignJustify, Database, Loader2, SearchX, StretchHorizontal, Upload, X } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { useShallow } from 'zustand/react/shallow';
 import { Link } from 'react-router';
@@ -8,11 +8,12 @@ import { ErrorState } from '@/components/layout/ErrorState';
 import { EmptyState } from '@/components/layout/EmptyState';
 import { LiveAnnouncement } from '@/components/ui/live-announcement';
 import { Button } from '@/components/ui/button';
+import { ToggleGroup, ToggleGroupItem } from '@/components/ui/toggle-group';
 import { SearchBar } from '@/components/search/SearchBar';
 import { SavedSearches } from '@/components/search/SavedSearches';
 import { FilterPanel } from '@/components/search/FilterPanel';
 import { SearchSpatialSheet } from '@/components/search/SearchSpatialSheet';
-import { SearchResultCard } from '@/components/search/SearchResultCard';
+import { SearchResultList, compactListPanel } from '@/components/search/SearchResultList';
 import { DatasetCardSkeleton } from '@/components/search/DatasetCardSkeleton';
 import { Pagination } from '@/components/layout/Pagination';
 import { MapCard } from '@/components/maps/MapCard';
@@ -22,6 +23,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useUrlSearchSync } from '@/components/search/hooks/use-url-search-sync';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { usePermissions } from '@/hooks/use-permissions';
+import { pageSizeFor, readStoredDensity, storeDensity, type SearchResultDensity } from '@/lib/search-view';
 
 interface SearchControlsProps {
   totalResults: number | undefined;
@@ -47,10 +49,14 @@ function SearchControls({ totalResults, allTypesTotal, children }: SearchControl
   );
 }
 
+function announcementKey(params: Record<string, string>): string {
+  return JSON.stringify({ ...params, limit: undefined });
+}
+
 export function SearchPage() {
   const { t } = useTranslation('search');
   useDocumentTitle(t('common:pageTitle.search'));
-  const { data, isLoading, error, isFetching, refetch } = useSearchResults();
+  const { data, isLoading, error, isFetching, isPlaceholderData, refetch } = useSearchResults();
   // Map search uses the visibility-scoped maps endpoint because catalog search indexes datasets only.
   const {
     data: mapResults,
@@ -70,6 +76,8 @@ export function SearchPage() {
   const hasActiveSearch = useSearchStore((s) =>
     Object.keys(s.toParams()).some((k) => k !== 'offset' && k !== 'limit'),
   );
+  const [density, setDensity] = useState<SearchResultDensity>(readStoredDensity);
+  const isCompact = density === 'compact';
   const resultsRef = useRef<HTMLDivElement>(null);
   // Returns focus to the results container when pagination changes the set.
   const handlePageChange = (newOffset: number) => {
@@ -89,7 +97,21 @@ export function SearchPage() {
   const hasMapTextQuery = mapQuery.length > 0;
   const isMapSearchPending = hasMapTextQuery && (isLoadingMaps || isFetchingMaps);
   const hasMapMatches = (mapResults?.maps.length ?? 0) > 0;
-  const searchKey = JSON.stringify(searchParams);
+  // The announcement is triggered again by a change of search or page. The
+  // count doesn't depend on the page size, and a view change can also move the
+  // page start, so the params a view change leaves behind don't count as one.
+  const rawSearchKey = announcementKey(searchParams);
+  const announced = useRef<{ raw: string; revision: number; afterViewChange: string | null }>({
+    raw: rawSearchKey,
+    revision: 0,
+    afterViewChange: null,
+  });
+  if (announced.current.raw !== rawSearchKey) {
+    if (announced.current.afterViewChange !== rawSearchKey) announced.current.revision += 1;
+    announced.current.raw = rawSearchKey;
+    announced.current.afterViewChange = null;
+  }
+  const searchKey = String(announced.current.revision);
   const catalogEmpty = !!data && data.features.length === 0;
   const mapMatchText = hasMapMatches ? t('mapMatchCount', { count: mapResults?.total ?? 0 }) : '';
   const catalogText = catalogEmpty
@@ -107,6 +129,35 @@ export function SearchPage() {
           : mapMatchText
             ? `${catalogText}${catalogEmpty ? '.' : ','} ${mapMatchText}`
             : catalogText;
+  // A page-size change keeps the previous data while it refetches; its count
+  // hasn't changed, so the status holds until the new page settles.
+  const settledStatus = useRef({ key: '', limit, text: '' });
+  let liveText = liveStatus;
+  if (!isFetching) {
+    settledStatus.current = { key: searchKey, limit, text: liveStatus };
+  } else if (
+    data &&
+    limit !== settledStatus.current.limit &&
+    searchKey === settledStatus.current.key
+  ) {
+    liveText = settledStatus.current.text;
+  }
+  const handleDensityChange = (value: string) => {
+    if (value !== 'comfortable' && value !== 'compact') return; // ToggleGroup sends '' on deselect
+    if (value === density) return;
+    setDensity(value);
+    storeDensity(value);
+    // Stay on the page that holds the first result the reader was looking at.
+    const size = pageSizeFor(value);
+    const { offset: from } = useSearchStore.getState();
+    useSearchStore.setState({ limit: size, offset: Math.floor(from / size) * size });
+    announced.current.afterViewChange = announcementKey(useSearchStore.getState().toParams());
+  };
+  // While the other page size loads, the previous page is still on screen:
+  // show no more of it than the chosen view holds. The page itself is shown
+  // whole, cached or settled, since the first one can end with collection
+  // matches past its size.
+  const resizingPage = isPlaceholderData && limit !== settledStatus.current.limit;
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
@@ -140,7 +191,7 @@ export function SearchPage() {
               </SearchControls>
             </section>
 
-            <LiveAnnouncement text={liveStatus} trigger={searchKey} />
+            <LiveAnnouncement text={liveText} trigger={searchKey} />
 
             {isFetching && data && (
               <div aria-hidden="true" className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">
@@ -150,10 +201,10 @@ export function SearchPage() {
             )}
 
             {isLoading && !data && (
-              <div role="status" aria-live="polite" className="grid gap-3">
+              <div role="status" aria-live="polite" className={isCompact ? compactListPanel : 'grid gap-3'}>
                 <span className="sr-only">{t('loadingDatasets')}</span>
-                {Array.from({ length: 4 }).map((_, i) => (
-                  <DatasetCardSkeleton key={i} />
+                {Array.from({ length: isCompact ? 12 : 4 }).map((_, i) => (
+                  <DatasetCardSkeleton key={i} compact={isCompact} />
                 ))}
               </div>
             )}
@@ -269,15 +320,27 @@ export function SearchPage() {
                   <h2 className="text-sm font-medium text-foreground">
                     {t('catalogResults', { count: totalMatched })}
                   </h2>
+                  <ToggleGroup
+                    type="single"
+                    value={density}
+                    onValueChange={handleDensityChange}
+                    aria-label={t('density.label')}
+                  >
+                    <ToggleGroupItem value="comfortable" size="sm" className="gap-1.5 pointer-coarse:min-h-11 pointer-coarse:min-w-11" aria-label={t('density.comfortable')} title={t('density.comfortable')}>
+                      <StretchHorizontal className="size-3.5" aria-hidden="true" />
+                      <span className="hidden sm:inline">{t('density.comfortable')}</span>
+                    </ToggleGroupItem>
+                    <ToggleGroupItem value="compact" size="sm" className="gap-1.5 pointer-coarse:min-h-11 pointer-coarse:min-w-11" aria-label={t('density.compact')} title={t('density.compact')}>
+                      <AlignJustify className="size-3.5" aria-hidden="true" />
+                      <span className="hidden sm:inline">{t('density.compact')}</span>
+                    </ToggleGroupItem>
+                  </ToggleGroup>
                 </div>
                 <section aria-label={t('results', { defaultValue: 'Search results' })}>
-                  <ul className="space-y-3">
-                    {data.features.map((feature) => (
-                      <li key={feature.id}>
-                        <SearchResultCard feature={feature} />
-                      </li>
-                    ))}
-                  </ul>
+                  <SearchResultList
+                    features={resizingPage ? data.features.slice(0, limit) : data.features}
+                    density={density}
+                  />
                 </section>
               </div>
             )}

@@ -37,6 +37,8 @@ interface SourceStateChipProps {
   kind: 'freshness' | 'health';
   state: string;
   className?: string;
+  /** Icon only, for dense rows; the label stays as the accessible name. */
+  iconOnly?: boolean;
 }
 
 function SourceStateChip({
@@ -47,17 +49,18 @@ function SourceStateChip({
   kind,
   state,
   className,
+  iconOnly = false,
 }: SourceStateChipProps) {
   return (
     <Badge
       variant="outline"
-      className={cn('text-xs', color, className)}
+      className={cn('text-xs', color, iconOnly && 'px-1.5', className)}
       data-testid={`source-${kind}-chip`}
       data-state={state}
-      title={description}
+      title={iconOnly ? `${label}. ${description}` : description}
     >
       <Icon aria-hidden="true" />
-      <span>{label}</span>
+      <span className={iconOnly ? 'sr-only' : undefined}>{label}</span>
     </Badge>
   );
 }
@@ -65,10 +68,11 @@ function SourceStateChip({
 interface FreshnessChipProps {
   state?: SourceFreshness;
   className?: string;
+  iconOnly?: boolean;
 }
 
 /** Source refresh cadence. Unknown is intentionally silent. */
-export function FreshnessChip({ state = 'unknown', className }: FreshnessChipProps) {
+export function FreshnessChip({ state = 'unknown', className, iconOnly }: FreshnessChipProps) {
   const { t } = useTranslation();
   if (state === 'unknown') return null;
 
@@ -81,6 +85,7 @@ export function FreshnessChip({ state = 'unknown', className }: FreshnessChipPro
       label={t(`sourceState.freshness.${state}.label`)}
       description={t(`sourceState.freshness.${state}.description`)}
       className={className}
+      iconOnly={iconOnly}
     />
   );
 }
@@ -88,10 +93,11 @@ export function FreshnessChip({ state = 'unknown', className }: FreshnessChipPro
 interface HealthChipProps {
   state?: SourceHealth;
   className?: string;
+  iconOnly?: boolean;
 }
 
 /** Persisted source reachability. Unknown is intentionally silent. */
-export function HealthChip({ state = 'unknown', className }: HealthChipProps) {
+export function HealthChip({ state = 'unknown', className, iconOnly }: HealthChipProps) {
   const { t } = useTranslation();
   if (state === 'unknown') return null;
 
@@ -104,6 +110,7 @@ export function HealthChip({ state = 'unknown', className }: HealthChipProps) {
       label={t(`sourceState.health.${state}.label`)}
       description={t(`sourceState.health.${state}.description`)}
       className={className}
+      iconOnly={iconOnly}
     />
   );
 }

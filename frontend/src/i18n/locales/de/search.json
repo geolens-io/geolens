@@ -221,5 +221,16 @@
     "clearArea": "Bereich löschen",
     "polygonSelected_one": "{{count}} Polygon ausgewählt",
     "polygonSelected_other": "{{count}} Polygone ausgewählt"
+  },
+  "density": {
+    "label": "Ergebnisansicht",
+    "comfortable": "Komfortabel",
+    "compact": "Kompakt"
+  },
+  "compactColumns": {
+    "name": "Name",
+    "details": "Details",
+    "updated": "Aktualisiert",
+    "collections": "Sammlungen"
   }
 }

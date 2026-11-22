@@ -66,4 +66,41 @@ describe('useUrlSearchSync', () => {
       );
     });
   });
+
+  describe('address after hydration, with no later store change', () => {
+    afterEach(() => {
+      localStorage.clear();
+    });
+
+    it.each([['/', '?limit=25'], ['/?q=roads', '?q=roads&limit=25']])(
+      'writes the compact page size when mounting on %s',
+      (path, expected) => {
+        localStorage.setItem('geolens-search-view', 'compact');
+        act(() => useSearchStore.getState().resetFilters());
+        window.history.replaceState({}, '', path);
+
+        renderHook(() => useUrlSearchSync());
+
+        expect(window.location.search).toBe(expected);
+      },
+    );
+
+    it('leaves the address bare for the comfortable view', () => {
+      renderHook(() => useUrlSearchSync());
+
+      expect(window.location.pathname + window.location.search).toBe('/');
+    });
+
+    it.each([
+      ['/?limit=50', '?limit=50'],
+      ['/?offset=20', '?offset=20&limit=10'],
+    ])('keeps a limit or offset already in %s without taking the stored 25', (path, expected) => {
+      localStorage.setItem('geolens-search-view', 'compact');
+      window.history.replaceState({}, '', path);
+
+      renderHook(() => useUrlSearchSync());
+
+      expect(window.location.search).toBe(expected);
+    });
+  });
 });

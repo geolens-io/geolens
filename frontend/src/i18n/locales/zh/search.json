@@ -221,5 +221,16 @@
       "duplicateColumn": "列名重复：{{name}}",
       "createFailed": "创建数据集失败"
     }
+  },
+  "density": {
+    "label": "结果视图",
+    "comfortable": "舒适",
+    "compact": "紧凑"
+  },
+  "compactColumns": {
+    "name": "名称",
+    "details": "详情",
+    "updated": "更新时间",
+    "collections": "集合"
   }
 }

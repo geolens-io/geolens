@@ -221,5 +221,16 @@
       "duplicateColumn": "Duplicate column name: {{name}}",
       "createFailed": "Failed to create dataset"
     }
+  },
+  "density": {
+    "label": "Result view",
+    "comfortable": "Comfortable",
+    "compact": "Compact"
+  },
+  "compactColumns": {
+    "name": "Name",
+    "details": "Details",
+    "updated": "Updated",
+    "collections": "Collections"
   }
 }
