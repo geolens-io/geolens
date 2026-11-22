@@ -13068,7 +13068,7 @@ export interface components {
             styling?: ("applied" | "kept") | null;
             /**
              * Removed Layers
-             * @description Keyed layers the manifest no longer lists, removed from the map (info A059). Their datasets stay.
+             * @description Keyed layers the manifest no longer lists and the caller can read, removed from the map (info A059). Their datasets stay. One on a dataset the caller can't read stays on the map.
              */
             removed_layers?: components["schemas"]["ManifestRemovedLayer"][];
         };

@@ -38,8 +38,9 @@ class ManifestMapResult:
             error.
         styling (ManifestMapResultStylingType0 | None | Unset): Whether the manifest's styling replaced the map's. Null
             for a map in error.
-        removed_layers (list[ManifestRemovedLayer] | Unset): Keyed layers the manifest no longer lists, removed from the
-            map (info A059). Their datasets stay.
+        removed_layers (list[ManifestRemovedLayer] | Unset): Keyed layers the manifest no longer lists and the caller
+            can read, removed from the map (info A059). Their datasets stay. One on a dataset the caller can't read stays on
+            the map.
     """
 
     map_key: str

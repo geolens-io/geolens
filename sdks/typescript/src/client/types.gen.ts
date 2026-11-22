@@ -8448,7 +8448,7 @@ export type ManifestMapResult = {
     /**
      * Removed Layers
      *
-     * Keyed layers the manifest no longer lists, removed from the map (info A059). Their datasets stay.
+     * Keyed layers the manifest no longer lists and the caller can read, removed from the map (info A059). Their datasets stay. One on a dataset the caller can't read stays on the map.
      */
     removed_layers?: Array<ManifestRemovedLayer>;
 };
