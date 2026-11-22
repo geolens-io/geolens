@@ -1,7 +1,7 @@
 """Map layer access checks and mutation helpers."""
 
 import uuid
-from collections.abc import Iterable
+from collections.abc import Collection, Iterable
 from typing import Any
 
 from fastapi import HTTPException, status
@@ -37,6 +37,8 @@ MAP_WRITE_DENIED = "Not authorized to modify this map"
 
 
 _MAP_BUSY = "Another change to this map is in progress. Retry shortly."
+
+DATASET_BUSY = "A dataset on this map is being changed. Retry shortly."
 
 
 async def bulk_check_dataset_access(
@@ -132,6 +134,31 @@ async def lock_map_layers(session: AsyncSession, map_id: uuid.UUID) -> None:
     await recheck_map_ownership(session, map_id)
 
 
+async def lock_new_layer_datasets(
+    session: AsyncSession, dataset_ids: Collection[uuid.UUID]
+) -> set[uuid.UUID]:
+    """Take ``FOR KEY SHARE`` on the datasets a write is about to insert or
+    repoint a layer onto, in id order, and return those that no longer exist.
+
+    Call holding the map row and before writing any layer row. A dataset
+    delete takes the dataset row before the layer rows it cascades into, and
+    the new layer's foreign key check would otherwise wait for that delete
+    while holding layer rows it needs. A lost wait answers 409.
+    """
+    wanted = set(dataset_ids)
+    if not wanted:
+        return set()
+    locked = await bounded_row_lock(
+        session,
+        select(Dataset.id)
+        .where(Dataset.id.in_(wanted))
+        .order_by(Dataset.id)
+        .with_for_update(read=True, key_share=True),
+        message=DATASET_BUSY,
+    )
+    return wanted - set(locked.scalars())
+
+
 async def lock_maps_for_admin_write(
     session: AsyncSession, map_ids: Iterable[uuid.UUID], user: Identity
 ) -> None:
@@ -209,7 +236,8 @@ async def add_layer(
 ) -> MapLayer:
     """Add a layer to a map. Applies default style if paint/layout is None.
 
-    Raises 422 when the map is at its layer limit. Does NOT commit.
+    Raises 422 when the map is at its layer limit, and 403 when the dataset is
+    gone once the add holds it. Does NOT commit.
     """
     meta = await get_dataset_meta(session, body.dataset_id)
     record_type = meta.record_type if meta else None
@@ -244,6 +272,10 @@ async def add_layer(
         is_dem=meta.is_dem if meta else None,
     )
     await _admit_layer(session, map_id)
+    if await lock_new_layer_datasets(session, [body.dataset_id]):
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN, detail="Cannot access this dataset"
+        )
     sort_order = body.sort_order
     if body.sort_order is None or map_author_key_id(session) is not None:
         result = await session.execute(

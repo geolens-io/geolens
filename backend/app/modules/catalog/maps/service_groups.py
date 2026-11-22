@@ -42,7 +42,11 @@ from app.modules.catalog.maps.service_group_gaps import (
     share_layer_datasets,
 )
 from app.modules.catalog.maps.service_history import record_map_history_event
-from app.modules.catalog.maps.service_layers import lock_map_layers, touch_map
+from app.modules.catalog.maps.service_layers import (
+    DATASET_BUSY,
+    lock_map_layers,
+    touch_map,
+)
 from app.modules.catalog.maps.service_public import revoke_share_token_by_map
 from app.modules.catalog.write_recheck import refuse_stale_write
 from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
@@ -50,8 +54,6 @@ from app.platform.catalog_locks import bounded_row_lock
 from app.platform.extensions import get_permission_extension
 
 RESTRICTED_NEEDS_GROUPS = "Share the map with a group before making it restricted."
-
-_DATASET_BUSY = "A dataset on this map is being changed. Retry shortly."
 
 # Each visibility reaches every reader of the ones ranked below it.
 _MAP_REACH = {"private": 0, RESTRICTED_MAP_VISIBILITY: 1, "internal": 2, "public": 3}
@@ -126,7 +128,7 @@ async def lock_layer_datasets(
         .where(wanted)
         .order_by(Dataset.id)
         .with_for_update(read=True, key_share=True),
-        message=_DATASET_BUSY,
+        message=DATASET_BUSY,
     )
 
 

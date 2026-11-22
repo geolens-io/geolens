@@ -13,6 +13,7 @@ from collections.abc import Collection
 from fastapi import HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.identity import Identity
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -25,8 +26,10 @@ from app.modules.catalog.maps.schemas import (
     split_legacy_builder_paint,
 )
 from app.modules.catalog.maps.service_layers import (
+    DATASET_BUSY,
     bulk_check_dataset_access,
     lock_map_layers,
+    lock_new_layer_datasets,
     touch_map,
 )
 from app.modules.catalog.maps.service_shared import (
@@ -38,7 +41,10 @@ from app.modules.catalog.maps.service_shared import (
     normalize_dem_style_config,
     readable_dataset_ids,
 )
+from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.extensions import get_catalog_port
+
+_LAYERS_OUTSIDE_MAP = "Layer diff references layer ids outside this map"
 
 _NULLABLE_PATCH_FIELDS = {
     "display_name",
@@ -148,9 +154,52 @@ async def apply_layer_diff(
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Apply an incremental layer diff. Flushes but does NOT commit.
 
-    Refuses (422) a filter that puts a dashboard widget past the aggregate's limits.
+    Refuses (422) a filter that puts a dashboard widget past the aggregate's
+    limits. Raises ValueError for a layer id outside the map, including one a
+    dataset delete cascaded away after the diff read the layers; that case
+    rolls the session back first.
     """
+    try:
+        return await _apply_layer_diff(
+            session,
+            map_id,
+            added=added,
+            updated=updated,
+            removed=removed,
+            order=order,
+            user=user,
+            user_roles=user_roles,
+        )
+    except StaleDataError:
+        await session.rollback()
+        raise ValueError(_LAYERS_OUTSIDE_MAP) from None
+
+
+async def _apply_layer_diff(
+    session: AsyncSession,
+    map_id: uuid.UUID,
+    *,
+    added: list[dict],
+    updated: list[dict],
+    removed: list[uuid.UUID],
+    order: list[uuid.UUID] | None,
+    user: Identity,
+    user_roles: set[str],
+) -> tuple[Map, list[LayerRow], str | None, str | None]:
     await lock_map_layers(session, map_id)
+    # A diff can't repoint a layer, so only the added layers reference a
+    # dataset anew.
+    added_dataset_ids = [layer_data["dataset_id"] for layer_data in added]
+    # Asked before the lock too, so a dataset the caller can't read answers
+    # as a missing one does and is never waited on.
+    if added_dataset_ids:
+        readable = await bulk_check_dataset_access(
+            session, added_dataset_ids, user, user_roles
+        )
+        if any(dataset_id not in readable for dataset_id in added_dataset_ids):
+            raise PermissionError("Cannot access one or more layer datasets")
+    if await lock_new_layer_datasets(session, added_dataset_ids):
+        raise PermissionError("Cannot access one or more layer datasets")
     # Read the stored dashboard and filters, not the copies the caller loaded.
     fresh = {"populate_existing": True}
     result = await session.execute(
@@ -173,7 +222,7 @@ async def apply_layer_diff(
     removed_ids = set(removed)
     unknown_ids = (updated_ids | removed_ids) - set(existing_by_id)
     if unknown_ids:
-        raise ValueError("Layer diff references layer ids outside this map")
+        raise ValueError(_LAYERS_OUTSIDE_MAP)
 
     if order is not None:
         ordered_ids = set(order)
@@ -186,7 +235,6 @@ async def apply_layer_diff(
     if final_layer_count > _MAX_LAYERS_PER_MAP:
         raise ValueError(f"Layer count exceeds maximum {_MAX_LAYERS_PER_MAP}")
 
-    added_dataset_ids = [layer_data["dataset_id"] for layer_data in added]
     accessible = await bulk_check_dataset_access(
         session, added_dataset_ids, user, user_roles
     )
@@ -357,7 +405,10 @@ async def _replace_layers(
     A stored layer ``layers`` leaves out is kept, in its place in the stack,
     when map reads hide its dataset from ``user`` or it is in
     ``keep_layer_ids``.
-    Applies default styles if paint/layout is None. Flushes but does NOT commit.
+    Applies default styles if paint/layout is None. Raises 403 when a dataset
+    a row is inserted or repointed onto is gone once the save holds it, and
+    ``CatalogLockConflict`` (409) when a stored layer went while it waited.
+    Flushes but does NOT commit.
 
     Returns ``{sent id: new id}`` for the rows this call created from a sent
     id. An id sent for two new layers is left out, since it names neither.
@@ -369,6 +420,30 @@ async def _replace_layers(
     )
     stored = list(existing_result.scalars().all())
     existing_by_id = {layer.id: layer for layer in stored}
+    stored_datasets = {layer.id: layer.dataset_id for layer in stored}
+    # Only a row this save inserts or repoints takes its dataset's key, so a
+    # save that keeps every row's dataset waits on no dataset change.
+    new_dataset_ids = [
+        layer_data["dataset_id"]
+        for layer_data in layers
+        if stored_datasets.get(_coerce_uuid(layer_data.get("id")))
+        != layer_data["dataset_id"]
+    ]
+    gone = await lock_new_layer_datasets(session, new_dataset_ids)
+    if gone:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail={
+                "message": "Cannot access one or more layer datasets",
+                "datasets": sorted(str(dataset_id) for dataset_id in gone),
+            },
+        )
+    # Only the map row was held during that wait, so a dataset delete's
+    # cascade may have removed a stored layer this save would write.
+    if new_dataset_ids and set(existing_by_id) != set(
+        await session.scalars(select(MapLayer.id).where(MapLayer.map_id == map_id))
+    ):
+        raise CatalogLockConflict(DATASET_BUSY)
     requested_ids = {_coerce_uuid(layer_data.get("id")) for layer_data in layers}
     unrequested = [layer for layer in stored if layer.id not in requested_ids]
     hidden_ids = await _unreadable_layer_ids(session, unrequested, user)
