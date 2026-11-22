@@ -850,8 +850,8 @@ class _MapImageKind:
     publish_key_target: str
 
 
-# Pillow names a JPEG that carries a multi-picture segment MPO.
-_MAP_IMAGE_EXTENSIONS = {"PNG": "png", "JPEG": "jpg", "MPO": "jpg"}
+# The Pillow openers map image uploads accept, and the extension each stores.
+_MAP_IMAGE_EXTENSIONS = {"PNG": "png", "JPEG": "jpg"}
 
 _MAP_IMAGE_KINDS = {
     "thumbnail": _MapImageKind(
@@ -924,8 +924,12 @@ async def store_map_image(
     # declare, not the data URI's media type. It runs on the story decode
     # threads, never on the event loop.
     try:
-        image_format = await verify_image_bytes(image_bytes)
-        ext = _MAP_IMAGE_EXTENSIONS.get(image_format or "")
+        image_format = await verify_image_bytes(
+            image_bytes, tuple(_MAP_IMAGE_EXTENSIONS)
+        )
+        # The JPEG opener names a JPEG with a multi-picture segment MPO.
+        opener = "JPEG" if image_format == "MPO" else image_format
+        ext = _MAP_IMAGE_EXTENSIONS.get(opener or "")
         if ext is None:
             raise ValueError(f"Unsupported image format {image_format}")
     except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:

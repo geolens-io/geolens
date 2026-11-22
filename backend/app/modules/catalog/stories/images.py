@@ -356,11 +356,13 @@ def decode_story_image(data: bytes, plan: DecodePlan) -> StoryImage:
         raise _unreadable() from exc
 
 
-def _verify_image(data: bytes) -> str | None:
+def _verify_image(data: bytes, formats: tuple[str, ...]) -> str | None:
     """Return the Pillow format the header names, or raise when the bytes
-    do not open as a readable image. Blocking."""
+    do not open as a readable image in one of ``formats``. Blocking."""
     try:
-        with Image.open(BytesIO(data)) as image:
+        # Only the named openers see the bytes; Pillow's other parsers raise
+        # errors outside the ones callers handle.
+        with Image.open(BytesIO(data), formats=formats) as image:
             image_format = image.format
             image.verify()
     except Image.DecompressionBombError as exc:
@@ -369,9 +371,11 @@ def _verify_image(data: bytes) -> str | None:
     return image_format
 
 
-async def verify_image_bytes(data: bytes) -> str | None:
-    """Check the bytes are a readable image, on the decode threads, and
-    return its Pillow format name (``"PNG"``, ``"JPEG"``, ...).
+async def verify_image_bytes(data: bytes, formats: tuple[str, ...]) -> str | None:
+    """Check the bytes are a readable image in one of the Pillow opener
+    ``formats``, on the decode threads, and return its Pillow format name.
+    The name can differ from the opener: the JPEG opener returns ``"MPO"``
+    for a JPEG with a multi-picture segment.
 
     Blocking Pillow work only; raises the Pillow error, or ``ValueError``
     for dimensions past Pillow's decompression-bomb limit, when the bytes
@@ -379,7 +383,9 @@ async def verify_image_bytes(data: bytes) -> str | None:
     finish, as in prepare_story_image.
     """
     loop = asyncio.get_running_loop()
-    return await await_draining(loop.run_in_executor(_decoder, _verify_image, data))
+    return await await_draining(
+        loop.run_in_executor(_decoder, _verify_image, data, formats)
+    )
 
 
 async def prepare_story_image(data: bytes) -> StoryImage:
