@@ -721,11 +721,14 @@ def _kept_datasets(
 ) -> Iterable[dict[str, Any]]:
     """When the styling is ``kept``, a warning for each matched keyed layer
     whose manifest dataset, None for one the request creates, it leaves
-    unshown."""
+    unshown. A layer on a dataset the caller can't read gets none, so the
+    answer can't confirm which dataset it shows."""
     if not kept:
         return
-    for layer, _ in stored:
+    for layer, dataset in stored:
         key = layer.manifest_key
+        if dataset is None:
+            continue
         if key in dataset_by_key and dataset_by_key[key] != layer.dataset_id:
             yield _message(
                 KEPT_LAYER_DATASET,

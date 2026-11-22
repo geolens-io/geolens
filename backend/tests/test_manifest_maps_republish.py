@@ -38,6 +38,7 @@ from tests.test_manifest_maps_dry_run import (
     _admin,
     _codes,
     _layer,
+    _person,
 )
 from tests.test_manifest_maps_dry_run import _map as _entry
 
@@ -843,6 +844,73 @@ async def test_a_kept_layer_says_it_still_shows_its_earlier_dataset(
         assert "still shows its earlier dataset" in warning.message
     parks, names = await _layers(test_db_session, created.map_id)
     assert (parks.dataset_id, names.dataset_id) == (first, first)
+
+
+# A dataset id nothing has; a literal, so xdist workers collect the same ids.
+_NO_SUCH_DATASET = "7d1f3c2a-9b4e-4f60-8a21-5c0e9d3b7f14"
+
+
+async def _hide(session, dataset_id) -> None:
+    """Make the dataset private, so only its owner and admins read it."""
+    from sqlalchemy import update
+
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+
+    record_id = select(Dataset.record_id).where(Dataset.id == dataset_id)
+    await session.execute(
+        update(Record)
+        .where(Record.id == record_id.scalar_subquery())
+        .values(visibility="private")
+    )
+    await session.commit()
+
+
+@pytest.mark.parametrize("hidden_side", ["stored", "manifest"])
+@pytest.mark.parametrize("mode", ["keep", "replace_if_unedited"])
+async def test_a_kept_publish_answers_alike_for_a_hidden_and_a_missing_dataset(
+    client, test_db_session, admin_auth_header, clean_tables, mode, hidden_side
+):
+    """A dataset the caller can't read answers as one that doesn't exist,
+    whether the stored layer or the manifest names it."""
+    admin = await _admin(test_db_session)
+    editor, headers = await _person(client, test_db_session, admin_auth_header)
+    own = await _dataset(test_db_session, editor.id)
+    admins = await _dataset(test_db_session, admin.id)
+    stored = admins if hidden_side == "stored" else own
+    first = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(stored)),
+        _layer("names", dataset_id=str(own)),
+    )
+    [created] = (await _apply(test_db_session, editor, first)).maps
+    if mode == "replace_if_unedited":
+        await _edit_paint_in_the_builder(
+            client, headers, test_db_session, created.map_id
+        )
+    await _hide(test_db_session, admins)
+    answers = {}
+    # The hidden dataset's own id, or one nothing has.
+    for name, parks_dataset in (("hidden", str(admins)), ("missing", _NO_SUCH_DATASET)):
+        entry = _entry(
+            "qgis-map-parks",
+            _layer("parks", dataset_id=parks_dataset),
+            _layer("names", dataset_id=str(own)),
+            styling=mode,
+        )
+        answers[name] = [
+            (await _apply(test_db_session, editor, entry, dry_run=dry_run)).maps[0]
+            for dry_run in (True, False)
+        ]
+
+    [hidden_checked, hidden_applied] = answers["hidden"]
+    [missing_checked, missing_applied] = answers["missing"]
+    assert hidden_checked.model_dump() == missing_checked.model_dump()
+    assert hidden_applied.model_dump() == missing_applied.model_dump()
+    assert ("A052", "error", "parks") in _codes(hidden_applied)
+    assert _codes(hidden_checked) == _codes(hidden_applied)
+    # A readable kept layer still says the manifest named another dataset.
+    kept_warning = ("A073", "warning", "parks") in _codes(hidden_applied)
+    assert kept_warning is (hidden_side == "manifest")
 
 
 async def test_a_kept_layer_on_a_dataset_the_request_creates_says_so(
