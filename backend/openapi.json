@@ -13682,11 +13682,11 @@
             "$ref": "#/components/schemas/ManifestCatalog"
           },
           "datasets": {
+            "description": "Required, with at least one entry, in version 1. In version 2 it may be empty, or left out, when `maps` is not.",
             "items": {
               "$ref": "#/components/schemas/ManifestDataset"
             },
             "maxItems": 100,
-            "minItems": 1,
             "title": "Datasets",
             "type": "array"
           },
@@ -13718,12 +13718,27 @@
             ],
             "description": "Version 2 only. When public visibility is refused for an entry, write it as internal with warning A020 instead of failing it.",
             "title": "Public Fallback"
+          },
+          "maps": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ManifestMap"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version 2 only. Maps built from datasets the caller can read. For now maps are only checked: a request with maps must set `dry_run` to true, or it is refused before anything is applied.",
+            "title": "Maps"
           }
         },
         "required": [
           "manifest_version",
-          "catalog",
-          "datasets"
+          "catalog"
         ],
         "title": "ManifestApplyRequest",
         "type": "object"
@@ -13744,6 +13759,21 @@
             },
             "title": "Results",
             "type": "array"
+          },
+          "maps": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ManifestMapResult"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "One result per map, in request order. Left out in version 1.",
+            "title": "Maps"
           }
         },
         "required": [
@@ -14175,6 +14205,456 @@
         "title": "ManifestDataset",
         "type": "object"
       },
+      "ManifestLossItem": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "kind": {
+            "minLength": 1,
+            "title": "Kind",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "required": [
+          "path",
+          "kind"
+        ],
+        "title": "ManifestLossItem",
+        "type": "object"
+      },
+      "ManifestLossReport": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManifestLossItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "summary": {
+            "additionalProperties": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "title": "Summary",
+            "type": "object"
+          }
+        },
+        "title": "ManifestLossReport",
+        "type": "object"
+      },
+      "ManifestMap": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "description": "Stable map identity key, unique across the server. A key on a map the caller can't edit answers A050.",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "view": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestMapView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "basemap_style": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A basemap id from GET /capabilities.",
+            "title": "Basemap Style"
+          },
+          "styling": {
+            "default": "replace_if_unedited",
+            "description": "Whether a republish replaces the map's styling.",
+            "enum": [
+              "replace_if_unedited",
+              "replace",
+              "keep"
+            ],
+            "title": "Styling",
+            "type": "string"
+          },
+          "thumbnail": {
+            "anyOf": [
+              {
+                "maxLength": 100000,
+                "minLength": 22,
+                "pattern": "^data:image/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A PNG or JPEG data URI.",
+            "title": "Thumbnail"
+          },
+          "loss_report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestLossReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "private",
+                  "internal",
+                  "public"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who can see the map. Omitted on create the map is private; omitted on update the current level is kept.",
+            "title": "Visibility"
+          },
+          "layers": {
+            "items": {
+              "$ref": "#/components/schemas/ManifestMapLayer"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Layers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "layers"
+        ],
+        "title": "ManifestMap",
+        "type": "object"
+      },
+      "ManifestMapLayer": {
+        "additionalProperties": false,
+        "description": "One map layer. Column names in its styling are the uploaded file's.",
+        "properties": {
+          "key": {
+            "description": "Stable layer identity key, unique within its map.",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "dataset_key": {
+            "anyOf": [
+              {
+                "description": "Stable dataset identity key used for idempotent apply operations.",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A dataset the caller published under this key. Exactly one of dataset_key and dataset_id.",
+            "title": "Dataset Key"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A dataset already in GeoLens that the caller can read.",
+            "title": "Dataset Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "visible": {
+            "default": true,
+            "title": "Visible",
+            "type": "boolean"
+          },
+          "opacity": {
+            "default": 1.0,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Opacity",
+            "type": "number"
+          },
+          "min_zoom": {
+            "anyOf": [
+              {
+                "maximum": 24.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Zoom"
+          },
+          "max_zoom": {
+            "anyOf": [
+              {
+                "maximum": 24.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Zoom"
+          },
+          "style_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The builder's style description. Unknown top-level keys are dropped with info A062.",
+            "title": "Style Config"
+          },
+          "paint": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paint"
+          },
+          "layout": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layout"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter"
+          },
+          "label_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text labels. Unknown keys are dropped with info A062.",
+            "title": "Label Config"
+          },
+          "popup_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Popup Config"
+          },
+          "show_in_legend": {
+            "default": true,
+            "title": "Show In Legend",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "ManifestMapLayer",
+        "type": "object"
+      },
+      "ManifestMapResult": {
+        "properties": {
+          "map_key": {
+            "title": "Map Key",
+            "type": "string"
+          },
+          "action": {
+            "description": "What apply did, or in a dry run would do, with the map. A map with an error message is `error`.",
+            "enum": [
+              "create",
+              "update",
+              "skip",
+              "error"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "map_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The map the key names, when the caller may edit it.",
+            "title": "Map Id"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ManifestMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          }
+        },
+        "required": [
+          "map_key",
+          "action"
+        ],
+        "title": "ManifestMapResult",
+        "type": "object"
+      },
+      "ManifestMapView": {
+        "additionalProperties": false,
+        "properties": {
+          "center": {
+            "description": "Longitude and latitude, WGS84.",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "maximum": 90.0,
+                "minimum": -90.0,
+                "type": "number"
+              }
+            ],
+            "title": "Center",
+            "type": "array"
+          },
+          "zoom": {
+            "maximum": 24.0,
+            "minimum": 0.0,
+            "title": "Zoom",
+            "type": "number"
+          },
+          "bearing": {
+            "default": 0,
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Bearing",
+            "type": "number"
+          },
+          "pitch": {
+            "default": 0,
+            "maximum": 85.0,
+            "minimum": 0.0,
+            "title": "Pitch",
+            "type": "number"
+          }
+        },
+        "required": [
+          "center",
+          "zoom"
+        ],
+        "title": "ManifestMapView",
+        "type": "object"
+      },
       "ManifestMessage": {
         "properties": {
           "code": {
@@ -14205,6 +14685,18 @@
               }
             ],
             "title": "Fix"
+          },
+          "layer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The map layer key the message is about. Left out otherwise.",
+            "title": "Layer"
           }
         },
         "required": [

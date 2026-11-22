@@ -395,8 +395,13 @@ async def test_apply_attributes_leaves_a_source_name_two_columns_share(
     assert titles == [None, None]
 
 
-async def test_manifest_maps_are_not_implemented_yet(test_db_session, people):
+async def test_manifest_maps_apply_is_not_implemented_yet(test_db_session, people):
     with pytest.raises(NotImplementedError):
         await port.apply_manifest_maps(
-            test_db_session, [], people["owner"], dry_run=True
+            test_db_session,
+            [],
+            people["owner"],
+            dry_run=False,
+            dataset_ids_by_key={},
+            pending_dataset_keys=(),
         )

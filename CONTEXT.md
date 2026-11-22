@@ -79,7 +79,7 @@ _Avoid_: Migration on its own (that is a database schema migration), AGOL import
 
 **Cutover**: The final run of an ArcGIS migration, made after edits in the portal are frozen. After it GeoLens is the system of record for the migrated content.
 
-**Manifest key**: The name a manifest (a declared list of datasets to create or update) gives a dataset. It is unique on the server, so applying the manifest again updates that dataset instead of making another.
+**Manifest key**: The name a manifest (a declared list of datasets and maps to create or update) gives a dataset, a map or a layer in a map. A dataset's or map's key is unique on the server and a layer's is unique within its map, so applying the manifest again updates the same item instead of making another.
 _Avoid_: Publish key, which is a credential.
 
 **Publish key**: An API key that can only add content or make changes that can be undone, such as uploading, applying a manifest, or replacing a dataset's data while keeping its previous version. It can't delete anything, edit features or make anything public; those take a full key or a signed-in user.

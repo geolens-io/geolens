@@ -1,8 +1,9 @@
 """Backend-local Pydantic models for manifest apply requests."""
 
+import unicodedata
 import uuid
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
 from pydantic import (
@@ -16,6 +17,7 @@ from pydantic import (
     model_serializer,
     model_validator,
 )
+from pydantic_core import PydanticCustomError
 
 from app.core.text import normalize_nfc, reject_html_markup
 from app.platform.value_labels import is_storable_text
@@ -24,13 +26,35 @@ NonEmptyString100 = Annotated[str, Field(min_length=1, max_length=100)]
 NonEmptyString500 = Annotated[str, Field(min_length=1, max_length=500)]
 NonEmptyString5000 = Annotated[str, Field(min_length=1, max_length=5000)]
 
+_MANIFEST_KEY_PATTERN = r"^[a-z0-9][a-z0-9._-]{0,127}$"
 ManifestDatasetKey = Annotated[
     str,
     Field(
         min_length=1,
         max_length=128,
-        pattern=r"^[a-z0-9][a-z0-9._-]{0,127}$",
+        pattern=_MANIFEST_KEY_PATTERN,
         description="Stable dataset identity key used for idempotent apply operations.",
+    ),
+]
+ManifestMapKey = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=128,
+        pattern=_MANIFEST_KEY_PATTERN,
+        description=(
+            "Stable map identity key, unique across the server. A key on a "
+            "map the caller can't edit answers A050."
+        ),
+    ),
+]
+ManifestMapLayerKey = Annotated[
+    str,
+    Field(
+        min_length=1,
+        max_length=128,
+        pattern=_MANIFEST_KEY_PATTERN,
+        description="Stable layer identity key, unique within its map.",
     ),
 ]
 ManifestSourceUri = Annotated[
@@ -341,6 +365,160 @@ class ManifestClient(_ManifestBaseModel):
     project: NonEmptyString500 | None = None
 
 
+def _storable_text(value: str | None) -> str | None:
+    if value is not None and not is_storable_text(value):
+        raise ValueError("must be valid UTF-8 text without NUL")
+    return value
+
+
+# The map schema's own limit, which a test holds this to.
+MAX_MANIFEST_MAP_LAYERS = 200
+
+ManifestZoom = Annotated[float, Field(ge=0, le=24)]
+
+
+class ManifestMapView(_ManifestBaseModel):
+    center: tuple[
+        Annotated[float, Field(ge=-180, le=180)],
+        Annotated[float, Field(ge=-90, le=90)],
+    ] = Field(description="Longitude and latitude, WGS84.")
+    zoom: ManifestZoom
+    bearing: float = Field(default=0, ge=-180, le=180)
+    pitch: float = Field(default=0, ge=0, le=85)
+
+
+class ManifestLossItem(_ManifestBaseModel):
+    path: Annotated[str, Field(min_length=1)]
+    kind: Annotated[str, Field(min_length=1)]
+    detail: str | None = None
+
+    _storable = field_validator("path", "kind", "detail")(_storable_text)
+
+    @field_validator("path", "kind", "detail")
+    @classmethod
+    def _one_line(cls, value: str | None) -> str | None:
+        # Each item is one line of the map notes, whose managed block ends at
+        # the first line that is exactly `---`.
+        if value is not None and any(
+            unicodedata.category(char) in {"Cc", "Zl", "Zp"} for char in value
+        ):
+            raise ValueError("must be one line without control characters")
+        return value
+
+
+class ManifestLossReport(_ManifestBaseModel):
+    # No count bound, as in the contract; the request body limit bounds it.
+    items: list[ManifestLossItem] = Field(default_factory=list)
+    summary: dict[str, Annotated[int, Field(ge=0)]] = Field(default_factory=dict)
+
+
+class ManifestMapLayer(_ManifestBaseModel):
+    """One map layer. Column names in its styling are the uploaded file's."""
+
+    key: ManifestMapLayerKey
+    dataset_key: ManifestDatasetKey | None = Field(
+        default=None,
+        description=(
+            "A dataset the caller published under this key. Exactly one of "
+            "dataset_key and dataset_id."
+        ),
+    )
+    dataset_id: uuid.UUID | None = Field(
+        default=None,
+        description="A dataset already in GeoLens that the caller can read.",
+    )
+    display_name: Annotated[str, Field(max_length=255)] | None = None
+    visible: bool = True
+    opacity: float = Field(default=1.0, ge=0.0, le=1.0)
+    min_zoom: ManifestZoom | None = None
+    max_zoom: ManifestZoom | None = None
+    style_config: dict[str, Any] | None = Field(
+        default=None,
+        description=(
+            "The builder's style description. Unknown top-level keys are "
+            "dropped with info A062."
+        ),
+    )
+    paint: dict[str, Any] | None = None
+    layout: dict[str, Any] | None = None
+    filter: list[Any] | None = None
+    label_config: dict[str, Any] | None = Field(
+        default=None,
+        description="Text labels. Unknown keys are dropped with info A062.",
+    )
+    popup_config: dict[str, Any] | None = None
+    show_in_legend: bool = True
+
+    _storable = field_validator("display_name")(_storable_text)
+
+    @model_validator(mode="after")
+    def _one_dataset_reference(self) -> "ManifestMapLayer":
+        if (self.dataset_key is None) == (self.dataset_id is None):
+            raise ValueError(
+                "a map layer takes exactly one of dataset_key and dataset_id"
+            )
+        return self
+
+
+class ManifestMap(_ManifestBaseModel):
+    key: ManifestMapKey
+    name: Annotated[str, Field(min_length=1, max_length=255)]
+    description: Annotated[str, Field(max_length=2000)] | None = None
+    view: ManifestMapView | None = None
+    basemap_style: Annotated[str, Field(min_length=1, max_length=2000)] | None = Field(
+        default=None, description="A basemap id from GET /capabilities."
+    )
+    styling: Literal["replace_if_unedited", "replace", "keep"] = Field(
+        default="replace_if_unedited",
+        description="Whether a republish replaces the map's styling.",
+    )
+    thumbnail: (
+        Annotated[
+            str,
+            Field(
+                min_length=22,
+                max_length=100_000,
+                pattern=r"^data:image/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$",
+            ),
+        ]
+        | None
+    ) = Field(default=None, description="A PNG or JPEG data URI.")
+    loss_report: ManifestLossReport | None = None
+    visibility: Literal["private", "internal", "public"] | None = Field(
+        default=None,
+        description=(
+            "Who can see the map. Omitted on create the map is private; "
+            "omitted on update the current level is kept."
+        ),
+    )
+    layers: list[ManifestMapLayer] = Field(
+        min_length=1, max_length=MAX_MANIFEST_MAP_LAYERS
+    )
+
+    _storable = field_validator("name", "description")(_storable_text)
+
+    @field_validator("thumbnail")
+    @classmethod
+    def _whole_base64(cls, thumbnail: str | None) -> str | None:
+        if thumbnail is not None and len(thumbnail.split(",", 1)[1]) % 4:
+            raise ValueError("thumbnail base64 must be padded to a multiple of 4")
+        return thumbnail
+
+    @field_validator("layers")
+    @classmethod
+    def _layer_keys_unique(
+        cls, layers: list[ManifestMapLayer]
+    ) -> list[ManifestMapLayer]:
+        keys = [layer.key for layer in layers]
+        repeated = sorted({key for key in keys if keys.count(key) > 1})
+        if repeated:
+            raise ValueError(f"duplicate layer key(s): {', '.join(repeated)}")
+        return layers
+
+
+_MISSING_DATASETS = object()
+
+
 class ManifestApplyRequest(_ManifestBaseModel):
     manifest_version: Literal["1", "2"] = Field(
         description=(
@@ -354,7 +532,14 @@ class ManifestApplyRequest(_ManifestBaseModel):
     # Keep one request from causing an unbounded number of remote downloads,
     # quota queries, transactions, and queued jobs. Callers can submit another
     # batch after this one completes.
-    datasets: list[ManifestDataset] = Field(min_length=1, max_length=100)
+    datasets: list[ManifestDataset] = Field(
+        default_factory=list,
+        max_length=100,
+        description=(
+            "Required, with at least one entry, in version 1. In version 2 it "
+            "may be empty, or left out, when `maps` is not."
+        ),
+    )
     dry_run: bool = False
     # Last, so generated SDK constructors keep their positional order.
     client: ManifestClient | None = Field(
@@ -368,6 +553,52 @@ class ManifestApplyRequest(_ManifestBaseModel):
             "write it as internal with warning A020 instead of failing it."
         ),
     )
+    maps: list[ManifestMap] | None = Field(
+        default=None,
+        max_length=100,
+        description=(
+            "Version 2 only. Maps built from datasets the caller can read. "
+            "For now maps are only checked: a request with maps must set "
+            "`dry_run` to true, or it is refused before anything is applied."
+        ),
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _version_1_marks_missing_datasets(cls, data: Any) -> Any:
+        # The schema lets version 2 leave `datasets` out. Version 1 still
+        # requires it, so its absence is marked here and refused by the
+        # field's own validator, with the error a required field raises.
+        if (
+            isinstance(data, dict)
+            and data.get("manifest_version") != "2"
+            and "datasets" not in data
+        ):
+            return {**data, "datasets": _MISSING_DATASETS}
+        return data
+
+    @field_validator("datasets", mode="before")
+    @classmethod
+    def _version_1_requires_datasets(cls, datasets: Any) -> Any:
+        if datasets is _MISSING_DATASETS:
+            raise PydanticCustomError("missing", "Field required")
+        return datasets
+
+    @field_validator("datasets")
+    @classmethod
+    def version_1_needs_a_dataset(
+        cls, datasets: list[ManifestDataset], info: ValidationInfo
+    ) -> list[ManifestDataset]:
+        # The error the field's former min_length=1 raised, so version 1
+        # answers an empty list exactly as before.
+        if not datasets and info.data.get("manifest_version") != "2":
+            raise PydanticCustomError(
+                "too_short",
+                "List should have at least {min_length} item after validation, "
+                "not {actual_length}",
+                {"field_type": "List", "min_length": 1, "actual_length": 0},
+            )
+        return datasets
 
     @field_validator("datasets")
     @classmethod
@@ -405,15 +636,37 @@ class ManifestApplyRequest(_ManifestBaseModel):
             raise ValueError(f"duplicate upload source(s): {', '.join(repeated)}")
         return datasets
 
+    @field_validator("maps")
+    @classmethod
+    def map_keys_must_be_unique(
+        cls, maps: list[ManifestMap] | None
+    ) -> list[ManifestMap] | None:
+        keys = [entry.key for entry in maps or ()]
+        repeated = sorted({key for key in keys if keys.count(key) > 1})
+        if repeated:
+            raise ValueError(f"duplicate map key(s): {', '.join(repeated)}")
+        return maps
+
     @model_validator(mode="after")
     def _fields_match_version(self) -> "ManifestApplyRequest":
         if self.manifest_version == "2":
             if self.client is None:
                 raise ValueError("manifest_version '2' requires client")
+            if not self.datasets and not self.maps:
+                raise ValueError(
+                    "manifest_version '2' requires at least one dataset or map"
+                )
+            if self.maps and not self.dry_run:
+                raise ValueError(
+                    "maps can only be checked for now: send them with dry_run "
+                    "true, and send the datasets in a request of their own"
+                )
             return self
         # Supplied at all, null included: version 1 had no such field.
         if "client" in self.model_fields_set:
             raise ValueError("client requires manifest_version '2'")
+        if "maps" in self.model_fields_set:
+            raise ValueError("maps require manifest_version '2'")
         if "public_fallback" in self.model_fields_set or any(
             {"visibility", "collection", "attributes"} & dataset.model_fields_set
             for dataset in self.datasets
@@ -436,6 +689,17 @@ class ManifestMessage(BaseModel):
     severity: Literal["error", "warning", "info"]
     message: str
     fix: str | None = None
+    layer: str | None = Field(
+        default=None,
+        description="The map layer key the message is about. Left out otherwise.",
+    )
+
+    @model_serializer(mode="wrap")
+    def _leave_out_absent_layer(self, handler: SerializerFunctionWrapHandler):
+        data = handler(self)
+        if self.layer is None:
+            data.pop("layer", None)
+        return data
 
 
 class ManifestApplyEntryResult(BaseModel):
@@ -475,7 +739,33 @@ class ManifestApplyEntryResult(BaseModel):
         return data
 
 
+class ManifestMapResult(BaseModel):
+    map_key: str
+    action: Literal["create", "update", "skip", "error"] = Field(
+        description=(
+            "What apply did, or in a dry run would do, with the map. A map "
+            "with an error message is `error`."
+        )
+    )
+    map_id: uuid.UUID | None = Field(
+        default=None, description="The map the key names, when the caller may edit it."
+    )
+    messages: list[ManifestMessage] = Field(default_factory=list)
+
+
 class ManifestApplyResponse(BaseModel):
     accepted: bool
     dry_run: bool
     results: list[ManifestApplyEntryResult]
+    maps: list[ManifestMapResult] | None = Field(
+        default=None,
+        description="One result per map, in request order. Left out in version 1.",
+    )
+
+    @model_serializer(mode="wrap")
+    def _leave_out_absent_maps(self, handler: SerializerFunctionWrapHandler):
+        # A version 1 response stays as it was.
+        data = handler(self)
+        if self.maps is None:
+            data.pop("maps", None)
+        return data

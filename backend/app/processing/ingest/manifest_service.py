@@ -54,6 +54,7 @@ from app.processing.ingest.manifest_dataset_fields import (
     report_entry,
     resolve_entry_collection,
 )
+from app.processing.ingest.manifest_maps import check_manifest_maps
 from app.processing.ingest.manifest_publication import (
     decide_publication,
     is_version_2,
@@ -1329,8 +1330,10 @@ async def apply_manifest(
 
     for result in results if request.manifest_version == "2" else ():
         result.messages = result.messages or []
+    maps = await check_manifest_maps(db, request, caller, results)
     return ManifestApplyResponse(
-        accepted=any(result.action != "error" for result in results),
+        accepted=any(r.action != "error" for r in [*results, *(maps or ())]),
         dry_run=request.dry_run,
         results=results,
+        maps=maps,
     )
