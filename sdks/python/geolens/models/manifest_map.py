@@ -47,8 +47,8 @@ class ManifestMap:
         loss_report (ManifestLossReport | None | Unset): Written, one line per item, in a block at the top of the map's
             notes, above a `---` line. A republish replaces the leading block only when it is exactly a block some publish
             of this map wrote; all other text is kept whole. Left out when the styling is kept, and cut to what fits the
-            notes limit. When the notes leave no room for the block, none is written and an earlier publish's block is
-            removed, while the rest of the notes is untouched (info A071).
+            notes limit. When the notes leave no room for the block, none is written, and an earlier publish's block is
+            removed if the notes start with one; the rest of the notes is untouched (info A071).
         visibility (ManifestMapVisibilityType0 | None | Unset): Who can see the map. Omitted on create the map is
             private; omitted on update the current level is kept.
     """

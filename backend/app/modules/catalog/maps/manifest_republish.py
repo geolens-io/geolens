@@ -186,11 +186,12 @@ def loss_lines(loss_report) -> list[str]:
 
 @dataclass(frozen=True)
 class ManagedNotes:
-    """The notes a publish writes, and the digest of its block, None when no
-    block fit."""
+    """The notes a publish writes, the digest of its block, None when no
+    block fit, and whether an earlier publish's block was taken out."""
 
     text: str
     digest: str | None
+    replaced: bool = False
 
 
 def _digest(block: str) -> str:
@@ -249,14 +250,16 @@ def managed_notes(
     Fitted and hashed as the notes field stores them, NFC-normalized, so the
     digest matches the stored block on the next publish.
     """
-    user = normalize_nfc(_users_notes(existing or "", written))
+    kept = _users_notes(existing or "", written)
+    replaced = kept != (existing or "")
+    user = normalize_nfc(kept)
     lines = [normalize_nfc(line) for line in lines]
     tail = f"\n{NOTES_SEPARATOR}\n{user}"
     shown = _fitting(lines, limit - len(tail))
     if not shown:
-        return ManagedNotes(user, None)
+        return ManagedNotes(user, None, replaced)
     block = "\n".join(shown)
-    return ManagedNotes(block + tail, _digest(block))
+    return ManagedNotes(block + tail, _digest(block), replaced)
 
 
 def _fitting(lines: Sequence[str], room: int) -> list[str]:

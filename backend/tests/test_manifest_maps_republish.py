@@ -1437,7 +1437,9 @@ async def test_full_notes_answer_info_in_both_runs_and_stay_whole(
 
     for result in (checked, applied):
         assert (result.action, _codes(result)) == ("update", [("A071", "info", None)])
-        assert "no room" in result.messages[0].message
+        # No earlier publish's block was there to remove.
+        assert "removed" not in result.messages[0].message
+        assert "kept as they were" in result.messages[0].message
     assert (await _map_row(test_db_session, created.map_id)).notes == full
 
 

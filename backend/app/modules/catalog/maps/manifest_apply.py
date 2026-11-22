@@ -594,15 +594,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         ),
     )
     if plan.notes.digest is None:
-        messages.append(
-            _message(
-                NOTES_NOT_WRITTEN,
-                "info",
-                "The map's notes leave no room for the publish notes, so none "
-                "were written, and an earlier publish's notes at the top were "
-                "removed. The rest of the notes is kept as it was.",
-            )
-        )
+        messages.append(_no_room_for_notes(plan.notes))
     removed: list[MapLayer] = []
     stored: list[tuple[MapLayer, _Dataset | None]] = []
     retained_non_public = False
@@ -712,6 +704,21 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         ],
     }
     return plan
+
+
+def _no_room_for_notes(notes: ManagedNotes) -> dict[str, Any]:
+    removed = (
+        ", and an earlier publish's notes at the top were removed. The rest "
+        "of the notes is kept as it was."
+        if notes.replaced
+        else ". The notes in GeoLens are kept as they were."
+    )
+    return _message(
+        NOTES_NOT_WRITTEN,
+        "info",
+        "The map's notes leave no room for the publish notes, so none were "
+        f"written{removed}",
+    )
 
 
 def _kept_datasets(
