@@ -383,7 +383,7 @@ async def _record_update_history(
                 "view_changed": [
                     f
                     for f in VIEW_FIELDS
-                    if _view_moved(f, previous[f], getattr(map_obj, f))
+                    if f in kwargs and _view_moved(f, previous[f], getattr(map_obj, f))
                 ],
             },
         ),

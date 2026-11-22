@@ -501,8 +501,10 @@ class ManifestMap(_ManifestBaseModel):
         description=(
             "A PNG or JPEG data URI, stored as the map's thumbnail once the "
             "map is written, with the thumbnail upload's checks, when the "
-            "manifest's styling is applied. One that isn't stored is a "
-            "warning (A072) and the map stays published."
+            "manifest's styling is applied. A publish that keeps the styling "
+            "leaves the map's thumbnail as it is. One the storage step "
+            "refuses or can't store is warning A072, and the map stays "
+            "published."
         ),
     )
     loss_report: ManifestLossReport | None = Field(

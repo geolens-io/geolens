@@ -41,8 +41,9 @@ class ManifestMap:
             description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's
             styling. Default: 'replace_if_unedited'.
         thumbnail (None | str | Unset): A PNG or JPEG data URI, stored as the map's thumbnail once the map is written,
-            with the thumbnail upload's checks, when the manifest's styling is applied. One that isn't stored is a warning
-            (A072) and the map stays published.
+            with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling
+            leaves the map's thumbnail as it is. One the storage step refuses or can't store is warning A072, and the map
+            stays published.
         loss_report (ManifestLossReport | None | Unset): Written, one line per item, in a block at the top of the map's
             notes, above a `---` line. A republish replaces the leading block only when it is exactly a block some publish
             of this map wrote; all other text is kept whole. Left out when the styling is kept, and cut to what fits the

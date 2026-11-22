@@ -22,7 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.text import normalize_nfc
-from app.modules.catalog.maps.models import MapEditHistoryEvent
+from app.modules.catalog.maps.models import MapEditHistoryEvent, MapLayer
 from app.modules.catalog.maps.service_update import CAMERA_FIELDS
 
 log = structlog.get_logger()
@@ -31,7 +31,8 @@ PUBLISH_ACTION = "manifest.publish"
 # The builder's history actions that edit styling a publish writes: the
 # layers' paint, layout, style, labels, popup, filter, opacity, visible flag
 # and name, and the map's view and basemap choice (``basemap_style``), which
-# ``map.config_update`` records in ``view_changed``.
+# ``map.config_update`` records in ``view_changed``. One aimed at a single
+# layer counts only while that layer is one the manifest publishes.
 STYLING_EDIT_ACTIONS = frozenset(
     {
         "layer.replace",
@@ -76,8 +77,10 @@ async def styling_edited_since_publish(
     """Whether the map's styling that a publish would write was edited after
     the last publish that wrote it, or ever when none did.
 
-    Layer styling counts after the last publish that applied styling. A
-    settings save counts for the camera only with ``view``, when the publish
+    Layer styling counts after the last publish that applied styling, and
+    an edit aimed at one layer only while that layer is still on the map
+    with a manifest key: a publish never touches a layer added in GeoLens,
+    and adds a removed keyed layer back as new. A settings save counts for the camera only with ``view``, when the publish
     sends a view, and after the last publish that wrote the camera; for
     ``basemap_style`` only with ``basemap``, after the last publish that
     wrote it. A publish that didn't write a view or basemap leaves the ones
@@ -116,10 +119,16 @@ async def styling_edited_since_publish(
             ),
         )
 
+    published_layer = exists().where(
+        MapLayer.map_id == map_id,
+        MapLayer.id == event.target_id,
+        MapLayer.manifest_key.is_not(None),
+    )
     styled = last_publish("styling_applied")
     edits = [
         and_(
             event.action.in_(sorted(STYLING_EDIT_ACTIONS - {"map.config_update"})),
+            or_(event.target_type != "layer", published_layer),
             event.created_at > styled,
         )
     ]

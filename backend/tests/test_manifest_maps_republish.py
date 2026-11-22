@@ -771,6 +771,113 @@ async def test_a_settings_event_from_before_view_changed_counts_a_sent_view(
     assert result.styling == "kept"
 
 
+async def _patch_layers(client, headers, map_id, body) -> dict:
+    response = await client.patch(f"/maps/{map_id}/layers", json=body, headers=headers)
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+async def _add_a_builder_layer(client, headers, session, map_id, dataset_id):
+    """A layer added in GeoLens: it has no manifest key."""
+    await _patch_layers(
+        client, headers, map_id, {"added": [{"dataset_id": str(dataset_id)}]}
+    )
+    [added] = [
+        layer for layer in await _layers(session, map_id) if not layer.manifest_key
+    ]
+    return added
+
+
+@pytest.mark.parametrize(
+    ("edits", "styling"),
+    [
+        (("add",), "applied"),
+        (("add", "restyle_added"), "applied"),
+        (("restyle_keyed",), "kept"),
+        (("restyle_keyed", "remove_keyed"), "applied"),
+        (("restyle_keyed", "add", "restyle_added"), "kept"),
+    ],
+)
+async def test_only_edits_to_layers_the_manifest_publishes_count(
+    client, test_db_session, admin_auth_header, clean_tables, edits, styling
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    map_id = created.map_id
+    added = None
+    for edit in edits:
+        if edit == "add":
+            added = await _add_a_builder_layer(
+                client, admin_auth_header, test_db_session, map_id, dataset_id
+            )
+        elif edit == "restyle_added":
+            await _patch_layers(
+                client,
+                admin_auth_header,
+                map_id,
+                {
+                    "updated": [
+                        {"id": str(added.id), "paint": {"fill-color": "#00ff00"}}
+                    ]
+                },
+            )
+        elif edit == "restyle_keyed":
+            await _edit_paint_in_the_builder(
+                client, admin_auth_header, test_db_session, map_id
+            )
+        else:
+            [parks] = [
+                layer
+                for layer in await _layers(test_db_session, map_id)
+                if layer.manifest_key == "parks"
+            ]
+            await _patch_layers(
+                client, admin_auth_header, map_id, {"removed": [str(parks.id)]}
+            )
+
+    [result] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    assert result.styling == styling
+    if added is not None:
+        [kept] = [
+            layer
+            for layer in await _layers(test_db_session, map_id)
+            if layer.id == added.id
+        ]
+        restyled = "restyle_added" in edits
+        assert (kept.paint or {}).get("fill-color") == (
+            "#00ff00" if restyled else (added.paint or {}).get("fill-color")
+        )
+
+
+async def test_a_settings_save_lists_only_view_fields_it_sent(
+    test_db_session, clean_tables
+):
+    """``previous`` can be what the request loaded before a publish moved
+    the view; a field the save didn't send isn't its move."""
+    from app.modules.catalog.maps.service_update import _record_update_history
+    from app.modules.catalog.maps.service_update import _HISTORY_FIELDS, VIEW_FIELDS
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    map_obj = await _map_row(test_db_session, created.map_id)
+    stale = {f: getattr(map_obj, f) for f in (*_HISTORY_FIELDS, *VIEW_FIELDS)}
+    stale["zoom"] = map_obj.zoom - 3
+    for kwargs, changed in (({"notes": "Mine"}, ["notes"]), ({"zoom": 1.0}, ["zoom"])):
+        await _record_update_history(
+            test_db_session, map_obj, admin, kwargs, stale, changed, 0
+        )
+    await test_db_session.commit()
+
+    assert [
+        e.details["view_changed"]
+        for e in await _history(test_db_session, created.map_id)
+        if e.action == "map.config_update"
+    ] == [[], ["zoom"]]
+
+
 async def test_a_reorder_in_the_builder_is_not_a_styling_edit(
     client, test_db_session, admin_auth_header, clean_tables
 ):
