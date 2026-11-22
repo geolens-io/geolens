@@ -243,6 +243,18 @@ and ports it expects. Each [release](https://github.com/geolens-io/geolens/relea
 `SHA256SUMS` file for checking `install.sh` before you run it. To build from source instead, clone
 the repository and run `bash scripts/install.sh`; the first build takes 5-10 minutes.
 
+Newer releases also include `install.sh.intoto.jsonl`, a signed build provenance record, unless
+signing it failed for that release. The checksum file can only show that a download wasn't
+corrupted, because it ships in the same release. The provenance shows that `install.sh` came from
+the release tag in this repository. To check it, download both files from the release and run the
+[GitHub CLI](https://cli.github.com/):
+
+```bash
+gh attestation verify install.sh --repo geolens-io/geolens \
+  --bundle install.sh.intoto.jsonl --source-ref refs/tags/vX.Y.Z \
+  --signer-workflow geolens-io/geolens/.github/workflows/publish.yml
+```
+
 For production, read the
 [cloud deployment guide](https://docs.getgeolens.com/guides/quickstart/cloud-deployment/), which
 also lists what an external database needs. Docker Compose is the supported path, and
