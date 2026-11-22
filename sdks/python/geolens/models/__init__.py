@@ -705,6 +705,7 @@ from .manifest_map_layer_popup_config_type_0 import ManifestMapLayerPopupConfigT
 from .manifest_map_layer_style_config_type_0 import ManifestMapLayerStyleConfigType0
 from .manifest_map_result import ManifestMapResult
 from .manifest_map_result_action import ManifestMapResultAction
+from .manifest_map_result_styling_type_0 import ManifestMapResultStylingType0
 from .manifest_map_styling import ManifestMapStyling
 from .manifest_map_view import ManifestMapView
 from .manifest_map_visibility_type_0 import ManifestMapVisibilityType0
@@ -715,6 +716,7 @@ from .manifest_public_fallback_detail import ManifestPublicFallbackDetail
 from .manifest_public_fallback_detail_reason import ManifestPublicFallbackDetailReason
 from .manifest_public_fallback_warning import ManifestPublicFallbackWarning
 from .manifest_publication import ManifestPublication
+from .manifest_removed_layer import ManifestRemovedLayer
 from .manifest_source import ManifestSource
 from .manifest_source_type import ManifestSourceType
 from .map_access_response import MapAccessResponse
@@ -1690,6 +1692,7 @@ __all__ = (
     "ManifestMapLayerStyleConfigType0",
     "ManifestMapResult",
     "ManifestMapResultAction",
+    "ManifestMapResultStylingType0",
     "ManifestMapStyling",
     "ManifestMapView",
     "ManifestMapVisibilityType0",
@@ -1700,6 +1703,7 @@ __all__ = (
     "ManifestPublicFallbackDetail",
     "ManifestPublicFallbackDetailReason",
     "ManifestPublicFallbackWarning",
+    "ManifestRemovedLayer",
     "ManifestSource",
     "ManifestSourceType",
     "MapAccessResponse",

@@ -12765,7 +12765,7 @@ export interface components {
             public_fallback?: "internal" | null;
             /**
              * Maps
-             * @description Version 2 only. Maps built from datasets the caller can read. For now maps are only checked: a request with maps must set `dry_run` to true, or it is refused before anything is applied.
+             * @description Version 2 only, which is a preview. Maps built from datasets the caller can read, created or updated by key after the request's datasets. A dry run answers for the whole publish, so a layer may name a dataset the same request publishes. An apply writes a layer only once its dataset's job is complete: a layer, by dataset key or id, on a dataset the request creates, replaces or holds, or on one with a job still running, answers A052, and the map is sent again once the jobs finish.
              */
             maps?: components["schemas"]["ManifestMap"][] | null;
         };
@@ -12949,16 +12949,17 @@ export interface components {
             basemap_style?: string | null;
             /**
              * Styling
-             * @description Whether a republish replaces the map's styling.
+             * @description Whether a republish replaces the map's styling. For now only `replace` is applied to an existing map: any other mode is refused with A099 and the map is left as it is. A new map takes the manifest's styling whatever the mode.
              * @default replace_if_unedited
              * @enum {string}
              */
             styling: "replace_if_unedited" | "replace" | "keep";
             /**
              * Thumbnail
-             * @description A PNG or JPEG data URI.
+             * @description A PNG or JPEG data URI. Checked, but not stored yet.
              */
             thumbnail?: string | null;
+            /** @description Checked, but not stored yet. */
             loss_report?: components["schemas"]["ManifestLossReport"] | null;
             /**
              * Visibility
@@ -13006,7 +13007,7 @@ export interface components {
             max_zoom?: number | null;
             /**
              * Style Config
-             * @description The builder's style description. Unknown top-level keys are dropped with info A062.
+             * @description The builder's style description. Unknown top-level keys are dropped with info A062. A symbol's icon and its categories' icons are icon names; any other value is refused with A099.
              */
             style_config?: {
                 [key: string]: unknown;
@@ -13044,17 +13045,32 @@ export interface components {
             map_key: string;
             /**
              * Action
-             * @description What apply did, or in a dry run would do, with the map. A map with an error message is `error`.
+             * @description What apply did, or in a dry run would do, with the map. A map with an error message is `error`, and nothing was written for it.
              * @enum {string}
              */
             action: "create" | "update" | "skip" | "error";
             /**
              * Map Id
-             * @description The map the key names, when the caller may edit it.
+             * @description The map the key names, when the caller may edit it, or the map an apply created.
              */
             map_id?: string | null;
             /** Messages */
             messages?: components["schemas"]["ManifestMessage"][];
+            /**
+             * Visibility
+             * @description Who can see the map after the apply, or in a dry run would. Null for a map in error.
+             */
+            visibility?: string | null;
+            /**
+             * Styling
+             * @description Whether the manifest's styling replaced the map's. Null for a map in error.
+             */
+            styling?: ("applied" | "kept") | null;
+            /**
+             * Removed Layers
+             * @description Keyed layers the manifest no longer lists and the caller can read, removed from the map (info A059). Their datasets stay. One on a dataset the caller can't read stays on the map.
+             */
+            removed_layers?: components["schemas"]["ManifestRemovedLayer"][];
         };
         /** ManifestMapView */
         ManifestMapView: {
@@ -13145,6 +13161,20 @@ export interface components {
              * @description Publication intent. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own, and apply validates against the live extension. Community default order: draft, ready, internal, published.
              */
             intent: string;
+        };
+        /** ManifestRemovedLayer */
+        ManifestRemovedLayer: {
+            /**
+             * Key
+             * @description The removed layer's key.
+             */
+            key: string;
+            /**
+             * Dataset Id
+             * Format: uuid
+             * @description Its dataset, which stays on the server.
+             */
+            dataset_id: string;
         };
         /** ManifestSource */
         ManifestSource: {

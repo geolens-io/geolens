@@ -1,6 +1,7 @@
-"""Map updates with the access checks, audit and history every caller needs."""
+"""Map creates and updates with the checks, audit and history every caller needs."""
 
 import uuid
+from collections.abc import Sequence
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,14 +16,15 @@ from app.modules.catalog.maps._router_helpers import (
     _readable_terrain,
     _reject_non_public_datasets,
 )
-from app.modules.catalog.maps.author_key import refuse_map_author_key
+from app.modules.catalog.maps.author_key import map_author_key_id, refuse_map_author_key
 from app.modules.catalog.maps.bookmarks import stored_bookmarks
 from app.modules.catalog.maps.models import Map
-from app.modules.catalog.maps.schemas import MapUpdate, MapVisibility
+from app.modules.catalog.maps.schemas import MapCreate, MapUpdate, MapVisibility
 from app.modules.catalog.maps.service import (
     LayerRow,
     RestrictedWithoutGroupsError,
     bulk_check_dataset_access,
+    create_map,
     record_map_history_event,
     update_map,
     validate_public_visibility,
@@ -33,6 +35,71 @@ from app.platform.request_credential import api_key_audit_details
 _HISTORY_FIELDS = ("name", "visibility", "terrain_config", "basemap_config")
 
 
+async def apply_map_create(
+    db: AsyncSession,
+    body: MapCreate,
+    user: Identity,
+    *,
+    record_history: bool,
+    ip_address: str | None,
+    manifest_key: str | None = None,
+) -> Map:
+    """Create a map owned by ``user`` from ``body`` and return it, flushed.
+
+    Checks the map_author key's fields and the terrain DEM, emits the audit
+    event, and records ``map.create`` history only with ``record_history``.
+    The caller binds the credential, as for ``apply_map_update``, and commits.
+    """
+    refuse_map_author_key(db, user.id, body)
+    terrain_config = (
+        body.terrain_config.model_dump(mode="json")
+        if body.terrain_config is not None
+        else None
+    )
+    await _readable_terrain(db, user, terrain_config)
+    basemap_config = (
+        body.basemap_config.model_dump(mode="json")
+        if body.basemap_config is not None
+        else None
+    )
+    map_obj = await create_map(
+        db,
+        body.name,
+        body.description,
+        user.id,
+        notes=body.notes,
+        terrain_config=terrain_config,
+        basemap_config=basemap_config,
+        bookmarks=stored_bookmarks(body.bookmarks),
+        created_by_api_key_id=map_author_key_id(db),
+        manifest_key=manifest_key,
+    )
+    await audit_emit(
+        db,
+        AuditEvent(
+            user_id=user.id,
+            action="map.create",
+            resource_type="map",
+            resource_id=map_obj.id,
+            details={"name": body.name, **api_key_audit_details(db)},
+            ip_address=ip_address,
+        ),
+    )
+    if record_history:
+        await record_map_history_event(
+            db,
+            map_id=map_obj.id,
+            actor=user,
+            target_type="map",
+            target_id=map_obj.id,
+            target_name=map_obj.name,
+            action="map.create",
+            summary=f"Created map {map_obj.name}",
+            details={"name": map_obj.name},
+        )
+    return map_obj
+
+
 async def apply_map_update(
     db: AsyncSession,
     map_obj: Map,
@@ -41,6 +108,8 @@ async def apply_map_update(
     *,
     record_history: bool,
     ip_address: str | None,
+    layer_keys: Sequence[str | None] | None = None,
+    keep_layer_ids: Sequence[uuid.UUID] = (),
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Apply ``body`` to ``map_obj`` for ``user`` and return ``update_map``'s tuple.
 
@@ -65,15 +134,18 @@ async def apply_map_update(
     - commit.
 
     With ``record_history=False`` nothing keeps the previous and new values:
-    the audit event records only the changed field names. Keep history on
-    for a change of visibility.
+    the audit event records only the changed field names, so the caller
+    records the change of visibility itself. ``layer_keys`` gives each of
+    ``body.layers`` the ``manifest_key`` its row stores; without it no key
+    changes. A stored layer in ``keep_layer_ids`` that ``body.layers`` leaves
+    out is kept in its place, as a layer hidden from ``user`` is.
     """
     map_id = map_obj.id
     await _check_map_update(db, map_obj, body, user)
 
     changed_fields = list(body.model_dump(exclude_unset=True).keys())
     previous = {field: getattr(map_obj, field) for field in _HISTORY_FIELDS}
-    kwargs = _update_kwargs(body)
+    kwargs = {**_update_kwargs(body, layer_keys), "keep_layer_ids": keep_layer_ids}
     saved = await _save_map_update(db, map_id, body, user, kwargs)
     map_obj, layer_tuples = saved[0], saved[1]
 
@@ -132,7 +204,9 @@ async def _check_map_update(
             )
 
 
-def _update_kwargs(body: MapUpdate) -> dict:
+def _update_kwargs(
+    body: MapUpdate, layer_keys: Sequence[str | None] | None = None
+) -> dict:
     """``update_map`` keyword arguments for the fields the client sent.
 
     Explicit ``plugins=null`` survives, which restores client-default plugin
@@ -150,6 +224,7 @@ def _update_kwargs(body: MapUpdate) -> dict:
             {
                 **layer.model_dump(),
                 "sort_order": index if layer.sort_order is None else layer.sort_order,
+                **({} if layer_keys is None else {"manifest_key": layer_keys[index]}),
             }
             for index, layer in enumerate(body.layers)
         ]

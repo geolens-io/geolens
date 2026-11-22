@@ -146,6 +146,25 @@ async def _retire_links(
         await revoke_embed_tokens_by_map(session, map_id)
 
 
+async def map_has_groups(session: AsyncSession, map_id: uuid.UUID) -> bool:
+    return bool(
+        await session.scalar(select(exists().where(MapGroupGrant.map_id == map_id)))
+    )
+
+
+def map_visibility_for(requested: str, has_groups: bool) -> str:
+    """The visibility a write of ``requested`` stores on a map with or without
+    groups: restricted wherever it would be private on a map with groups.
+
+    Raises ``RestrictedWithoutGroupsError`` for ``restricted`` with no group.
+    """
+    if requested in ("private", RESTRICTED_MAP_VISIBILITY) and has_groups:
+        return RESTRICTED_MAP_VISIBILITY
+    if requested == RESTRICTED_MAP_VISIBILITY:
+        raise RestrictedWithoutGroupsError(RESTRICTED_NEEDS_GROUPS)
+    return requested
+
+
 async def prepare_map_visibility(
     session: AsyncSession, map_id: uuid.UUID, requested: str
 ) -> str:
@@ -162,13 +181,9 @@ async def prepare_map_visibility(
     current = await session.scalar(select(Map.visibility).where(Map.id == map_id))
     visibility = requested
     if requested in ("private", RESTRICTED_MAP_VISIBILITY):
-        has_groups = await session.scalar(
-            select(exists().where(MapGroupGrant.map_id == map_id))
+        visibility = map_visibility_for(
+            requested, await map_has_groups(session, map_id)
         )
-        if has_groups:
-            visibility = RESTRICTED_MAP_VISIBILITY
-        elif requested == RESTRICTED_MAP_VISIBILITY:
-            raise RestrictedWithoutGroupsError(RESTRICTED_NEEDS_GROUPS)
     if _MAP_REACH[visibility] > _MAP_REACH.get(str(current), 0):
         await lock_layer_datasets(session, map_id)
     await _retire_links(session, map_id, str(current), visibility)

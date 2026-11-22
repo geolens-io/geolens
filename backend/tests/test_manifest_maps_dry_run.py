@@ -23,7 +23,6 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.core.identity import IdentitySnapshot
 from app.modules.auth.models import User
-from app.modules.catalog.collections.models import Collection
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import _MAX_LAYERS_PER_MAP
 from app.platform.extensions import get_processing_port
@@ -36,7 +35,7 @@ from app.processing.ingest.manifest_schemas import (
     ManifestApplyResponse,
     ManifestMessage,
 )
-from app.processing.ingest.manifest_maps import check_manifest_maps
+from app.processing.ingest.manifest_maps import run_manifest_maps
 from app.processing.ingest.manifest_service import apply_manifest
 from tests.factories import create_dataset, create_user
 
@@ -164,14 +163,7 @@ _MAPS_ONLY_EXAMPLES = {
 
 @pytest.mark.parametrize("example", _CONTRACT["valid"], ids=lambda e: e["name"])
 def test_every_valid_contract_example_parses(example):
-    manifest = example["manifest"]
-    if manifest.get("maps") and not manifest.get("dry_run"):
-        # Maps are checked only in a dry run for now, so the example as
-        # written is refused and its dry run parses.
-        with pytest.raises(ValidationError, match="dry_run true"):
-            ManifestApplyRequest.model_validate(manifest)
-        manifest = {**manifest, "dry_run": True}
-    ManifestApplyRequest.model_validate(manifest)
+    ManifestApplyRequest.model_validate(example["manifest"])
 
 
 @pytest.mark.parametrize(
@@ -432,7 +424,7 @@ async def test_a_map_key_the_caller_owns_is_an_update(test_db_session, clean_tab
         await _dry_run(
             test_db_session,
             admin,
-            _map("qgis-map-own", _layer(dataset_id=str(dataset_id))),
+            _map("qgis-map-own", _layer(dataset_id=str(dataset_id)), styling="replace"),
         )
     ).maps
 
@@ -714,44 +706,17 @@ async def test_a_dry_run_writes_nothing_the_check_touched(
             await _dry_run(
                 test_db_session,
                 admin,
-                _map("qgis-map-own", _layer(dataset_id=str(dataset_id))),
+                _map(
+                    "qgis-map-own",
+                    _layer(dataset_id=str(dataset_id)),
+                    styling="replace",
+                ),
             )
         ).maps
 
     assert result.action == "update"
     name = await test_db_session.scalar(select(Map.name).where(Map.id == map_id))
     assert name == "Original"
-
-
-@pytest.mark.parametrize("with_datasets", [False, True])
-async def test_maps_outside_a_dry_run_are_refused_before_anything_is_applied(
-    client, test_db_session, admin_auth_header, clean_tables, with_datasets
-):
-    admin = await _admin(test_db_session)
-    dataset_id = await _dataset(test_db_session, admin.id)
-    datasets = (
-        [{**_local_dataset_entry("qgis-parks"), "collection": {"name": "Parks set"}}]
-        if with_datasets
-        else []
-    )
-    _stage_fixture()
-
-    response = await client.post(
-        "/ingest/manifest/apply",
-        json=_body(
-            _map("qgis-map-new", _layer(dataset_id=str(dataset_id))),
-            dry_run=False,
-            datasets=datasets,
-        ),
-        headers=admin_auth_header,
-    )
-
-    assert response.status_code == 422, response.text
-    assert "dry_run" in response.text
-    for model in (IngestJob, Collection, Map):
-        assert (
-            await test_db_session.scalar(select(func.count()).select_from(model)) == 0
-        )
 
 
 async def test_the_api_returns_map_results_with_layer_keys(
@@ -865,7 +830,9 @@ async def test_a_transfer_keeps_the_keys_and_the_previous_owner_gets_a050(
         )
     ).all() == ["parks"]
 
-    republish = _map("qgis-map-own", _layer(dataset_id=str(dataset_id)))
+    republish = _map(
+        "qgis-map-own", _layer(dataset_id=str(dataset_id)), styling="replace"
+    )
     [refused] = (await _dry_run(test_db_session, previous, republish)).maps
     assert (refused.action, refused.map_id) == ("error", None)
     assert _codes(refused) == [("A050", "error", None)]
@@ -946,7 +913,7 @@ async def test_a_key_the_request_does_not_publish_still_answers_a052(
         _map("qgis-map-parks", _layer(dataset_key="qgis-parks", **_STYLED_LAYER)),
     )
 
-    [result] = await check_manifest_maps(
+    [result] = await run_manifest_maps(
         test_db_session, request, admin, _accepted(request)
     )
 
@@ -964,7 +931,7 @@ async def test_a_republished_dataset_the_caller_reads_gets_the_column_check(
         _map("qgis-map-parks", _layer(dataset_key="qgis-parks", **_STYLED_LAYER)),
     )
 
-    [result] = await check_manifest_maps(
+    [result] = await run_manifest_maps(
         test_db_session, request, admin, _accepted(request)
     )
 
@@ -976,7 +943,7 @@ async def _maps_answer_and_statements(session, user, request):
     statements = _Statements()
     event.listen(Engine, "before_cursor_execute", statements)
     try:
-        [result] = await check_manifest_maps(session, request, user, _accepted(request))
+        [result] = await run_manifest_maps(session, request, user, _accepted(request))
     finally:
         event.remove(Engine, "before_cursor_execute", statements)
     return [m.model_dump() for m in result.messages], statements.count
@@ -1027,7 +994,7 @@ async def test_an_admins_publish_key_reads_and_writes_like_its_owner(
         )
     )
 
-    [result] = await check_manifest_maps(
+    [result] = await run_manifest_maps(
         test_db_session, request, admin, _accepted(request)
     )
 
@@ -1518,20 +1485,20 @@ async def test_a_database_error_in_one_map_leaves_the_next_map_checked(
     own = await _keyed_map(test_db_session, admin.id, "qgis-map-b", dataset_id)
     from app.modules.catalog.maps import manifest_apply
 
-    real = manifest_apply._writable_map_id
+    real = manifest_apply._writable_map
 
-    async def failing_on_the_server(session, key, user):
+    async def failing_on_the_server(session, key, user, **kwargs):
         if key == "qgis-map-a":
             # Raised by PostgreSQL, which aborts the transaction it runs in.
             await session.execute(text("SELECT 1 / 0"))
-        return await real(session, key, user)
+        return await real(session, key, user, **kwargs)
 
-    with patch.object(manifest_apply, "_writable_map_id", failing_on_the_server):
+    with patch.object(manifest_apply, "_writable_map", failing_on_the_server):
         response = await _dry_run(
             test_db_session,
             admin,
             _map("qgis-map-a", _layer(dataset_id=str(dataset_id))),
-            _map("qgis-map-b", _layer(dataset_id=str(dataset_id))),
+            _map("qgis-map-b", _layer(dataset_id=str(dataset_id)), styling="replace"),
         )
 
     failed, checked = response.maps
@@ -1543,6 +1510,19 @@ async def test_a_database_error_in_one_map_leaves_the_next_map_checked(
 # Each names the column written {c}; filled with a missing and a present name.
 _READS = {
     "get_with_properties": {"paint": {"circle-radius": ["get", "{c}", ["properties"]]}},
+    "get_with_object_properties": {
+        "paint": {"circle-radius": ["get", "{c}", ["object", ["properties"]]]}
+    },
+    "has_with_object_properties": {
+        "paint": {
+            "circle-color": [
+                "case",
+                ["has", "{c}", ["object", ["properties"]]],
+                "#000",
+                "#fff",
+            ]
+        }
+    },
     "get_with_a_literal_name": {
         "paint": {"circle-radius": ["coalesce", ["get", ["literal", "{c}"]], 5]}
     },
@@ -1587,11 +1567,6 @@ _READS = {
     "semiliteral_item": {
         "layout": {"text-offset": ["semiliteral", [["get", "{c}"], 1]]}
     },
-    "symbol_icon_expression": {
-        "style_config": {
-            "symbol": {"iconImage": ["match", ["get", "{c}"], "city", "bus", "marker"]}
-        }
-    },
     "builder_symbol_icon_size": {
         "style_config": {"builder": {"symbol": {"iconSize": ["get", "{c}"]}}}
     },
@@ -1609,24 +1584,6 @@ _READS = {
         "style_config": {
             "builder": {
                 "symbol": {"iconSize": {"property": "{c}", "stops": [[1, 1], [5, 2]]}}
-            }
-        }
-    },
-    "symbol_category_icon_expression": {
-        "style_config": {
-            "symbol": {
-                "categoryColumn": "PARK_TYPE",
-                "categories": [{"value": "a", "icon": ["get", "{c}"]}],
-            }
-        }
-    },
-    "builder_symbol_category_icon_expression": {
-        "style_config": {
-            "builder": {
-                "symbol": {
-                    "categoryColumn": "PARK_TYPE",
-                    "categories": [{"value": "a", "icon": ["get", "{c}"]}],
-                }
             }
         }
     },
@@ -1812,16 +1769,23 @@ async def test_a_failed_replacement_entry_supplies_no_dataset(
         ManifestApplyEntryResult(dataset_key="qgis-parks", action=action, message="m")
     ]
 
-    [result] = await check_manifest_maps(test_db_session, request, admin, results)
+    [result] = await run_manifest_maps(test_db_session, request, admin, results)
 
     assert _codes(result) == codes
 
 
-def test_every_builder_key_the_export_reads_is_scanned_or_never_a_column():
-    """A builder key the style export reads must be decided on: scanned, or listed as unable to name a column."""
+def _camel_to_snake(name: str) -> str:
     import re
 
-    from app.modules.catalog.maps import manifest_apply, style_json
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def test_every_builder_key_the_export_or_builder_reads_is_scanned_or_never_a_column():
+    """A builder key the style export or the builder reads must be decided on:
+    scanned, or listed as unable to name a column."""
+    import re
+
+    from app.modules.catalog.maps import manifest_columns, style_json
     from app.modules.catalog.maps.schemas import BUILDER_SNAKE_TO_CAMEL_KEYS
 
     source = Path(style_json.__file__).read_text()
@@ -1829,27 +1793,110 @@ def test_every_builder_key_the_export_reads_is_scanned_or_never_a_column():
     for keys in re.findall(r"for builder_key in \(([^)]*)\)", source):
         read |= set(re.findall(r'"([A-Za-z_]+)"', keys))
     assert {"outlineColor", "arrowColor", "heatmapWeightColumn"} <= read
+    builder_read = set()
+    for path in _builder_sources():
+        builder_read |= set(
+            re.findall(
+                r"\b(?:builderConfig|builder)\??\.([A-Za-z_]+)", path.read_text()
+            )
+        )
+    assert {"fillOpacitySaved", "outlineWidthSaved", "clusterColor"} <= builder_read
 
     camel_to_snake = {
         camel: snake for snake, camel in BUILDER_SNAKE_TO_CAMEL_KEYS.items()
     }
     decided = (
-        set(manifest_apply._BUILDER_STYLE_VALUE_KEYS)
-        | set(manifest_apply._BUILDER_COLUMN_KEYS)
-        | manifest_apply._BUILDER_NON_COLUMN_KEYS
+        set(manifest_columns._BUILDER_STYLE_VALUE_KEYS)
+        | set(manifest_columns._BUILDER_COLUMN_KEYS)
+        | manifest_columns._BUILDER_NON_COLUMN_KEYS
     )
-    undecided = sorted(k for k in read if camel_to_snake.get(k, k) not in decided)
+    undecided = sorted(
+        k
+        for k in read | builder_read
+        if camel_to_snake.get(k, _camel_to_snake(k)) not in decided
+        and k not in decided
+        and k != "symbol"
+    )
     assert undecided == []
 
 
-def test_the_style_export_writes_a_category_icon_expression_unchanged():
-    """Why category icons are scanned: the export emits them as they are."""
-    from app.modules.catalog.maps.style_json import _symbol_layout_from_style
+def _builder_sources() -> list[Path]:
+    src = Path(__file__).parents[2] / "frontend" / "src"
+    paths = [
+        *(src / "components" / "builder").rglob("*.ts*"),
+        *(src / "lib" / "builder").rglob("*.ts*"),
+    ]
+    return [p for p in paths if "__tests__" not in p.parts and ".test." not in p.name]
 
-    symbol = {
-        "categoryColumn": "PARK_TYPE",
-        "categories": [{"value": "a", "icon": ["get", "missing_icon"]}],
-    }
-    for style_config in ({"symbol": symbol}, {"builder": {"symbol": symbol}}):
-        icon_image = _symbol_layout_from_style({}, style_config, None)["icon-image"]
-        assert ["get", "missing_icon"] in icon_image
+
+def test_every_style_config_key_a_manifest_keeps_is_scanned_or_never_a_column():
+    """The builder restores `heatmapPaint` and `savedCirclePaint` as paint, so
+    a kept style_config key is decided on, as a builder key is."""
+    import re
+
+    from app.modules.catalog.maps import manifest_columns
+    from app.modules.catalog.maps.publish_vocabulary import STYLE_METADATA_KEYS
+
+    walked = manifest_columns._STYLE_WALKED_KEYS
+    assert walked.isdisjoint(manifest_columns._STYLE_NON_COLUMN_KEYS)
+    assert walked | manifest_columns._STYLE_NON_COLUMN_KEYS == STYLE_METADATA_KEYS
+    read = set()
+    for path in _builder_sources():
+        read |= set(
+            re.findall(
+                r"\b(?:style_config|styleConfig)\??\.([A-Za-z_]+)", path.read_text()
+            )
+        )
+    assert {"heatmapPaint", "savedCirclePaint"} <= read
+
+
+# The viewer reads a symbol icon as a sprite name, so an icon is refused
+# unless it is one.
+_EXPRESSION_ICONS = {
+    "symbol_icon_expression": {
+        "style_config": {
+            "symbol": {"iconImage": ["match", ["get", "{c}"], "city", "bus", "marker"]}
+        }
+    },
+    "symbol_category_icon_expression": {
+        "style_config": {
+            "symbol": {
+                "categoryColumn": "PARK_TYPE",
+                "categories": [{"value": "a", "icon": ["get", "{c}"]}],
+            }
+        }
+    },
+    "builder_symbol_category_icon_expression": {
+        "style_config": {
+            "builder": {
+                "symbol": {
+                    "categoryColumn": "PARK_TYPE",
+                    "categories": [{"value": "a", "icon": ["get", "{c}"]}],
+                }
+            }
+        }
+    },
+    "builder_symbol_icon_image": {
+        "style_config": {"builder": {"symbol": {"icon_image": ["get", "{c}"]}}}
+    },
+}
+
+
+@pytest.mark.parametrize("form", sorted(_EXPRESSION_ICONS))
+async def test_a_symbol_icon_that_isnt_a_name_is_refused(
+    test_db_session, clean_tables, form
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    fields = json.loads(json.dumps(_EXPRESSION_ICONS[form]).replace("{c}", "PARK_TYPE"))
+
+    [result] = (
+        await _dry_run(
+            test_db_session,
+            admin,
+            _map("qgis-map-a", _layer(dataset_id=str(dataset_id), **fields)),
+        )
+    ).maps
+
+    assert (result.action, _codes(result)) == ("error", [("A099", "error", "parks")])
+    assert "icon name" in result.messages[0].message

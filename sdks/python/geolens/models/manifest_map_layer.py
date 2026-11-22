@@ -42,7 +42,8 @@ class ManifestMapLayer:
         min_zoom (float | None | Unset):
         max_zoom (float | None | Unset):
         style_config (ManifestMapLayerStyleConfigType0 | None | Unset): The builder's style description. Unknown top-
-            level keys are dropped with info A062.
+            level keys are dropped with info A062. A symbol's icon and its categories' icons are icon names; any other value
+            is refused with A099.
         paint (ManifestMapLayerPaintType0 | None | Unset):
         layout (ManifestMapLayerLayoutType0 | None | Unset):
         filter_ (list[Any] | None | Unset):

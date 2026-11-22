@@ -610,7 +610,18 @@ class DefaultProcessingPort:
         )
 
     async def apply_manifest_maps(  # type: ignore[no-untyped-def]
-        self, session, maps, user, *, dry_run, dataset_ids_by_key, pending_dataset_keys
+        self,
+        session,
+        maps,
+        user,
+        *,
+        dry_run,
+        dataset_ids_by_key,
+        pending_datasets,
+        unsettled_dataset_ids,
+        public_fallback,
+        client,
+        ip_address,
     ):
         from app.modules.catalog.maps.manifest_apply import apply_manifest_maps
 
@@ -620,5 +631,9 @@ class DefaultProcessingPort:
             user,
             dry_run=dry_run,
             dataset_ids_by_key=dataset_ids_by_key,
-            pending_dataset_keys=pending_dataset_keys,
+            pending_datasets=pending_datasets,
+            unsettled_dataset_ids=unsettled_dataset_ids,
+            public_fallback=public_fallback,
+            client=client,
+            ip_address=ip_address,
         )

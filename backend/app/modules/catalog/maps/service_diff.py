@@ -8,6 +8,7 @@ architecture guard (``test_layering.py``).
 from __future__ import annotations
 
 import uuid
+from collections.abc import Collection
 
 from fastapi import HTTPException, status
 from sqlalchemy import delete, select
@@ -345,13 +346,17 @@ async def _replace_layers(
     map_id: uuid.UUID,
     layers: list[dict],
     user: Identity | None,
+    keep_layer_ids: Collection[uuid.UUID] = (),
 ) -> dict[uuid.UUID, uuid.UUID]:
     """Reconcile a map's layers against ``layers`` by id.
 
     Existing rows are updated in place by id, so layer UUIDs that embed
-    configs and bookmarks hold stay stable; unknown ids create rows.
+    configs and bookmarks hold stay stable; unknown ids create rows. A
+    layer's ``manifest_key`` is written only when its dict carries one, so a
+    builder save keeps the keys a publish manifest gave its layers.
     A stored layer ``layers`` leaves out is kept, in its place in the stack,
-    when map reads hide its dataset from ``user``.
+    when map reads hide its dataset from ``user`` or it is in
+    ``keep_layer_ids``.
     Applies default styles if paint/layout is None. Flushes but does NOT commit.
 
     Returns ``{sent id: new id}`` for the rows this call created from a sent
@@ -365,9 +370,9 @@ async def _replace_layers(
     stored = list(existing_result.scalars().all())
     existing_by_id = {layer.id: layer for layer in stored}
     requested_ids = {_coerce_uuid(layer_data.get("id")) for layer_data in layers}
-    hidden_ids = await _unreadable_layer_ids(
-        session, [layer for layer in stored if layer.id not in requested_ids], user
-    )
+    unrequested = [layer for layer in stored if layer.id not in requested_ids]
+    hidden_ids = await _unreadable_layer_ids(session, unrequested, user)
+    hidden_ids |= {layer.id for layer in unrequested if layer.id in keep_layer_ids}
     if len(layers) + len(hidden_ids) > _MAX_LAYERS_PER_MAP:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -415,6 +420,8 @@ async def _replace_layers(
             existing.popup_config = prepared.get("popup_config")
             existing.style_config = prepared["style_config"]
             existing.show_in_legend = prepared.get("show_in_legend", True)
+            if "manifest_key" in prepared:
+                existing.manifest_key = prepared["manifest_key"]
         else:
             existing = MapLayer(
                 map_id=map_id,
@@ -431,6 +438,7 @@ async def _replace_layers(
                 popup_config=prepared.get("popup_config"),
                 style_config=prepared["style_config"],
                 show_in_legend=prepared.get("show_in_legend", True),
+                manifest_key=prepared.get("manifest_key"),
             )
             session.add(existing)
             if raw_id is not None:
