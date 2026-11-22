@@ -734,6 +734,8 @@ async def test_each_apply_records_one_manifest_publish_event(
         "client_id": "geolens-qgis",
         "client_version": "0.2.0",
         "styling_applied": True,
+        "view_written": False,
+        "basemap_written": False,
         "layer_keys": ["parks", "names"],
     }
     assert events[1].details["visibility"] == {

@@ -356,6 +356,93 @@ async def test_a_camera_saved_on_a_map_without_a_view_counts_when_a_view_is_sent
     assert _camera(await _map_row(test_db_session, created.map_id)) == _FITTED
 
 
+async def test_a_publish_without_a_view_doesnt_clear_a_camera_edit(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    without_view = _publish(dataset_id, view=None)
+    [created] = (await _apply(test_db_session, admin, without_view)).maps
+    await _builder_save(
+        client, admin_auth_header, test_db_session, created.map_id, **_FITTED
+    )
+
+    [first] = (await _apply(test_db_session, admin, without_view)).maps
+    [second] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    assert first.styling == "applied"
+    assert (second.styling, _codes(second)) == ("kept", [("A070", "info", None)])
+    assert _camera(await _map_row(test_db_session, created.map_id)) == _FITTED
+
+
+async def test_a_publish_without_a_basemap_doesnt_clear_a_basemap_edit(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    without_basemap = _publish(dataset_id, basemap_style=None)
+    [created] = (await _apply(test_db_session, admin, without_basemap)).maps
+    await _builder_save(
+        client,
+        admin_auth_header,
+        test_db_session,
+        created.map_id,
+        basemap_style="openfreemap-dark",
+    )
+
+    [first] = (await _apply(test_db_session, admin, without_basemap)).maps
+    after_first = (await _map_row(test_db_session, created.map_id)).basemap_style
+    [second] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    assert (first.styling, after_first) == ("applied", "openfreemap-dark")
+    assert (second.styling, _codes(second)) == ("kept", [("A070", "info", None)])
+    stored = await _map_row(test_db_session, created.map_id)
+    assert stored.basemap_style == "openfreemap-dark"
+
+
+async def test_a_replace_that_writes_the_view_sets_its_baseline(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (
+        await _apply(test_db_session, admin, _publish(dataset_id, view=None))
+    ).maps
+    await _builder_save(
+        client, admin_auth_header, test_db_session, created.map_id, **_FITTED
+    )
+    await _apply(test_db_session, admin, _publish(dataset_id, styling="replace"))
+    await _builder_save(client, admin_auth_header, test_db_session, created.map_id)
+
+    [result] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    assert result.styling == "applied"
+
+
+async def test_each_publish_records_whether_it_wrote_the_view_and_basemap(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await _apply(test_db_session, admin, _publish(dataset_id, basemap_style=None))
+    await _edit_paint_in_the_builder(
+        client, admin_auth_header, test_db_session, created.map_id
+    )
+    [kept] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    assert kept.styling == "kept"
+    assert [
+        (
+            e.details["styling_applied"],
+            e.details["view_written"],
+            e.details["basemap_written"],
+        )
+        for e in await _history(test_db_session, created.map_id)
+        if e.action == "manifest.publish"
+    ] == [(True, True, True), (True, True, False), (False, False, False)]
+
+
 async def test_a_pan_stays_when_the_publish_sends_no_view(
     client, test_db_session, admin_auth_header, clean_tables
 ):

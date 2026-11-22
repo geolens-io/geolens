@@ -1,8 +1,8 @@
 """Whether a manifest republish replaces a map's styling, and its notes block.
 
-A publish that applies styling sets the baseline. Builder edits after it to
-styling this publish would write make ``replace_if_unedited`` keep the map's
-styling; other edits don't.
+A builder edit to styling a publish would write, made after the last publish
+that wrote it, makes ``replace_if_unedited`` keep the map's styling; other
+edits don't.
 """
 
 from __future__ import annotations
@@ -70,61 +70,76 @@ NOTES_SEPARATOR = "---"
 NOTES_LIMIT = 50_000
 
 
-def written_view_fields(entry) -> tuple[str, ...]:
-    """The view and basemap fields a publish of ``entry`` writes when it
-    applies styling: the camera with a ``view``, and ``basemap_style``."""
-    fields = CAMERA_FIELDS if entry.view is not None else ()
-    return (*fields, "basemap_style") if entry.basemap_style is not None else fields
-
-
 async def styling_edited_since_publish(
-    session: AsyncSession, map_id: uuid.UUID, view_fields: Sequence[str]
+    session: AsyncSession, map_id: uuid.UUID, *, view: bool, basemap: bool
 ) -> bool:
-    """Whether the map's styling was edited after the last publish that
-    applied styling, or ever when no publish applied it.
+    """Whether the map's styling that a publish would write was edited after
+    the last publish that wrote it, or ever when none did.
 
-    A settings save counts only when it moved one of ``view_fields``, the
-    view and basemap fields this publish would write: a view the publish
-    leaves alone isn't overwritten, so moving it isn't an edit to keep.
+    Layer styling counts after the last publish that applied styling. A
+    settings save counts for the camera only with ``view``, when the publish
+    sends a view, and after the last publish that wrote the camera; for
+    ``basemap_style`` only with ``basemap``, after the last publish that
+    wrote it. A publish that didn't write a view or basemap leaves the ones
+    it didn't write as edited as they were.
     """
     event = MapEditHistoryEvent
-    baseline = func.coalesce(
-        select(func.max(event.created_at))
-        .where(
-            event.map_id == map_id,
-            event.action == PUBLISH_ACTION,
-            event.details["styling_applied"].as_boolean(),
+
+    def last_publish(flag: str):
+        """When the map's last publish with ``flag`` true was recorded.
+        A publish recorded without the flag isn't one."""
+        return func.coalesce(
+            select(func.max(event.created_at))
+            .where(
+                event.map_id == map_id,
+                event.action == PUBLISH_ACTION,
+                event.details[flag].as_boolean(),
+            )
+            .scalar_subquery(),
+            literal_column("'-infinity'::timestamptz"),
         )
-        .scalar_subquery(),
-        literal_column("'-infinity'::timestamptz"),
-    )
-    styling_edit = event.action.in_(
-        sorted(STYLING_EDIT_ACTIONS - {"map.config_update"})
-    )
-    if view_fields:
+
+    def moved(fields: Sequence[str]):
         # An event from before ``view_changed`` was recorded lists only the
         # fields sent, and counts when it sent any of them.
-        written = array(list(view_fields))
-        view_moved = or_(
-            and_(
-                event.details.has_key("view_changed"),
-                event.details["view_changed"].has_any(written),
-            ),
-            and_(
-                ~event.details.has_key("view_changed"),
-                event.details["changed_fields"].has_any(written),
+        return and_(
+            event.action == "map.config_update",
+            or_(
+                and_(
+                    event.details.has_key("view_changed"),
+                    event.details["view_changed"].has_any(array(list(fields))),
+                ),
+                and_(
+                    ~event.details.has_key("view_changed"),
+                    event.details["changed_fields"].has_any(array(list(fields))),
+                ),
             ),
         )
-        styling_edit = or_(
-            styling_edit, and_(event.action == "map.config_update", view_moved)
+
+    styled = last_publish("styling_applied")
+    edits = [
+        and_(
+            event.action.in_(sorted(STYLING_EDIT_ACTIONS - {"map.config_update"})),
+            event.created_at > styled,
         )
+    ]
+    baselines = [styled]
+    for wanted, flag, fields in (
+        (view, "view_written", CAMERA_FIELDS),
+        (basemap, "basemap_written", ("basemap_style",)),
+    ):
+        if wanted:
+            baselines.append(last_publish(flag))
+            edits.append(and_(moved(fields), event.created_at > baselines[-1]))
     return bool(
         await session.scalar(
             select(
                 exists().where(
                     event.map_id == map_id,
-                    styling_edit,
-                    event.created_at > baseline,
+                    # Implied by each edit's own test; on its own it lets the
+                    # (map_id, created_at) index skip the older history.
+                    event.created_at > func.least(*baselines),
+                    or_(*edits),
                 )
             )
         )
