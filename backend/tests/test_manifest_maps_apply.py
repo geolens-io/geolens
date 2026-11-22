@@ -25,6 +25,7 @@ from app.modules.catalog.maps.models import Map, MapEditHistoryEvent, MapLayer
 from app.modules.catalog.maps.schemas import MapLayerInput
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.service import create_embed_token
+from app.platform.jobs.models import IngestJob
 from app.platform.request_credential import ApiKeyCredential, record_api_key
 from app.processing.ingest.manifest_schemas import ManifestApplyRequest
 from app.processing.ingest.manifest_service import apply_manifest
@@ -1132,25 +1133,41 @@ def _maps_only(*maps, datasets=(), dry_run=False) -> ManifestApplyRequest:
     )
 
 
+def _reference(form: str, dataset_id) -> dict:
+    return (
+        _layer(dataset_key="qgis-parks")
+        if form == "key"
+        else _layer(dataset_id=str(dataset_id))
+    )
+
+
+@pytest.mark.parametrize("form", ["key", "id"])
 @pytest.mark.parametrize(
     ("action", "written"),
     [("create", False), ("update", False), ("blocked", False), ("skip", True)],
 )
 async def test_an_apply_writes_a_layer_only_on_a_settled_dataset(
-    test_db_session, clean_tables, action, written
+    test_db_session, clean_tables, action, written, form
 ):
     from app.processing.ingest.manifest_maps import run_manifest_maps
     from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
 
+    if (action, form) == ("create", "id"):
+        pytest.skip("a create has no dataset to name by id")
     admin = await _admin(test_db_session)
     dataset_id = await _dataset(test_db_session, admin.id)
     await _published_under(test_db_session, admin.id, "qgis-parks", dataset_id)
     request = _maps_only(
-        _map("qgis-map-a", _layer(dataset_key="qgis-parks")),
+        _map("qgis-map-a", _reference(form, dataset_id)),
         datasets=[_local_dataset_entry("qgis-parks")],
     )
     results = [
-        ManifestApplyEntryResult(dataset_key="qgis-parks", action=action, message="m")
+        ManifestApplyEntryResult(
+            dataset_key="qgis-parks",
+            action=action,
+            message="m",
+            dataset_id=None if action == "create" else dataset_id,
+        )
     ]
 
     [result] = await run_manifest_maps(test_db_session, request, admin, results)
@@ -1162,8 +1179,9 @@ async def test_an_apply_writes_a_layer_only_on_a_settled_dataset(
     assert await _count(test_db_session, Map) == int(written)
 
 
+@pytest.mark.parametrize("form", ["key", "id"])
 async def test_a_public_map_over_a_dataset_the_request_narrows_is_not_written(
-    test_db_session, clean_tables
+    test_db_session, clean_tables, form
 ):
     from app.processing.ingest.manifest_maps import run_manifest_maps
     from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
@@ -1172,11 +1190,16 @@ async def test_a_public_map_over_a_dataset_the_request_narrows_is_not_written(
     dataset_id = await _dataset(test_db_session, admin.id)
     await _published_under(test_db_session, admin.id, "qgis-parks", dataset_id)
     request = _maps_only(
-        _map("qgis-map-a", _layer(dataset_key="qgis-parks"), visibility="public"),
+        _map("qgis-map-a", _reference(form, dataset_id), visibility="public"),
         datasets=[{**_local_dataset_entry("qgis-parks"), "visibility": "private"}],
     )
     results = [
-        ManifestApplyEntryResult(dataset_key="qgis-parks", action="update", message="m")
+        ManifestApplyEntryResult(
+            dataset_key="qgis-parks",
+            action="update",
+            message="m",
+            dataset_id=dataset_id,
+        )
     ]
 
     [result] = await run_manifest_maps(test_db_session, request, admin, results)
@@ -1185,22 +1208,28 @@ async def test_a_public_map_over_a_dataset_the_request_narrows_is_not_written(
     assert await _count(test_db_session, Map) == 0
 
 
+@pytest.mark.parametrize("form", ["key", "id"])
 @pytest.mark.parametrize("dry_run", [True, False])
 async def test_a_key_with_a_job_in_flight_answers_a052(
-    test_db_session, clean_tables, dry_run
+    test_db_session, clean_tables, dry_run, form
 ):
     admin = await _admin(test_db_session)
     dataset_id = await _dataset(test_db_session, admin.id)
     await _published_under(test_db_session, admin.id, "qgis-parks", dataset_id)
+    # By key, a job that names no dataset yet still holds the key.
     await _published_under(
-        test_db_session, admin.id, "qgis-parks", dataset_id, status="running"
+        test_db_session,
+        admin.id,
+        "qgis-parks",
+        dataset_id if form == "id" else None,
+        status="running",
     )
 
     [result] = (
         await _apply(
             test_db_session,
             admin,
-            _map("qgis-map-a", _layer(dataset_key="qgis-parks")),
+            _map("qgis-map-a", _reference(form, dataset_id)),
             dry_run=dry_run,
         )
     ).maps
@@ -1283,4 +1312,89 @@ async def test_a_layer_past_the_size_cap_once_renamed_is_refused(
 
     assert (result.action, _codes(result)) == ("error", [("A099", "error", "parks")])
     assert "too large" in result.messages[0].message
+    assert await _count(test_db_session, Map) == 0
+
+
+async def test_a_reupload_in_flight_holds_a_layer_named_by_id(
+    test_db_session, clean_tables
+):
+    """A replacement job names its dataset in its metadata until it lands."""
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    test_db_session.add(
+        IngestJob(
+            source_filename="parks.fgb",
+            created_by=admin.id,
+            status="pending",
+            user_metadata={"reupload": True, "dataset_id": str(dataset_id)},
+        )
+    )
+    await test_db_session.commit()
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _map("qgis-map-a", _layer(dataset_id=str(dataset_id))),
+        )
+    ).maps
+
+    assert _codes(result) == [("A052", "error", "parks")]
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+async def test_a_completed_skip_is_judged_on_the_dataset_as_it_is(
+    test_db_session, clean_tables, dry_run
+):
+    from app.processing.ingest.manifest_maps import run_manifest_maps
+    from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _published_under(test_db_session, admin.id, "qgis-parks", dataset_id)
+    # Made private in GeoLens after the last publish, which the unchanged
+    # manifest still calls public.
+    record_id = select(Dataset.record_id).where(Dataset.id == dataset_id)
+    await test_db_session.execute(
+        update(Record)
+        .where(Record.id == record_id.scalar_subquery())
+        .values(visibility="private")
+    )
+    await test_db_session.commit()
+    request = _maps_only(
+        _map("qgis-map-a", _layer(dataset_key="qgis-parks"), visibility="public"),
+        datasets=[{**_local_dataset_entry("qgis-parks"), "visibility": "public"}],
+        dry_run=dry_run,
+    )
+    results = [
+        ManifestApplyEntryResult(
+            dataset_key="qgis-parks", action="skip", message="m", dataset_id=dataset_id
+        )
+    ]
+
+    [result] = await run_manifest_maps(test_db_session, request, admin, results)
+
+    assert _codes(result) == [("A020", "error", None)]
+    assert await _count(test_db_session, Map) == 0
+
+
+async def test_an_apply_refuses_a_symbol_icon_that_isnt_a_name(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    symbol = {"iconImage": ["match", ["get", "PARK_TYPE"], "city", "bus", "marker"]}
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _map(
+                "qgis-map-icons",
+                _layer(dataset_id=str(dataset_id), style_config={"symbol": symbol}),
+            ),
+        )
+    ).maps
+
+    assert _codes(result) == [("A099", "error", "parks")]
     assert await _count(test_db_session, Map) == 0

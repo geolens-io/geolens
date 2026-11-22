@@ -11,7 +11,7 @@ from collections.abc import Iterable, Sequence
 
 import structlog
 from fastapi import Request
-from sqlalchemy import desc, exists, select
+from sqlalchemy import desc, exists, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
@@ -31,9 +31,9 @@ OTHER_REFUSAL = "A099"
 PUBLIC_RESTRICTED = "A020"
 
 MAPS_CHECK_FAILED = "The maps could not be checked. Try again."
-# What an apply's own dataset entries leave for a map: a queued or held job
-# whose dataset isn't the one the publish describes yet.
-_NOT_READY_ACTIONS = frozenset({"create", "update", "blocked"})
+# The entries that change their dataset: a queued or held job whose dataset
+# isn't yet the one the publish describes. A completed skip changes nothing.
+_CHANGING_ACTIONS = frozenset({"create", "update", "blocked"})
 
 log = structlog.get_logger()
 
@@ -69,6 +69,30 @@ async def ready_manifest_dataset_ids(
     return {row[0]: row[1] for row in rows}
 
 
+async def datasets_with_jobs_in_flight(
+    db: AsyncSession, dataset_ids: Iterable[uuid.UUID]
+) -> set[uuid.UUID]:
+    """The datasets among ``dataset_ids`` that a pending or running job
+    writes into, in one query. The query runs even with no ids, so a dataset
+    the caller can't read costs the same queries as a missing one."""
+    wanted = set(dataset_ids)
+    target = IngestJob.user_metadata["dataset_id"].astext
+    rows = await db.execute(
+        select(IngestJob.dataset_id, target).where(
+            IngestJob.status.in_(ACTIVE_STATUSES),
+            or_(
+                IngestJob.dataset_id.in_(sorted(wanted)),
+                target.in_(sorted(str(dataset_id) for dataset_id in wanted)),
+            ),
+        )
+    )
+    found = set()
+    for dataset_id, named in rows:
+        found.add(dataset_id)
+        found.add(uuid.UUID(named) if named else None)
+    return found & wanted
+
+
 def _planned_publication(
     dataset: ManifestDataset, result: ManifestApplyEntryResult
 ) -> tuple[str | None, str]:
@@ -102,11 +126,13 @@ async def run_manifest_maps(
 
     ``dataset_results`` are this request's dataset outcomes. A dry run
     answers for the whole publish, datasets first and maps once their jobs
-    finish: a layer may name the key of an entry that didn't fail before its
-    dataset can be read, and the map's visibility is judged on what that
-    entry publishes. An apply writes a layer only on the dataset the publish
-    describes, so a layer naming an entry this request created, replaced,
-    held or failed, or a key with a job still in flight, answers A052.
+    finish: a layer may name, by key or by id, the dataset of an entry that
+    changes it, and the map's visibility is judged on what that entry
+    publishes. An apply writes a layer only on the dataset the publish
+    describes, so a layer on the dataset of an entry this request created,
+    replaced, held or failed, or on a dataset with a job still in flight,
+    answers A052. A completed skip changes nothing, so both runs judge its
+    dataset as it is.
 
     An apply commits each map on its own; whatever is left open, a dry run
     entirely, is rolled back.
@@ -117,24 +143,48 @@ async def run_manifest_maps(
     if not maps:
         return []
     try:
-        dataset_ids = await ready_manifest_dataset_ids(
+        layers = [layer for entry in maps for layer in entry.layers]
+        # The entries' own keys too: a skip settles only when its key does,
+        # whichever way the layers name its dataset.
+        ready = await ready_manifest_dataset_ids(
             db,
-            (
-                layer.dataset_key
-                for entry in maps
-                for layer in entry.layers
-                if layer.dataset_key is not None
-            ),
+            [
+                *(layer.dataset_key for layer in layers if layer.dataset_key),
+                *(r.dataset_key for r in dataset_results),
+            ],
         )
+        entries = {dataset.key: dataset for dataset in request.datasets}
+        # A skip onto a job still in flight publishes when that job does.
+        changing = [
+            r
+            for r in dataset_results
+            if r.dataset_key in entries
+            and (
+                r.action in _CHANGING_ACTIONS
+                or (r.action == "skip" and r.dataset_key not in ready)
+            )
+        ]
         # An entry that failed in this request supplies no dataset, not even
         # the one an earlier publish left under its key.
-        not_ready = {
-            r.dataset_key
-            for r in dataset_results
-            if r.action == "error"
-            or (not request.dry_run and r.action in _NOT_READY_ACTIONS)
-        }
-        entries = {dataset.key: dataset for dataset in request.datasets}
+        not_ready = {r.dataset_key for r in dataset_results if r.action == "error"}
+        pending: dict[str | uuid.UUID, tuple[str | None, str]] = {}
+        unsettled = await datasets_with_jobs_in_flight(
+            db,
+            [
+                *(layer.dataset_id for layer in layers if layer.dataset_id),
+                *ready.values(),
+            ],
+        )
+        for r in changing:
+            if request.dry_run:
+                planned = _planned_publication(entries[r.dataset_key], r)
+                pending[r.dataset_key] = planned
+                if r.dataset_id is not None:
+                    pending[r.dataset_id] = planned
+            else:
+                not_ready.add(r.dataset_key)
+                if r.dataset_id is not None:
+                    unsettled.add(r.dataset_id)
         results = await get_processing_port().apply_manifest_maps(
             db,
             maps,
@@ -142,14 +192,11 @@ async def run_manifest_maps(
             dry_run=request.dry_run,
             dataset_ids_by_key={
                 key: dataset_id
-                for key, dataset_id in dataset_ids.items()
+                for key, dataset_id in ready.items()
                 if key not in not_ready
             },
-            pending_datasets={
-                r.dataset_key: _planned_publication(entries[r.dataset_key], r)
-                for r in dataset_results
-                if request.dry_run and r.action != "error" and r.dataset_key in entries
-            },
+            pending_datasets=pending,
+            unsettled_dataset_ids=frozenset(unsettled),
             public_fallback=request.public_fallback,
             client=request.client,
             ip_address=(

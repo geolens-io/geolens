@@ -1554,11 +1554,6 @@ _READS = {
     "semiliteral_item": {
         "layout": {"text-offset": ["semiliteral", [["get", "{c}"], 1]]}
     },
-    "symbol_icon_expression": {
-        "style_config": {
-            "symbol": {"iconImage": ["match", ["get", "{c}"], "city", "bus", "marker"]}
-        }
-    },
     "builder_symbol_icon_size": {
         "style_config": {"builder": {"symbol": {"iconSize": ["get", "{c}"]}}}
     },
@@ -1576,24 +1571,6 @@ _READS = {
         "style_config": {
             "builder": {
                 "symbol": {"iconSize": {"property": "{c}", "stops": [[1, 1], [5, 2]]}}
-            }
-        }
-    },
-    "symbol_category_icon_expression": {
-        "style_config": {
-            "symbol": {
-                "categoryColumn": "PARK_TYPE",
-                "categories": [{"value": "a", "icon": ["get", "{c}"]}],
-            }
-        }
-    },
-    "builder_symbol_category_icon_expression": {
-        "style_config": {
-            "builder": {
-                "symbol": {
-                    "categoryColumn": "PARK_TYPE",
-                    "categories": [{"value": "a", "icon": ["get", "{c}"]}],
-                }
             }
         }
     },
@@ -1860,14 +1837,53 @@ def test_every_style_config_key_a_manifest_keeps_is_scanned_or_never_a_column():
     assert {"heatmapPaint", "savedCirclePaint"} <= read
 
 
-def test_the_style_export_writes_a_category_icon_expression_unchanged():
-    """Why category icons are scanned: the export emits them as they are."""
-    from app.modules.catalog.maps.style_json import _symbol_layout_from_style
+# The viewer reads a symbol icon as a sprite name, so an icon is refused
+# unless it is one.
+_EXPRESSION_ICONS = {
+    "symbol_icon_expression": {
+        "style_config": {
+            "symbol": {"iconImage": ["match", ["get", "{c}"], "city", "bus", "marker"]}
+        }
+    },
+    "symbol_category_icon_expression": {
+        "style_config": {
+            "symbol": {
+                "categoryColumn": "PARK_TYPE",
+                "categories": [{"value": "a", "icon": ["get", "{c}"]}],
+            }
+        }
+    },
+    "builder_symbol_category_icon_expression": {
+        "style_config": {
+            "builder": {
+                "symbol": {
+                    "categoryColumn": "PARK_TYPE",
+                    "categories": [{"value": "a", "icon": ["get", "{c}"]}],
+                }
+            }
+        }
+    },
+    "builder_symbol_icon_image": {
+        "style_config": {"builder": {"symbol": {"icon_image": ["get", "{c}"]}}}
+    },
+}
 
-    symbol = {
-        "categoryColumn": "PARK_TYPE",
-        "categories": [{"value": "a", "icon": ["get", "missing_icon"]}],
-    }
-    for style_config in ({"symbol": symbol}, {"builder": {"symbol": symbol}}):
-        icon_image = _symbol_layout_from_style({}, style_config, None)["icon-image"]
-        assert ["get", "missing_icon"] in icon_image
+
+@pytest.mark.parametrize("form", sorted(_EXPRESSION_ICONS))
+async def test_a_symbol_icon_that_isnt_a_name_is_refused(
+    test_db_session, clean_tables, form
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    fields = json.loads(json.dumps(_EXPRESSION_ICONS[form]).replace("{c}", "PARK_TYPE"))
+
+    [result] = (
+        await _dry_run(
+            test_db_session,
+            admin,
+            _map("qgis-map-a", _layer(dataset_id=str(dataset_id), **fields)),
+        )
+    ).maps
+
+    assert (result.action, _codes(result)) == ("error", [("A099", "error", "parks")])
+    assert "icon name" in result.messages[0].message

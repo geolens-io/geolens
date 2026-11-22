@@ -175,8 +175,8 @@ logger = logging.getLogger(__name__)
 # pending_dataset_keys)``.
 # 26 -> 27: ``ProcessingPort.apply_manifest_maps`` writes maps outside a dry
 # run. Its ``pending_dataset_keys`` became the required ``pending_datasets``
-# mapping, and it gained the required keyword-only ``public_fallback``,
-# ``client`` and ``ip_address``.
+# mapping, and it gained the required keyword-only ``unsettled_dataset_ids``,
+# ``public_fallback``, ``client`` and ``ip_address``.
 EXTENSION_API_VERSION: int = 27
 
 

@@ -436,7 +436,8 @@ class ManifestMapLayer(_ManifestBaseModel):
         default=None,
         description=(
             "The builder's style description. Unknown top-level keys are "
-            "dropped with info A062."
+            "dropped with info A062. A symbol's icon and its categories' "
+            "icons are icon names; any other value is refused with A099."
         ),
     )
     paint: dict[str, Any] | None = None
@@ -571,10 +572,10 @@ class ManifestApplyRequest(_ManifestBaseModel):
             "the caller can read, created or updated by key after the "
             "request's datasets. A dry run answers for the whole publish, so "
             "a layer may name a dataset the same request publishes. An apply "
-            "writes a layer only once its dataset's job is complete: a layer "
-            "on a dataset the request creates, replaces or holds, or whose "
-            "key has a job still running, answers A052, and the map is sent "
-            "again once the jobs finish."
+            "writes a layer only once its dataset's job is complete: a layer, "
+            "by dataset key or id, on a dataset the request creates, replaces "
+            "or holds, or on one with a job still running, answers A052, and "
+            "the map is sent again once the jobs finish."
         ),
     )
 

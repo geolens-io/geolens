@@ -11,9 +11,8 @@ the map create and update services.
 
 from __future__ import annotations
 
-import itertools
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
 
@@ -35,9 +34,11 @@ from app.modules.catalog.authorization import (
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.arcgis_webmap.fields import FieldNames
 from app.modules.catalog.maps.manifest_columns import (
+    expression_icons,
     named_columns,
     rename_layer_columns,
 )
+from app.modules.catalog.maps.manifest_layers import plan_layer_stack
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.publish_vocabulary import (
     LABEL_METADATA_KEYS,
@@ -131,7 +132,8 @@ class _Request:
     user: Identity
     dry_run: bool
     dataset_ids_by_key: Mapping[str, uuid.UUID]
-    pending_datasets: Mapping[str, tuple[str | None, str]]
+    pending_datasets: Mapping[str | uuid.UUID, tuple[str | None, str]]
+    unsettled_dataset_ids: Collection[uuid.UUID]
     datasets: Mapping[uuid.UUID, _Dataset]
     basemap_ids: set[str]
     may_edit_maps: bool
@@ -420,6 +422,17 @@ def _check_layer(
             )
         )
     style_config, dropped_style = _known_keys(layer.style_config, STYLE_METADATA_KEYS)
+    if expression_icons(style_config):
+        messages.append(
+            _message(
+                OTHER_REFUSAL,
+                "error",
+                f"Layer {layer.key}: a symbol icon must be an icon name, not an "
+                "expression.",
+                fix="Send the name of an icon in the GeoLens sprite.",
+                layer=layer.key,
+            )
+        )
     label_config, dropped_label = _known_keys(layer.label_config, LABEL_METADATA_KEYS)
     for name, dropped in (
         ("style_config", dropped_style),
@@ -557,74 +570,6 @@ def _planned_public(
     return (visibility, planned[1]) == ("public", "published")
 
 
-def _kept_layer(layer: MapLayer) -> MapLayerInput:
-    """A layer added in GeoLens, as the builder's full save sends it back."""
-    return MapLayerInput.model_validate(
-        {
-            "id": layer.id,
-            "dataset_id": layer.dataset_id,
-            "sort_order": layer.sort_order,
-            "visible": layer.visible,
-            "opacity": layer.opacity,
-            "paint": layer.paint,
-            "layout": layer.layout,
-            "display_name": layer.display_name,
-            "filter": layer.filter,
-            "label_config": layer.label_config,
-            "popup_config": layer.popup_config,
-            "style_config": layer.style_config,
-            "layer_type": layer.layer_type,
-            "show_in_legend": layer.show_in_legend,
-        }
-    )
-
-
-def _plan_stack(
-    entry: Any,
-    stored: list[tuple[MapLayer, _Dataset | None]],
-    layers: list[MapLayerInput],
-    keys: list[str],
-) -> tuple[list[MapLayerInput], list[str | None], list[MapLayer], int]:
-    """The layers an apply sends, their keys, the keyed layers it removes,
-    and how many layers the map then has.
-
-    A keyed layer keeps its row. A layer added in GeoLens keeps its slot, and
-    so does a keyed layer the caller can't read, which the save keeps; the
-    manifest's layers take the other slots in manifest order, the first on
-    top. A readable keyed layer the manifest no longer lists is removed.
-    """
-    listed = {layer.key for layer in entry.layers}
-    by_key = {layer.manifest_key: layer for layer, _ in stored if layer.manifest_key}
-    kept = [
-        (layer, dataset)
-        for layer, dataset in stored
-        if layer.manifest_key is None
-        or (dataset is None and layer.manifest_key not in listed)
-    ]
-    removed = [
-        layer
-        for layer, dataset in stored
-        if layer.manifest_key is not None
-        and dataset is not None
-        and layer.manifest_key not in listed
-    ]
-    reserved = {layer.sort_order for layer, _ in kept}
-    free = (order for order in itertools.count() if order not in reserved)
-    sent = [
-        layer.model_copy(
-            update={
-                "id": by_key[key].id if key in by_key else None,
-                "sort_order": next(free),
-            }
-        )
-        for layer, key in zip(layers, keys, strict=True)
-    ]
-    readable_kept = [layer for layer, dataset in kept if dataset is not None]
-    sent += [_kept_layer(layer) for layer in readable_kept]
-    sent_keys: list[str | None] = [*keys, *(None for _ in readable_kept)]
-    return sent, sent_keys, removed, len(entry.layers) + len(kept)
-
-
 async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _Plan:
     """Check one map and plan its apply. Writes nothing.
 
@@ -690,10 +635,15 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             if layer.dataset_id is not None
             else request.dataset_ids_by_key.get(layer.dataset_key)
         )
-        dataset = datasets.get(dataset_id) if dataset_id else None
-        planned = (
-            request.pending_datasets.get(layer.dataset_key)
-            if layer.dataset_key is not None
+        planned = request.pending_datasets.get(
+            layer.dataset_key if layer.dataset_key is not None else layer.dataset_id
+        )
+        # A dataset a job is still replacing isn't the one the publish
+        # describes yet, by key or by id.
+        dataset = (
+            datasets.get(dataset_id)
+            if dataset_id
+            and (planned is not None or dataset_id not in request.unsettled_dataset_ids)
             else None
         )
         layer_messages, stored_layer = _check_layer(
@@ -715,7 +665,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             if layer.manifest_key is None
         )
         try:
-            plan.layers, plan.layer_keys, removed, total = _plan_stack(
+            plan.layers, plan.layer_keys, removed, total = plan_layer_stack(
                 entry, stored, layers, keys
             )
         except ValidationError:
@@ -730,7 +680,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             )
             total = 0
     else:
-        plan.layers, plan.layer_keys = _plan_stack(entry, [], layers, keys)[:2]
+        plan.layers, plan.layer_keys = plan_layer_stack(entry, [], layers, keys)[:2]
         total = len(entry.layers)
     if total > _MAX_LAYERS_PER_MAP:
         messages.append(
@@ -939,7 +889,8 @@ async def apply_manifest_maps(
     *,
     dry_run: bool,
     dataset_ids_by_key: Mapping[str, uuid.UUID],
-    pending_datasets: Mapping[str, tuple[str | None, str]],
+    pending_datasets: Mapping[str | uuid.UUID, tuple[str | None, str]],
+    unsettled_dataset_ids: Collection[uuid.UUID],
     public_fallback: str | None,
     client: Any,
     ip_address: str | None,
@@ -948,11 +899,13 @@ async def apply_manifest_maps(
 
     ``dataset_ids_by_key`` holds the dataset each layer's ``dataset_key``
     names; an absent key reads like a missing dataset. ``pending_datasets``
-    are the request's own dataset entries that will supply a dataset, by key,
-    each with the visibility (None keeps the dataset's) and status it
-    publishes: a layer naming one whose dataset it can't read is checked
-    without columns instead of refused, and the map's visibility is judged on
-    what the entry publishes. ``client`` is the request's ``ManifestClient``.
+    are the request's own dataset entries that will change their dataset, by
+    key and by the dataset's id, each with the visibility (None keeps the
+    dataset's) and status it publishes: a layer naming one whose dataset it
+    can't read is checked without columns instead of refused, and the map's
+    visibility is judged on what the entry publishes. A layer on a dataset in
+    ``unsettled_dataset_ids`` and not pending reads like a missing dataset.
+    ``client`` is the request's ``ManifestClient``.
 
     A dry run writes nothing; the caller rolls the session back. An apply
     commits each map that checked clean, and rolls back a map with an error
@@ -964,6 +917,7 @@ async def apply_manifest_maps(
         dry_run=dry_run,
         dataset_ids_by_key=dataset_ids_by_key,
         pending_datasets=pending_datasets,
+        unsettled_dataset_ids=unsettled_dataset_ids,
         # An apply reads each map's datasets again in the map's transaction.
         datasets=(
             await _readable_datasets(

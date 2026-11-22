@@ -19,7 +19,7 @@ subsequent requests.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Mapping, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from datetime import date, datetime
 from typing import Any, Protocol, runtime_checkable
 
@@ -505,9 +505,11 @@ class ProcessingPort(Protocol):
     # ``maps`` are the request's ``ManifestMap`` entries and
     # ``dataset_ids_by_key`` the dataset each layer ``dataset_key`` names,
     # resolved by the caller; a key it couldn't resolve is absent.
-    # ``pending_datasets`` are the request's own dataset entries a dry run may
-    # not find yet, by key, each with the visibility (None keeps the
-    # dataset's) and record status it publishes. ``public_fallback`` and
+    # ``pending_datasets`` are the request's own dataset entries that change
+    # their dataset, by key and by dataset id, each with the visibility (None
+    # keeps the dataset's) and record status it publishes; a dry run judges a
+    # map on them. ``unsettled_dataset_ids`` are datasets a job is still
+    # replacing, which a layer may not use yet. ``public_fallback`` and
     # ``client`` are the request's. Outside a dry run each map that checks
     # clean is written and committed on its own. Returns one
     # ``ManifestMapResult``-shaped dict per map, in order.
@@ -519,7 +521,8 @@ class ProcessingPort(Protocol):
         *,
         dry_run: bool,
         dataset_ids_by_key: Mapping[str, uuid.UUID],
-        pending_datasets: Mapping[str, tuple[str | None, str]],
+        pending_datasets: Mapping[str | uuid.UUID, tuple[str | None, str]],
+        unsettled_dataset_ids: Collection[uuid.UUID],
         public_fallback: str | None,
         client: Any,
         ip_address: str | None,

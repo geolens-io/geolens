@@ -100,15 +100,10 @@ _LAYOUT_TOKEN = re.compile(r"\{([^{}]+)\}")
 _DATA_OPERATORS = frozenset({"literal", "within", "distance"})
 _OPTION_OBJECT_OPERATORS = frozenset({"format", "collator", "number-format"})
 # The symbol settings the style export writes into the layout unchanged, so
-# each may be an expression.
-_SYMBOL_LAYOUT_KEYS = (
-    "iconImage",
-    "icon_image",
-    "iconSize",
-    "iconRotation",
-    "iconAnchor",
-    "iconOffset",
-)
+# each may be an expression. The icon itself is a name: the viewer reads an
+# icon as a sprite name, so ``expression_icons`` refuses any other value.
+_SYMBOL_LAYOUT_KEYS = ("iconSize", "iconRotation", "iconAnchor", "iconOffset")
+_ICON_IMAGE_KEYS = ("iconImage", "icon_image")
 # Read by the renderer from the feature itself, not from its properties.
 _LEGACY_PSEUDO_FIELDS = frozenset({"$type", "$id"})
 # The popup title's placeholders, as the viewer substitutes them.
@@ -268,16 +263,29 @@ def _rename_symbols(
     source = owner(key)
     if source is not None and isinstance(source[key], str) and source[key]:
         source[key] = rename(source[key])
-    source = owner("categories")
-    if source is not None:
-        source["categories"] = [
-            {**entry, "icon": _expression(entry["icon"], rename)}
-            if isinstance(entry, dict)
-            and entry.get("icon") is not None
-            and entry.get("value") is not None
-            else entry
-            for entry in source["categories"]
-        ]
+
+
+def expression_icons(style_config: dict[str, Any] | None) -> bool:
+    """Whether a symbol icon or a category's icon is something other than an
+    icon name, in ``symbol`` or ``builder.symbol``."""
+    if not isinstance(style_config, dict):
+        return False
+    builder = style_config.get("builder")
+    for symbol in (
+        style_config.get("symbol"),
+        builder.get("symbol") if isinstance(builder, dict) else None,
+    ):
+        if not isinstance(symbol, dict):
+            continue
+        icons = [symbol.get(key) for key in _ICON_IMAGE_KEYS]
+        categories = symbol.get("categories")
+        if isinstance(categories, list):
+            icons += [
+                entry.get("icon") for entry in categories if isinstance(entry, dict)
+            ]
+        if any(icon is not None and not isinstance(icon, str) for icon in icons):
+            return True
+    return False
 
 
 def _style_config(style_config: dict[str, Any] | None, rename: Rename) -> Any:

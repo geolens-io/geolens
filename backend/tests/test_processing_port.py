@@ -346,6 +346,7 @@ class FakeProcessingPort:
         dry_run,
         dataset_ids_by_key,
         pending_datasets,
+        unsettled_dataset_ids,
         public_fallback,
         client,
         ip_address,
