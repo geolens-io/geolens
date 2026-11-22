@@ -5,6 +5,7 @@ deadlock, and a save that adds nothing waits on no dataset change."""
 from __future__ import annotations
 
 import asyncio
+import logging
 import time
 import uuid
 
@@ -232,3 +233,83 @@ async def test_a_save_that_adds_no_layer_waits_on_no_dataset_change(
 
     assert resp.status_code == 200, resp.text
     assert elapsed < 1, elapsed
+
+
+async def test_a_layer_update_a_delete_removed_meanwhile_is_refused(
+    client: AsyncClient, world, monkeypatch, caplog
+):
+    """A dataset delete that commits after a PATCH read the map's layers
+    cascades away the layer the PATCH updates; the PATCH answers the 400 a
+    retry gets."""
+    caplog.set_level(logging.INFO)
+    deleted = []
+    real = service_diff.bulk_check_dataset_access
+
+    async def delete_first(*args, **kwargs):
+        deleted.append(await _delete(client, world))
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(service_diff, "bulk_check_dataset_access", delete_first)
+    resp = await client.patch(
+        f"/maps/{world['map_id']}/layers",
+        json={
+            "updated": [
+                {"id": str(world["layer_id"]), "paint": {"circle-color": "#123456"}}
+            ]
+        },
+        headers=world["headers"],
+    )
+
+    assert [r.status_code for r in deleted] == [204]
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == "Layer diff references layer ids outside this map"
+    assert not [r for r in caplog.records if "Unhandled" in str(r.msg)]
+
+
+@pytest.mark.parametrize("change", ["order", "paint-and-order"])
+async def test_a_reorder_naming_a_layer_a_delete_removed_meanwhile_is_refused(
+    client: AsyncClient, world, test_db_session, monkeypatch, caplog, change: str
+):
+    """A diff whose reorder rewrites a layer a dataset delete cascaded away
+    after the diff read the map's layers answers the 400 a retry gets. The
+    gap in the stored order makes the restack write that layer's row."""
+    caplog.set_level(logging.INFO)
+    other = await _vector_dataset(test_db_session, world["owner"].id)
+    gone = {
+        "dataset_id": other.id,
+        "title": other.record.title,
+        "headers": world["headers"],
+    }
+    table = other.table_name
+    kept_id, moved_id = str(world["layer_id"]), str(uuid.uuid4())
+    test_db_session.add(
+        MapLayer(
+            id=uuid.UUID(moved_id),
+            map_id=world["map_id"],
+            dataset_id=other.id,
+            sort_order=5,
+        )
+    )
+    await test_db_session.commit()
+    deleted = []
+    real = service_diff.bulk_check_dataset_access
+
+    async def delete_first(*args, **kwargs):
+        deleted.append(await _delete(client, gone))
+        return await real(*args, **kwargs)
+
+    monkeypatch.setattr(service_diff, "bulk_check_dataset_access", delete_first)
+    body: dict = {"order": [moved_id, kept_id]}
+    if change == "paint-and-order":
+        body["updated"] = [{"id": kept_id, "paint": {"circle-color": "#123456"}}]
+    try:
+        resp = await client.patch(
+            f"/maps/{world['map_id']}/layers", json=body, headers=world["headers"]
+        )
+    finally:
+        await _cleanup_data_table(test_db_session, table)
+
+    assert [r.status_code for r in deleted] == [204]
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"] == "Layer diff references layer ids outside this map"
+    assert not [r for r in caplog.records if "Unhandled" in str(r.msg)]

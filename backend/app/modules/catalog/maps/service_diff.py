@@ -13,6 +13,7 @@ from collections.abc import Collection
 from fastapi import HTTPException, status
 from sqlalchemy import delete, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm.exc import StaleDataError
 
 from app.core.identity import Identity
 from app.modules.catalog.datasets.domain.models import Dataset, Record
@@ -40,6 +41,8 @@ from app.modules.catalog.maps.service_shared import (
     readable_dataset_ids,
 )
 from app.platform.extensions import get_catalog_port
+
+_LAYERS_OUTSIDE_MAP = "Layer diff references layer ids outside this map"
 
 _NULLABLE_PATCH_FIELDS = {
     "display_name",
@@ -149,8 +152,38 @@ async def apply_layer_diff(
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Apply an incremental layer diff. Flushes but does NOT commit.
 
-    Refuses (422) a filter that puts a dashboard widget past the aggregate's limits.
+    Refuses (422) a filter that puts a dashboard widget past the aggregate's
+    limits. Raises ValueError for a layer id outside the map, including one a
+    dataset delete cascaded away after the diff read the layers; that case
+    rolls the session back first.
     """
+    try:
+        return await _apply_layer_diff(
+            session,
+            map_id,
+            added=added,
+            updated=updated,
+            removed=removed,
+            order=order,
+            user=user,
+            user_roles=user_roles,
+        )
+    except StaleDataError:
+        await session.rollback()
+        raise ValueError(_LAYERS_OUTSIDE_MAP) from None
+
+
+async def _apply_layer_diff(
+    session: AsyncSession,
+    map_id: uuid.UUID,
+    *,
+    added: list[dict],
+    updated: list[dict],
+    removed: list[uuid.UUID],
+    order: list[uuid.UUID] | None,
+    user: Identity,
+    user_roles: set[str],
+) -> tuple[Map, list[LayerRow], str | None, str | None]:
     await lock_map_layers(session, map_id)
     # A diff can't repoint a layer, so only the added layers reference a
     # dataset anew.
@@ -179,7 +212,7 @@ async def apply_layer_diff(
     removed_ids = set(removed)
     unknown_ids = (updated_ids | removed_ids) - set(existing_by_id)
     if unknown_ids:
-        raise ValueError("Layer diff references layer ids outside this map")
+        raise ValueError(_LAYERS_OUTSIDE_MAP)
 
     if order is not None:
         ordered_ids = set(order)
