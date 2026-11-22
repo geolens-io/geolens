@@ -12949,17 +12949,17 @@ export interface components {
             basemap_style?: string | null;
             /**
              * Styling
-             * @description Whether a republish replaces the map's styling. For now only `replace` is applied to an existing map: any other mode is refused with A099 and the map is left as it is. A new map takes the manifest's styling whatever the mode.
+             * @description Whether a republish replaces the map's styling: its view, basemap and its keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless the styling was edited in GeoLens since the last publish that replaced it, and answers info A070 when it keeps it. Name, description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's styling.
              * @default replace_if_unedited
              * @enum {string}
              */
             styling: "replace_if_unedited" | "replace" | "keep";
             /**
              * Thumbnail
-             * @description A PNG or JPEG data URI. Checked, but not stored yet.
+             * @description A PNG or JPEG data URI, stored as the map's thumbnail once the map is written, with the thumbnail upload's checks. One that isn't stored is a warning (A099) and the map stays published.
              */
             thumbnail?: string | null;
-            /** @description Checked, but not stored yet. */
+            /** @description Written, one line per item, in the managed block of the map's notes: the lines before the first line that is `---`. Text after that line is kept. Left out when the styling is kept. */
             loss_report?: components["schemas"]["ManifestLossReport"] | null;
             /**
              * Visibility
@@ -13063,7 +13063,7 @@ export interface components {
             visibility?: string | null;
             /**
              * Styling
-             * @description Whether the manifest's styling replaced the map's. Null for a map in error.
+             * @description `applied` when the manifest's styling replaced the map's, `kept` when the map kept its own. Null for a map in error.
              */
             styling?: ("applied" | "kept") | null;
             /**

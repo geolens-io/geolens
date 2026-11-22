@@ -32,11 +32,17 @@ class ManifestMap:
         description (None | str | Unset):
         view (ManifestMapView | None | Unset):
         basemap_style (None | str | Unset): A basemap id from GET /capabilities.
-        styling (ManifestMapStyling | Unset): Whether a republish replaces the map's styling. For now only `replace` is
-            applied to an existing map: any other mode is refused with A099 and the map is left as it is. A new map takes
-            the manifest's styling whatever the mode. Default: 'replace_if_unedited'.
-        thumbnail (None | str | Unset): A PNG or JPEG data URI. Checked, but not stored yet.
-        loss_report (ManifestLossReport | None | Unset): Checked, but not stored yet.
+        styling (ManifestMapStyling | Unset): Whether a republish replaces the map's styling: its view, basemap and its
+            keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always
+            does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless
+            the styling was edited in GeoLens since the last publish that replaced it, and answers info A070 when it keeps
+            it. Name, description, notes, visibility and new layers are applied in every mode, and a new map takes the
+            manifest's styling. Default: 'replace_if_unedited'.
+        thumbnail (None | str | Unset): A PNG or JPEG data URI, stored as the map's thumbnail once the map is written,
+            with the thumbnail upload's checks. One that isn't stored is a warning (A099) and the map stays published.
+        loss_report (ManifestLossReport | None | Unset): Written, one line per item, in the managed block of the map's
+            notes: the lines before the first line that is `---`. Text after that line is kept. Left out when the styling is
+            kept.
         visibility (ManifestMapVisibilityType0 | None | Unset): Who can see the map. Omitted on create the map is
             private; omitted on update the current level is kept.
     """

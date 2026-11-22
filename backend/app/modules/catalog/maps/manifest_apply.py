@@ -12,6 +12,7 @@ the map create and update services.
 from __future__ import annotations
 
 import uuid
+from datetime import UTC, datetime
 from collections.abc import Collection, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from typing import Any, NamedTuple
@@ -39,6 +40,33 @@ from app.modules.catalog.maps.manifest_columns import (
     rename_layer_columns,
 )
 from app.modules.catalog.maps.manifest_layers import plan_layer_stack
+from app.modules.catalog.maps.manifest_republish import (
+    loss_lines,
+    managed_notes,
+    publish_line,
+    store_manifest_thumbnail,
+    styling_applies,
+    styling_edited_since_publish,
+)
+from app.modules.catalog.maps.manifest_messages import (
+    NO_MAP_PERMISSION,
+    PUBLIC_REFUSED,
+    TABLE_LAYER,
+    STYLING_KEPT,
+    KEY_NOT_WRITABLE,
+    DATASET_NOT_READY,
+    LAYER_REMOVED,
+    STYLE_KEY_DROPPED,
+    COLUMN_MISSING,
+    OTHER_REFUSAL,
+    MAX_ERROR_LENGTH as _MAX_ERROR_LENGTH,
+    MAX_REPORTED_ERRORS as _MAX_REPORTED_ERRORS,
+    error_result as _error_result,
+    listed as _listed,
+    message as _message,
+    problem as _problem,
+    short as _short,
+)
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.publish_vocabulary import (
     LABEL_METADATA_KEYS,
@@ -67,16 +95,6 @@ from app.platform.jobs.in_flight import (
 from app.platform.record_audience import PublicationRefused, effective_publication
 from app.platform.request_credential import is_publish_key
 
-NO_MAP_PERMISSION = "A003"
-PUBLIC_REFUSED = "A020"
-TABLE_LAYER = "A032"
-KEY_NOT_WRITABLE = "A050"
-DATASET_NOT_READY = "A052"
-LAYER_REMOVED = "A059"
-STYLE_KEY_DROPPED = "A062"
-COLUMN_MISSING = "A063"
-OTHER_REFUSAL = "A099"
-
 MAP_KEY_NOT_WRITABLE = "This map key belongs to a map you can't edit."
 MAP_CHECK_FAILED = "This map could not be checked. Try again."
 MAP_APPLY_FAILED = "This map could not be published. Try again."
@@ -91,12 +109,6 @@ DATASET_UNAVAILABLE = (
 
 # Shape-checks a layer whose dataset didn't resolve; never stored.
 _NO_DATASET = uuid.UUID(int=0)
-_MAX_REPORTED_ERRORS = 5
-# Names in a message come from the caller, so a message lists only so many.
-_MAX_LISTED_NAMES = 20
-_MAX_LISTED_NAME_LENGTH = 64
-# A schema error may quote the caller's keys too.
-_MAX_ERROR_LENGTH = 300
 # A map has no record status: a public map is open to anonymous readers, as
 # a public and published dataset is.
 _MAP_STATUS = "published"
@@ -158,52 +170,9 @@ class _Plan:
     layer_keys: list[str | None] = field(default_factory=list)
     # None keeps the map's.
     write_visibility: str | None = None
+    styling_applied: bool = True
     # Stored rows the apply leaves out of its layer list and must not delete.
     keep_layer_ids: list[uuid.UUID] = field(default_factory=list)
-
-
-def _short(name: object, limit: int = _MAX_LISTED_NAME_LENGTH) -> str:
-    text_ = str(name)
-    if len(text_) <= limit:
-        return text_
-    return text_[: limit - 3] + "..."
-
-
-def _problem(error: Mapping[str, Any]) -> str:
-    where = ".".join(_short(part) for part in error["loc"]) or "layer"
-    return f"{where}: {_short(error['msg'], _MAX_ERROR_LENGTH)}"
-
-
-def _listed(names: Sequence[str]) -> str:
-    shown = ", ".join(_short(name) for name in names[:_MAX_LISTED_NAMES])
-    rest = len(names) - _MAX_LISTED_NAMES
-    return f"{shown} and {rest} more" if rest > 0 else shown
-
-
-def _message(
-    code: str,
-    severity: str,
-    message: str,
-    *,
-    fix: str | None = None,
-    layer: str | None = None,
-) -> dict[str, Any]:
-    return {
-        "code": code,
-        "severity": severity,
-        "message": message,
-        "fix": fix,
-        "layer": layer,
-    }
-
-
-def _error_result(key: str, message: str) -> dict[str, Any]:
-    return {
-        "map_key": key,
-        "action": "error",
-        "map_id": None,
-        "messages": [_message(OTHER_REFUSAL, "error", message)],
-    }
 
 
 async def _readable_datasets(
@@ -610,16 +579,20 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 fix="Publish as a new map.",
             )
         )
-    if map_obj is not None and entry.styling != "replace":
-        messages.append(
-            _message(
-                OTHER_REFUSAL,
-                "error",
-                f"Styling {entry.styling!r} isn't supported on an existing map "
-                "yet, so nothing was changed.",
-                fix='Send styling "replace" to replace the map\'s styling.',
+    styling_applied = True
+    if map_obj is not None:
+        edited = await styling_edited_since_publish(session, map_obj.id)
+        styling_applied = styling_applies(entry.styling, edited=edited)
+        if not styling_applied and entry.styling == "replace_if_unedited":
+            messages.append(
+                _message(
+                    STYLING_KEPT,
+                    "info",
+                    "The map was edited in GeoLens since the last publish, so "
+                    "its styling was kept.",
+                    fix='Send styling "replace" to replace it.',
+                )
             )
-        )
     if (
         entry.basemap_style is not None
         and entry.basemap_style not in request.basemap_ids
@@ -670,14 +643,21 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         if stored_layer is not None:
             layers.append(stored_layer)
             keys.append(layer.key)
-    plan = _Plan(result={}, map_obj=map_obj)
+    plan = _Plan(result={}, map_obj=map_obj, styling_applied=styling_applied)
     removed: list[MapLayer] = []
     if map_obj is not None:
         stored = await _stored_layers(session, map_obj.id, user)
+        listed = {layer.key for layer in entry.layers}
+        # The stored layers the map goes on showing with their own dataset.
         shows_non_public |= any(
             not _planned_public(dataset, request.pending_datasets.get(layer.dataset_id))
             for layer, dataset in stored
-            if layer.manifest_key is None and dataset is not None
+            if dataset is not None
+            and (
+                layer.manifest_key is None
+                or (layer.manifest_key in listed and not styling_applied)
+                or (layer.manifest_key not in listed and entry.styling == "keep")
+            )
         )
         try:
             (
@@ -686,7 +666,14 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 removed,
                 total,
                 plan.keep_layer_ids,
-            ) = plan_layer_stack(entry, stored, layers, keys)
+            ) = plan_layer_stack(
+                entry,
+                stored,
+                layers,
+                keys,
+                keep_styling=not styling_applied,
+                remove_missing=entry.styling != "keep",
+            )
         except ValidationError:
             messages.append(
                 _message(
@@ -739,7 +726,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         "map_id": map_obj.id if map_obj is not None else None,
         "messages": messages,
         "visibility": None if failed else stored_visibility,
-        "styling": None if failed else "applied",
+        "styling": None if failed else "applied" if styling_applied else "kept",
         "removed_layers": []
         if failed
         else [
@@ -802,10 +789,16 @@ async def _write_map(
         )
         await check_map_ownership(map_obj, user, session)
     before = map_obj.visibility
-    view = entry.view
+    # The view and the basemap are styling; a kept publish leaves them.
+    view = entry.view if plan.styling_applied else None
+    basemap_style = entry.basemap_style if plan.styling_applied else None
+    lines = [publish_line(request.client, datetime.now(UTC).date())]
+    if plan.styling_applied:
+        lines += loss_lines(entry.loss_report)
     body = MapUpdate(
         name=entry.name,
         layers=plan.layers,
+        notes=managed_notes(map_obj.notes, lines),
         **({} if entry.description is None else {"description": entry.description}),
         **(
             {}
@@ -818,11 +811,7 @@ async def _write_map(
                 "pitch": view.pitch,
             }
         ),
-        **(
-            {}
-            if entry.basemap_style is None
-            else {"basemap_style": entry.basemap_style}
-        ),
+        **({} if basemap_style is None else {"basemap_style": basemap_style}),
         **(
             {}
             if plan.write_visibility in (None, before)
@@ -852,7 +841,7 @@ async def _write_map(
         details={
             "client_id": request.client.id,
             "client_version": request.client.version,
-            "styling_applied": True,
+            "styling_applied": plan.styling_applied,
             "layer_keys": [layer.key for layer in entry.layers],
             **(
                 {}
@@ -894,7 +883,6 @@ async def _apply_map(session: AsyncSession, entry: Any, request: _Request) -> di
             return plan.result
         result = await _write_map(session, entry, request, plan)
         await session.commit()
-        return result
     except HTTPException as exc:
         await session.rollback()
         return _error_result(entry.key, _refusal(exc))
@@ -902,6 +890,14 @@ async def _apply_map(session: AsyncSession, entry: Any, request: _Request) -> di
         await session.rollback()
         log.exception("manifest_map_apply_failed", map_key=entry.key)
         return _error_result(entry.key, MAP_APPLY_FAILED)
+    if entry.thumbnail is not None:
+        refused = await store_manifest_thumbnail(
+            session, result["map_id"], entry.thumbnail, request.user
+        )
+        if refused is not None:
+            warning = _message(OTHER_REFUSAL, "warning", refused)
+            result = {**result, "messages": [*result["messages"], warning]}
+    return result
 
 
 def _layer_dataset_ids(

@@ -37,6 +37,9 @@ def plan_layer_stack(
     stored: list[tuple[MapLayer, Any]],
     layers: list[MapLayerInput],
     keys: list[str],
+    *,
+    keep_styling: bool = False,
+    remove_missing: bool = True,
 ) -> tuple[list[MapLayerInput], list[str | None], list[MapLayer], int, list[uuid.UUID]]:
     """The layers an apply sends, their keys, the keyed layers it removes,
     how many layers the map then has, and the stored rows it keeps without
@@ -44,39 +47,57 @@ def plan_layer_stack(
 
     ``stored`` pairs each of the map's layers with its dataset, None when the
     caller can't read it; ``layers`` and ``keys`` are the manifest's layers
-    as stored and their keys. A keyed layer keeps its row. A layer added in GeoLens keeps its slot, and
-    so does a keyed layer the caller can't read, which the save keeps; the
-    manifest's layers take the other slots in manifest order, the first on
-    top. A readable keyed layer the manifest no longer lists is removed.
+    as stored and their keys. A keyed layer keeps its row, and with
+    ``keep_styling`` its stored styling and dataset too. A layer added in
+    GeoLens keeps its slot, and so does a layer the caller can't read, which
+    the save keeps; the manifest's layers take the other slots in manifest
+    order, the first on top. A readable keyed layer the manifest no longer
+    lists is removed with ``remove_missing`` and kept otherwise.
     """
     listed = {layer.key for layer in entry.layers}
-    by_key = {layer.manifest_key: layer for layer, _ in stored if layer.manifest_key}
-    kept = [
-        (layer, dataset)
+    by_key = {
+        layer.manifest_key: (layer, dataset)
         for layer, dataset in stored
-        if layer.manifest_key is None
-        or (dataset is None and layer.manifest_key not in listed)
-    ]
+        if layer.manifest_key
+    }
+
+    def stays(layer: MapLayer, dataset: Any) -> bool:
+        """Whether the row keeps its own slot rather than a manifest one."""
+        if layer.manifest_key is None:
+            return True
+        if layer.manifest_key in listed:
+            return keep_styling and dataset is None
+        return dataset is None or not remove_missing
+
+    kept = [(layer, dataset) for layer, dataset in stored if stays(layer, dataset)]
     removed = [
         layer
         for layer, dataset in stored
         if layer.manifest_key is not None
-        and dataset is not None
         and layer.manifest_key not in listed
+        and dataset is not None
+        and remove_missing
     ]
     reserved = {layer.sort_order for layer, _ in kept}
     free = (order for order in itertools.count() if order not in reserved)
-    sent = [
-        layer.model_copy(
-            update={
-                "id": by_key[key].id if key in by_key else None,
-                "sort_order": next(free),
-            }
-        )
-        for layer, key in zip(layers, keys, strict=True)
-    ]
+    sent: list[MapLayerInput] = []
+    sent_keys: list[str | None] = []
+    for layer, key in zip(layers, keys, strict=True):
+        match = by_key.get(key)
+        if match is not None and stays(*match):
+            continue
+        update: dict[str, Any] = {"sort_order": next(free)}
+        if match is not None and keep_styling:
+            layer = kept_layer(match[0])
+        elif match is not None:
+            update["id"] = match[0].id
+        else:
+            update["id"] = None
+        sent.append(layer.model_copy(update=update))
+        sent_keys.append(key)
     readable_kept = [layer for layer, dataset in kept if dataset is not None]
     sent += [kept_layer(layer) for layer in readable_kept]
-    sent_keys: list[str | None] = [*keys, *(None for _ in readable_kept)]
+    sent_keys += [layer.manifest_key for layer in readable_kept]
     unsent = [layer.id for layer, dataset in kept if dataset is None]
-    return sent, sent_keys, removed, len(entry.layers) + len(kept), unsent
+    unlisted = [layer for layer, _ in kept if layer.manifest_key not in listed]
+    return sent, sent_keys, removed, len(entry.layers) + len(unlisted), unsent

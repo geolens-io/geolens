@@ -1078,40 +1078,6 @@ async def test_an_owners_private_during_a_key_republish_is_not_widened(
     assert (await _map_row(test_db_session, created.map_id)).visibility == "private"
 
 
-@pytest.mark.parametrize("styling", ["keep", "replace_if_unedited", None])
-async def test_an_update_that_doesnt_send_replace_is_refused(
-    test_db_session, clean_tables, styling
-):
-    admin = await _admin(test_db_session)
-    dataset_id = await _dataset(test_db_session, admin.id)
-    [created] = (
-        await _apply(
-            test_db_session,
-            admin,
-            _map("qgis-map-keep", _layer(dataset_id=str(dataset_id), **_PARKS)),
-        )
-    ).maps
-    before = [layer.paint for layer in await _layers(test_db_session, created.map_id)]
-    entry = _new_map(
-        "qgis-map-keep",
-        _layer(dataset_id=str(dataset_id), paint={"fill-color": "#000000"}),
-        **({} if styling is None else {"styling": styling}),
-    )
-
-    [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
-    [refused] = (await _apply(test_db_session, admin, entry)).maps
-
-    for result in (checked, refused):
-        assert (result.action, _codes(result), result.styling) == (
-            "error",
-            [("A099", "error", None)],
-            None,
-        )
-        assert "isn't supported on an existing map" in result.messages[0].message
-    after = [layer.paint for layer in await _layers(test_db_session, created.map_id)]
-    assert after == before
-
-
 async def test_a_new_map_takes_the_default_styling_mode(test_db_session, clean_tables):
     admin = await _admin(test_db_session)
     dataset_id = await _dataset(test_db_session, admin.id)
