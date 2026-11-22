@@ -1267,11 +1267,48 @@ def _module_functions(module: Any) -> list[Any]:
     ]
 
 
+def _reached_from(entry: Any, functions: list[Any]) -> list[Any]:
+    """``entry`` and the module functions it names, called or passed on, one
+    after another."""
+    by_name = {fn.__name__: fn for fn in functions}
+    reached = {entry.__name__: entry}
+    queue = [entry]
+    while queue:
+        tree = _parse(_source_of(queue.pop()))
+        for node in ast.walk(tree) if tree is not None else ():
+            name = node.id if isinstance(node, ast.Name) else None
+            if name in by_name and name not in reached:
+                reached[name] = by_name[name]
+                queue.append(by_name[name])
+    return list(reached.values())
+
+
+def _delegates_to(method: Any, module_path: str, entry: str) -> bool:
+    """Whether ``method`` imports ``entry`` from ``module_path`` and calls it."""
+    tree = _parse(_source_of(method))
+    if tree is None:
+        return False
+    imported = any(
+        isinstance(node, ast.ImportFrom)
+        and node.module == module_path
+        and any(alias.name == entry and alias.asname is None for alias in node.names)
+        for node in ast.walk(tree)
+    )
+    called = any(
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Name)
+        and node.func.id == entry
+        for node in ast.walk(tree)
+    )
+    return imported and called
+
+
 @pytest.mark.architecture
 def test_port_reached_catalog_reads_are_guarded() -> None:
     """Every function in a port-reached module that fetches a guarded model
     calls a guard itself or in a helper it calls, a Map fetch a map guard,
-    and the module reaches every guard its entry names.
+    and the entry, through the module functions it calls, reaches every
+    guard it names.
 
     The default port must delegate the entry, so a module that stops being
     reached is noticed rather than kept here."""
@@ -1281,16 +1318,18 @@ def test_port_reached_catalog_reads_are_guarded() -> None:
 
     for module_path, (entry, required) in _PORT_REACHED_MODULES.items():
         module = importlib.import_module(module_path)
-        assert entry in _source_of(getattr(DefaultProcessingPort, entry)), (
-            f"DefaultProcessingPort.{entry} no longer delegates to {module_path}"
-        )
+        assert _delegates_to(
+            getattr(DefaultProcessingPort, entry), module_path, entry
+        ), f"DefaultProcessingPort.{entry} no longer calls {module_path}.{entry}"
         fetching: set[str] = set()
         unguarded: list[str] = []
         evidence_by_name: dict[str, str] = {}
+        functions = _module_functions(module)
         reached: set[str] = set()
-        for fn in _module_functions(module):
+        for fn in _reached_from(getattr(module, entry), functions):
+            reached |= _scan_effective(fn, _source_of(fn))[1]
+        for fn in functions:
             evidence, guards, map_fetch = _scan_effective(fn, _source_of(fn))
-            reached |= guards
             if not evidence:
                 continue
             fetching.add(fn.__name__)
@@ -1311,7 +1350,7 @@ def test_port_reached_catalog_reads_are_guarded() -> None:
         )
         assert not stale, f"Stale _PORT_REACHED_ALLOWLIST entries: {stale}"
         missing = sorted(required - reached)
-        assert not missing, f"{module_path} no longer calls {missing}"
+        assert not missing, f"{module_path}.{entry} no longer reaches {missing}"
 
 
 def test_port_reached_scan_sees_the_manifest_map_reads() -> None:

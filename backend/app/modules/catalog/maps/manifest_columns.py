@@ -99,6 +99,9 @@ _LAYOUT_TOKEN = re.compile(r"\{([^{}]+)\}")
 # and the GeoJSON `within` and `distance` take.
 _DATA_OPERATORS = frozenset({"literal", "within", "distance"})
 _OPTION_OBJECT_OPERATORS = frozenset({"format", "collator", "number-format"})
+# The second operands of a ``get`` or ``has`` that read the feature's own
+# properties.
+_FEATURE_OBJECTS = ([["properties"]], [["object", ["properties"]]])
 # The symbol settings the style export writes into the layout unchanged, so
 # each may be an expression. The icon itself is a name: the viewer reads an
 # icon as a sprite name, so ``expression_icons`` refuses any other value.
@@ -116,7 +119,8 @@ def _expression(node: Any, rename: Rename) -> Any:
     Operands are walked by position. ``literal``, ``within`` and ``distance``
     operands and ``match`` labels are data. A ``get`` or ``has`` reads the
     feature with one operand or with ``["properties"]`` as the second, and
-    another object otherwise; its name may be a string or a literal string.
+    another object otherwise, ``["object", ["properties"]]`` being the
+    feature's too; its name may be a string or a literal string.
     ``semiliteral`` evaluates its array's items, and ``format``, ``collator``
     and ``number-format`` evaluate the values of their option objects; any
     other object operand is data.
@@ -132,7 +136,7 @@ def _expression(node: Any, rename: Rename) -> Any:
         key = key[1]
     walked: range | list[int]
     if operator in ("get", "has") and isinstance(key, str):
-        if len(operands) == 1 or operands[1:] == [["properties"]]:
+        if len(operands) == 1 or operands[1:] in _FEATURE_OBJECTS:
             operands[0] = ["literal", rename(key)] if literal_key else rename(key)
         walked = range(1, len(operands))
     elif operator == "semiliteral" and operands and isinstance(operands[0], list):

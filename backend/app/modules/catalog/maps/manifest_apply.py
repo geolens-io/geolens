@@ -288,7 +288,10 @@ async def _writable_map(
     """The map ``key`` names and whether the caller may write it.
 
     ``(None, True)`` when no map has the key, and ``(None, False)`` for a map
-    the caller can't write, so nothing of it reaches the caller. With
+    the caller can't write or doesn't own, so nothing of it reaches the
+    caller. Keys are global, so an admin's write access alone would let a key
+    someone else created steer the admin's publish into that person's map;
+    only the owner writes a map through its key, as for dataset keys. With
     ``lock`` the writer's map is returned as read under its row lock, which
     the builder and sharing writes take too, held until the transaction
     ends.
@@ -311,6 +314,8 @@ async def _writable_map(
                 .execution_options(populate_existing=True)
             )
         ).scalar_one()
+    if map_obj.created_by != user.id:
+        return None, False
     return map_obj, True
 
 

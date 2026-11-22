@@ -1510,6 +1510,19 @@ async def test_a_database_error_in_one_map_leaves_the_next_map_checked(
 # Each names the column written {c}; filled with a missing and a present name.
 _READS = {
     "get_with_properties": {"paint": {"circle-radius": ["get", "{c}", ["properties"]]}},
+    "get_with_object_properties": {
+        "paint": {"circle-radius": ["get", "{c}", ["object", ["properties"]]]}
+    },
+    "has_with_object_properties": {
+        "paint": {
+            "circle-color": [
+                "case",
+                ["has", "{c}", ["object", ["properties"]]],
+                "#000",
+                "#fff",
+            ]
+        }
+    },
     "get_with_a_literal_name": {
         "paint": {"circle-radius": ["coalesce", ["get", ["literal", "{c}"]], 5]}
     },

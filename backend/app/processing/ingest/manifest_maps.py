@@ -154,12 +154,16 @@ async def run_manifest_maps(
             ],
         )
         unsettled |= {ready[r.dataset_key] for r in failed if r.dataset_key in ready}
+        bindings: dict[str, uuid.UUID] = {}
         for r in changing:
             if request.dry_run:
                 planned = _planned_publication(entries[r.dataset_key], r)
                 pending[r.dataset_key] = planned
                 if r.dataset_id is not None:
                     pending[r.dataset_id] = planned
+                    # The dataset a key whose job is in flight already names,
+                    # so its columns are checked as they are by id.
+                    bindings.setdefault(r.dataset_key, r.dataset_id)
             else:
                 not_ready.add(r.dataset_key)
                 if r.dataset_id is not None:
@@ -170,9 +174,12 @@ async def run_manifest_maps(
             user,
             dry_run=request.dry_run,
             dataset_ids_by_key={
-                key: dataset_id
-                for key, dataset_id in ready.items()
-                if key not in not_ready
+                **{key: id_ for key, id_ in bindings.items() if key not in not_ready},
+                **{
+                    key: dataset_id
+                    for key, dataset_id in ready.items()
+                    if key not in not_ready
+                },
             },
             pending_datasets=pending,
             unsettled_dataset_ids=frozenset(unsettled),

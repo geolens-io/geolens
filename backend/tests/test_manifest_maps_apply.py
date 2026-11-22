@@ -1439,9 +1439,11 @@ async def test_a_replacement_queued_while_the_apply_waits_answers_a052(
     dataset_id = await _dataset(test_db_session, admin.id)
     entry = _map("qgis-map-wait", _layer("parks", dataset_id=str(dataset_id)))
     [created] = (await _apply(test_db_session, admin, entry)).maps
-    waiting_query = text(
+    # Backends blocked by the holder: only the apply runs while it holds the
+    # map's row lock.
+    blocked_query = text(
         "SELECT count(*) FROM pg_stat_activity "
-        "WHERE wait_event_type = 'Lock' AND datname = current_database()"
+        "WHERE :holder = ANY(pg_blocking_pids(pid))"
     )
 
     async with (
@@ -1449,14 +1451,18 @@ async def test_a_replacement_queued_while_the_apply_waits_answers_a052(
         db_module.async_session() as probe,
     ):
         await probe.execute(text("SELECT 1"))
+        holder_pid = await holder.scalar(text("SELECT pg_backend_pid()"))
         await _lock_map_row(holder, created.map_id)
         apply = asyncio.create_task(_apply(test_db_session, admin, entry))
         for _ in range(200):
             await probe.execute(text("SELECT pg_stat_clear_snapshot()"))
-            if apply.done() or await probe.scalar(waiting_query):
+            if apply.done():
+                raise AssertionError("the apply didn't wait for the map's lock")
+            if await probe.scalar(blocked_query, {"holder": holder_pid}):
                 break
             await asyncio.sleep(0.05)
-        assert not apply.done(), "the apply didn't wait for the map's lock"
+        else:
+            raise AssertionError("the apply never waited on the holder's lock")
         # A replacement is queued while the apply waits for the map.
         holder.add(
             IngestJob(
@@ -1546,3 +1552,56 @@ async def test_a_kept_layer_survives_its_dataset_becoming_readable_mid_apply(
     stored = await _layers(test_db_session, created.map_id)
     survivor = [layer for layer in stored if layer.id == kept_id]
     assert survivor and survivor[0].paint == {"fill-color": "#123456"}
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+async def test_an_admin_cant_write_another_users_map_through_its_key(
+    client, test_db_session, admin_auth_header, clean_tables, dry_run
+):
+    """Keys are global, so a map key is the owner's, as a dataset key is."""
+    admin = await _admin(test_db_session)
+    editor, _ = await _person(client, test_db_session, admin_auth_header)
+    dataset_id = await _dataset(test_db_session, editor.id)
+    entry = _map("qgis-map-editors", _layer(dataset_id=str(dataset_id)))
+    [created] = (await _apply(test_db_session, editor, entry)).maps
+
+    [result] = (
+        await _apply(
+            test_db_session, admin, {**entry, "name": "Taken"}, dry_run=dry_run
+        )
+    ).maps
+
+    assert (result.action, result.map_id) == ("error", None)
+    assert _codes(result) == [("A050", "error", None)]
+    assert (await _map_row(test_db_session, created.map_id)).name == (
+        "Springfield parks"
+    )
+
+
+async def test_a_dry_run_checks_a_key_in_flight_against_the_dataset_it_names(
+    test_db_session, clean_tables
+):
+    from app.processing.ingest.manifest_maps import run_manifest_maps
+    from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _published_under(test_db_session, admin.id, "qgis-parks", dataset_id)
+    await _published_under(
+        test_db_session, admin.id, "qgis-parks", None, status="running"
+    )
+    styled = {"style_config": {"mode": "categorical", "column": "MISSING"}}
+    request = _maps_only(
+        _map("qgis-map-a", _layer(dataset_key="qgis-parks", **styled)),
+        datasets=[_local_dataset_entry("qgis-parks")],
+        dry_run=True,
+    )
+    results = [
+        ManifestApplyEntryResult(
+            dataset_key="qgis-parks", action="skip", message="m", dataset_id=dataset_id
+        )
+    ]
+
+    [result] = await run_manifest_maps(test_db_session, request, admin, results)
+
+    assert _codes(result) == [("A063", "warning", "parks")]
