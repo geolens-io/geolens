@@ -12765,7 +12765,7 @@ export interface components {
             public_fallback?: "internal" | null;
             /**
              * Maps
-             * @description Version 2 only, which is a preview. Maps built from datasets the caller can read, created or updated by key after the request's datasets. A layer can't use a dataset this request only queued: send the maps again once its job is complete.
+             * @description Version 2 only, which is a preview. Maps built from datasets the caller can read, created or updated by key after the request's datasets. A dry run answers for the whole publish, so a layer may name a dataset the same request publishes. An apply writes a layer only once its dataset's job is complete: a layer on a dataset the request creates, replaces or holds, or whose key has a job still running, answers A052, and the map is sent again once the jobs finish.
              */
             maps?: components["schemas"]["ManifestMap"][] | null;
         };
@@ -12949,16 +12949,17 @@ export interface components {
             basemap_style?: string | null;
             /**
              * Styling
-             * @description Whether a republish replaces the map's styling.
+             * @description Whether a republish replaces the map's styling. For now only `replace` is applied to an existing map: any other mode is refused with A099 and the map is left as it is. A new map takes the manifest's styling whatever the mode.
              * @default replace_if_unedited
              * @enum {string}
              */
             styling: "replace_if_unedited" | "replace" | "keep";
             /**
              * Thumbnail
-             * @description A PNG or JPEG data URI.
+             * @description A PNG or JPEG data URI. Checked, but not stored yet.
              */
             thumbnail?: string | null;
+            /** @description Checked, but not stored yet. */
             loss_report?: components["schemas"]["ManifestLossReport"] | null;
             /**
              * Visibility

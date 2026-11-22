@@ -6,6 +6,7 @@ Requirements: the docker database must be running with migrations applied.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import uuid
 from unittest.mock import AsyncMock, patch
@@ -37,13 +38,20 @@ from tests.test_manifest_maps_dry_run import (
     _http_request,
     _layer,
     _local_dataset_entry,
-    _map,
     _person,
     _published_under,
     _stage_fixture,
 )
 
+from tests.test_manifest_maps_dry_run import _map as _new_map
+
 pytestmark = pytest.mark.anyio
+
+
+def _map(key: str = "qgis-map-parks", *layers: dict, **fields) -> dict:
+    """A map entry that replaces styling unless it says otherwise."""
+    return _new_map(key, *layers, **{"styling": "replace", **fields})
+
 
 _CATEGORIES = [
     {"value": "city", "label": "City park", "color": "#4daf4a"},
@@ -857,6 +865,20 @@ _FORMS = {
     "text_field_token": {"layout": {"text-field": "{{c}} park"}},
     "popup_title": {"popup_config": {"enabled": True, "expression": "{{c}}"}},
     "heatmap_weight": {"style_config": {"builder": {"heatmapWeightColumn": "{c}"}}},
+    "saved_heatmap_paint": {
+        "style_config": {"heatmapPaint": {"heatmap-weight": ["get", "{c}"]}}
+    },
+    "saved_circle_paint": {
+        "style_config": {
+            "savedCirclePaint": {"circle-radius": {"property": "{c}", "stops": []}}
+        }
+    },
+    "builder_saved_opacity": {
+        "style_config": {"builder": {"fillOpacitySaved": ["get", "{c}"]}}
+    },
+    "builder_saved_outline_width": {
+        "style_config": {"builder": {"outlineWidthSaved": ["get", "{c}"]}}
+    },
 }
 
 
@@ -944,3 +966,321 @@ async def test_record_visibility_is_read_from_the_record(test_db_session, clean_
     ).maps
 
     assert _codes(result) == [("A020", "error", None)]
+
+
+# ---------------------------------------------------------------------------
+# Round 2: the map row lock, styling modes, dataset readiness, groups, caps
+# ---------------------------------------------------------------------------
+
+
+@contextlib.asynccontextmanager
+async def _racing_write(work):
+    """Run ``work`` in a second session right before the apply's write.
+
+    The write goes ahead once ``work`` has committed or waits on a lock the
+    apply holds, and the second session finishes after the block. Both extra
+    sessions connect first: a race that waited for a connection would prove
+    nothing.
+    """
+    import app.core.db as db_module
+
+    real = manifest_apply._write_map
+    tasks: list[asyncio.Task] = []
+    async with db_module.async_session() as other, db_module.async_session() as probe:
+        pid = await other.scalar(text("SELECT pg_backend_pid()"))
+        await probe.execute(text("SELECT 1"))
+        waiting_query = text(
+            "SELECT count(*) FROM pg_locks WHERE pid = :pid AND NOT granted"
+        )
+
+        async def racing(session, entry, request, plan):
+            async def run():
+                await work(other)
+                await other.commit()
+
+            task = asyncio.create_task(run())
+            tasks.append(task)
+            for _ in range(200):
+                if task.done() or await probe.scalar(waiting_query, {"pid": pid}):
+                    break
+                await asyncio.sleep(0.05)
+            else:
+                raise AssertionError("the second session neither finished nor waited")
+            return await real(session, entry, request, plan)
+
+        with patch.object(manifest_apply, "_write_map", racing):
+            yield
+        await asyncio.gather(*tasks)
+
+
+async def _lock_map_row(session, map_id) -> None:
+    """What a builder save does first: take the map's row lock."""
+    await session.execute(
+        text("SELECT id FROM catalog.maps WHERE id = :id FOR NO KEY UPDATE"),
+        {"id": map_id},
+    )
+
+
+async def test_a_builder_save_during_a_republish_keeps_its_layer(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    entry = _map("qgis-map-race", _layer("parks", dataset_id=str(dataset_id)))
+    [created] = (await _apply(test_db_session, admin, entry)).maps
+
+    async def builder_adds_a_layer(other):
+        await _lock_map_row(other, created.map_id)
+        other.add(
+            MapLayer(
+                map_id=created.map_id,
+                dataset_id=dataset_id,
+                sort_order=1,
+                paint={"fill-color": "#abcdef"},
+                layout={},
+            )
+        )
+
+    async with _racing_write(builder_adds_a_layer):
+        [result] = (await _apply(test_db_session, admin, entry)).maps
+
+    assert result.action == "update"
+    stored = await _layers(test_db_session, created.map_id)
+    assert sorted((layer.manifest_key or "") for layer in stored) == ["", "parks"]
+
+
+async def test_an_owners_private_during_a_key_republish_is_not_widened(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    editor, _ = await _person(client, test_db_session, admin_auth_header)
+    dataset_id = await _dataset(test_db_session, editor.id)
+    layer = _layer(dataset_id=str(dataset_id))
+    [created] = (
+        await _apply(
+            test_db_session, editor, _map("qgis-map-vis", layer, visibility="public")
+        )
+    ).maps
+    assert created.visibility == "public"
+    _as_publish_key(test_db_session)
+
+    async def owner_makes_it_private(other):
+        await _lock_map_row(other, created.map_id)
+        await other.execute(
+            update(Map).where(Map.id == created.map_id).values(visibility="private")
+        )
+
+    async with _racing_write(owner_makes_it_private):
+        await _apply(
+            test_db_session, editor, _map("qgis-map-vis", layer, visibility="internal")
+        )
+
+    assert (await _map_row(test_db_session, created.map_id)).visibility == "private"
+
+
+@pytest.mark.parametrize("styling", ["keep", "replace_if_unedited", None])
+async def test_an_update_that_doesnt_send_replace_is_refused(
+    test_db_session, clean_tables, styling
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _map("qgis-map-keep", _layer(dataset_id=str(dataset_id), **_PARKS)),
+        )
+    ).maps
+    before = [layer.paint for layer in await _layers(test_db_session, created.map_id)]
+    entry = _new_map(
+        "qgis-map-keep",
+        _layer(dataset_id=str(dataset_id), paint={"fill-color": "#000000"}),
+        **({} if styling is None else {"styling": styling}),
+    )
+
+    [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
+    [refused] = (await _apply(test_db_session, admin, entry)).maps
+
+    for result in (checked, refused):
+        assert (result.action, _codes(result), result.styling) == (
+            "error",
+            [("A099", "error", None)],
+            None,
+        )
+        assert "isn't supported on an existing map" in result.messages[0].message
+    after = [layer.paint for layer in await _layers(test_db_session, created.map_id)]
+    assert after == before
+
+
+async def test_a_new_map_takes_the_default_styling_mode(test_db_session, clean_tables):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+
+    [created] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _new_map("qgis-map-default", _layer(dataset_id=str(dataset_id))),
+        )
+    ).maps
+
+    assert (created.action, created.styling) == ("create", "applied")
+
+
+def _maps_only(*maps, datasets=(), dry_run=False) -> ManifestApplyRequest:
+    return ManifestApplyRequest.model_validate(
+        _body(*maps, dry_run=dry_run, datasets=list(datasets))
+    )
+
+
+@pytest.mark.parametrize(
+    ("action", "written"),
+    [("create", False), ("update", False), ("blocked", False), ("skip", True)],
+)
+async def test_an_apply_writes_a_layer_only_on_a_settled_dataset(
+    test_db_session, clean_tables, action, written
+):
+    from app.processing.ingest.manifest_maps import run_manifest_maps
+    from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _published_under(test_db_session, admin.id, "qgis-parks", dataset_id)
+    request = _maps_only(
+        _map("qgis-map-a", _layer(dataset_key="qgis-parks")),
+        datasets=[_local_dataset_entry("qgis-parks")],
+    )
+    results = [
+        ManifestApplyEntryResult(dataset_key="qgis-parks", action=action, message="m")
+    ]
+
+    [result] = await run_manifest_maps(test_db_session, request, admin, results)
+
+    if written:
+        assert (result.action, result.messages) == ("create", [])
+    else:
+        assert _codes(result) == [("A052", "error", "parks")]
+    assert await _count(test_db_session, Map) == int(written)
+
+
+async def test_a_public_map_over_a_dataset_the_request_narrows_is_not_written(
+    test_db_session, clean_tables
+):
+    from app.processing.ingest.manifest_maps import run_manifest_maps
+    from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _published_under(test_db_session, admin.id, "qgis-parks", dataset_id)
+    request = _maps_only(
+        _map("qgis-map-a", _layer(dataset_key="qgis-parks"), visibility="public"),
+        datasets=[{**_local_dataset_entry("qgis-parks"), "visibility": "private"}],
+    )
+    results = [
+        ManifestApplyEntryResult(dataset_key="qgis-parks", action="update", message="m")
+    ]
+
+    [result] = await run_manifest_maps(test_db_session, request, admin, results)
+
+    assert _codes(result) == [("A052", "error", "parks")]
+    assert await _count(test_db_session, Map) == 0
+
+
+@pytest.mark.parametrize("dry_run", [True, False])
+async def test_a_key_with_a_job_in_flight_answers_a052(
+    test_db_session, clean_tables, dry_run
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _published_under(test_db_session, admin.id, "qgis-parks", dataset_id)
+    await _published_under(
+        test_db_session, admin.id, "qgis-parks", dataset_id, status="running"
+    )
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _map("qgis-map-a", _layer(dataset_key="qgis-parks")),
+            dry_run=dry_run,
+        )
+    ).maps
+
+    assert _codes(result) == [("A052", "error", "parks")]
+    assert await _count(test_db_session, Map) == 0
+
+
+async def test_a_dry_run_and_an_apply_report_the_visibility_groups_leave(
+    test_db_session, clean_tables
+):
+    from app.modules.auth.models import Group
+    from app.modules.catalog.maps.models import MapGroupGrant
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    entry = _map("qgis-map-groups", _layer(dataset_id=str(dataset_id)))
+    [created] = (await _apply(test_db_session, admin, entry)).maps
+    group = Group(name=f"gl-23b-{uuid.uuid4().hex[:8]}")
+    test_db_session.add(group)
+    await test_db_session.flush()
+    test_db_session.add(MapGroupGrant(map_id=created.map_id, group_id=group.id))
+    await test_db_session.execute(
+        update(Map).where(Map.id == created.map_id).values(visibility="restricted")
+    )
+    await test_db_session.commit()
+    private = {**entry, "visibility": "private"}
+
+    [checked] = (await _apply(test_db_session, admin, private, dry_run=True)).maps
+    [applied] = (await _apply(test_db_session, admin, private)).maps
+
+    assert (checked.visibility, applied.visibility) == ("restricted", "restricted")
+
+
+async def test_a_saved_heatmap_paint_is_written_with_stored_names(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    saved = {"heatmapPaint": {"heatmap-weight": ["get", "PARK_TYPE"]}}
+
+    [created] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _map(
+                "qgis-map-heat",
+                _layer(dataset_id=str(dataset_id), style_config=saved),
+            ),
+        )
+    ).maps
+
+    [layer] = await _layers(test_db_session, created.map_id)
+    assert layer.style_config["heatmapPaint"] == {
+        "heatmap-weight": ["get", "park_type"]
+    }
+
+
+async def test_a_layer_past_the_size_cap_once_renamed_is_refused(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    long_name = "x" * 60
+    dataset = await create_dataset(
+        test_db_session,
+        created_by=admin.id,
+        column_info=[{"name": long_name, "type": "text", "source_name": "A"}],
+    )
+    await test_db_session.commit()
+    # About 18 KB as sent and about 100 KB with the stored name.
+    paint = {"circle-radius": ["coalesce", *(["get", "A"] for _ in range(1500)), 1]}
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _map("qgis-map-big", _layer(dataset_id=str(dataset.id), paint=paint)),
+        )
+    ).maps
+
+    assert (result.action, _codes(result)) == ("error", [("A099", "error", "parks")])
+    assert "too large" in result.messages[0].message
+    assert await _count(test_db_session, Map) == 0

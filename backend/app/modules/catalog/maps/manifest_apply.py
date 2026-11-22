@@ -52,8 +52,10 @@ from app.modules.catalog.maps.schemas import (
 from app.modules.catalog.maps.service import (
     bulk_check_dataset_access,
     check_map_ownership,
+    lock_map_layers,
     record_map_history_event,
 )
+from app.modules.catalog.maps.service_groups import map_has_groups, map_visibility_for
 from app.modules.catalog.maps.service_update import apply_map_create, apply_map_update
 from app.modules.settings.basemaps import list_public_basemaps
 from app.platform.extensions import get_permission_extension
@@ -127,6 +129,7 @@ class _Request:
     """What every map of one request is checked against."""
 
     user: Identity
+    dry_run: bool
     dataset_ids_by_key: Mapping[str, uuid.UUID]
     pending_datasets: Mapping[str, tuple[str | None, str]]
     datasets: Mapping[uuid.UUID, _Dataset]
@@ -272,12 +275,15 @@ async def _may_set_public(session: AsyncSession, user: Identity) -> bool:
 
 
 async def _writable_map(
-    session: AsyncSession, key: str, user: Identity
+    session: AsyncSession, key: str, user: Identity, *, lock: bool = False
 ) -> tuple[Map | None, bool]:
     """The map ``key`` names and whether the caller may write it.
 
     ``(None, True)`` when no map has the key, and ``(None, False)`` for a map
-    the caller can't write, so nothing of it reaches the caller.
+    the caller can't write, so nothing of it reaches the caller. With
+    ``lock`` the writer's map is returned as read under its row lock, which
+    the builder and sharing writes take too, held until the transaction
+    ends.
     """
     map_obj = (
         await session.execute(select(Map).where(Map.manifest_key == key))
@@ -288,6 +294,15 @@ async def _writable_map(
         await check_map_ownership(map_obj, user, session)
     except HTTPException:
         return None, False
+    if lock:
+        await lock_map_layers(session, map_obj.id)
+        map_obj = (
+            await session.execute(
+                select(Map)
+                .where(Map.id == map_obj.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
     return map_obj, True
 
 
@@ -340,6 +355,19 @@ def _layout(layer: Any) -> dict[str, Any] | None:
     if layer.layout is None and not zooms:
         return None
     return {**(layer.layout or {}), **zooms}
+
+
+def _layer_refused(layer: Any, exc: ValidationError) -> dict[str, Any]:
+    problems = "; ".join(
+        _problem(error)
+        for error in exc.errors(include_input=False)[:_MAX_REPORTED_ERRORS]
+    )
+    return _message(
+        OTHER_REFUSAL,
+        "error",
+        f"Layer {layer.key} can't be saved: {problems}",
+        layer=layer.key,
+    )
 
 
 def _check_layer(
@@ -422,18 +450,7 @@ def _check_layer(
         )
         named = named_columns(checked)
     except ValidationError as exc:
-        problems = "; ".join(
-            _problem(error)
-            for error in exc.errors(include_input=False)[:_MAX_REPORTED_ERRORS]
-        )
-        messages.append(
-            _message(
-                OTHER_REFUSAL,
-                "error",
-                f"Layer {layer.key} can't be saved: {problems}",
-                layer=layer.key,
-            )
-        )
+        messages.append(_layer_refused(layer, exc))
         return messages, None
     except RecursionError:
         messages.append(
@@ -464,9 +481,14 @@ def _check_layer(
                 layer=layer.key,
             )
         )
-    return messages, rename_layer_columns(
-        checked, lambda name: stored.stored(name) or name
-    )
+    renamed = rename_layer_columns(checked, lambda name: stored.stored(name) or name)
+    try:
+        # The stored names can be longer than the source names the size caps
+        # were checked against.
+        return messages, MapLayerInput.model_validate(renamed.model_dump())
+    except ValidationError as exc:
+        messages.append(_layer_refused(layer, exc))
+        return messages, None
 
 
 def _public_refused(entry: Any, severity: str, reason: str) -> dict[str, Any]:
@@ -604,9 +626,15 @@ def _plan_stack(
 
 
 async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _Plan:
-    """Check one map and plan its apply. Writes nothing."""
+    """Check one map and plan its apply. Writes nothing.
+
+    An apply takes the map's row lock before it reads anything else of the
+    map, and plans from what it reads under the lock.
+    """
     user = request.user
-    map_obj, writable = await _writable_map(session, entry.key, user)
+    map_obj, writable = await _writable_map(
+        session, entry.key, user, lock=not request.dry_run
+    )
     messages: list[dict[str, Any]] = []
     if not request.may_edit_maps:
         messages.append(
@@ -626,6 +654,16 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 fix="Publish as a new map.",
             )
         )
+    if map_obj is not None and entry.styling != "replace":
+        messages.append(
+            _message(
+                OTHER_REFUSAL,
+                "error",
+                f"Styling {entry.styling!r} isn't supported on an existing map "
+                "yet, so nothing was changed.",
+                fix='Send styling "replace" to replace the map\'s styling.',
+            )
+        )
     if (
         entry.basemap_style is not None
         and entry.basemap_style not in request.basemap_ids
@@ -641,13 +679,18 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
     layers: list[MapLayerInput] = []
     keys: list[str] = []
     shows_non_public = False
+    datasets = request.datasets
+    if not request.dry_run:
+        datasets = await _readable_datasets(
+            session, _layer_dataset_ids([entry], request.dataset_ids_by_key), user
+        )
     for layer in entry.layers:
         dataset_id = (
             layer.dataset_id
             if layer.dataset_id is not None
             else request.dataset_ids_by_key.get(layer.dataset_key)
         )
-        dataset = request.datasets.get(dataset_id) if dataset_id else None
+        dataset = datasets.get(dataset_id) if dataset_id else None
         planned = (
             request.pending_datasets.get(layer.dataset_key)
             if layer.dataset_key is not None
@@ -703,6 +746,12 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         entry, now, shows_non_public, request
     )
     messages.extend(visibility_messages)
+    stored_visibility = now or "private"
+    if plan.write_visibility is not None:
+        stored_visibility = map_visibility_for(
+            plan.write_visibility,
+            map_obj is not None and await map_has_groups(session, map_obj.id),
+        )
     messages.extend(
         _message(
             LAYER_REMOVED,
@@ -720,7 +769,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         "action": "error" if failed else "create" if map_obj is None else "update",
         "map_id": map_obj.id if map_obj is not None else None,
         "messages": messages,
-        "visibility": None if failed else plan.write_visibility or now or "private",
+        "visibility": None if failed else stored_visibility,
         "styling": None if failed else "applied",
         "removed_layers": []
         if failed
@@ -865,6 +914,24 @@ async def _apply_map(session: AsyncSession, entry: Any, request: _Request) -> di
         return _error_result(entry.key, MAP_APPLY_FAILED)
 
 
+def _layer_dataset_ids(
+    maps: Iterable[Any], dataset_ids_by_key: Mapping[str, uuid.UUID]
+) -> set[uuid.UUID]:
+    return {
+        dataset_id
+        for entry in maps
+        for layer in entry.layers
+        if (
+            dataset_id := (
+                layer.dataset_id
+                if layer.dataset_id is not None
+                else dataset_ids_by_key.get(layer.dataset_key)
+            )
+        )
+        is not None
+    }
+
+
 async def apply_manifest_maps(
     session: AsyncSession,
     maps: Sequence[Any],
@@ -892,24 +959,19 @@ async def apply_manifest_maps(
     or one whose write failed, so nothing of it is written. A map whose
     check or write fails unexpectedly is that map's error alone.
     """
-    layer_dataset_ids = {
-        dataset_id
-        for entry in maps
-        for layer in entry.layers
-        if (
-            dataset_id := (
-                layer.dataset_id
-                if layer.dataset_id is not None
-                else dataset_ids_by_key.get(layer.dataset_key)
-            )
-        )
-        is not None
-    }
     request = _Request(
         user=user,
+        dry_run=dry_run,
         dataset_ids_by_key=dataset_ids_by_key,
         pending_datasets=pending_datasets,
-        datasets=await _readable_datasets(session, layer_dataset_ids, user),
+        # An apply reads each map's datasets again in the map's transaction.
+        datasets=(
+            await _readable_datasets(
+                session, _layer_dataset_ids(maps, dataset_ids_by_key), user
+            )
+            if dry_run
+            else {}
+        ),
         basemap_ids=(
             await _known_basemap_ids(session)
             if any(entry.basemap_style is not None for entry in maps)

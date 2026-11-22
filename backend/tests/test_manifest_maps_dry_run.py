@@ -424,7 +424,7 @@ async def test_a_map_key_the_caller_owns_is_an_update(test_db_session, clean_tab
         await _dry_run(
             test_db_session,
             admin,
-            _map("qgis-map-own", _layer(dataset_id=str(dataset_id))),
+            _map("qgis-map-own", _layer(dataset_id=str(dataset_id)), styling="replace"),
         )
     ).maps
 
@@ -706,7 +706,11 @@ async def test_a_dry_run_writes_nothing_the_check_touched(
             await _dry_run(
                 test_db_session,
                 admin,
-                _map("qgis-map-own", _layer(dataset_id=str(dataset_id))),
+                _map(
+                    "qgis-map-own",
+                    _layer(dataset_id=str(dataset_id)),
+                    styling="replace",
+                ),
             )
         ).maps
 
@@ -826,7 +830,9 @@ async def test_a_transfer_keeps_the_keys_and_the_previous_owner_gets_a050(
         )
     ).all() == ["parks"]
 
-    republish = _map("qgis-map-own", _layer(dataset_id=str(dataset_id)))
+    republish = _map(
+        "qgis-map-own", _layer(dataset_id=str(dataset_id)), styling="replace"
+    )
     [refused] = (await _dry_run(test_db_session, previous, republish)).maps
     assert (refused.action, refused.map_id) == ("error", None)
     assert _codes(refused) == [("A050", "error", None)]
@@ -1481,18 +1487,18 @@ async def test_a_database_error_in_one_map_leaves_the_next_map_checked(
 
     real = manifest_apply._writable_map
 
-    async def failing_on_the_server(session, key, user):
+    async def failing_on_the_server(session, key, user, **kwargs):
         if key == "qgis-map-a":
             # Raised by PostgreSQL, which aborts the transaction it runs in.
             await session.execute(text("SELECT 1 / 0"))
-        return await real(session, key, user)
+        return await real(session, key, user, **kwargs)
 
     with patch.object(manifest_apply, "_writable_map", failing_on_the_server):
         response = await _dry_run(
             test_db_session,
             admin,
             _map("qgis-map-a", _layer(dataset_id=str(dataset_id))),
-            _map("qgis-map-b", _layer(dataset_id=str(dataset_id))),
+            _map("qgis-map-b", _layer(dataset_id=str(dataset_id)), styling="replace"),
         )
 
     failed, checked = response.maps
@@ -1778,8 +1784,15 @@ async def test_a_failed_replacement_entry_supplies_no_dataset(
     assert _codes(result) == codes
 
 
-def test_every_builder_key_the_export_reads_is_scanned_or_never_a_column():
-    """A builder key the style export reads must be decided on: scanned, or listed as unable to name a column."""
+def _camel_to_snake(name: str) -> str:
+    import re
+
+    return re.sub(r"(?<!^)(?=[A-Z])", "_", name).lower()
+
+
+def test_every_builder_key_the_export_or_builder_reads_is_scanned_or_never_a_column():
+    """A builder key the style export or the builder reads must be decided on:
+    scanned, or listed as unable to name a column."""
     import re
 
     from app.modules.catalog.maps import manifest_columns, style_json
@@ -1790,6 +1803,14 @@ def test_every_builder_key_the_export_reads_is_scanned_or_never_a_column():
     for keys in re.findall(r"for builder_key in \(([^)]*)\)", source):
         read |= set(re.findall(r'"([A-Za-z_]+)"', keys))
     assert {"outlineColor", "arrowColor", "heatmapWeightColumn"} <= read
+    builder_read = set()
+    for path in _builder_sources():
+        builder_read |= set(
+            re.findall(
+                r"\b(?:builderConfig|builder)\??\.([A-Za-z_]+)", path.read_text()
+            )
+        )
+    assert {"fillOpacitySaved", "outlineWidthSaved", "clusterColor"} <= builder_read
 
     camel_to_snake = {
         camel: snake for snake, camel in BUILDER_SNAKE_TO_CAMEL_KEYS.items()
@@ -1799,8 +1820,44 @@ def test_every_builder_key_the_export_reads_is_scanned_or_never_a_column():
         | set(manifest_columns._BUILDER_COLUMN_KEYS)
         | manifest_columns._BUILDER_NON_COLUMN_KEYS
     )
-    undecided = sorted(k for k in read if camel_to_snake.get(k, k) not in decided)
+    undecided = sorted(
+        k
+        for k in read | builder_read
+        if camel_to_snake.get(k, _camel_to_snake(k)) not in decided
+        and k not in decided
+        and k != "symbol"
+    )
     assert undecided == []
+
+
+def _builder_sources() -> list[Path]:
+    src = Path(__file__).parents[2] / "frontend" / "src"
+    paths = [
+        *(src / "components" / "builder").rglob("*.ts*"),
+        *(src / "lib" / "builder").rglob("*.ts*"),
+    ]
+    return [p for p in paths if "__tests__" not in p.parts and ".test." not in p.name]
+
+
+def test_every_style_config_key_a_manifest_keeps_is_scanned_or_never_a_column():
+    """The builder restores `heatmapPaint` and `savedCirclePaint` as paint, so
+    a kept style_config key is decided on, as a builder key is."""
+    import re
+
+    from app.modules.catalog.maps import manifest_columns
+    from app.modules.catalog.maps.publish_vocabulary import STYLE_METADATA_KEYS
+
+    walked = manifest_columns._STYLE_WALKED_KEYS
+    assert walked.isdisjoint(manifest_columns._STYLE_NON_COLUMN_KEYS)
+    assert walked | manifest_columns._STYLE_NON_COLUMN_KEYS == STYLE_METADATA_KEYS
+    read = set()
+    for path in _builder_sources():
+        read |= set(
+            re.findall(
+                r"\b(?:style_config|styleConfig)\??\.([A-Za-z_]+)", path.read_text()
+            )
+        )
+    assert {"heatmapPaint", "savedCirclePaint"} <= read
 
 
 def test_the_style_export_writes_a_category_icon_expression_unchanged():

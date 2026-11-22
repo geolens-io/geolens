@@ -11,12 +11,13 @@ from collections.abc import Iterable, Sequence
 
 import structlog
 from fastapi import Request
-from sqlalchemy import desc, select
+from sqlalchemy import desc, exists, select
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import aliased
 
 from app.core.identity import Identity
 from app.platform.extensions import get_processing_port
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import ACTIVE_STATUSES, IngestJob
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
     ManifestApplyRequest,
@@ -30,27 +31,38 @@ OTHER_REFUSAL = "A099"
 PUBLIC_RESTRICTED = "A020"
 
 MAPS_CHECK_FAILED = "The maps could not be checked. Try again."
+# What an apply's own dataset entries leave for a map: a queued or held job
+# whose dataset isn't the one the publish describes yet.
+_NOT_READY_ACTIONS = frozenset({"create", "update", "blocked"})
 
 log = structlog.get_logger()
 
 
-async def latest_completed_manifest_dataset_ids(
+async def ready_manifest_dataset_ids(
     db: AsyncSession, keys: Iterable[str]
 ) -> dict[str, uuid.UUID]:
-    """The dataset of each key's newest completed manifest job, in one query.
+    """The dataset each key names once its jobs have settled, in one query.
 
-    The same pick as the dataset apply's own lookup of a key: the newest
-    completed job whose dataset still exists. A key with none is left out.
+    The same pick as the dataset apply's own lookup of a key, the newest
+    completed job whose dataset still exists, for a key with no job pending
+    or running. A key with a job in flight names a dataset that job may
+    still replace, and a key with no completed job names none; both are left
+    out. A failed or cancelled replacement leaves the dataset the key named.
     """
     wanted = sorted(set(keys))
     if not wanted:
         return {}
     Dataset = get_processing_port().get_dataset_orm_class()
     key = IngestJob.user_metadata["manifest_key"].astext
+    InFlight = aliased(IngestJob)
+    in_flight = exists().where(
+        InFlight.status.in_(ACTIVE_STATUSES),
+        InFlight.user_metadata["manifest_key"].astext == key,
+    )
     rows = await db.execute(
         select(key, IngestJob.dataset_id)
         .join(Dataset, IngestJob.dataset_id == Dataset.id)
-        .where(IngestJob.status == "complete", key.in_(wanted))
+        .where(IngestJob.status == "complete", key.in_(wanted), ~in_flight)
         .distinct(key)
         .order_by(key, desc(IngestJob.completed_at), desc(IngestJob.created_at))
     )
@@ -88,12 +100,13 @@ async def run_manifest_maps(
 ) -> list[ManifestMapResult] | None:
     """One result per map, or None for a version 1 request.
 
-    ``dataset_results`` are this request's dataset outcomes. In a dry run a
-    layer may name the key of an entry that didn't fail before its dataset
-    can be read, and the map's visibility is judged on what that entry
-    publishes. An apply writes a layer only on a dataset that is complete, so
-    a layer naming an entry this request only queued answers A052, as one
-    naming an entry in error does.
+    ``dataset_results`` are this request's dataset outcomes. A dry run
+    answers for the whole publish, datasets first and maps once their jobs
+    finish: a layer may name the key of an entry that didn't fail before its
+    dataset can be read, and the map's visibility is judged on what that
+    entry publishes. An apply writes a layer only on the dataset the publish
+    describes, so a layer naming an entry this request created, replaced,
+    held or failed, or a key with a job still in flight, answers A052.
 
     An apply commits each map on its own; whatever is left open, a dry run
     entirely, is rolled back.
@@ -104,7 +117,7 @@ async def run_manifest_maps(
     if not maps:
         return []
     try:
-        dataset_ids = await latest_completed_manifest_dataset_ids(
+        dataset_ids = await ready_manifest_dataset_ids(
             db,
             (
                 layer.dataset_key
@@ -115,7 +128,12 @@ async def run_manifest_maps(
         )
         # An entry that failed in this request supplies no dataset, not even
         # the one an earlier publish left under its key.
-        failed = {r.dataset_key for r in dataset_results if r.action == "error"}
+        not_ready = {
+            r.dataset_key
+            for r in dataset_results
+            if r.action == "error"
+            or (not request.dry_run and r.action in _NOT_READY_ACTIONS)
+        }
         entries = {dataset.key: dataset for dataset in request.datasets}
         results = await get_processing_port().apply_manifest_maps(
             db,
@@ -125,7 +143,7 @@ async def run_manifest_maps(
             dataset_ids_by_key={
                 key: dataset_id
                 for key, dataset_id in dataset_ids.items()
-                if key not in failed
+                if key not in not_ready
             },
             pending_datasets={
                 r.dataset_key: _planned_publication(entries[r.dataset_key], r)

@@ -470,7 +470,12 @@ class ManifestMap(_ManifestBaseModel):
     )
     styling: Literal["replace_if_unedited", "replace", "keep"] = Field(
         default="replace_if_unedited",
-        description="Whether a republish replaces the map's styling.",
+        description=(
+            "Whether a republish replaces the map's styling. For now only "
+            "`replace` is applied to an existing map: any other mode is "
+            "refused with A099 and the map is left as it is. A new map takes "
+            "the manifest's styling whatever the mode."
+        ),
     )
     thumbnail: (
         Annotated[
@@ -482,8 +487,13 @@ class ManifestMap(_ManifestBaseModel):
             ),
         ]
         | None
-    ) = Field(default=None, description="A PNG or JPEG data URI.")
-    loss_report: ManifestLossReport | None = None
+    ) = Field(
+        default=None,
+        description="A PNG or JPEG data URI. Checked, but not stored yet.",
+    )
+    loss_report: ManifestLossReport | None = Field(
+        default=None, description="Checked, but not stored yet."
+    )
     visibility: Literal["private", "internal", "public"] | None = Field(
         default=None,
         description=(
@@ -558,10 +568,13 @@ class ManifestApplyRequest(_ManifestBaseModel):
         max_length=100,
         description=(
             "Version 2 only, which is a preview. Maps built from datasets "
-            "the caller can read, "
-            "created or updated by key after the request's datasets. A layer "
-            "can't use a dataset this request only queued: send the maps "
-            "again once its job is complete."
+            "the caller can read, created or updated by key after the "
+            "request's datasets. A dry run answers for the whole publish, so "
+            "a layer may name a dataset the same request publishes. An apply "
+            "writes a layer only once its dataset's job is complete: a layer "
+            "on a dataset the request creates, replaces or holds, or whose "
+            "key has a job still running, answers A052, and the map is sent "
+            "again once the jobs finish."
         ),
     )
 

@@ -18,15 +18,62 @@ from app.modules.catalog.maps.schemas import MapLayerInput
 Rename = Callable[[str], str]
 
 _BUILDER_COLUMN_KEYS = ("heatmap_weight_column", "height_column")
-# The builder keys, as stored, that the style export emits as paint values,
-# so each may be an expression or a legacy property function.
-_BUILDER_STYLE_VALUE_KEYS = ("outline_color", "outline_width", "arrow_color")
-# The other builder keys the style export reads. None can name a column: the
-# export takes numbers, flags, enum names or a plain colour string from them.
+# The builder keys, as stored, that the style export emits or the builder
+# restores as paint values, so each may be an expression or a legacy property
+# function.
+_BUILDER_STYLE_VALUE_KEYS = (
+    "outline_color",
+    "outline_width",
+    "arrow_color",
+    "fill_opacity_saved",
+    "outline_width_saved",
+)
+# The style_config paint dictionaries the builder restores as the layer's
+# paint when its render mode changes.
+_SAVED_PAINT_KEYS = ("heatmapPaint", "savedCirclePaint")
+_STYLE_WALKED_KEYS = frozenset({"column", "symbol", "builder", *_SAVED_PAINT_KEYS})
+# The other style_config keys a manifest keeps. None names a column: they hold
+# mode, method and ramp names, the classes' values, colours, sizes and labels.
+_STYLE_NON_COLUMN_KEYS = frozenset(
+    {
+        "mode",
+        "ramp",
+        "classCount",
+        "method",
+        "categories",
+        "breaks",
+        "colors",
+        "target",
+        "sizes",
+        "render_mode",
+        "legendLabel",
+        "reversed",
+        "sizeRange",
+        "sizeLabel",
+        "colorLabel",
+    }
+)
+# The other builder keys the style export or the builder reads. None can name
+# a column: each is read as a number, a flag, an enum or ramp name, a folder
+# name, or a plain colour string, and anything else falls back to a default.
 _BUILDER_NON_COLUMN_KEYS = frozenset(
     {
         "stroke_disabled",
+        "fill_disabled",
         "fill_color_saved",
+        "heatmap_ramp",
+        "heatmap_reversed",
+        "cluster_radius",
+        "cluster_max_zoom",
+        "cluster_color",
+        "cluster_text_color",
+        "cluster_text_size",
+        "cluster_color_ramp",
+        "cluster_show_counts",
+        "folder_group",
+        "folder_group_id",
+        "folder_group_name",
+        "folder_group_expanded",
         "height_scale",
         "extrusion_min_zoom",
         "extrusion_opacity",
@@ -239,6 +286,12 @@ def _style_config(style_config: dict[str, Any] | None, rename: Rename) -> Any:
     renamed = dict(style_config)
     if isinstance(renamed.get("column"), str) and renamed["column"]:
         renamed["column"] = rename(renamed["column"])
+    for key in _SAVED_PAINT_KEYS:
+        if isinstance(renamed.get(key), dict):
+            renamed[key] = {
+                prop: _style_value(value, rename)
+                for prop, value in renamed[key].items()
+            }
     symbol = renamed.get("symbol")
     if isinstance(symbol, dict):
         symbol = renamed["symbol"] = dict(symbol)

@@ -41,8 +41,10 @@ class ManifestApplyRequest:
         public_fallback (Literal['internal'] | None | Unset): Version 2 only. When public visibility is refused for an
             entry, write it as internal with warning A020 instead of failing it.
         maps (list[ManifestMap] | None | Unset): Version 2 only, which is a preview. Maps built from datasets the caller
-            can read, created or updated by key after the request's datasets. A layer can't use a dataset this request only
-            queued: send the maps again once its job is complete.
+            can read, created or updated by key after the request's datasets. A dry run answers for the whole publish, so a
+            layer may name a dataset the same request publishes. An apply writes a layer only once its dataset's job is
+            complete: a layer on a dataset the request creates, replaces or holds, or whose key has a job still running,
+            answers A052, and the map is sent again once the jobs finish.
     """
 
     manifest_version: ManifestApplyRequestManifestVersion
