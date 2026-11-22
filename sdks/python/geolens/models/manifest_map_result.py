@@ -36,8 +36,8 @@ class ManifestMapResult:
         messages (list[ManifestMessage] | Unset):
         visibility (None | str | Unset): Who can see the map after the apply, or in a dry run would. Null for a map in
             error.
-        styling (ManifestMapResultStylingType0 | None | Unset): Whether the manifest's styling replaced the map's. Null
-            for a map in error.
+        styling (ManifestMapResultStylingType0 | None | Unset): `applied` when the manifest's styling replaced the
+            map's, `kept` when the map kept its own. Null for a map in error.
         removed_layers (list[ManifestRemovedLayer] | Unset): Keyed layers the manifest no longer lists and the caller
             can read, removed from the map (info A059). Their datasets stay. One on a dataset the caller can't read stays on
             the map.

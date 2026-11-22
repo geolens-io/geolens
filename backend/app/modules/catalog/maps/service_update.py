@@ -1,7 +1,10 @@
 """Map creates and updates with the checks, audit and history every caller needs."""
 
+import math
 import uuid
 from collections.abc import Sequence
+from decimal import ROUND_HALF_UP, Context, Decimal
+from typing import Any
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -25,6 +28,7 @@ from app.modules.catalog.maps.service import (
     RestrictedWithoutGroupsError,
     bulk_check_dataset_access,
     create_map,
+    lock_map_layers,
     record_map_history_event,
     update_map,
     validate_public_visibility,
@@ -33,6 +37,43 @@ from app.modules.embed_tokens.service import revoke_embed_tokens_for_dropped_dat
 from app.platform.request_credential import api_key_audit_details
 
 _HISTORY_FIELDS = ("name", "visibility", "terrain_config", "basemap_config")
+# The map's view and basemap. The builder sends them on every save, so a
+# settings event records which of them changed value, not only which were sent.
+CAMERA_FIELDS = ("center_lng", "center_lat", "zoom", "bearing", "pitch")
+VIEW_FIELDS = (*CAMERA_FIELDS, "basemap_style")
+_BUILDER_STEP = Decimal("0.000001")
+# Room for any finite double at 6 decimals; the default 28 digits refuse a
+# large one.
+_EXACT = Context(prec=400)
+
+
+def _as_the_builder_saves(value: float) -> Decimal:
+    """``value`` as the builder stores it, ``Number(value.toFixed(6))``:
+    the double's exact value rounded to 6 decimals, half away from zero."""
+    return Decimal(value).quantize(
+        _BUILDER_STEP, rounding=ROUND_HALF_UP, context=_EXACT
+    )
+
+
+def _view_moved(field: str, previous: Any, current: Any) -> bool:
+    """Whether a save moved the stored view field.
+
+    The builder saves the camera it shows, rounded to 6 decimals and with
+    its bearing in (-180, 180], so values are compared as it would save
+    them: a value that rounds to the same, or for longitude and bearing to
+    a whole number of turns away, is unchanged. A value set where none was
+    stored is a move.
+    """
+    if previous is None or current is None or field == "basemap_style":
+        return current != previous
+    if not (math.isfinite(previous) and math.isfinite(current)):
+        return current != previous
+    change = _EXACT.subtract(
+        _as_the_builder_saves(current), _as_the_builder_saves(previous)
+    )
+    if field in ("bearing", "center_lng"):
+        return _EXACT.remainder(change, 360) != 0
+    return change != 0
 
 
 async def apply_map_create(
@@ -144,7 +185,11 @@ async def apply_map_update(
     await _check_map_update(db, map_obj, body, user)
 
     changed_fields = list(body.model_dump(exclude_unset=True).keys())
-    previous = {field: getattr(map_obj, field) for field in _HISTORY_FIELDS}
+    if record_history and any(getattr(body, f) is not None for f in VIEW_FIELDS):
+        # The values compared with are read under the lock the save holds.
+        await lock_map_layers(db, map_id)
+        await db.refresh(map_obj, attribute_names=[*_HISTORY_FIELDS, *VIEW_FIELDS])
+    previous = {f: getattr(map_obj, f) for f in (*_HISTORY_FIELDS, *VIEW_FIELDS)}
     kwargs = {**_update_kwargs(body, layer_keys), "keep_layer_ids": keep_layer_ids}
     saved = await _save_map_update(db, map_id, body, user, kwargs)
     map_obj, layer_tuples = saved[0], saved[1]
@@ -333,7 +378,14 @@ async def _record_update_history(
             bool(config_fields),
             "map.config_update",
             "Updated map settings",
-            {"changed_fields": config_fields},
+            {
+                "changed_fields": config_fields,
+                "view_changed": [
+                    f
+                    for f in VIEW_FIELDS
+                    if f in kwargs and _view_moved(f, previous[f], getattr(map_obj, f))
+                ],
+            },
         ),
     ]
     for changed, action, summary, details in history_events:

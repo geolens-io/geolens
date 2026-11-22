@@ -1223,8 +1223,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # A layer write takes the map row, then the datasets it adds layers on, before any layer row.
         "backend/app/modules/catalog/maps/service_layers.py": 379,
         # Map creates and updates hold the route policy a publish manifest
-        # reuses, with its layer keys and the rows it keeps.
-        "backend/app/modules/catalog/maps/service_update.py": 352,
+        # reuses, with its layer keys and the rows it keeps, and record which
+        # view fields a save moved beyond the builder's rounding.
+        "backend/app/modules/catalog/maps/service_update.py": 404,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
@@ -1445,7 +1446,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/dependencies.py": 1008,
     # Map endpoints share response assembly, visibility and ownership checks,
     # and the map_author key's limits on the routes it may write.
-    "backend/app/modules/catalog/maps/router.py": 1319,
+    "backend/app/modules/catalog/maps/router.py": 1326,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.

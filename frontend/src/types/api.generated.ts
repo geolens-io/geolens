@@ -12949,17 +12949,17 @@ export interface components {
             basemap_style?: string | null;
             /**
              * Styling
-             * @description Whether a republish replaces the map's styling. For now only `replace` is applied to an existing map: any other mode is refused with A099 and the map is left as it is. A new map takes the manifest's styling whatever the mode.
+             * @description Whether a republish replaces the map's styling: its view, basemap and its keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless styling it would write was edited in GeoLens since the last publish that replaced it, and answers info A070 when it keeps it. A view or basemap edit counts only when the manifest sends a `view` or `basemap_style` that would overwrite it. A kept layer keeps its dataset too, with warning A073 when the manifest names another. Name, description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's styling.
              * @default replace_if_unedited
              * @enum {string}
              */
             styling: "replace_if_unedited" | "replace" | "keep";
             /**
              * Thumbnail
-             * @description A PNG or JPEG data URI. Checked, but not stored yet.
+             * @description A PNG or JPEG data URI, stored as the map's thumbnail once the map is written, with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling leaves the map's thumbnail as it is. One the storage step refuses or can't store is warning A072, and the map stays published.
              */
             thumbnail?: string | null;
-            /** @description Checked, but not stored yet. */
+            /** @description Written, one line per item, in a block at the top of the map's notes, above a `---` line. A republish replaces the leading block only when it is exactly a block some publish of this map wrote; all other text is kept whole. Left out when the styling is kept, and cut to what fits the notes limit. When the notes leave no room for the block, none is written, and an earlier publish's block is removed if the notes start with one; the rest of the notes is untouched (info A071). */
             loss_report?: components["schemas"]["ManifestLossReport"] | null;
             /**
              * Visibility
@@ -13063,7 +13063,7 @@ export interface components {
             visibility?: string | null;
             /**
              * Styling
-             * @description Whether the manifest's styling replaced the map's. Null for a map in error.
+             * @description `applied` when the manifest's styling replaced the map's, `kept` when the map kept its own. Null for a map in error.
              */
             styling?: ("applied" | "kept") | null;
             /**
