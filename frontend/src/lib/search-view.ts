@@ -3,7 +3,7 @@ import { readStorage, storageKeys, writeStorage } from '@/lib/storage';
 
 export type SearchResultDensity = 'comfortable' | 'compact';
 
-export const COMPACT_PAGE_SIZE = 25;
+const COMPACT_PAGE_SIZE = 25;
 
 // Storage may be unavailable, so the last view chosen this session is kept in
 // memory and storage only seeds and persists it.
