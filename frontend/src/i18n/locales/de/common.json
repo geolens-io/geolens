@@ -8,7 +8,7 @@
   "delete": "Löschen",
   "confirm": "Bestätigen",
   "newVersion": {
-    "message": "Eine neue Version von GeoLens ist verfügbar",
+    "message": "Diese Website wurde aktualisiert. Laden Sie die Seite neu, um die neue Version zu verwenden.",
     "reload": "Neu laden"
   },
   "close": "Schließen",
