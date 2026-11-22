@@ -6,19 +6,24 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import time
 import uuid
 
 import pytest
 import sqlalchemy as sa
-from httpx import AsyncClient
+from httpx import ASGITransport, AsyncClient
+from sqlalchemy.ext.asyncio import create_async_engine
+from sqlalchemy.pool import NullPool
 
 import app.core.db as db_module
+from app.api.main import app
+from app.core.config import settings
 import app.modules.catalog.maps.service_diff as service_diff
 import app.modules.catalog.maps.service_layers as service_layers
 from app.modules.catalog.datasets.domain import service_lifecycle
 from app.modules.catalog.datasets.domain.models import Dataset, Record
-from app.modules.catalog.maps.models import MapLayer
+from app.modules.catalog.maps.models import Map, MapLayer
 from app.processing.ingest.manifest_schemas import ManifestApplyRequest
 from app.processing.ingest.manifest_service import apply_manifest
 from tests.factories import create_dataset, create_user
@@ -444,3 +449,99 @@ async def test_a_repoint_that_waited_while_a_delete_took_its_layer_answers_409(
         assert "A099" in text
     logged = [str(r.msg) for r in caplog.records]
     assert not [msg for msg in logged if "Unhandled" in msg or "StaleData" in msg]
+
+
+def _delete_record_elsewhere(dataset_id: uuid.UUID) -> None:
+    """Delete the dataset's record on another connection and commit, from a
+    synchronous point inside a request."""
+    failure: list[BaseException] = []
+
+    async def delete() -> None:
+        engine = create_async_engine(settings.test_database_url, poolclass=NullPool)
+        try:
+            async with engine.begin() as conn:
+                await conn.execute(sa.text("SET LOCAL lock_timeout = '3s'"))
+                await conn.execute(
+                    sa.text(
+                        "DELETE FROM catalog.records WHERE id = "
+                        "(SELECT record_id FROM catalog.datasets WHERE id = :d)"
+                    ),
+                    {"d": dataset_id},
+                )
+        finally:
+            await engine.dispose()
+
+    def run() -> None:
+        try:
+            asyncio.run(delete())
+        except BaseException as exc:  # noqa: BLE001 - reported to the caller
+            failure.append(exc)
+
+    thread = threading.Thread(target=run)
+    thread.start()
+    thread.join(15)
+    assert not thread.is_alive(), "the delete never finished"
+    assert not failure, failure
+
+
+async def test_a_full_replace_writing_a_layer_deleted_meanwhile_answers_409(
+    client: AsyncClient, world, test_db_session, monkeypatch, caplog
+):
+    """A PUT that restyles a kept layer, whose dataset's delete commits after
+    the PUT read the layers and their datasets, answers 409 and writes
+    nothing."""
+    caplog.set_level(logging.INFO)
+    real = service_diff._prepare_layer_storage
+    deleted: list[bool] = []
+
+    def delete_first(*args, **kwargs):
+        if not deleted:
+            _delete_record_elsewhere(world["dataset_id"])
+            deleted.append(True)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(service_diff, "_prepare_layer_storage", delete_first)
+    body = {
+        "name": "Renamed",
+        "layers": [
+            {
+                "id": str(world["layer_id"]),
+                "dataset_id": str(world["dataset_id"]),
+                "paint": {"circle-color": "#123456"},
+            }
+        ],
+    }
+    async with AsyncClient(
+        transport=ASGITransport(app=app, raise_app_exceptions=False),
+        base_url="http://test",
+    ) as raw:
+        resp = await raw.put(
+            f"/maps/{world['map_id']}", json=body, headers=world["headers"]
+        )
+        monkeypatch.undo()
+        retry = await raw.put(
+            f"/maps/{world['map_id']}", json=body, headers=world["headers"]
+        )
+
+    assert deleted == [True]
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["code"] == "catalog_lock_conflict"
+    assert resp.json()["detail"]["message"] == (
+        "Another request changed this record. Retry."
+    )
+    assert not [
+        r
+        for r in caplog.records
+        if r.exc_info or "Unhandled" in str(r.msg) or "Traceback" in str(r.msg)
+    ]
+    test_db_session.expire_all()
+    assert (
+        await test_db_session.scalar(
+            sa.select(Map.name).where(Map.id == world["map_id"])
+        )
+        == "Parks"
+    )
+    assert retry.status_code == 403, retry.text
+    assert retry.json()["detail"]["message"] == (
+        "Cannot access one or more layer datasets"
+    )

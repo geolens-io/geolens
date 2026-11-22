@@ -813,6 +813,7 @@ app.add_exception_handler(RateLimitExceeded, _rate_limit_handler)
 
 
 from sqlalchemy.exc import DBAPIError  # noqa: E402
+from sqlalchemy.orm.exc import StaleDataError  # noqa: E402
 
 from app.core.db.sqlstate import (  # noqa: E402
     is_lock_conflict,
@@ -945,6 +946,14 @@ async def _catalog_lock_conflict_handler(
     )
 
 
+async def _stale_row_handler(request: Request, exc: Exception) -> JSONResponse:
+    """Map a write to a row another transaction deleted after this request
+    read it to 409. The failed flush committed nothing, so a retry is safe."""
+    return _catalog_lock_conflict_response(
+        request, "Another request changed this record. Retry."
+    )
+
+
 async def _database_error_handler(request: Request, exc: DBAPIError) -> JSONResponse:
     """Map an operational database failure to a 503.
 
@@ -988,6 +997,7 @@ app.add_exception_handler(StorageQuotaExceededError, _storage_quota_handler)
 app.add_exception_handler(DatasetInSharedMapsError, _dataset_in_shared_maps_handler)
 app.add_exception_handler(PublicationStatusChanged, _publication_status_changed_handler)
 app.add_exception_handler(CatalogLockConflict, _catalog_lock_conflict_handler)
+app.add_exception_handler(StaleDataError, _stale_row_handler)
 app.add_exception_handler(DBAPIError, _database_error_handler)
 
 # Registered FIRST so it ends up INNERMOST (add_middleware prepends; closest
