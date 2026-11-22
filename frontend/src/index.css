@@ -673,11 +673,12 @@ html [data-sonner-toaster][data-sonner-theme] {
 /* Forced colors drops box shadows, so a focus ring alone leaves keyboard focus
    invisible in Windows high contrast mode. Unlayered, so it outranks the
    `outline-none` utilities; inset, so an overflow-hidden parent can't clip it.
-   MapLibre's controls set `outline: none` with a more specific selector. */
+   MapLibre's controls set `outline: none` with a more specific selector.
+   Transparent lets the browser pick the system colour for each element. */
 @media (forced-colors: active) {
   :focus-visible,
   .maplibregl-ctrl :is(button, summary):focus-visible {
-    outline: 2px solid CanvasText;
+    outline: 2px solid transparent;
     outline-offset: -2px;
   }
   /* The dark theme inverts these controls with a filter, outline included. */
