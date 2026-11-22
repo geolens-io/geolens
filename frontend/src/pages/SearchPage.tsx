@@ -23,8 +23,7 @@ import { useAuthStore } from '@/stores/auth-store';
 import { useUrlSearchSync } from '@/components/search/hooks/use-url-search-sync';
 import { useDocumentTitle } from '@/hooks/use-document-title';
 import { usePermissions } from '@/hooks/use-permissions';
-import { pageSizeFor, readStoredDensity, type SearchResultDensity } from '@/lib/search-view';
-import { storageKeys, writeStorage } from '@/lib/storage';
+import { pageSizeFor, readStoredDensity, storeDensity, type SearchResultDensity } from '@/lib/search-view';
 
 interface SearchControlsProps {
   totalResults: number | undefined;
@@ -80,7 +79,7 @@ export function SearchPage() {
     if (value !== 'comfortable' && value !== 'compact') return; // ToggleGroup sends '' on deselect
     if (value === density) return;
     setDensity(value);
-    writeStorage(storageKeys.searchView, value);
+    storeDensity(value);
     useSearchStore.setState({
       limit: pageSizeFor(value),
       offset: 0,
@@ -123,6 +122,19 @@ export function SearchPage() {
           : mapMatchText
             ? `${catalogText}${catalogEmpty ? '.' : ','} ${mapMatchText}`
             : catalogText;
+  // A page-size change keeps the previous data while it refetches; its count
+  // hasn't changed, so the status holds until the new page settles.
+  const settledStatus = useRef({ key: '', limit, text: '' });
+  let liveText = liveStatus;
+  if (!isFetching) {
+    settledStatus.current = { key: searchKey, limit, text: liveStatus };
+  } else if (
+    data &&
+    limit !== settledStatus.current.limit &&
+    searchKey === settledStatus.current.key
+  ) {
+    liveText = settledStatus.current.text;
+  }
   const shouldShowMapSearch = hasMapTextQuery && (isMapSearchPending || !!mapsError || hasMapMatches);
 
   useUrlSearchSync();
@@ -156,7 +168,7 @@ export function SearchPage() {
               </SearchControls>
             </section>
 
-            <LiveAnnouncement text={liveStatus} trigger={searchKey} />
+            <LiveAnnouncement text={liveText} trigger={searchKey} />
 
             {isFetching && data && (
               <div aria-hidden="true" className="inline-flex items-center gap-2 rounded-md border bg-card px-3 py-1.5 text-sm text-muted-foreground shadow-sm">

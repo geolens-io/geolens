@@ -918,6 +918,18 @@ describe('SearchResultCard', () => {
       expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('6 cols');
     });
 
+    it.each([
+      ['an unknown row count with columns', { feature_count: null, column_count: 6 }, '6 cols'],
+      ['an unknown row count without columns', { feature_count: null, column_count: null }, ''],
+      ['a real zero row count', { feature_count: 0, column_count: null }, '0 rows'],
+    ])('reads %s correctly for a table', (_name, overrides, expected) => {
+      compact(makeFeature({ record_type: 'table', geometry_type: null, ...overrides }));
+
+      const spec = screen.getByTestId('dataset-card-specs');
+      expect(spec.textContent).toBe(expected);
+      expect(spec.textContent).not.toContain(expected === '6 cols' ? 'rows' : 'zzz');
+    });
+
     it('shows raster bands in the spec', () => {
       compact(makeFeature({ record_type: 'raster_dataset', geometry_type: null, band_count: 3, feature_count: null }));
 

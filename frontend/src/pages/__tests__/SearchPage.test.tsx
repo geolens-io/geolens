@@ -271,6 +271,37 @@ describe('SearchPage', () => {
       }
     });
 
+    it('keeps the chosen view through "Clear search & filters" when storage is unavailable', async () => {
+      const spies = (['getItem', 'setItem'] as const).map((m) =>
+        vi.spyOn(Storage.prototype, m).mockImplementation(() => {
+          throw new Error('denied');
+        }),
+      );
+      try {
+        const { rerender } = render(<SearchPage />, { route: '/' });
+        await userEvent.click(screen.getByRole('radio', { name: 'Compact' }));
+        const populated = mockUseSearchResults();
+
+        act(() => useSearchStore.setState({ q: 'nothing here' }));
+        mockUseSearchResults.mockReturnValue({
+          data: { type: 'FeatureCollection', numberMatched: 0, numberReturned: 0, features: [] },
+          isLoading: false,
+          error: null,
+          isFetching: false,
+        } as unknown as ReturnType<typeof useSearchResults>);
+        rerender(<SearchPage />);
+        await userEvent.click(screen.getByRole('button', { name: 'Clear search & filters' }));
+        expect(useSearchStore.getState().limit).toBe(25);
+
+        mockUseSearchResults.mockReturnValue(populated);
+        rerender(<SearchPage />);
+        expect(densities()).toEqual(['compact', 'compact']);
+        expect(screen.getByRole('radio', { name: 'Compact' })).toBeChecked();
+      } finally {
+        spies.forEach((spy) => spy.mockRestore());
+      }
+    });
+
     it('labels the group and is operable from the keyboard', async () => {
       render(<SearchPage />, { route: '/' });
 
@@ -292,6 +323,30 @@ describe('SearchPage', () => {
       expect(liveAnnouncementProps.length).toBeGreaterThan(0);
       expect(new Set(liveAnnouncementProps.map((p) => p.trigger)).size).toBe(1);
       expect(new Set(liveAnnouncementProps.map((p) => p.text))).toEqual(new Set(['12 catalog results']));
+    });
+
+    it('holds the announcement through a pending refetch after a view change, but not a new query', async () => {
+      const populated = mockUseSearchResults();
+      const { rerender } = render(<SearchPage />, { route: '/' });
+      await waitFor(() => expect(statusTexts()).toContain('12 catalog results'));
+      const settledTrigger = liveAnnouncementProps.at(-1)?.trigger;
+      liveAnnouncementProps.length = 0;
+
+      mockUseSearchResults.mockReturnValue({ ...populated, isFetching: true } as ReturnType<typeof useSearchResults>);
+      await userEvent.click(screen.getByRole('radio', { name: 'Compact' }));
+      mockUseSearchResults.mockReturnValue(populated);
+      rerender(<SearchPage />);
+
+      expect(liveAnnouncementProps.length).toBeGreaterThan(1);
+      expect(new Set(liveAnnouncementProps.map((p) => p.text))).toEqual(new Set(['12 catalog results']));
+      expect(new Set(liveAnnouncementProps.map((p) => p.trigger))).toEqual(new Set([settledTrigger]));
+
+      mockUseSearchResults.mockReturnValue({ ...populated, isFetching: true } as ReturnType<typeof useSearchResults>);
+      await userEvent.click(screen.getByRole('radio', { name: 'Comfortable' }));
+      act(() => useSearchStore.getState().setQuery('roads'));
+
+      expect(liveAnnouncementProps.at(-1)?.text).toBe('Updating results...');
+      expect(liveAnnouncementProps.at(-1)?.trigger).not.toBe(settledTrigger);
     });
 
     it('still re-triggers the announcement for a new query', async () => {

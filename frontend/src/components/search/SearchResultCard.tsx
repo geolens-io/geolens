@@ -242,12 +242,14 @@ export const SearchResultCard = memo(function SearchResultCard({
         ? t('collection.datasetCount', { count: properties.dataset_count, defaultValue: '{{count}} datasets' })
         : ''
       : isTable
-        ? properties.column_count
-          ? t('card.tableRowsColsJoined', {
-              rows: t('card.tableRows', { count: properties.feature_count ?? 0 }),
-              cols: t('card.tableCols', { count: properties.column_count }),
-            })
-          : t('card.tableRows', { count: properties.feature_count ?? 0 })
+        ? [
+            properties.feature_count != null
+              ? t('card.tableRows', { count: properties.feature_count })
+              : '',
+            properties.column_count ? t('card.tableCols', { count: properties.column_count }) : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')
         : cardSpecs
             .filter((spec) => spec.label !== properties.crs)
             .map((spec) => spec.label)
