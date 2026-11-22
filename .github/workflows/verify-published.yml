@@ -697,3 +697,44 @@ jobs:
             attempt=$((attempt + 1))
             sleep "${RETRY_DELAY}"
           done
+
+      # Releases before installer provenance have no bundle, and release.yml
+      # publishes without one when the attestation is missing, so an absent
+      # bundle is a warning. A bundle that is attached must verify for its tag.
+      # gh downloads the Sigstore trust root on each run, so a failure is
+      # retried a few times before the step fails.
+      - name: Verify the install script's provenance
+        if: ${{ steps.release_guard.outputs.hollow != 'true' }}
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ steps.release_guard.outputs.resolved_version || env.VERIFY_VERSION }}
+          REPOSITORY: ${{ github.repository }}
+          VERIFY_ATTEMPTS: "3"
+          VERIFY_DELAY: "20"
+        run: |
+          case "${VERSION}" in
+            latest) TAG="$(gh release view --repo "${REPOSITORY}" --json tagName --jq .tagName)" ;;
+            v*) TAG="${VERSION}" ;;
+            *) TAG="v${VERSION}" ;;
+          esac
+          ASSETS="$(gh release view "${TAG}" --repo "${REPOSITORY}" --json assets --jq '.assets[].name')"
+          if ! printf '%s\n' "${ASSETS}" | grep -Fqx 'install.sh.intoto.jsonl'; then
+            echo "::warning::${TAG} has no install.sh.intoto.jsonl, so the install script's provenance was not checked"
+            exit 0
+          fi
+          mkdir provenance
+          gh release download "${TAG}" --repo "${REPOSITORY}" --dir provenance \
+            --pattern install.sh --pattern install.sh.intoto.jsonl
+          attempt=1
+          until gh attestation verify provenance/install.sh \
+              --repo "${REPOSITORY}" \
+              --source-ref "refs/tags/${TAG}" \
+              --signer-workflow "${REPOSITORY}/.github/workflows/publish.yml" \
+              --bundle provenance/install.sh.intoto.jsonl; do
+            if [ "${attempt}" -ge "${VERIFY_ATTEMPTS}" ]; then
+              echo "::error::install.sh.intoto.jsonl on ${TAG} did not verify after ${attempt} attempts"
+              exit 1
+            fi
+            attempt=$((attempt + 1))
+            sleep "${VERIFY_DELAY}"
+          done

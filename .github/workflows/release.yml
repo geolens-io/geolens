@@ -33,9 +33,11 @@ jobs:
       github.event.workflow_run.event == 'push' &&
       startsWith(github.event.workflow_run.head_branch, 'v')
     runs-on: ubuntu-26.04
-    timeout-minutes: 10
+    timeout-minutes: 20
+    # attestations: read lets the provenance step fetch install.sh's bundle.
     permissions:
       contents: write
+      attestations: read
     env:
       TAG: ${{ github.event.workflow_run.head_branch }}
     steps:
@@ -59,11 +61,23 @@ jobs:
             exit 1
           fi
 
+      # The tag, checked against the commit the smoke tested: a tag moved
+      # after its smoke stops the release here, before anything is published.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
         with:
           persist-credentials: false
-          ref: ${{ github.event.workflow_run.head_sha }}
+          ref: refs/tags/${{ env.TAG }}
           fetch-depth: 0
+
+      - name: Require the tag to point at the smoked commit
+        env:
+          SMOKED_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          HEAD_SHA="$(git rev-parse HEAD)"
+          if [ "${HEAD_SHA}" != "${SMOKED_SHA}" ]; then
+            echo "::error::${TAG} points at ${HEAD_SHA}, but the smoke tested ${SMOKED_SHA}; refusing to release"
+            exit 1
+          fi
 
       - name: Get previous tag
         id: prev
@@ -185,6 +199,61 @@ jobs:
           # install.sh and SHA256SUMS are downloaded into the same directory.
           ( cd scripts && sha256sum install.sh ) > SHA256SUMS
           gh release upload "${TAG}" SHA256SUMS --clobber
+
+      # publish.yml's attest-installer job attests install.sh on the tag push.
+      # This step looks that attestation up by the digest of the script it
+      # just uploaded, verifies it was signed by publish.yml for this tag and
+      # the smoked commit, and attaches it. install.sh is often unchanged
+      # between releases, so one digest carries an attestation per tag; gh
+      # filters by ref only after fetching, hence the --limit at its maximum.
+      # gh, not a bare API call, because the attestations endpoint returns a
+      # compressed bundle_url rather than an inline bundle.
+      #
+      # The release and its other assets are already up, so a missing
+      # attestation never holds the release back: the step waits a bounded
+      # time for that job, then reports and moves on. continue-on-error keeps
+      # the job's conclusion, which verify-published.yml reads, on the release
+      # itself.
+      - name: Attach the install script's provenance
+        continue-on-error: true
+        timeout-minutes: 8
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          SMOKED_SHA: ${{ github.event.workflow_run.head_sha }}
+          WAIT_SECONDS: "300"
+          POLL_SECONDS: "30"
+        run: |
+          report() {
+            {
+              echo "### Install script provenance"
+              echo
+              echo "- $1"
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+          missing() {
+            echo "::warning title=Install script provenance missing::$1 ${TAG} was released without install.sh.intoto.jsonl."
+            report "MISSING for ${TAG}: $1"
+            exit 1
+          }
+
+          deadline=$((SECONDS + WAIT_SECONDS))
+          until timeout 60 gh attestation verify scripts/install.sh \
+              --repo "${GITHUB_REPOSITORY}" \
+              --source-ref "refs/tags/${TAG}" \
+              --source-digest "${SMOKED_SHA}" \
+              --signer-workflow "${GITHUB_REPOSITORY}/.github/workflows/publish.yml" \
+              --limit 1000 \
+              --format json --jq '.[0].attestation.bundle' > bundle.json; do
+            if [ "${SECONDS}" -ge "${deadline}" ]; then
+              missing "No verified attestation of install.sh for ${TAG} within ${WAIT_SECONDS}s; check publish.yml's 'Attest the install script' job for the tag."
+            fi
+            sleep "${POLL_SECONDS}"
+          done
+          jq -ce 'select(type == "object")' bundle.json > install.sh.intoto.jsonl \
+            || missing "The verified attestation had no bundle."
+          gh release upload "${TAG}" install.sh.intoto.jsonl --clobber \
+            || missing "Uploading the bundle failed."
+          report "attached install.sh.intoto.jsonl for ${TAG}"
 
       # The site repo (geolens-io/getgeolens.com) listens for this dispatch to
       # run release-drift immediately and to open its docs-contract sync PR
