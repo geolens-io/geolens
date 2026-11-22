@@ -32,9 +32,10 @@ const toggleGroupItemVariants = cva(
           "text-foreground/80 data-[state=on]:border-border data-[state=on]:bg-accent data-[state=on]:text-foreground",
       },
       size: {
-        default: "h-8 px-3 text-sm",
-        sm: "h-7 px-2.5 text-xs",
-        lg: "h-9 px-4 text-sm",
+        default: "h-8 px-3 text-sm pointer-coarse:min-h-11",
+        sm: "h-7 px-2.5 text-xs pointer-coarse:min-h-11",
+        lg: "h-9 px-4 text-sm pointer-coarse:min-h-11",
+        icon: "h-8 px-3 text-sm pointer-coarse:min-h-11 pointer-coarse:min-w-11",
       },
     },
     defaultVariants: {

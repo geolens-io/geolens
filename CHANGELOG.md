@@ -18,6 +18,7 @@ and releases use semantic versioning.
 - Overlay authors: `EXTENSION_API_VERSION` is now 27. `ProcessingPort.apply_manifest_maps` writes maps outside a dry run and takes `apply_manifest_maps(session, maps, user, *, dry_run, dataset_ids_by_key, pending_datasets, unsettled_dataset_ids, public_fallback, client, ip_address)`, where `pending_datasets` maps the key and the dataset id of each of the request's entries that change their dataset to the visibility and status the entry publishes, and `unsettled_dataset_ids` names the datasets a job is still replacing. An overlay that wraps the default port by delegation only needs to declare 27.
 
 ### Fixed
+- Toggle groups (the list / grid switches, filter toggles) grow to 44 px on touch screens, like buttons.
 - A catalog link or reload that carries a page, such as `/?offset=10`, opens on that page. The search box used to send it back to the first page a moment after loading.
 - A table whose row count is unknown no longer reads "0 rows" on its search result card, in the thumbnail, its accessible name or the generated description; the card shows the column count alone, or nothing. A table with zero rows still says so.
 - The catalog search box placeholder is darker, so it meets the 4.5:1 contrast ratio on the light theme.
