@@ -13,4 +13,12 @@ describe('keyboard focus in forced colors', () => {
     const depth = [...css.slice(0, match!.index)].reduce((d, ch) => (ch === '{' ? d + 1 : ch === '}' ? d - 1 : d), 0);
     expect(depth).toBe(0);
   });
+
+  it('keeps the outline visible where the default colour would not show', () => {
+    const block = css.slice(css.indexOf('@media (forced-colors: active)'));
+    // The dark theme's invert filter on MapLibre controls inverts the outline too.
+    expect(block).toMatch(/\.dark \.maplibregl-ctrl-group button:focus-visible,\s*\.dark \.maplibregl-ctrl-attrib-button:focus-visible \{\s*outline-color: Canvas;/);
+    // A selected toggle keeps its Highlight background, so CanvasText is too faint on it.
+    expect(block).toMatch(/\[data-slot="toggle-group-item"\]\[data-state="on"\]:focus-visible \{\s*outline-color: HighlightText;/);
+  });
 });

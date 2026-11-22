@@ -680,6 +680,15 @@ html [data-sonner-toaster][data-sonner-theme] {
     outline: 2px solid CanvasText;
     outline-offset: -2px;
   }
+  /* The dark theme inverts these controls with a filter, outline included. */
+  .dark .maplibregl-ctrl-group button:focus-visible,
+  .dark .maplibregl-ctrl-attrib-button:focus-visible {
+    outline-color: Canvas;
+  }
+  /* A selected toggle keeps its Highlight background. */
+  [data-slot="toggle-group-item"][data-state="on"]:focus-visible {
+    outline-color: HighlightText;
+  }
 }
 
 @media (prefers-reduced-motion: reduce) {
