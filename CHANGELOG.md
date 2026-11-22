@@ -9,6 +9,7 @@ and releases use semantic versioning.
 
 ### Fixed
 - Adding datasets to a collection while a publish manifest replaces one of them no longer fails with a server error. The add now waits for the dataset before it takes the collection, the order the publish uses, so the two can't deadlock; a wait longer than two seconds answers 409, which is safe to retry. A dataset deleted while the add waits answers 404 instead of a server error.
+- A map thumbnail or social card image whose header declares dimensions too large to open now answers 400 instead of a server error. The stored file's extension follows the image's actual format rather than the declared media type, and an image that is neither PNG nor JPEG is refused with 400.
 
 ## [1.34.0] - 2026-11-22
 
