@@ -5,6 +5,7 @@ Write functions flush but never commit; callers own the commit boundary
 so multiple calls can batch into one transaction.
 """
 
+import time
 import uuid
 from collections.abc import Iterable
 from typing import Any
@@ -30,14 +31,15 @@ from app.modules.catalog.collections.models import (
 )
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.write_recheck import admit_writer, recheck_admitted_writer
-from app.platform.catalog_locks import REQUEST_LOCK_TIMEOUT, bounded_row_lock
+from app.platform.catalog_locks import bounded_row_lock
 
 
 logger = structlog.stdlib.get_logger(__name__)
 
 _COLLECTION_BUSY = "Another change to this collection is in progress. Retry shortly."
-# How long a stamp after a member's delete waits for each collection row.
-_MEMBER_DELETE_STAMP_WAIT = REQUEST_LOCK_TIMEOUT
+# How long all the stamps after one delete request may wait, together: the
+# request answers after them.
+_MEMBER_DELETE_STAMP_BUDGET_S = 2.0
 
 
 async def create_collection(
@@ -316,13 +318,16 @@ async def stamp_collections_after_member_delete(
     the delete has committed, and return how many were stamped.
 
     Best effort: each collection is stamped and committed in a transaction of
-    its own, so none holds two collection rows, and its wait is bounded. A
-    wait that outlasts the bound, or any other failure, is logged and that
-    collection keeps its time. Call it last: a failure rolls the session
-    back, which expires its instances.
+    its own, so none holds two collection rows, and all of them share one
+    wait budget; once it is spent, a collection that is held is skipped at
+    once. A wait that outlasts the budget, or any other failure, is logged
+    and that collection keeps its time. Call it last: a failure rolls the
+    session back, which expires its instances.
     """
+    deadline = time.monotonic() + _MEMBER_DELETE_STAMP_BUDGET_S
     stamped = 0
     for collection_id in collection_ids:
+        remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
         try:
             await bounded_row_lock(
                 session,
@@ -330,7 +335,7 @@ async def stamp_collections_after_member_delete(
                 .where(Collection.id == collection_id)
                 .values(updated_at=COLLECTION_UPDATED_AT_ON_WRITE),
                 message=_COLLECTION_BUSY,
-                lock_timeout=_MEMBER_DELETE_STAMP_WAIT,
+                lock_timeout=f"{remaining_ms}ms",
                 reset=False,
             )
             await session.commit()

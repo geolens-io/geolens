@@ -286,7 +286,7 @@ async def test_a_delete_stamps_a_held_collection_once_it_is_released(
     """The stamp waits on the held collection after the delete committed,
     and moves its time once the holder lets go."""
     # Longer than any release below can take, so the stamp always outwaits it.
-    monkeypatch.setattr(collections_service, "_MEMBER_DELETE_STAMP_WAIT", "60s")
+    monkeypatch.setattr(collections_service, "_MEMBER_DELETE_STAMP_BUDGET_S", 60.0)
     collection_id = await _collection(client, admin_auth_header)
     await _add(client, admin_auth_header, collection_id, dataset)
     await _pin(collection_id)
@@ -307,6 +307,44 @@ async def test_a_delete_stamps_a_held_collection_once_it_is_released(
     assert (await _times(collection_id))[1] > _PINNED
 
 
+async def test_a_delete_spends_one_wait_budget_across_its_collections(
+    client: AsyncClient, admin_auth_header: dict, dataset, monkeypatch
+) -> None:
+    """Two held collections share the delete's stamp budget: the first wait
+    spends it, the second is tried at once, and the delete still answers."""
+    monkeypatch.setattr(collections_service, "_MEMBER_DELETE_STAMP_BUDGET_S", 0.3)
+    waits: list[str] = []
+    real_lock = collections_service.bounded_row_lock
+
+    async def recording_lock(session, statement, **kwargs):
+        if "lock_timeout" in kwargs:
+            waits.append(kwargs["lock_timeout"])
+        return await real_lock(session, statement, **kwargs)
+
+    first = await _collection(client, admin_auth_header)
+    second = await _collection(client, admin_auth_header)
+    for collection_id in (first, second):
+        await _add(client, admin_auth_header, collection_id, dataset)
+    await _pin(first, second)
+    monkeypatch.setattr(collections_service, "bounded_row_lock", recording_lock)
+
+    async with db_module.async_session() as holder:
+        await _hold_collection(holder, first)
+        await _hold_collection(holder, second)
+        resp = await _delete(client, admin_auth_header, dataset)
+        await holder.rollback()
+
+    assert resp.status_code == 204, resp.text
+    assert not await _dataset_exists(dataset.id)
+    assert len(waits) == 2, waits
+    budget_ms = [int(w.removesuffix("ms")) for w in waits]
+    assert budget_ms[0] <= 300
+    # The first wait spent the budget, so the second isn't given another one.
+    assert budget_ms[1] < 300 - 100, waits
+    assert (await _times(first))[1] == _PINNED
+    assert (await _times(second))[1] == _PINNED
+
+
 async def _listed_times(client: AsyncClient, headers: dict) -> dict[str, str]:
     resp = await client.get("/catalog/collections/?limit=100", headers=headers)
     assert resp.status_code == 200, resp.text
@@ -319,7 +357,7 @@ async def test_a_list_cached_while_the_stamp_waits_shows_the_stamp_after_the_del
 ) -> None:
     """A collections list read between the delete's commit and its stamp
     caches the old time; the delete clears it again once it has stamped."""
-    monkeypatch.setattr(collections_service, "_MEMBER_DELETE_STAMP_WAIT", "60s")
+    monkeypatch.setattr(collections_service, "_MEMBER_DELETE_STAMP_BUDGET_S", 60.0)
     collection_id = await _collection(client, admin_auth_header)
     await _add(client, admin_auth_header, collection_id, dataset)
     await _pin(collection_id)
