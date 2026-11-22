@@ -159,6 +159,8 @@ class _Plan:
     write_visibility: str | None = None
     styling_applied: bool = True
     notes: ManagedNotes | None = None
+    # The map's updated_at as the apply committed it.
+    published_at: datetime | None = None
     # Stored rows the apply leaves out of its layer list and must not delete.
     keep_layer_ids: list[uuid.UUID] = field(default_factory=list)
 
@@ -807,6 +809,7 @@ async def _write_map(
             ),
         },
     )
+    plan.published_at = map_obj.updated_at
     return {**plan.result, "map_id": map_obj.id, "visibility": after}
 
 
@@ -850,7 +853,7 @@ async def _apply_map(session: AsyncSession, entry: Any, request: _Request) -> di
     # A thumbnail shows the manifest's styling, so it goes with it.
     if entry.thumbnail is not None and plan.styling_applied:
         refused = await store_manifest_thumbnail(
-            session, result["map_id"], entry.thumbnail, request.user
+            session, result["map_id"], entry.thumbnail, request.user, plan.published_at
         )
         if refused is not None:
             warning = _message(OTHER_REFUSAL, "warning", refused)

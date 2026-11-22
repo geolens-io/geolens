@@ -100,7 +100,7 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
     """
     result = await bounded_row_lock(
         session,
-        select(Map.thumbnail_uri, Map.og_image_uri)
+        select(Map.thumbnail_uri, Map.og_image_uri, Map.updated_at)
         .where(Map.id == map_id)
         .with_for_update(),
         message=_ASSETS_BUSY,

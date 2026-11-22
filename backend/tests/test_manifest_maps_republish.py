@@ -604,8 +604,11 @@ async def test_a_publish_key_adds_a_thumbnail_but_never_replaces_one(
 
 
 def test_the_thumbnail_goes_through_the_upload_service():
-    source = Path(manifest_republish.__file__).read_text()
-    assert 'store_map_image(session, map_id, data_uri, "thumbnail", user)' in source
+    source = " ".join(Path(manifest_republish.__file__).read_text().split())
+    assert (
+        'store_map_image( session, map_id, data_uri, "thumbnail", user, '
+        "expected_updated_at=published_at, )" in source
+    )
 
 
 async def test_a_kept_layer_is_judged_on_the_dataset_it_keeps(
@@ -872,3 +875,56 @@ async def test_a_thumbnail_the_upload_route_refuses_or_accepts_never_fails_the_p
         assert _codes(result) == [("A099", "warning", None)]
         assert "not a valid image" in result.messages[0].message
         assert stored is None
+
+
+async def test_a_publish_whose_map_changed_before_its_thumbnail_keeps_the_newer_one(
+    test_db_session, clean_tables
+):
+    """Publish A commits; before its thumbnail is stored, publish B commits
+    with its own. A's thumbnail is then refused, and B's stays."""
+    from unittest.mock import patch
+
+    import app.core.db as db_module
+    from app.modules.catalog.maps import manifest_apply
+    from tests.test_map_image_verified_format import _data_uri, _image_bytes
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    real = manifest_apply.store_manifest_thumbnail
+    calls: list[str] = []
+    after_b: dict[str, str | None] = {}
+
+    async def b_publishes_first(session, map_id, data_uri, user, published_at):
+        calls.append(data_uri)
+        if len(calls) == 1:
+            async with db_module.async_session() as other:
+                [b] = (
+                    await _apply(
+                        other,
+                        admin,
+                        _publish(
+                            dataset_id,
+                            thumbnail=_data_uri("image/png", _image_bytes("PNG")),
+                        ),
+                    )
+                ).maps
+                assert (b.action, b.messages) == ("update", [])
+                after_b["uri"] = (await _map_row(other, map_id)).thumbnail_uri
+        return await real(session, map_id, data_uri, user, published_at)
+
+    with patch.object(manifest_apply, "store_manifest_thumbnail", b_publishes_first):
+        [a] = (
+            await _apply(
+                test_db_session,
+                admin,
+                _publish(
+                    dataset_id, thumbnail=_data_uri("image/jpeg", _image_bytes("JPEG"))
+                ),
+            )
+        ).maps
+
+    assert after_b["uri"]
+    assert _codes(a) == [("A099", "warning", None)]
+    assert "changed after this publish" in a.messages[0].message
+    assert (await _map_row(test_db_session, a.map_id)).thumbnail_uri == after_b["uri"]

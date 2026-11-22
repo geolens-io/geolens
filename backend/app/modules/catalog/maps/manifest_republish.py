@@ -12,7 +12,7 @@ import unicodedata
 import uuid
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, datetime
 
 import structlog
 from fastapi import HTTPException
@@ -238,21 +238,39 @@ def _fitting(lines: Sequence[str], room: int) -> list[str]:
 
 
 async def store_manifest_thumbnail(
-    session: AsyncSession, map_id: uuid.UUID, data_uri: str, user: Identity
+    session: AsyncSession,
+    map_id: uuid.UUID,
+    data_uri: str,
+    user: Identity,
+    published_at: datetime,
 ) -> str | None:
     """Store ``data_uri`` as the map's thumbnail with the thumbnail upload's
     own checks, storage and commit; the reason when it isn't stored.
 
     Runs after the map's own commit: the map is published either way.
+    ``published_at`` is the map's ``updated_at`` as this publish committed
+    it; a map written since keeps the thumbnail it has.
     """
     from app.modules.catalog.maps.router import store_map_image
 
     try:
-        await store_map_image(session, map_id, data_uri, "thumbnail", user)
+        await store_map_image(
+            session,
+            map_id,
+            data_uri,
+            "thumbnail",
+            user,
+            expected_updated_at=published_at,
+        )
     except HTTPException as exc:
         await session.rollback()
         detail = exc.detail
         if isinstance(detail, dict):
+            if detail.get("code") == "stale_write":
+                return (
+                    "The thumbnail wasn't stored: the map was changed after "
+                    "this publish, and the newer change stands."
+                )
             detail = detail.get("message", "")
         return f"The thumbnail wasn't stored: {detail}"
     except (
