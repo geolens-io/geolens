@@ -255,21 +255,28 @@ export const SearchResultCard = memo(function SearchResultCard({
             .map((spec) => spec.label)
             .join(' · ');
     // Shown bare in its own column; the full sentence stays for assistive tech.
+    // The search API gives a collection only its creation time, which is not
+    // an update time, so its cell holds a dash.
     const updatedAbbrev = isCollection
-      ? properties.created
-        ? createdTime.relative
-        : ''
+      ? '—'
       : hasMissingProvenance
         ? properties.created
           ? createdTime.relative
           : '—'
         : updatedRelative;
-    const updatedFull = isCollection
-      ? properties.created
-        ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
-        : ''
-      : updatedLabel;
+    const updatedFull = isCollection ? '' : updatedLabel;
     const meta = 'truncate text-xs text-muted-foreground';
+    // A dense row leaves out a healthy, fresh source and marks only one that needs attention.
+    const sourceMissing = properties.source_health === 'missing' || properties.source_health === 'inaccessible';
+    const sourceOverdue = properties.source_freshness === 'overdue';
+    const flags =
+      !isCollection && (sourceMissing || sourceOverdue || statusBadge) ? (
+        <span className="flex shrink-0 items-center gap-1.5">
+          {sourceMissing && <HealthChip state={properties.source_health} iconOnly />}
+          {sourceOverdue && <FreshnessChip state="overdue" iconOnly />}
+          {statusBadge}
+        </span>
+      ) : null;
 
     // A row of SearchResultList's grid: its columns are that list's, so every
     // row lines up. The title comes first in the source so the link is named
@@ -304,7 +311,7 @@ export const SearchResultCard = memo(function SearchResultCard({
                 </span>
               )}
             </div>
-            {statusBadge && <span className="shrink-0">{statusBadge}</span>}
+            {flags}
           </div>
           <RecordTypeBadge recordType={recordType} iconOnly className="order-first shrink-0 px-1.5" />
         </div>
@@ -325,7 +332,7 @@ export const SearchResultCard = memo(function SearchResultCard({
           </div>
           <span
             className="shrink-0 whitespace-nowrap text-xs text-muted-foreground md:text-end"
-            title={isCollection ? createdTime.absolute : updatedTitle}
+            title={isCollection ? undefined : updatedTitle}
             data-testid="dataset-card-updated-attribution"
           >
             <span aria-hidden="true" data-testid="dataset-card-updated-visible">{updatedAbbrev}</span>

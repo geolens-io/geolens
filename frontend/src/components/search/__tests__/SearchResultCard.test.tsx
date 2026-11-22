@@ -867,6 +867,31 @@ describe('SearchResultCard', () => {
       expect(screen.getByTestId('dataset-card-updated-attribution')).toHaveTextContent('No update metadata');
     });
 
+    it.each([
+      ['missing', 'Source missing'],
+      ['inaccessible', 'Source inaccessible'],
+    ] as const)('marks a source that is %s with an icon named for it', (state, label) => {
+      compact(makeFeature({ source_health: state }));
+
+      const chip = screen.getByTestId('source-health-chip');
+      expect(chip).toHaveAttribute('data-state', state);
+      expect(within(chip).getByText(label)).toHaveClass('sr-only');
+      expect(chip).toHaveAttribute('title', expect.stringContaining(label));
+      expect(screen.getByRole('link', { name: new RegExp(label) })).toBeInTheDocument();
+    });
+
+    it('marks an overdue refresh and leaves a healthy, fresh or due source unmarked', () => {
+      const { unmount } = compact(makeFeature({ source_freshness: 'overdue', source_health: 'healthy' }));
+      expect(screen.getByTestId('source-freshness-chip')).toHaveAttribute('data-state', 'overdue');
+      expect(within(screen.getByTestId('source-freshness-chip')).getByText('Source refresh overdue')).toHaveClass('sr-only');
+      expect(screen.queryByTestId('source-health-chip')).not.toBeInTheDocument();
+      unmount();
+
+      compact(makeFeature({ source_freshness: 'due', source_health: 'healthy' }));
+      expect(screen.queryByTestId('source-freshness-chip')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('source-health-chip')).not.toBeInTheDocument();
+    });
+
     it('shows the type as an icon-only badge named by the type', () => {
       compact(makeFeature({ record_type: 'raster_dataset', geometry_type: null }));
 
@@ -971,6 +996,20 @@ describe('SearchResultCard', () => {
       expect(within(link).getByText('7 datasets')).toBeInTheDocument();
       expect(screen.queryByText('A set of datasets')).not.toBeInTheDocument();
       expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+    });
+
+    it('gives a collection no update time, since the search result carries only its creation time', () => {
+      compact(
+        makeFeature(
+          { type: 'collection', title: 'My Collection', record_type: 'collection', dataset_count: 7 },
+          { id: 'coll-1', geometry: null },
+        ),
+      );
+
+      const cell = screen.getByTestId('dataset-card-updated-attribution');
+      expect(screen.getByTestId('dataset-card-updated-visible')).toHaveTextContent('—');
+      expect(cell).not.toHaveTextContent(/Updated/);
+      expect(cell).not.toHaveAttribute('title');
     });
 
     it('prefetches the dataset on hover and does not fetch a quicklook', async () => {
