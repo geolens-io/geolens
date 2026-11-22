@@ -149,6 +149,17 @@ removes the layer from other users' maps. An
 existing DEM mosaic keeps nearest-neighbour resampling until you run
 **Regenerate** on its Source tab.
 
+1.34 runs two migrations that only add nullable columns and two partial
+indexes, so instances still on 1.33 keep serving while they run. A map update
+that leaves out `bookmarks`, as a 1.33 SDK or client sends it, keeps the
+bookmarks the map has. Publish manifest version 2 is a preview: finish
+upgrading every worker before you send a version 2 publish. During a rolling
+upgrade a version 2 job waits for an upgraded worker, and a worker still on
+1.33 that takes it first leaves it to fail at the stale-job sweep. To publish
+again after that, upload the file again and apply with the new
+`upload:<job_id>`, because the first upload is used up. Version 1 manifests
+are not affected. Overlay authors: `EXTENSION_API_VERSION` is 26.
+
 ## Change the published default database password
 
 Earlier `.env.example` files set `POSTGRES_PASSWORD=geolens`. An install whose

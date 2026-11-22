@@ -7,6 +7,16 @@ and releases use semantic versioning.
 
 ## [Unreleased]
 
+## [1.34.0] - 2026-11-22
+
+1.34.0 adds two migrations, and both only add. 0106 adds a nullable
+`bookmarks` column to maps; 0107 adds a nullable `manifest_key` to maps and to
+map layers, each with a partial unique index. Instances still on 1.33.0 keep
+serving while they run. `EXTENSION_API_VERSION` moves from 23 to 26. Publish
+manifest version 2 is a preview: nothing sends it yet, it may change in any
+release, and its `maps` section is only checked in a dry run. Version 1 is
+unchanged.
+
 ### Added
 - A dataset made by an analysis shows a "Derived from" row in its Details list, linking the source dataset, naming the operation and linking a second input when there is one.
 - Maps hold bookmarks: a name and an area, with an optional rotation and tilt, in display order. The maps API and the SDKs carry an optional `bookmarks` list (up to 100) on create and update, and the map and shared map responses always return one. The ArcGIS web map import carries a web map's bookmarks. The map builder has a Bookmarks panel to add the current view, rename, reorder and delete bookmarks, and the viewer, share links and embeds have a Bookmarks control that jumps to one.
@@ -7613,7 +7623,8 @@ regression-covered fixes:
 - Initial public release of the GeoLens catalog, API, map builder, CLI, SDKs,
   Docker development stack, and public documentation entrypoints.
 
-[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.33.0...HEAD
+[Unreleased]: https://github.com/geolens-io/geolens/compare/v1.34.0...HEAD
+[1.34.0]: https://github.com/geolens-io/geolens/compare/v1.33.0...v1.34.0
 [1.33.0]: https://github.com/geolens-io/geolens/compare/v1.32.0...v1.33.0
 [1.32.0]: https://github.com/geolens-io/geolens/compare/v1.31.0...v1.32.0
 [1.31.0]: https://github.com/geolens-io/geolens/compare/v1.30.1...v1.31.0
