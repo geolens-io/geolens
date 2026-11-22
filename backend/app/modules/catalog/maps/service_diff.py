@@ -26,6 +26,7 @@ from app.modules.catalog.maps.schemas import (
     split_legacy_builder_paint,
 )
 from app.modules.catalog.maps.service_layers import (
+    DATASET_BUSY,
     bulk_check_dataset_access,
     lock_map_layers,
     lock_new_layer_datasets,
@@ -40,6 +41,7 @@ from app.modules.catalog.maps.service_shared import (
     normalize_dem_style_config,
     readable_dataset_ids,
 )
+from app.platform.catalog_locks import CatalogLockConflict
 from app.platform.extensions import get_catalog_port
 
 _LAYERS_OUTSIDE_MAP = "Layer diff references layer ids outside this map"
@@ -404,7 +406,8 @@ async def _replace_layers(
     when map reads hide its dataset from ``user`` or it is in
     ``keep_layer_ids``.
     Applies default styles if paint/layout is None. Raises 403 when a dataset
-    a row is inserted or repointed onto is gone once the save holds it.
+    a row is inserted or repointed onto is gone once the save holds it, and
+    ``CatalogLockConflict`` (409) when a stored layer went while it waited.
     Flushes but does NOT commit.
 
     Returns ``{sent id: new id}`` for the rows this call created from a sent
@@ -420,15 +423,13 @@ async def _replace_layers(
     stored_datasets = {layer.id: layer.dataset_id for layer in stored}
     # Only a row this save inserts or repoints takes its dataset's key, so a
     # save that keeps every row's dataset waits on no dataset change.
-    gone = await lock_new_layer_datasets(
-        session,
-        [
-            layer_data["dataset_id"]
-            for layer_data in layers
-            if stored_datasets.get(_coerce_uuid(layer_data.get("id")))
-            != layer_data["dataset_id"]
-        ],
-    )
+    new_dataset_ids = [
+        layer_data["dataset_id"]
+        for layer_data in layers
+        if stored_datasets.get(_coerce_uuid(layer_data.get("id")))
+        != layer_data["dataset_id"]
+    ]
+    gone = await lock_new_layer_datasets(session, new_dataset_ids)
     if gone:
         raise HTTPException(
             status_code=status.HTTP_403_FORBIDDEN,
@@ -437,6 +438,12 @@ async def _replace_layers(
                 "datasets": sorted(str(dataset_id) for dataset_id in gone),
             },
         )
+    # Only the map row was held during that wait, so a dataset delete's
+    # cascade may have removed a stored layer this save would write.
+    if new_dataset_ids and set(existing_by_id) != set(
+        await session.scalars(select(MapLayer.id).where(MapLayer.map_id == map_id))
+    ):
+        raise CatalogLockConflict(DATASET_BUSY)
     requested_ids = {_coerce_uuid(layer_data.get("id")) for layer_data in layers}
     unrequested = [layer for layer in stored if layer.id not in requested_ids]
     hidden_ids = await _unreadable_layer_ids(session, unrequested, user)

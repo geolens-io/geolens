@@ -17,7 +17,7 @@ import app.core.db as db_module
 import app.modules.catalog.maps.service_diff as service_diff
 import app.modules.catalog.maps.service_layers as service_layers
 from app.modules.catalog.datasets.domain import service_lifecycle
-from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.datasets.domain.models import Dataset, Record
 from app.modules.catalog.maps.models import MapLayer
 from app.processing.ingest.manifest_schemas import ManifestApplyRequest
 from app.processing.ingest.manifest_service import apply_manifest
@@ -208,13 +208,14 @@ async def test_a_delete_behind_a_save_that_adds_a_layer_waits_and_the_save_lands
         assert deleted.json()["code"] == "catalog_lock_conflict", deleted.text
 
 
-@pytest.mark.parametrize("change", ["paint", "remove"])
+@pytest.mark.parametrize("change", ["paint", "remove", "put-paint"])
 async def test_a_save_that_adds_no_layer_waits_on_no_dataset_change(
     client: AsyncClient, world, change: str
 ):
     map_id, layer_id = world["map_id"], str(world["layer_id"])
+    paint = {"circle-color": "#123456"}
     body = (
-        {"updated": [{"id": layer_id, "paint": {"circle-color": "#123456"}}]}
+        {"updated": [{"id": layer_id, "paint": paint}]}
         if change == "paint"
         else {"removed": [layer_id]}
     )
@@ -225,9 +226,17 @@ async def test_a_save_that_adds_no_layer_waits_on_no_dataset_change(
             .with_for_update()
         )
         started = time.monotonic()
-        resp = await client.patch(
-            f"/maps/{map_id}/layers", json=body, headers=world["headers"]
-        )
+        if change == "put-paint":
+            layer = {"id": layer_id, "dataset_id": str(world["dataset_id"])}
+            resp = await client.put(
+                f"/maps/{map_id}",
+                json={"layers": [{**layer, "paint": paint}]},
+                headers=world["headers"],
+            )
+        else:
+            resp = await client.patch(
+                f"/maps/{map_id}/layers", json=body, headers=world["headers"]
+            )
         elapsed = time.monotonic() - started
         assert holder.in_transaction()
         await holder.rollback()
@@ -367,3 +376,71 @@ async def test_an_unreadable_added_dataset_under_a_change_is_not_waited_on(
 
     assert (hidden.status_code, hidden.json()) == (403, missing.json())
     assert elapsed < 1, elapsed
+
+
+@pytest.mark.parametrize("writer", ["put", "manifest"])
+async def test_a_repoint_that_waited_while_a_delete_took_its_layer_answers_409(
+    client: AsyncClient, world, test_db_session, children, caplog, writer: str
+):
+    """A full replace that repoints a layer to a busy dataset waits holding
+    only the map row; a delete of the layer's old dataset meanwhile removes
+    the layer, so the save answers 409 instead of writing a gone row."""
+    caplog.set_level(logging.INFO)
+    target = await create_dataset(
+        test_db_session, created_by=world["owner"].id, visibility="private"
+    )
+    await test_db_session.commit()
+    target_id, layer_id = target.id, str(world["layer_id"])
+
+    async def repoint():
+        if writer == "manifest":
+            entry = {
+                "key": world["key"],
+                "name": "Parks",
+                "styling": "replace",
+                "layers": [_layer("parks", dataset_id=str(target_id))],
+            }
+            async with db_module.async_session() as session:
+                response = await apply_manifest(
+                    session,
+                    ManifestApplyRequest.model_validate(_body(entry, dry_run=False)),
+                    world["owner"],
+                    _http_request(),
+                )
+            [result] = response.maps
+            return result.action, result.model_dump_json()
+        resp = await client.put(
+            f"/maps/{world['map_id']}",
+            json={"layers": [{"id": layer_id, "dataset_id": str(target_id)}]},
+            headers=world["headers"],
+        )
+        return resp.status_code, resp.text
+
+    async with db_module.async_session() as holder:
+        await holder.execute(
+            sa.select(Dataset.id).where(Dataset.id == target_id).with_for_update()
+        )
+        children.append(asyncio.create_task(repoint()))
+        await _until_blocked(holder, children[0])
+        async with db_module.async_session() as third:
+            await third.execute(
+                sa.delete(Record).where(
+                    Record.id
+                    == sa.select(Dataset.record_id)
+                    .where(Dataset.id == world["dataset_id"])
+                    .scalar_subquery()
+                )
+            )
+            await third.commit()
+        await holder.rollback()
+    outcome, text = await children[0]
+
+    if writer == "put":
+        assert outcome == 409, text
+        assert '"code":"catalog_lock_conflict"' in text.replace(" ", "")
+        assert "A dataset on this map is being changed. Retry shortly." in text
+    else:
+        assert outcome == "error", text
+        assert "A099" in text
+    logged = [str(r.msg) for r in caplog.records]
+    assert not [msg for msg in logged if "Unhandled" in msg or "StaleData" in msg]
