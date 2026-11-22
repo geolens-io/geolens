@@ -68,6 +68,9 @@ class DatasetDeletion(NamedTuple):
     table_name: str
     storage_prefixes: tuple[str, ...]
     tenant_id: str | None
+    # The collections it was in, whose update time the caller moves after its
+    # commit.
+    collection_ids: tuple[uuid.UUID, ...] = ()
 
 
 async def reap_managed_storage(prefixes: list[str], tenant_id: str | None) -> None:
@@ -339,6 +342,10 @@ async def delete_dataset(
     # then fails its foreign key. A refusal rolls back the DROP above.
     await _refuse_stranding_shared_maps(session, dataset)
 
+    from app.modules.catalog.collections.service import get_dataset_collection_ids
+
+    collection_ids = await get_dataset_collection_ids(session, dataset_id)
+
     # Commit name retirement with the DROP and record deletion so rollback cannot
     # leave a freed name without a tombstone. This also applies to a registered
     # dataset whose relation is already absent.
@@ -417,7 +424,7 @@ async def delete_dataset(
         name_retired=name_is_freed,
     )
 
-    return DatasetDeletion(table_name, storage_prefixes, tenant_id)
+    return DatasetDeletion(table_name, storage_prefixes, tenant_id, collection_ids)
 
 
 async def get_dataset_versions(

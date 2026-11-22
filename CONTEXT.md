@@ -91,6 +91,9 @@ _Avoid_: Group, when meaning an audience.
 **Group**: A named set of users that datasets, maps and stories can be shared with. Admins manage groups and their members.
 _Avoid_: Team, role, layer group (layers grouped inside a map).
 
+**Collection**: A named set of datasets grouped under one title and description, such as a project's or a year's data. A dataset can be in several collections, and a reader sees only the members they are allowed to see. A collection is updated when its name, description or member list changes, not when a member dataset's own data or metadata changes.
+_Avoid_: Group (a set of users); the OGC API collection the whole catalog is served as.
+
 **Restricted**: The visibility of a dataset, map or story that only its owner, admins and members of the groups it is shared with can see. A dataset can be restricted with no group left, which leaves only its owner and admins; a map or story left with no group becomes private.
 
 **Record status**: Whether a dataset's catalog record is a draft or published. Anonymous readers get a dataset only when it is public and its record is published, and an internal dataset reaches signed-in users other than its owner and admins only when it is published.
