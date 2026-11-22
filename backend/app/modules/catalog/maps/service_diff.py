@@ -349,7 +349,9 @@ async def _replace_layers(
     """Reconcile a map's layers against ``layers`` by id.
 
     Existing rows are updated in place by id, so layer UUIDs that embed
-    configs and bookmarks hold stay stable; unknown ids create rows.
+    configs and bookmarks hold stay stable; unknown ids create rows. A
+    layer's ``manifest_key`` is written only when its dict carries one, so a
+    builder save keeps the keys a publish manifest gave its layers.
     A stored layer ``layers`` leaves out is kept, in its place in the stack,
     when map reads hide its dataset from ``user``.
     Applies default styles if paint/layout is None. Flushes but does NOT commit.
@@ -415,6 +417,8 @@ async def _replace_layers(
             existing.popup_config = prepared.get("popup_config")
             existing.style_config = prepared["style_config"]
             existing.show_in_legend = prepared.get("show_in_legend", True)
+            if "manifest_key" in prepared:
+                existing.manifest_key = prepared["manifest_key"]
         else:
             existing = MapLayer(
                 map_id=map_id,
@@ -431,6 +435,7 @@ async def _replace_layers(
                 popup_config=prepared.get("popup_config"),
                 style_config=prepared["style_config"],
                 show_in_legend=prepared.get("show_in_legend", True),
+                manifest_key=prepared.get("manifest_key"),
             )
             session.add(existing)
             if raw_id is not None:

@@ -1217,8 +1217,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 521,
         # A layer diff checks a changed filter against the caller's access and its widgets,
-        # and stacks a map_author key's added layers on top.
-        "backend/app/modules/catalog/maps/service_diff.py": 462,
+        # and stacks a map_author key's added layers on top; a full replace
+        # carries a publish manifest's layer keys.
+        "backend/app/modules/catalog/maps/service_diff.py": 467,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
@@ -1439,7 +1440,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/dependencies.py": 1008,
     # Map endpoints share response assembly, visibility and ownership checks,
     # and the map_author key's limits on the routes it may write.
-    "backend/app/modules/catalog/maps/router.py": 1356,
+    "backend/app/modules/catalog/maps/router.py": 1319,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.

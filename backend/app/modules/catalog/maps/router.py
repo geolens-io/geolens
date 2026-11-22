@@ -55,10 +55,8 @@ from app.modules.catalog.maps.schemas import (
     ThumbnailUploadRequest,
 )
 from app.modules.catalog.maps.author_key import (
-    map_author_key_id,
     refuse_map_author_key,
 )
-from app.modules.catalog.maps.bookmarks import stored_bookmarks
 from app.modules.catalog.maps.router_assets import router as assets_router
 from app.modules.catalog.maps.router_groups import router as groups_router
 from app.modules.catalog.maps.router_sharing import router as sharing_router
@@ -87,7 +85,10 @@ from app.modules.catalog.maps.service import (
 )
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service import remove_layers_bulk
-from app.modules.catalog.maps.service_update import apply_map_update
+from app.modules.catalog.maps.service_update import (
+    apply_map_create,
+    apply_map_update,
+)
 from app.modules.embed_tokens.service import revoke_embed_tokens_for_dropped_datasets
 from app.platform.request_credential import api_key_audit_details, refuse_publish_key
 from app.platform.binary_response import binary_response
@@ -156,50 +157,12 @@ async def create_map_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Create a new map."""
-    refuse_map_author_key(db, user.id, body)
-    terrain_config = (
-        body.terrain_config.model_dump(mode="json")
-        if body.terrain_config is not None
-        else None
-    )
-    await _readable_terrain(db, user, terrain_config)
-    basemap_config = (
-        body.basemap_config.model_dump(mode="json")
-        if body.basemap_config is not None
-        else None
-    )
-    map_obj = await create_map(
+    map_obj = await apply_map_create(
         db,
-        body.name,
-        body.description,
-        user.id,
-        notes=body.notes,
-        terrain_config=terrain_config,
-        basemap_config=basemap_config,
-        bookmarks=stored_bookmarks(body.bookmarks),
-        created_by_api_key_id=map_author_key_id(db),
-    )
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id,
-            action="map.create",
-            resource_type="map",
-            resource_id=map_obj.id,
-            details={"name": body.name, **api_key_audit_details(db)},
-            ip_address=request.client.host if request.client else None,
-        ),
-    )
-    await record_map_history_event(
-        db,
-        map_id=map_obj.id,
-        actor=user,
-        target_type="map",
-        target_id=map_obj.id,
-        target_name=map_obj.name,
-        action="map.create",
-        summary=f"Created map {map_obj.name}",
-        details={"name": map_obj.name},
+        body,
+        user,
+        record_history=True,
+        ip_address=request.client.host if request.client else None,
     )
     await db.commit()
     await db.refresh(map_obj)
