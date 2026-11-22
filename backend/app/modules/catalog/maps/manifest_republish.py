@@ -21,6 +21,7 @@ from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.text import normalize_nfc
 from app.modules.catalog.maps.models import MapEditHistoryEvent
 from app.modules.catalog.maps.service_update import VIEW_FIELDS
 
@@ -192,8 +193,12 @@ def managed_notes(
     limit leaves them: the first line and as many after it as fit, with a
     count of the ones left out. No block is written when not even the first
     line and the divider fit.
+
+    Fitted and hashed as the notes field stores them, NFC-normalized, so the
+    digest matches the stored block on the next publish.
     """
-    user = _users_notes(existing or "", written_digest)
+    user = normalize_nfc(_users_notes(existing or "", written_digest))
+    lines = [normalize_nfc(line) for line in lines]
     tail = f"\n{NOTES_SEPARATOR}\n{user}"
     shown = _fitting(lines, limit - len(tail))
     if not shown:

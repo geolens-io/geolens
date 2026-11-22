@@ -760,3 +760,38 @@ async def test_a_kept_publish_leaves_the_thumbnail(
 
     assert (kept.styling, kept.messages[-1].code) == ("kept", "A070")
     assert (await _map_row(test_db_session, created.map_id)).thumbnail_uri is None
+
+
+async def test_decomposed_text_in_the_block_still_matches_on_the_next_publish(
+    test_db_session, clean_tables
+):
+    """The notes field stores NFC, so the block is hashed as stored."""
+    from app.processing.ingest.manifest_schemas import ManifestApplyRequest
+    from app.processing.ingest.manifest_service import apply_manifest
+    from tests.test_manifest_maps_dry_run import _body, _http_request
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    decomposed = "Café"
+    loss = {
+        "items": [{"path": "layers[0]", "kind": "approximated", "detail": decomposed}]
+    }
+    body = {
+        **_body(_publish(dataset_id, loss_report=loss), dry_run=False),
+        "client": {"id": "geolens-qgis", "version": "0.2.0", "app": decomposed},
+    }
+
+    for _ in range(2):
+        [result] = (
+            await apply_manifest(
+                test_db_session,
+                ManifestApplyRequest.model_validate(body),
+                admin,
+                _http_request(),
+            )
+        ).maps
+
+    notes = (await _map_row(test_db_session, result.map_id)).notes
+    assert notes.count("Published from") == 1
+    assert notes.split("\n").count("---") == 1
+    assert "Café" in notes
