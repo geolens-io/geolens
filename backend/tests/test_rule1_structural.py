@@ -1230,6 +1230,83 @@ def test_every_map_fetching_handler_checks_the_map() -> None:
     )
 
 
+# Catalog modules the processing side reaches only through a ProcessingPort
+# method, which the route walk can't follow: each names its entry point and
+# the guards that entry must reach.
+_PORT_REACHED_MODULES: dict[str, tuple[str, frozenset[str]]] = {
+    # Publish manifest maps: the map a key names is written only by its owner
+    # or an admin, and every layer's dataset must be one the caller can read.
+    "app.modules.catalog.maps.manifest_apply": (
+        "apply_manifest_maps",
+        frozenset(
+            {
+                "check_map_ownership",
+                "bulk_check_dataset_access",
+                "apply_visibility_filter",
+            }
+        ),
+    ),
+}
+
+
+def _module_functions(module: Any) -> list[Any]:
+    return [
+        obj
+        for obj in vars(module).values()
+        if inspect.isfunction(obj) and obj.__module__ == module.__name__
+    ]
+
+
+@pytest.mark.architecture
+def test_port_reached_catalog_reads_are_guarded() -> None:
+    """Every function in a port-reached module that fetches a guarded model
+    calls a guard itself or in a helper it calls, a Map fetch a map guard,
+    and the module reaches every guard its entry names.
+
+    The default port must delegate the entry, so a module that stops being
+    reached is noticed rather than kept here."""
+    import importlib
+
+    from app.platform.extensions.defaults import DefaultProcessingPort
+
+    for module_path, (entry, required) in _PORT_REACHED_MODULES.items():
+        module = importlib.import_module(module_path)
+        assert entry in _source_of(getattr(DefaultProcessingPort, entry)), (
+            f"DefaultProcessingPort.{entry} no longer delegates to {module_path}"
+        )
+        fetching: set[str] = set()
+        unguarded: list[str] = []
+        reached: set[str] = set()
+        for fn in _module_functions(module):
+            evidence, guards, map_fetch = _scan_effective(fn, _source_of(fn))
+            reached |= guards
+            if not evidence:
+                continue
+            fetching.add(fn.__name__)
+            if not guards or (map_fetch and not guards & _MAP_WRITE_GUARDS):
+                unguarded.append(f"{module_path}.{fn.__name__}: {evidence[0]}")
+        assert fetching, f"no fetch detected in {module_path}; the scan is blind"
+        assert not unguarded, (
+            "Rule 1 violation: port-reached function(s) fetch a guarded model "
+            "without a sanctioned guard:\n  " + "\n  ".join(unguarded)
+        )
+        missing = sorted(required - reached)
+        assert not missing, f"{module_path} no longer calls {missing}"
+
+
+def test_port_reached_scan_sees_the_manifest_map_reads() -> None:
+    """Liveness: the reads this guard is for are the ones it detects."""
+    from app.modules.catalog.maps import manifest_apply
+
+    for fn in (manifest_apply._writable_map, manifest_apply._readable_datasets):
+        evidence, guards, _ = _scan_effective(fn, _source_of(fn))
+        assert evidence and guards, f"{fn.__name__}: {evidence} {guards}"
+    _, _, map_fetch = _scan_effective(
+        manifest_apply._writable_map, _source_of(manifest_apply._writable_map)
+    )
+    assert map_fetch
+
+
 # A map guard says nothing about a story, so a stories route that fetches a
 # Story needs a story guard; a write needs the ownership guard.
 _STORY_READ_GUARDS = frozenset(

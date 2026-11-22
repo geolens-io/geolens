@@ -557,9 +557,11 @@ class ManifestApplyRequest(_ManifestBaseModel):
         default=None,
         max_length=100,
         description=(
-            "Version 2 only. Maps built from datasets the caller can read. "
-            "For now maps are only checked: a request with maps must set "
-            "`dry_run` to true, or it is refused before anything is applied."
+            "Version 2 only, which is a preview. Maps built from datasets "
+            "the caller can read, "
+            "created or updated by key after the request's datasets. A layer "
+            "can't use a dataset this request only queued: send the maps "
+            "again once its job is complete."
         ),
     )
 
@@ -656,11 +658,6 @@ class ManifestApplyRequest(_ManifestBaseModel):
                 raise ValueError(
                     "manifest_version '2' requires at least one dataset or map"
                 )
-            if self.maps and not self.dry_run:
-                raise ValueError(
-                    "maps can only be checked for now: send them with dry_run "
-                    "true, and send the datasets in a request of their own"
-                )
             return self
         # Supplied at all, null included: version 1 had no such field.
         if "client" in self.model_fields_set:
@@ -739,18 +736,48 @@ class ManifestApplyEntryResult(BaseModel):
         return data
 
 
+class ManifestRemovedLayer(BaseModel):
+    key: str = Field(description="The removed layer's key.")
+    dataset_id: uuid.UUID = Field(description="Its dataset, which stays on the server.")
+
+
 class ManifestMapResult(BaseModel):
     map_key: str
     action: Literal["create", "update", "skip", "error"] = Field(
         description=(
             "What apply did, or in a dry run would do, with the map. A map "
-            "with an error message is `error`."
+            "with an error message is `error`, and nothing was written for it."
         )
     )
     map_id: uuid.UUID | None = Field(
-        default=None, description="The map the key names, when the caller may edit it."
+        default=None,
+        description=(
+            "The map the key names, when the caller may edit it, or the map "
+            "an apply created."
+        ),
     )
     messages: list[ManifestMessage] = Field(default_factory=list)
+    visibility: str | None = Field(
+        default=None,
+        description=(
+            "Who can see the map after the apply, or in a dry run would. Null "
+            "for a map in error."
+        ),
+    )
+    styling: Literal["applied", "kept"] | None = Field(
+        default=None,
+        description=(
+            "Whether the manifest's styling replaced the map's. Null for a map "
+            "in error."
+        ),
+    )
+    removed_layers: list[ManifestRemovedLayer] = Field(
+        default_factory=list,
+        description=(
+            "Keyed layers the manifest no longer lists, removed from the map "
+            "(info A059). Their datasets stay."
+        ),
+    )
 
 
 class ManifestApplyResponse(BaseModel):

@@ -23,7 +23,6 @@ from sqlalchemy.exc import IntegrityError
 from app.core.config import settings
 from app.core.identity import IdentitySnapshot
 from app.modules.auth.models import User
-from app.modules.catalog.collections.models import Collection
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import _MAX_LAYERS_PER_MAP
 from app.platform.extensions import get_processing_port
@@ -36,7 +35,7 @@ from app.processing.ingest.manifest_schemas import (
     ManifestApplyResponse,
     ManifestMessage,
 )
-from app.processing.ingest.manifest_maps import check_manifest_maps
+from app.processing.ingest.manifest_maps import run_manifest_maps
 from app.processing.ingest.manifest_service import apply_manifest
 from tests.factories import create_dataset, create_user
 
@@ -164,14 +163,7 @@ _MAPS_ONLY_EXAMPLES = {
 
 @pytest.mark.parametrize("example", _CONTRACT["valid"], ids=lambda e: e["name"])
 def test_every_valid_contract_example_parses(example):
-    manifest = example["manifest"]
-    if manifest.get("maps") and not manifest.get("dry_run"):
-        # Maps are checked only in a dry run for now, so the example as
-        # written is refused and its dry run parses.
-        with pytest.raises(ValidationError, match="dry_run true"):
-            ManifestApplyRequest.model_validate(manifest)
-        manifest = {**manifest, "dry_run": True}
-    ManifestApplyRequest.model_validate(manifest)
+    ManifestApplyRequest.model_validate(example["manifest"])
 
 
 @pytest.mark.parametrize(
@@ -723,37 +715,6 @@ async def test_a_dry_run_writes_nothing_the_check_touched(
     assert name == "Original"
 
 
-@pytest.mark.parametrize("with_datasets", [False, True])
-async def test_maps_outside_a_dry_run_are_refused_before_anything_is_applied(
-    client, test_db_session, admin_auth_header, clean_tables, with_datasets
-):
-    admin = await _admin(test_db_session)
-    dataset_id = await _dataset(test_db_session, admin.id)
-    datasets = (
-        [{**_local_dataset_entry("qgis-parks"), "collection": {"name": "Parks set"}}]
-        if with_datasets
-        else []
-    )
-    _stage_fixture()
-
-    response = await client.post(
-        "/ingest/manifest/apply",
-        json=_body(
-            _map("qgis-map-new", _layer(dataset_id=str(dataset_id))),
-            dry_run=False,
-            datasets=datasets,
-        ),
-        headers=admin_auth_header,
-    )
-
-    assert response.status_code == 422, response.text
-    assert "dry_run" in response.text
-    for model in (IngestJob, Collection, Map):
-        assert (
-            await test_db_session.scalar(select(func.count()).select_from(model)) == 0
-        )
-
-
 async def test_the_api_returns_map_results_with_layer_keys(
     client, editor_auth_header, clean_tables
 ):
@@ -946,7 +907,7 @@ async def test_a_key_the_request_does_not_publish_still_answers_a052(
         _map("qgis-map-parks", _layer(dataset_key="qgis-parks", **_STYLED_LAYER)),
     )
 
-    [result] = await check_manifest_maps(
+    [result] = await run_manifest_maps(
         test_db_session, request, admin, _accepted(request)
     )
 
@@ -964,7 +925,7 @@ async def test_a_republished_dataset_the_caller_reads_gets_the_column_check(
         _map("qgis-map-parks", _layer(dataset_key="qgis-parks", **_STYLED_LAYER)),
     )
 
-    [result] = await check_manifest_maps(
+    [result] = await run_manifest_maps(
         test_db_session, request, admin, _accepted(request)
     )
 
@@ -976,7 +937,7 @@ async def _maps_answer_and_statements(session, user, request):
     statements = _Statements()
     event.listen(Engine, "before_cursor_execute", statements)
     try:
-        [result] = await check_manifest_maps(session, request, user, _accepted(request))
+        [result] = await run_manifest_maps(session, request, user, _accepted(request))
     finally:
         event.remove(Engine, "before_cursor_execute", statements)
     return [m.model_dump() for m in result.messages], statements.count
@@ -1027,7 +988,7 @@ async def test_an_admins_publish_key_reads_and_writes_like_its_owner(
         )
     )
 
-    [result] = await check_manifest_maps(
+    [result] = await run_manifest_maps(
         test_db_session, request, admin, _accepted(request)
     )
 
@@ -1518,7 +1479,7 @@ async def test_a_database_error_in_one_map_leaves_the_next_map_checked(
     own = await _keyed_map(test_db_session, admin.id, "qgis-map-b", dataset_id)
     from app.modules.catalog.maps import manifest_apply
 
-    real = manifest_apply._writable_map_id
+    real = manifest_apply._writable_map
 
     async def failing_on_the_server(session, key, user):
         if key == "qgis-map-a":
@@ -1526,7 +1487,7 @@ async def test_a_database_error_in_one_map_leaves_the_next_map_checked(
             await session.execute(text("SELECT 1 / 0"))
         return await real(session, key, user)
 
-    with patch.object(manifest_apply, "_writable_map_id", failing_on_the_server):
+    with patch.object(manifest_apply, "_writable_map", failing_on_the_server):
         response = await _dry_run(
             test_db_session,
             admin,
@@ -1812,7 +1773,7 @@ async def test_a_failed_replacement_entry_supplies_no_dataset(
         ManifestApplyEntryResult(dataset_key="qgis-parks", action=action, message="m")
     ]
 
-    [result] = await check_manifest_maps(test_db_session, request, admin, results)
+    [result] = await run_manifest_maps(test_db_session, request, admin, results)
 
     assert _codes(result) == codes
 
@@ -1821,7 +1782,7 @@ def test_every_builder_key_the_export_reads_is_scanned_or_never_a_column():
     """A builder key the style export reads must be decided on: scanned, or listed as unable to name a column."""
     import re
 
-    from app.modules.catalog.maps import manifest_apply, style_json
+    from app.modules.catalog.maps import manifest_columns, style_json
     from app.modules.catalog.maps.schemas import BUILDER_SNAKE_TO_CAMEL_KEYS
 
     source = Path(style_json.__file__).read_text()
@@ -1834,9 +1795,9 @@ def test_every_builder_key_the_export_reads_is_scanned_or_never_a_column():
         camel: snake for snake, camel in BUILDER_SNAKE_TO_CAMEL_KEYS.items()
     }
     decided = (
-        set(manifest_apply._BUILDER_STYLE_VALUE_KEYS)
-        | set(manifest_apply._BUILDER_COLUMN_KEYS)
-        | manifest_apply._BUILDER_NON_COLUMN_KEYS
+        set(manifest_columns._BUILDER_STYLE_VALUE_KEYS)
+        | set(manifest_columns._BUILDER_COLUMN_KEYS)
+        | manifest_columns._BUILDER_NON_COLUMN_KEYS
     )
     undecided = sorted(k for k in read if camel_to_snake.get(k, k) not in decided)
     assert undecided == []

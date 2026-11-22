@@ -1,7 +1,7 @@
 """The maps section of a version 2 manifest.
 
-Map checks live in the catalog and run through ``ProcessingPort``; this module
-resolves the layers' dataset keys and reports one result per map.
+Map checks and writes live in the catalog and run through ``ProcessingPort``;
+this module resolves the layers' dataset keys and reports one result per map.
 """
 
 from __future__ import annotations
@@ -10,6 +10,7 @@ import uuid
 from collections.abc import Iterable, Sequence
 
 import structlog
+from fastapi import Request
 from sqlalchemy import desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -19,11 +20,14 @@ from app.platform.jobs.models import IngestJob
 from app.processing.ingest.manifest_schemas import (
     ManifestApplyEntryResult,
     ManifestApplyRequest,
+    ManifestDataset,
     ManifestMapResult,
     ManifestMessage,
 )
+from app.processing.ingest.manifest_sources import publication_to_catalog_fields
 
 OTHER_REFUSAL = "A099"
+PUBLIC_RESTRICTED = "A020"
 
 MAPS_CHECK_FAILED = "The maps could not be checked. Try again."
 
@@ -53,6 +57,18 @@ async def latest_completed_manifest_dataset_ids(
     return {row[0]: row[1] for row in rows}
 
 
+def _planned_publication(
+    dataset: ManifestDataset, result: ManifestApplyEntryResult
+) -> tuple[str | None, str]:
+    """The visibility (None keeps the dataset's) and status an entry that
+    didn't fail publishes: internal when its public fell back."""
+    _, record_status = publication_to_catalog_fields(dataset.publication)
+    fell_back = any(
+        message.code == PUBLIC_RESTRICTED for message in result.messages or ()
+    )
+    return ("internal" if fell_back else dataset.visibility), record_status
+
+
 def _failed(map_key: str, message: str) -> ManifestMapResult:
     return ManifestMapResult(
         map_key=map_key,
@@ -63,20 +79,24 @@ def _failed(map_key: str, message: str) -> ManifestMapResult:
     )
 
 
-async def check_manifest_maps(
+async def run_manifest_maps(
     db: AsyncSession,
     request: ManifestApplyRequest,
     user: Identity,
     dataset_results: Sequence[ManifestApplyEntryResult],
+    http_request: Request | None = None,
 ) -> list[ManifestMapResult] | None:
     """One result per map, or None for a version 1 request.
 
-    ``dataset_results`` are this request's dataset outcomes. A layer may name
-    the key of an entry that didn't fail before its dataset can be read; an
-    entry in error supplies nothing, so a layer naming it answers A052.
+    ``dataset_results`` are this request's dataset outcomes. In a dry run a
+    layer may name the key of an entry that didn't fail before its dataset
+    can be read, and the map's visibility is judged on what that entry
+    publishes. An apply writes a layer only on a dataset that is complete, so
+    a layer naming an entry this request only queued answers A052, as one
+    naming an entry in error does.
 
-    Writes nothing: the check runs in a dry run, which the request schema
-    requires for maps, and is rolled back.
+    An apply commits each map on its own; whatever is left open, a dry run
+    entirely, is rolled back.
     """
     if request.manifest_version != "2":
         return None
@@ -96,6 +116,7 @@ async def check_manifest_maps(
         # An entry that failed in this request supplies no dataset, not even
         # the one an earlier publish left under its key.
         failed = {r.dataset_key for r in dataset_results if r.action == "error"}
+        entries = {dataset.key: dataset for dataset in request.datasets}
         results = await get_processing_port().apply_manifest_maps(
             db,
             maps,
@@ -106,8 +127,17 @@ async def check_manifest_maps(
                 for key, dataset_id in dataset_ids.items()
                 if key not in failed
             },
-            pending_dataset_keys=frozenset(
-                r.dataset_key for r in dataset_results if r.action != "error"
+            pending_datasets={
+                r.dataset_key: _planned_publication(entries[r.dataset_key], r)
+                for r in dataset_results
+                if request.dry_run and r.action != "error" and r.dataset_key in entries
+            },
+            public_fallback=request.public_fallback,
+            client=request.client,
+            ip_address=(
+                http_request.client.host
+                if http_request is not None and http_request.client
+                else None
             ),
         )
         return [ManifestMapResult.model_validate(result) for result in results]

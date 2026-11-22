@@ -10,11 +10,16 @@ from ..types import UNSET, Unset
 
 from ..models.manifest_map_result_action import check_manifest_map_result_action
 from ..models.manifest_map_result_action import ManifestMapResultAction
+from ..models.manifest_map_result_styling_type_0 import (
+    check_manifest_map_result_styling_type_0,
+)
+from ..models.manifest_map_result_styling_type_0 import ManifestMapResultStylingType0
 from typing import cast
 from uuid import UUID
 
 if TYPE_CHECKING:
     from ..models.manifest_message import ManifestMessage
+    from ..models.manifest_removed_layer import ManifestRemovedLayer
 
 
 T = TypeVar("T", bound="ManifestMapResult")
@@ -26,15 +31,24 @@ class ManifestMapResult:
     Attributes:
         map_key (str):
         action (ManifestMapResultAction): What apply did, or in a dry run would do, with the map. A map with an error
-            message is `error`.
-        map_id (None | Unset | UUID): The map the key names, when the caller may edit it.
+            message is `error`, and nothing was written for it.
+        map_id (None | Unset | UUID): The map the key names, when the caller may edit it, or the map an apply created.
         messages (list[ManifestMessage] | Unset):
+        visibility (None | str | Unset): Who can see the map after the apply, or in a dry run would. Null for a map in
+            error.
+        styling (ManifestMapResultStylingType0 | None | Unset): Whether the manifest's styling replaced the map's. Null
+            for a map in error.
+        removed_layers (list[ManifestRemovedLayer] | Unset): Keyed layers the manifest no longer lists, removed from the
+            map (info A059). Their datasets stay.
     """
 
     map_key: str
     action: ManifestMapResultAction
     map_id: None | Unset | UUID = UNSET
     messages: list[ManifestMessage] | Unset = UNSET
+    visibility: None | str | Unset = UNSET
+    styling: ManifestMapResultStylingType0 | None | Unset = UNSET
+    removed_layers: list[ManifestRemovedLayer] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -57,6 +71,27 @@ class ManifestMapResult:
                 messages_item = messages_item_data.to_dict()
                 messages.append(messages_item)
 
+        visibility: None | str | Unset
+        if isinstance(self.visibility, Unset):
+            visibility = UNSET
+        else:
+            visibility = self.visibility
+
+        styling: None | str | Unset
+        if isinstance(self.styling, Unset):
+            styling = UNSET
+        elif isinstance(self.styling, str):
+            styling = self.styling
+        else:
+            styling = self.styling
+
+        removed_layers: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.removed_layers, Unset):
+            removed_layers = []
+            for removed_layers_item_data in self.removed_layers:
+                removed_layers_item = removed_layers_item_data.to_dict()
+                removed_layers.append(removed_layers_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -69,12 +104,19 @@ class ManifestMapResult:
             field_dict["map_id"] = map_id
         if messages is not UNSET:
             field_dict["messages"] = messages
+        if visibility is not UNSET:
+            field_dict["visibility"] = visibility
+        if styling is not UNSET:
+            field_dict["styling"] = styling
+        if removed_layers is not UNSET:
+            field_dict["removed_layers"] = removed_layers
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
         from ..models.manifest_message import ManifestMessage
+        from ..models.manifest_removed_layer import ManifestRemovedLayer
 
         d = dict(src_dict)
         map_key = d.pop("map_key")
@@ -107,11 +149,53 @@ class ManifestMapResult:
 
                 messages.append(messages_item)
 
+        def _parse_visibility(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        visibility = _parse_visibility(d.pop("visibility", UNSET))
+
+        def _parse_styling(
+            data: object,
+        ) -> ManifestMapResultStylingType0 | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, str):
+                    raise TypeError()
+                styling_type_0 = check_manifest_map_result_styling_type_0(data)
+
+                return styling_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ManifestMapResultStylingType0 | None | Unset, data)
+
+        styling = _parse_styling(d.pop("styling", UNSET))
+
+        _removed_layers = d.pop("removed_layers", UNSET)
+        removed_layers: list[ManifestRemovedLayer] | Unset = UNSET
+        if _removed_layers is not UNSET:
+            removed_layers = []
+            for removed_layers_item_data in _removed_layers:
+                removed_layers_item = ManifestRemovedLayer.from_dict(
+                    removed_layers_item_data
+                )
+
+                removed_layers.append(removed_layers_item)
+
         manifest_map_result = cls(
             map_key=map_key,
             action=action,
             map_id=map_id,
             messages=messages,
+            visibility=visibility,
+            styling=styling,
+            removed_layers=removed_layers,
         )
 
         manifest_map_result.additional_properties = d

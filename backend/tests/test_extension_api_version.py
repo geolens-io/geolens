@@ -164,11 +164,18 @@ class TestExtensionApiVersionConstant:
         v26 adds the required keyword-only ``dataset_ids_by_key`` and
         ``pending_dataset_keys`` to ``ProcessingPort.apply_manifest_maps``.
 
+        v27 makes ``ProcessingPort.apply_manifest_maps`` write maps outside a
+        dry run, replaces ``pending_dataset_keys`` with the required
+        ``pending_datasets`` mapping, and adds the required keyword-only
+        ``public_fallback``, ``client`` and ``ip_address``. An overlay that
+        replaces the ``processing_port`` key with the old signature gets a
+        TypeError on every manifest with maps.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 26
+        assert EXTENSION_API_VERSION == 27
 
 
 class TestCheckExtensionApiVersion:
