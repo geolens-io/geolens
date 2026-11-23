@@ -510,6 +510,34 @@ async def apply_manifest_publication(
         )
 
 
+async def apply_manifest_replacement(
+    session: Any,
+    dataset: Any,
+    *,
+    job_id: str,
+    user_id: str,
+    user_metadata: dict,
+) -> None:
+    """Bring a replaced dataset's record to the manifest job that replaced it.
+
+    Its credit line, then its title, summary and publication judged again as
+    a version 2 job's must be, then its collection and attribute text. Runs
+    in the publish transaction holding the catalog rows; a refusal fails the
+    replacement, and a job no manifest created changes nothing.
+    """
+    from app.processing.ingest.manifest_dataset_fields import apply_fields_for_job
+    from app.processing.ingest.manifest_publication import settle_stored_publication
+
+    await apply_manifest_record_metadata(session, dataset.record, user_metadata)
+    publication = await settle_stored_publication(
+        session, uuid.UUID(job_id), dataset.record, user_metadata
+    )
+    await apply_manifest_publication(
+        session, dataset, publication, actor_id=uuid.UUID(user_id)
+    )
+    await apply_fields_for_job(session, uuid.UUID(job_id), dataset, user_metadata)
+
+
 @asynccontextmanager
 async def _job_phase_session(
     job_uuid: uuid.UUID,

@@ -50,7 +50,9 @@ from app.platform.jobs.models import (
 )
 from app.processing.ingest.manifest_dataset_fields import (
     ManifestEntryFields,
+    ManifestEntryRefused,
     attach_unchanged_entry,
+    raster_not_replaced_message,
     report_entry,
     resolve_entry_collection,
 )
@@ -709,7 +711,7 @@ async def _admit_refresh_run(
     # was being staged.
     await db.refresh(dataset, attribute_names=["source_format"])
     try:
-        _refuse_publish_key_remote_origin(db, dataset)
+        _refuse_publish_key_irreversible_replace(db, dataset)
     except HTTPException as exc:
         raise ManifestSourceError(exc.detail["message"]) from exc
     if raw_source and "admin" not in await get_processing_port().get_user_roles(
@@ -738,11 +740,16 @@ async def _queue_reupload_job(
     prepared: ManifestPreparedSource,
 ) -> None:
     port = get_catalog_port()
-    task = (
-        port.manifest_v2_reupload_task()
-        if is_version_2(job.user_metadata or {})
-        else port.reupload_file_task()
-    )
+    if prepared.file_type == "raster":
+        # Under a name earlier workers lack: their raster replacement skips
+        # the manifest's record fields.
+        from app.processing.ingest.tasks import reupload_manifest_raster
+
+        task = reupload_manifest_raster
+    elif is_version_2(job.user_metadata or {}):
+        task = port.manifest_v2_reupload_task()
+    else:
+        task = port.reupload_file_task()
     file_path = job.file_path
     if not file_path:
         raise ManifestSourceError("Manifest reupload job is missing file_path")
@@ -765,9 +772,14 @@ async def _queue_reupload_job(
     )
 
 
-def _refuse_publish_key_remote_origin(db: AsyncSession, existing_dataset) -> None:
-    # The update replaces the source binding, and a restore can bring back only
-    # an upload's or a drawn layer's.
+def _refuse_publish_key_irreversible_replace(
+    db: AsyncSession, existing_dataset
+) -> None:
+    # A replaced raster keeps no previous version. A vector update replaces the
+    # source binding, and a restore can bring back only an upload's or a drawn
+    # layer's.
+    if existing_dataset.record.record_type == "raster_dataset":
+        refuse_publish_key(db, "A publish key can't replace a raster dataset")
     origin = classify_origin(
         existing_dataset.source_format, existing_dataset.record.record_type
     )
@@ -775,6 +787,24 @@ def _refuse_publish_key_remote_origin(db: AsyncSession, existing_dataset) -> Non
         refuse_publish_key(
             db, "A publish key can't replace a dataset bound to a remote origin"
         )
+
+
+def _refuse_unreplaceable_update(
+    db: AsyncSession,
+    dataset: ManifestDataset,
+    existing_dataset,
+    prepared: ManifestPreparedSource,
+    fields: ManifestEntryFields | None,
+) -> None:
+    """Refuse an update whose source can't replace the dataset's data, or one
+    a publish key may not make. A version 2 raster refusal is error A054."""
+    _validate_existing_dataset_update(existing_dataset, prepared)
+    try:
+        _refuse_publish_key_irreversible_replace(db, existing_dataset)
+    except HTTPException as exc:
+        if fields is None or prepared.file_type != "raster":
+            raise ManifestSourceError(exc.detail["message"]) from exc
+        raise ManifestEntryRefused([raster_not_replaced_message(dataset)]) from exc
 
 
 def _job_metadata(
@@ -1211,8 +1241,7 @@ async def _reserve_or_settle_entry(
             return held
         # Run after authorization (to avoid leaking another user's dataset
         # type) but before dry-run reporting, staging, or queue creation.
-        _validate_existing_dataset_update(existing_dataset, prepared)
-        _refuse_publish_key_remote_origin(db, existing_dataset)
+        _refuse_unreplaceable_update(db, dataset, existing_dataset, prepared, fields)
         update_dataset_id = existing_dataset.id
         await judge_update(
             db,

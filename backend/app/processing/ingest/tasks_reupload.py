@@ -63,8 +63,6 @@ from app.processing.ingest.publication import (
     settle_replacement,
     settle_timed_out_execution,
 )
-from app.processing.ingest.manifest_dataset_fields import apply_fields_for_job
-from app.processing.ingest.manifest_publication import settle_stored_publication
 from app.processing.ingest.publish_followups import run_publish_followups
 from app.processing.ingest.source_format import derive_source_format
 from app.processing.ingest.tasks_common import (
@@ -78,8 +76,7 @@ from app.processing.ingest.tasks_common import (
     _install_reupload_table,
     _run_service_import_with_wfs_fallback,
     _write_reupload_catalog,
-    apply_manifest_publication,
-    apply_manifest_record_metadata,
+    apply_manifest_replacement,
     purge_token_on_failure,
     resolve_service_type,
     task_app,
@@ -935,19 +932,12 @@ class _FileReupload(_LiveComparison):
         )
 
     async def _apply_manifest(self, session, dataset) -> None:
-        # A manifest re-apply lands here carrying the manifest's current
-        # attribution, which replaces the old credit.
-        await apply_manifest_record_metadata(
-            session, dataset.record, self.user_metadata
-        )
-        publication = await settle_stored_publication(
-            session, uuid.UUID(self.job_id), dataset.record, self.user_metadata
-        )
-        await apply_manifest_publication(
-            session, dataset, publication, actor_id=uuid.UUID(self.user_id)
-        )
-        await apply_fields_for_job(
-            session, uuid.UUID(self.job_id), dataset, self.user_metadata
+        await apply_manifest_replacement(
+            session,
+            dataset,
+            job_id=self.job_id,
+            user_id=self.user_id,
+            user_metadata=self.user_metadata,
         )
 
     def classify(self, exc: BaseException) -> Failure:

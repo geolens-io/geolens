@@ -165,17 +165,22 @@ def _validate_existing_dataset_update(
     existing_dataset: object,
     prepared: ManifestPreparedSource,
 ) -> None:
-    """Reject manifest updates the reupload worker cannot implement safely."""
+    """Reject a manifest update whose source can't replace the dataset's data.
+
+    A ``raster_cog`` source replaces only a raster dataset's COG, the way a
+    raster re-upload does; a mosaic is defined by its members, not a file. A
+    vector source replaces only a feature table.
+    """
     record = getattr(existing_dataset, "record", None)
     record_type = getattr(record, "record_type", None)
 
-    # Raster replacement has different asset/version semantics than the
-    # vector-only reupload task manifest updates use.
     if prepared.source.type == "raster_cog":
-        raise ManifestSourceError(
-            "Manifest raster updates are not supported; create a new raster "
-            "dataset instead."
-        )
+        if record_type != "raster_dataset":
+            raise ManifestSourceError(
+                "Manifest raster updates can replace only a raster dataset, "
+                f"not an existing {record_type or 'unknown'} dataset."
+            )
+        return
     if record_type not in {"vector_dataset", "table"}:
         raise ManifestSourceError(
             f"Manifest vector updates cannot replace an existing {record_type or 'unknown'} dataset."
@@ -555,20 +560,14 @@ async def _staged_upload_sha256(file_path: str) -> tuple[str, int]:
 
 
 def skip_complete_message(prepared: ManifestPreparedSource) -> str:
-    """Explain a skip_complete result without promising a recovery path
-    `_validate_existing_dataset_update` would then refuse.
+    """Explain a skip_complete result.
 
     Matching the last completed entry means only that, not that the source
     bytes were read: a stable URI whose file changed underneath it lands
-    here too, so the message says the source wasn't inspected. A fresh
-    upload's bytes were checked, so its message says the file is the same and
-    the upload is spare; an entry replayed with the upload it already used
-    says only that.
-
-    Only vector entries are told to bump `checksum`. A bumped `raster_cog`
-    fingerprint would reach `_validate_existing_dataset_update` and be
-    rejected with "Manifest raster updates are not supported", so raster
-    entries get that rejection's guidance instead.
+    here too, so the message says the source wasn't inspected and that a
+    bumped `checksum` forces the update. A fresh upload's bytes were checked,
+    so its message says the file is the same and the upload is spare; an
+    entry replayed with the upload it already used says only that.
     """
     if prepared.kind == "upload" and prepared.upload is None:
         return "Manifest dataset entry is unchanged: this upload was already applied."
@@ -576,13 +575,6 @@ def skip_complete_message(prepared: ManifestPreparedSource) -> str:
         return (
             "Manifest dataset entry is unchanged: the uploaded file matches "
             "the last apply. Cancel the unused upload."
-        )
-    if prepared.source.type == "raster_cog":
-        return (
-            "Manifest dataset entry is unchanged; the source was not "
-            "inspected. Manifest raster updates are not supported; to "
-            "replace this dataset's data, create a new raster dataset "
-            "instead."
         )
     return (
         "Manifest dataset entry is unchanged; the source was not "

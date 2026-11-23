@@ -50,6 +50,7 @@ COLLECTION_REFUSED = "A033"
 # What the port answers when the collection row stayed locked.
 COLLECTION_BUSY_CODE = "collection_busy"
 EDITED_SINCE_PUBLISH = "A053"
+RASTER_NOT_REPLACED = "A054"
 ATTRIBUTE_UNMATCHED = "A092"
 
 TILE_CACHE_VERSION_METADATA_KEY = "manifest_tile_cache_version"
@@ -84,6 +85,19 @@ def public_refused_message(
         severity=severity,
         message=f"{reason}, so {dataset.title!r} {outcome}.",
         fix=fix,
+    )
+
+
+def raster_not_replaced_message(dataset: ManifestDataset) -> ManifestMessage:
+    """Error A054: a publish key may not replace a raster's data."""
+    return ManifestMessage(
+        code=RASTER_NOT_REPLACED,
+        severity="error",
+        message=(
+            f"A publish key can't replace raster data, so {dataset.title!r} "
+            "was not updated: a replaced raster can't be restored."
+        ),
+        fix="Publish as new, or use a full key or sign in.",
     )
 
 

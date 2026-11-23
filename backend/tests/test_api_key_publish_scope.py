@@ -908,20 +908,23 @@ async def test_a_publish_key_cannot_refresh_a_stac_dataset(
 
 
 @pytest.mark.parametrize(
-    "scope,source_format,refused",
+    "scope,source_format,record_type,refused",
     [
-        ("publish", "stac", True),
-        ("publish", "wfs", True),
-        ("publish", None, True),
-        ("publish", "geojson", False),
-        ("publish", "created", False),
-        ("full", "stac", False),
+        ("publish", "stac", "vector_dataset", True),
+        ("publish", "wfs", "vector_dataset", True),
+        ("publish", None, "vector_dataset", True),
+        ("publish", "geojson", "vector_dataset", False),
+        ("publish", "created", "vector_dataset", False),
+        ("full", "stac", "vector_dataset", False),
+        ("publish", "geotiff", "raster_dataset", True),
+        ("full", "geotiff", "raster_dataset", False),
     ],
 )
-def test_a_manifest_update_refuses_a_publish_key_on_a_remote_origin(
-    scope, source_format, refused
+def test_a_manifest_update_refuses_a_publish_key_what_a_restore_cant_undo(
+    scope, source_format, record_type, refused
 ):
-    """The manifest update replaces the binding, as a reupload does."""
+    """The manifest update replaces the binding, and a raster's data, as a
+    reupload does; a replaced raster keeps no previous version."""
     from types import SimpleNamespace
 
     from fastapi import HTTPException
@@ -929,7 +932,7 @@ def test_a_manifest_update_refuses_a_publish_key_on_a_remote_origin(
 
     from app.platform.request_credential import ApiKeyCredential, record_api_key
     from app.processing.ingest.manifest_service import (
-        _refuse_publish_key_remote_origin,
+        _refuse_publish_key_irreversible_replace,
     )
 
     session = AsyncSession()
@@ -938,14 +941,14 @@ def test_a_manifest_update_refuses_a_publish_key_on_a_remote_origin(
     )
     dataset = SimpleNamespace(
         source_format=source_format,
-        record=SimpleNamespace(record_type="vector_dataset"),
+        record=SimpleNamespace(record_type=record_type),
     )
     if refused:
         with pytest.raises(HTTPException) as exc:
-            _refuse_publish_key_remote_origin(session, dataset)
+            _refuse_publish_key_irreversible_replace(session, dataset)
         assert exc.value.detail["code"] == "api_key_scope"
     else:
-        _refuse_publish_key_remote_origin(session, dataset)
+        _refuse_publish_key_irreversible_replace(session, dataset)
 
 
 def test_the_manifest_update_path_runs_the_remote_origin_refusal():
@@ -958,7 +961,9 @@ def test_the_manifest_update_path_runs_the_remote_origin_refusal():
     validated = source.index(
         "_validate_existing_dataset_update(existing_dataset, prepared)"
     )
-    refused = source.index("_refuse_publish_key_remote_origin(db, existing_dataset)")
+    refused = source.index(
+        "_refuse_publish_key_irreversible_replace(db, existing_dataset)"
+    )
     dry_run = source.index("if request.dry_run:", validated)
     assert validated < refused < dry_run
 
@@ -972,7 +977,7 @@ def test_manifest_admission_rechecks_the_origin_under_the_lock():
     source = inspect.getsource(_admit_refresh_run)
     locked = source.index("lock_dataset_rows_for_write(db, dataset)")
     reread = source.index('db.refresh(dataset, attribute_names=["source_format"])')
-    refused = source.index("_refuse_publish_key_remote_origin(db, dataset)")
+    refused = source.index("_refuse_publish_key_irreversible_replace(db, dataset)")
     assert locked < reread < refused
 
 

@@ -95,9 +95,6 @@ ManifestCrs = Annotated[str, Field(pattern=r"^EPSG:[0-9]{1,6}$")]
 # pydantic-core anchors at the true end. Without the bound here and in the
 # OpenAPI schema, a trailing-newline checksum could pass one validator and not
 # the other. test_manifest_apply_api.py pins both.
-#
-# On a raster_cog source a changed checksum makes
-# _validate_existing_dataset_update reject the update rather than skip it.
 ManifestChecksum = Annotated[
     str,
     Field(
@@ -110,16 +107,13 @@ ManifestChecksum = Annotated[
             "`upload:` source, where apply checks it against the uploaded "
             "file and refuses the entry when they differ. On any other source "
             "apply uses it only as a change-detection input alongside the rest "
-            "of the entry; it is not verified against the fetched bytes. For a "
-            "vector source, "
-            "bump it when the file under a stable URI changes, to force "
-            "apply to reclassify the entry as an update instead of "
-            "skipping it. Manifest raster updates are not supported: once a "
-            "raster_cog entry has published, a changed checksum, a new "
-            "upload's included, makes apply report that entry as an error "
-            "('Manifest raster updates are not supported; create a new "
-            "raster dataset instead.'), not a skip. An unchanged raster "
-            "entry, checksum included, still skips normally."
+            "of the entry; it is not verified against the fetched bytes. Bump "
+            "it when the file under a stable URI changes, to force apply to "
+            "reclassify the entry as an update instead of skipping it. An "
+            "update of a raster_cog entry replaces the raster's data on the "
+            "same dataset. A publish key can't replace a raster, because a "
+            "replaced raster can't be restored: apply reports that entry as "
+            "an error (A054 in version 2) and queues nothing."
         ),
     ),
 ]
