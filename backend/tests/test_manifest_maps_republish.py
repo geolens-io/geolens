@@ -15,6 +15,7 @@ from unittest.mock import patch
 import pytest
 from sqlalchemy import select
 
+from app.core.config import settings
 from app.modules.catalog.maps import manifest_apply, manifest_republish, service_history
 from app.modules.catalog.maps.manifest_republish import (
     NOTES_LIMIT,
@@ -1473,8 +1474,10 @@ async def test_full_notes_drop_an_earlier_block_and_keep_the_users_text(
 
 
 async def test_a_dataset_a_kept_layer_drops_doesnt_refuse_a_public_map(
-    client, test_db_session, admin_auth_header, clean_tables
+    client, test_db_session, admin_auth_header, clean_tables, monkeypatch
 ):
+    # A known address, so the public map's share link adds no A074.
+    monkeypatch.setattr(settings, "public_app_url", "https://geolens.test")
     admin = await _admin(test_db_session)
     shown = await _dataset(test_db_session, admin.id)
     discarded = await _dataset(test_db_session, admin.id, visibility="private")

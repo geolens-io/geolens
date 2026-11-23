@@ -8463,6 +8463,18 @@ export type ManifestMapLinks = {
      * The map in the web app.
      */
     viewer: string;
+    /**
+     * Share
+     *
+     * The public map's share link, sent once, by the publish that created it. Share links are stored hashed and can't be read back, so keep it: later publishes send null, as does a publish of a map that isn't public, a dry run and a map in error. When no web app address is configured (PUBLIC_APP_URL, or a hosted tenant's own origin), no link is created, this is null, and the map answers info A074.
+     */
+    share?: string | null;
+    /**
+     * Embed
+     *
+     * An iframe snippet that embeds the share link, sent with `share` and null whenever it is.
+     */
+    embed?: string | null;
 };
 
 /**

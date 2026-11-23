@@ -129,7 +129,9 @@ async def describe_results(
     savepoint, so one that fails leaves the session usable and costs only that
     result its stored level. Links are built after, in a savepoint of their
     own, and a failure there nulls the links alone. An entry with no dataset
-    yet gets no links, nor does one the caller can't read.
+    yet gets no links, nor does one the caller can't read. A map whose apply
+    minted its share link keeps the links built for it then, which carry the
+    share link and embed code, even when building the others fails.
     """
     entries = {dataset.key: dataset for dataset in request.datasets}
     facts: dict[uuid.UUID, _DatasetFacts] = {}
@@ -161,7 +163,8 @@ async def describe_results(
         for result in results:
             result.links = None
         for map_result in maps or ():
-            map_result.links = None
+            # A minted share link was built before the apply wrote anything.
+            map_result.links = map_result._minted_links
             for removed in map_result.removed_layers:
                 removed.link = None
 
@@ -192,7 +195,9 @@ async def _link(
                 facts[result.dataset_id], app_url, api_url, settled=settled
             )
     for map_result in maps or ():
-        if map_result.map_id is not None and map_result.action != "error":
+        if map_result._minted_links is not None:
+            map_result.links = map_result._minted_links
+        elif map_result.map_id is not None and map_result.action != "error":
             map_result.links = ManifestMapLinks(
                 viewer=join_public_url(app_url, f"/maps/{map_result.map_id}")
             )

@@ -19,7 +19,8 @@ subsequent requests.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Any, Protocol, runtime_checkable
 
@@ -27,6 +28,31 @@ from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+
+# An apply_manifest_maps result key: ``{"token": <raw share token>, "title":
+# <map name>}`` for the map whose share link the apply minted. The raw token
+# exists nowhere else, so this result is its only way to the caller.
+MINTED_SHARE_KEY = "minted_share"
+_SHARE_LINKS_WITHHELD = "geolens.manifest_share_links_withheld"
+
+
+@contextmanager
+def withholding_share_links(session: AsyncSession, withheld: bool) -> Iterator[None]:
+    """With ``withheld``, tell an apply_manifest_maps run in the block that a
+    share link it mints could not be returned, so it must mint none."""
+    if not withheld:
+        yield
+        return
+    session.info[_SHARE_LINKS_WITHHELD] = True
+    try:
+        yield
+    finally:
+        session.info.pop(_SHARE_LINKS_WITHHELD, None)
+
+
+def share_links_withheld(session: AsyncSession) -> bool:
+    """Whether a share link minted on ``session`` now could not be returned."""
+    return bool(session.info.get(_SHARE_LINKS_WITHHELD))
 
 
 @runtime_checkable
@@ -512,7 +538,11 @@ class ProcessingPort(Protocol):
     # replacing, which a layer may not use yet. ``public_fallback`` and
     # ``client`` are the request's. Outside a dry run each map that checks
     # clean is written and committed on its own. Returns one
-    # ``ManifestMapResult``-shaped dict per map, in order.
+    # ``ManifestMapResult``-shaped dict per map, in order. A map whose apply
+    # minted its share link may also carry ``MINTED_SHARE_KEY``, which the
+    # caller removes before the result reaches a response model. Under
+    # ``withholding_share_links`` a map that would mint one mints none and
+    # answers info A074 instead.
     async def apply_manifest_maps(
         self,
         session: AsyncSession,

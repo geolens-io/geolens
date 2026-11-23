@@ -25,9 +25,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.permissions import EDIT_METADATA
+from app.core.processing_port import MINTED_SHARE_KEY
 from app.core.record_types import capabilities
 from app.modules.auth import permissions as auth_permissions
 from app.modules.catalog.authorization import (
+    ANONYMOUS_MAP_VISIBILITIES,
     apply_visibility_filter,
     check_public_visibility_allowed,
     get_user_roles,
@@ -56,6 +58,8 @@ from app.modules.catalog.maps.manifest_messages import (
     STYLING_KEPT,
     NOTES_NOT_WRITTEN,
     THUMBNAIL_NOT_STORED,
+    SHARE_LINK_NOT_CREATED,
+    SHARE_LINK_WITHHELD,
     KEPT_LAYER_DATASET,
     KEY_NOT_WRITABLE,
     DATASET_NOT_READY,
@@ -71,6 +75,7 @@ from app.modules.catalog.maps.manifest_messages import (
     problem as _problem,
     short as _short,
 )
+from app.modules.catalog.maps.manifest_share import ShareMint, mint_share_link
 from app.modules.catalog.maps.manifest_visibility import (
     judge_visibility,
     planned_public,
@@ -796,7 +801,8 @@ async def _refuse_unreadable_layers(
 async def _write_map(
     session: AsyncSession, entry: Any, request: _Request, plan: _Plan
 ) -> dict[str, Any]:
-    """Write a map whose check passed, through the map services. Flushes."""
+    """Write a map whose check passed, through the map services, and give a
+    map it leaves public a share link through the share service. Flushes."""
     user = request.user
     map_obj = plan.map_obj
     if map_obj is None:
@@ -877,11 +883,23 @@ async def _write_map(
         },
     )
     plan.published_at = map_obj.updated_at
+    share = (
+        await mint_share_link(session, map_obj.id, user, request.ip_address)
+        if after in ANONYMOUS_MAP_VISIBILITIES
+        else ShareMint(None)
+    )
+    withheld = [_message(SHARE_LINK_NOT_CREATED, "info", SHARE_LINK_WITHHELD)]
     return {
         **plan.result,
+        "messages": [*plan.result["messages"], *(withheld if share.withheld else ())],
         "map_id": map_obj.id,
         "visibility": after,
         "groups": [group.name for group in await map_groups(session, map_obj.id)],
+        **(
+            {}
+            if share.token is None
+            else {MINTED_SHARE_KEY: {"token": share.token, "title": map_obj.name}}
+        ),
     }
 
 

@@ -860,6 +860,25 @@ class ManifestMapLinks(BaseModel):
     """Absolute links to a map."""
 
     viewer: str = Field(description="The map in the web app.")
+    share: str | None = Field(
+        default=None,
+        description=(
+            "The public map's share link, sent once, by the publish that "
+            "created it. Share links are stored hashed and can't be read back, "
+            "so keep it: later publishes send null, as does a publish of a map "
+            "that isn't public, a dry run and a map in error. When no web app "
+            "address is configured (PUBLIC_APP_URL, or a hosted tenant's own "
+            "origin), no link is created, this is null, and the map answers "
+            "info A074."
+        ),
+    )
+    embed: str | None = Field(
+        default=None,
+        description=(
+            "An iframe snippet that embeds the share link, sent with `share` "
+            "and null whenever it is."
+        ),
+    )
 
 
 class ManifestMapResult(BaseModel):
@@ -908,6 +927,9 @@ class ManifestMapResult(BaseModel):
             "dataset the caller can't read stays on the map."
         ),
     )
+    # The links of a share link this apply minted, built as soon as the apply
+    # returned, since the raw token can't be read back.
+    _minted_links: ManifestMapLinks | None = PrivateAttr(default=None)
 
 
 class ManifestApplyResponse(BaseModel):
