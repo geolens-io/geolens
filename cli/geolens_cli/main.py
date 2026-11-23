@@ -32,6 +32,7 @@ from . import auth as _auth
 from . import config as _config
 from . import export_stac as _export_stac
 from . import manifest_apply as _manifest_apply
+from . import manifest_upload as _manifest_upload
 from . import output as _output
 from . import publish as _publish
 from . import refresh as _refresh
@@ -42,6 +43,7 @@ from ._sdk_helpers import (
     EXIT_BLOCKED,
     EXIT_GENERIC,
     EXIT_NETWORK,
+    EXIT_SERVER,
     EXIT_USAGE,
     call_sdk,
     call_sdk_with_reauth,
@@ -208,6 +210,16 @@ def root(
     )
 
 
+def _require_manifest_version(version: str) -> None:
+    from .manifest.schema import SUPPORTED_VERSIONS
+
+    if version not in SUPPORTED_VERSIONS:
+        raise typer.BadParameter(
+            f"--manifest-version must be one of {', '.join(SUPPORTED_VERSIONS)}, "
+            f"got {version!r}."
+        )
+
+
 @app.command()
 def init(
     ctx: typer.Context,
@@ -219,13 +231,23 @@ def init(
         bool,
         typer.Option("--force", help="Overwrite an existing manifest"),
     ] = False,
+    manifest_version: Annotated[
+        str,
+        typer.Option(
+            "--manifest-version",
+            help='Manifest version to write: "1" (default) or "2" (preview)',
+        ),
+    ] = "1",
 ) -> None:
     """Create a starter geolens.yaml manifest."""
     from .manifest.template import write_minimal_manifest
 
+    _require_manifest_version(manifest_version)
     state: AppState = ctx.obj
     try:
-        created = write_minimal_manifest(path, force=force)
+        created = write_minimal_manifest(
+            path, force=force, manifest_version=manifest_version
+        )
     except FileExistsError:
         state.output.error(
             f"Manifest already exists: {path}. Use --force to overwrite."
@@ -295,11 +317,22 @@ def print_manifest_schema(
             help="Write the versioned manifest JSON Schema to a file",
         ),
     ] = None,
+    manifest_version: Annotated[
+        str,
+        typer.Option(
+            "--manifest-version",
+            help='Manifest version to print: "1" (default) or "2" (preview)',
+        ),
+    ] = "1",
 ) -> None:
     """Print the packaged geolens.yaml JSON Schema without contacting an API."""
-    from .manifest.schema import manifest_schema
+    from .manifest.schema import authoring_schema, manifest_schema
 
-    rendered = json.dumps(manifest_schema(), indent=2, sort_keys=True) + "\n"
+    _require_manifest_version(manifest_version)
+    schema = (
+        authoring_schema() if manifest_version == "2" else manifest_schema(manifest_version)
+    )
+    rendered = json.dumps(schema, indent=2, sort_keys=True) + "\n"
     if output is None:
         typer.echo(rendered, nl=False)
         return
@@ -317,6 +350,65 @@ def _require_wait_sdk(state: "AppState") -> None:
     except _refresh.RefreshRequestError as exc:
         state.output.error(exc.message)
         raise typer.Exit(exc.exit_code)
+
+
+def _upload_manifest_sources(
+    state: "AppState",
+    sdk: Any,
+    document: dict[str, Any],
+    uploads: list[Any],
+    created: list[Any],
+    owners: dict[Any, str],
+) -> dict[str, Any]:
+    from rich.progress import Progress, SpinnerColumn, TextColumn
+
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        disable=state.json_mode or not state.output.is_tty,
+    )
+    with progress:
+        task = progress.add_task("Uploading...", total=None)
+
+        def describe(number: int, total: int, file: Path) -> None:
+            progress.update(
+                task, description=f"Uploading {file.name} ({number}/{total})..."
+            )
+
+        try:
+            return _manifest_upload.upload_local_sources(
+                sdk.client, document, uploads, on_progress=describe, created=created, owners=owners
+            )
+        except (_manifest_upload.ManifestUploadError, typer.Exit, OSError) as exc:
+            # Nothing was submitted, so the uploads already made are spare.
+            _cancel_manifest_uploads(state, sdk.client, list(created))
+            if isinstance(exc, typer.Exit):
+                raise
+            if isinstance(exc, OSError):
+                state.output.error(f"Could not read a source file: {exc}")
+                raise typer.Exit(EXIT_USAGE)
+            state.output.error(exc.message)
+            raise typer.Exit(exc.exit_code)
+
+
+def _cancel_manifest_uploads(
+    state: "AppState", client: Any, job_ids: list[Any]
+) -> list[Any]:
+    """Cancel uploads nothing will use, and say which. Returns those cancelled."""
+    if not job_ids:
+        return []
+    cancelled, failed = _manifest_upload.cancel_uploads(client, job_ids)
+    if failed and not state.json_mode:
+        state.output.warn(
+            "Could not cancel unused upload(s): "
+            + ", ".join(str(job_id) for job_id in failed)
+        )
+    if cancelled and not state.json_mode:
+        state.output.info(
+            "Cancelled unused upload(s): "
+            + ", ".join(str(job_id) for job_id in cancelled)
+        )
+    return cancelled
 
 
 @app.command("apply")
@@ -361,11 +453,16 @@ def apply_manifest_command(
 ) -> None:
     """Apply a geolens.yaml manifest through the configured GeoLens API.
 
-    NOTE: apply only POSTs the manifest document — it does NOT upload local
-    data files. Manifest sources must reference data the server can already
-    reach (http(s)/s3 URIs, or files pre-staged server-side). To
-    publish a LOCAL file, use `geolens publish <file>` instead. apply warns
-    if any source URI is a local path.
+    A version 1 manifest is only POSTed: apply does NOT upload local data
+    files. Its sources must reference data the server can already reach
+    (http(s)/s3 URIs, or files pre-staged server-side). To publish a LOCAL
+    file, use `geolens publish <file>` instead. apply warns if any source URI
+    is a local path.
+
+    A version 2 manifest (preview) uploads the local files its sources name,
+    paths relative to the manifest, and applies them as `upload:<job_id>`
+    sources. A dry run uploads them too, since the server checks the uploaded
+    file.
 
     Without --timeout, the request's timeout is a heuristic lower bound
     computed from the manifest's own entry count -- not a guarantee a
@@ -383,7 +480,7 @@ def apply_manifest_command(
         format_validation_error_lines,
         validation_report_payload,
     )
-    from .manifest.schema import load_manifest, validate_manifest
+    from .manifest.schema import document_version, load_manifest, validate_manifest
 
     state: AppState = ctx.obj
     try:
@@ -416,7 +513,8 @@ def apply_manifest_command(
     # sources. It only warns (on stderr; --json stays silent so automation isn't
     # broken): if the staging can't see the file the source skips/404s
     # server-side, and `geolens publish <file>` pushes a CLI-local file.
-    local_uris = _manifest_apply.find_local_source_uris(document)
+    version_two = document_version(document) == "2"
+    local_uris = [] if version_two else _manifest_apply.find_local_source_uris(document)
     if local_uris:
         sample = ", ".join(local_uris[:5])
         if len(local_uris) > 5:
@@ -437,9 +535,27 @@ def apply_manifest_command(
         state.output.error(str(exc))
         raise typer.Exit(EXIT_USAGE)
 
+    uploads: list[_manifest_upload.LocalUpload] = []
+    if version_two:
+        try:
+            uploads = _manifest_upload.plan_local_uploads(document, path.parent)
+        except _manifest_upload.ManifestUploadError as exc:
+            state.output.error(exc.message)
+            raise typer.Exit(exc.exit_code)
+
+    # A document that asks for a dry run keeps asking for one.
+    dry_run = dry_run or document.get("dry_run") is True
     if wait and not dry_run:
         _require_wait_sdk(state)
     sdk = state.sdk()
+    created_uploads: list[Any] = []
+    upload_owners: dict[Any, str] = {}
+    kept: list[Any] = []
+    original_document = document
+    if uploads:
+        document = _upload_manifest_sources(
+            state, sdk, document, uploads, created_uploads, upload_owners
+        )
     payload = _manifest_apply.build_apply_payload(document, dry_run=dry_run)
     try:
         response = _manifest_apply.post_manifest_apply(
@@ -480,19 +596,54 @@ def apply_manifest_command(
                 )
         raise typer.Exit(exc.exit_code)
     except _manifest_apply.ManifestApplyRequestError as exc:
+        # A server error may still have used the uploads; any other refusal
+        # did not.
+        if exc.exit_code != EXIT_SERVER:
+            _cancel_manifest_uploads(state, sdk.client, list(created_uploads))
         state.output.error(exc.message)
         raise typer.Exit(exc.exit_code)
 
+    active_client = sdk.client
+    retry_failure = 0
     if wait and not dry_run and response.get("accepted", False):
+
+        def use_client(replacement: Any) -> None:
+            nonlocal active_client
+            active_client = replacement
+
         response = _manifest_apply.wait_for_apply_jobs(
             sdk.client,
             response,
             instance=state.active_instance(),
             credential_kind=sdk.credential_kind,
             credential_provenance=sdk.credential_provenance,
+            on_client_replaced=use_client,
         )
+        if _manifest_apply.deferred_map_keys(response):
+            response, retry_failure = _manifest_apply.retry_deferred_maps(
+                active_client,
+                original_document,
+                response,
+                timeout=resolved_timeout,
+            )
+
+    cancelled: list[Any] = []
+    if created_uploads:
+        unused, kept = _manifest_upload.sort_uploads(
+            response, created_uploads, upload_owners, dry_run=dry_run
+        )
+        cancelled = _cancel_manifest_uploads(state, active_client, unused)
+        if kept and not state.json_mode:
+            state.output.warn(
+                "Kept upload(s) the server may still use; check them with "
+                "`geolens` job status before cancelling: "
+                + ", ".join(str(job_id) for job_id in kept)
+            )
 
     report = _manifest_apply.apply_report_payload(path, response)
+    if created_uploads:
+        report["cancelled_uploads"] = [str(job_id) for job_id in cancelled]
+        report["kept_uploads"] = [str(job_id) for job_id in kept]
     if state.json_mode:
         state.output.json(report)
     else:
@@ -520,7 +671,12 @@ def apply_manifest_command(
                 f"Accept with: geolens refresh {result.get('dataset_id')} "
                 f"--accept-blocked-run {result.get('run_id')}"
             )
-    code = _manifest_apply.apply_exit_code(response)
+    if not wait and not dry_run and _manifest_apply.deferred_map_keys(response):
+        state.output.info(
+            "Maps answered A052 wait for datasets this request queued. "
+            "Run `geolens apply` again once the jobs finish, or use --wait."
+        )
+    code = retry_failure or _manifest_apply.apply_exit_code(response)
     if code:
         raise typer.Exit(code)
 

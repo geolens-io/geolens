@@ -11,7 +11,7 @@ from .errors import ManifestValidationError
 
 _REMEDIATIONS = {
     "additionalProperties": "Remove the unsupported field or move it to a supported manifest property.",
-    "const": 'Use manifest_version "1" for the current GeoLens manifest schema.',
+    "const": 'Use manifest_version "1", or "2" (preview) for the GeoLens manifest schema.',
     "enum": "Use one of the supported values documented by the manifest schema.",
     "maxItems": "Remove extra values so the list matches the schema limit.",
     "maxLength": "Shorten the value at this manifest path.",
