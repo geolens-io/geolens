@@ -49,6 +49,8 @@ def _describe(node: dict[str, Any]) -> str:
     if "enum" in node:
         return "enum:" + ",".join(map(str, node["enum"]))
     kind = node.get("type", "any")
+    if kind == "array" and "prefixItems" in node:
+        return "tuple<" + ",".join(_describe(n) for n in node["prefixItems"]) + ">"
     if kind == "array":
         return f"array<{_describe(node.get('items', {}))}>"
     if kind == "object" and "additionalProperties" in node:
@@ -59,8 +61,8 @@ def _describe(node: dict[str, Any]) -> str:
     return str(kind)
 
 
-def _models(schema: dict[str, Any]) -> dict[str, dict[str, Any]]:
-    nodes = {"ManifestApplyRequest": schema, **schema.get("$defs", {})}
+def _models(root: str, schema: dict[str, Any]) -> dict[str, dict[str, Any]]:
+    nodes = {root: schema, **schema.get("$defs", {})}
     return {
         name: {
             field: {
@@ -88,9 +90,10 @@ def job_message_kinds() -> list[str]:
 
 
 def build() -> dict[str, Any]:
-    models = _models(ManifestApplyRequest.model_json_schema())
-    for name, fields in _models(ManifestApplyResponse.model_json_schema()).items():
-        models.setdefault(name, fields)
+    models = _models("ManifestApplyRequest", ManifestApplyRequest.model_json_schema())
+    models |= _models(
+        "ManifestApplyResponse", ManifestApplyResponse.model_json_schema()
+    )
     return {
         "contract_version": 2,
         "models": dict(sorted(models.items())),

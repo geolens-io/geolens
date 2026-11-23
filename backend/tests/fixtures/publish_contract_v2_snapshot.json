@@ -105,6 +105,24 @@
         "type": "const:internal|null"
       }
     },
+    "ManifestApplyResponse": {
+      "accepted": {
+        "required": true,
+        "type": "boolean"
+      },
+      "dry_run": {
+        "required": true,
+        "type": "boolean"
+      },
+      "maps": {
+        "required": false,
+        "type": "array<ManifestMapResult>|null"
+      },
+      "results": {
+        "required": true,
+        "type": "array<ManifestApplyEntryResult>"
+      }
+    },
     "ManifestAttribute": {
       "description": {
         "required": false,
@@ -418,7 +436,7 @@
       },
       "center": {
         "required": true,
-        "type": "array<any>"
+        "type": "tuple<number,number>"
       },
       "pitch": {
         "required": false,
