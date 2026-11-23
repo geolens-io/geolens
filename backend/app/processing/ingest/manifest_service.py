@@ -54,6 +54,7 @@ from app.processing.ingest.manifest_dataset_fields import (
     report_entry,
     resolve_entry_collection,
 )
+from app.processing.ingest.manifest_links import describe_results
 from app.processing.ingest.manifest_maps import run_manifest_maps
 from app.processing.ingest.manifest_publication import (
     decide_publication,
@@ -1177,6 +1178,8 @@ async def _reserve_or_settle_entry(
                 "The key's in-flight apply publishes otherwise than this one."
             )
         result = _skip_result_for_in_flight(dataset, job)
+        # The match above settled the level the queued job publishes.
+        result.mark_pending(fields.visibility if fields else None)
         await db.commit()
         return result
 
@@ -1234,6 +1237,8 @@ async def _reserve_or_settle_entry(
             db, dataset, prepared, fingerprint, user, fields, update_dataset_id
         ),
     ):
+        # The held replacement publishes what this apply just decided.
+        held.mark_pending(fields.visibility)
         await db.commit()
         return held
     refuse_used_upload(prepared)
@@ -1331,6 +1336,8 @@ async def apply_manifest(
     for result in results if request.manifest_version == "2" else ():
         result.messages = result.messages or []
     maps = await run_manifest_maps(db, request, caller, results, http_request)
+    if request.manifest_version == "2":
+        await describe_results(db, request, caller, http_request, results, maps)
     return ManifestApplyResponse(
         accepted=any(r.action != "error" for r in [*results, *(maps or ())]),
         dry_run=request.dry_run,

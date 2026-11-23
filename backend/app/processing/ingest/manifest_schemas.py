@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
 from pydantic import (
+    PrivateAttr,
     BaseModel,
     ConfigDict,
     EmailStr,
@@ -750,6 +751,26 @@ class ManifestMessage(BaseModel):
         return data
 
 
+class ManifestDatasetLinks(BaseModel):
+    """Absolute links to a dataset, each one a route the server serves."""
+
+    page: str = Field(description="The dataset's page in the web app.")
+    items: str | None = Field(
+        default=None,
+        description="The OGC API Features items. Null for a dataset with no items.",
+    )
+    tiles: str | None = Field(
+        default=None,
+        description=(
+            "The vector tile URL template, with {z}, {x} and {y}. Null for a "
+            "dataset with no vector tiles, and while a job is still writing "
+            "the dataset (queued, running or held): read the template again "
+            "once it completes. A private dataset's tiles need the caller's "
+            "API key header."
+        ),
+    )
+
+
 class ManifestApplyEntryResult(BaseModel):
     dataset_key: str
     action: Literal["create", "update", "skip", "blocked", "error"] = Field(
@@ -777,19 +798,74 @@ class ManifestApplyEntryResult(BaseModel):
         default=None,
         description="Coded messages for the entry. Left out in manifest version 1.",
     )
+    visibility: str | None = Field(
+        default=None,
+        description=(
+            "Who can see the dataset once the entry's job finishes: the level "
+            "the entry writes, or the stored one when it writes none. Null "
+            "when the entry failed or the dataset can't be read. Left out in "
+            "manifest version 1."
+        ),
+    )
+    links: ManifestDatasetLinks | None = Field(
+        default=None,
+        description=(
+            "Links to the dataset. Null when there is no dataset yet or the "
+            "caller can't read it. Left out in manifest version 1."
+        ),
+    )
+
+    # Set when the entry matched a job still queued or running, or a held
+    # replacement, whose publication this entry answers for. Not part of the
+    # response.
+    _pending: bool = PrivateAttr(default=False)
+    _pending_visibility: str | None = PrivateAttr(default=None)
+
+    def mark_pending(self, visibility: str | None) -> None:
+        """Record the visibility the matched job publishes."""
+        self._pending = True
+        self._pending_visibility = visibility
+
+    @property
+    def pending(self) -> bool:
+        return self._pending
+
+    @property
+    def pending_visibility(self) -> str | None:
+        return self._pending_visibility
 
     @model_serializer(mode="wrap")
-    def _leave_out_absent_messages(self, handler: SerializerFunctionWrapHandler):
-        # A version 1 response stays as it was.
+    def _leave_out_absent_version_2_fields(
+        self, handler: SerializerFunctionWrapHandler
+    ):
+        # A version 1 response stays as it was. A version 2 entry sets all of
+        # them, null included, so a client can tell "none" from "not sent".
         data = handler(self)
         if self.messages is None:
             data.pop("messages", None)
+        for name in ("visibility", "links"):
+            if name not in self.model_fields_set:
+                data.pop(name, None)
         return data
 
 
 class ManifestRemovedLayer(BaseModel):
     key: str = Field(description="The removed layer's key.")
     dataset_id: uuid.UUID = Field(description="Its dataset, which stays on the server.")
+    layer_id: uuid.UUID | None = Field(
+        default=None,
+        description="The removed layer's id, which no longer names a layer.",
+    )
+    link: str | None = Field(
+        default=None,
+        description="The dataset's page in the web app, to delete it there.",
+    )
+
+
+class ManifestMapLinks(BaseModel):
+    """Absolute links to a map."""
+
+    viewer: str = Field(description="The map in the web app.")
 
 
 class ManifestMapResult(BaseModel):
@@ -821,6 +897,14 @@ class ManifestMapResult(BaseModel):
             "`applied` when the manifest's styling replaced the map's, `kept` "
             "when the map kept its own. Null for a map in error."
         ),
+    )
+    groups: list[str] = Field(
+        default_factory=list,
+        description="Names of the groups the map is shared with.",
+    )
+    links: ManifestMapLinks | None = Field(
+        default=None,
+        description="Links to the map. Null while the map doesn't exist yet.",
     )
     removed_layers: list[ManifestRemovedLayer] = Field(
         default_factory=list,

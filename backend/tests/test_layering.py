@@ -1319,10 +1319,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the records of an admin's raw seed source, restricted public intent and a
     # publish key, where a version 2 entry's publication is decided and a held or
     # in-flight job is reused, and the maps section's results beside the datasets'.
-    "backend/app/processing/ingest/manifest_service.py": 1339,
-    # One map's check, plan and write: the styling decision, layer matching and
-    # the history event share the row lock the apply holds.
-    "backend/app/modules/catalog/maps/manifest_apply.py": 1002,
+    "backend/app/processing/ingest/manifest_service.py": 1346,
+    # One map's check, plan and write: the styling decision, layer matching, the
+    # history event and the result's visibility, groups and removed layers share
+    # the row lock the apply holds.
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1018,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,

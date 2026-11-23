@@ -70,7 +70,7 @@ async def ready_manifest_dataset_ids(
     return {row[0]: row[1] for row in rows}
 
 
-def _planned_publication(
+def planned_publication(
     dataset: ManifestDataset, result: ManifestApplyEntryResult
 ) -> tuple[str | None, str]:
     """The visibility (None keeps the dataset's) and status an entry that
@@ -157,7 +157,7 @@ async def run_manifest_maps(
         bindings: dict[str, uuid.UUID] = {}
         for r in changing:
             if request.dry_run:
-                planned = _planned_publication(entries[r.dataset_key], r)
+                planned = planned_publication(entries[r.dataset_key], r)
                 pending[r.dataset_key] = planned
                 if r.dataset_id is not None:
                     pending[r.dataset_id] = planned

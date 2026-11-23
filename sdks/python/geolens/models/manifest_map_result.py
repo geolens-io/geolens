@@ -18,6 +18,7 @@ from typing import cast
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from ..models.manifest_map_links import ManifestMapLinks
     from ..models.manifest_message import ManifestMessage
     from ..models.manifest_removed_layer import ManifestRemovedLayer
 
@@ -38,6 +39,8 @@ class ManifestMapResult:
             error.
         styling (ManifestMapResultStylingType0 | None | Unset): `applied` when the manifest's styling replaced the
             map's, `kept` when the map kept its own. Null for a map in error.
+        groups (list[str] | Unset): Names of the groups the map is shared with.
+        links (ManifestMapLinks | None | Unset): Links to the map. Null while the map doesn't exist yet.
         removed_layers (list[ManifestRemovedLayer] | Unset): Keyed layers the manifest no longer lists and the caller
             can read, removed from the map (info A059). Their datasets stay. One on a dataset the caller can't read stays on
             the map.
@@ -49,10 +52,14 @@ class ManifestMapResult:
     messages: list[ManifestMessage] | Unset = UNSET
     visibility: None | str | Unset = UNSET
     styling: ManifestMapResultStylingType0 | None | Unset = UNSET
+    groups: list[str] | Unset = UNSET
+    links: ManifestMapLinks | None | Unset = UNSET
     removed_layers: list[ManifestRemovedLayer] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.manifest_map_links import ManifestMapLinks
+
         map_key = self.map_key
 
         action: str = self.action
@@ -86,6 +93,18 @@ class ManifestMapResult:
         else:
             styling = self.styling
 
+        groups: list[str] | Unset = UNSET
+        if not isinstance(self.groups, Unset):
+            groups = self.groups
+
+        links: dict[str, Any] | None | Unset
+        if isinstance(self.links, Unset):
+            links = UNSET
+        elif isinstance(self.links, ManifestMapLinks):
+            links = self.links.to_dict()
+        else:
+            links = self.links
+
         removed_layers: list[dict[str, Any]] | Unset = UNSET
         if not isinstance(self.removed_layers, Unset):
             removed_layers = []
@@ -109,6 +128,10 @@ class ManifestMapResult:
             field_dict["visibility"] = visibility
         if styling is not UNSET:
             field_dict["styling"] = styling
+        if groups is not UNSET:
+            field_dict["groups"] = groups
+        if links is not UNSET:
+            field_dict["links"] = links
         if removed_layers is not UNSET:
             field_dict["removed_layers"] = removed_layers
 
@@ -116,6 +139,7 @@ class ManifestMapResult:
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.manifest_map_links import ManifestMapLinks
         from ..models.manifest_message import ManifestMessage
         from ..models.manifest_removed_layer import ManifestRemovedLayer
 
@@ -178,6 +202,25 @@ class ManifestMapResult:
 
         styling = _parse_styling(d.pop("styling", UNSET))
 
+        groups = cast(list[str], d.pop("groups", UNSET))
+
+        def _parse_links(data: object) -> ManifestMapLinks | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                links_type_0 = ManifestMapLinks.from_dict(data)
+
+                return links_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ManifestMapLinks | None | Unset, data)
+
+        links = _parse_links(d.pop("links", UNSET))
+
         _removed_layers = d.pop("removed_layers", UNSET)
         removed_layers: list[ManifestRemovedLayer] | Unset = UNSET
         if _removed_layers is not UNSET:
@@ -196,6 +239,8 @@ class ManifestMapResult:
             messages=messages,
             visibility=visibility,
             styling=styling,
+            groups=groups,
+            links=links,
             removed_layers=removed_layers,
         )
 

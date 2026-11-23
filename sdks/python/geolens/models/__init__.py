@@ -692,6 +692,7 @@ from .manifest_collection_refused_detail_reason import (
 from .manifest_collection_refused_warning import ManifestCollectionRefusedWarning
 from .manifest_contact import ManifestContact
 from .manifest_dataset import ManifestDataset
+from .manifest_dataset_links import ManifestDatasetLinks
 from .manifest_dataset_visibility_type_0 import ManifestDatasetVisibilityType0
 from .manifest_loss_item import ManifestLossItem
 from .manifest_loss_report import ManifestLossReport
@@ -703,6 +704,7 @@ from .manifest_map_layer_layout_type_0 import ManifestMapLayerLayoutType0
 from .manifest_map_layer_paint_type_0 import ManifestMapLayerPaintType0
 from .manifest_map_layer_popup_config_type_0 import ManifestMapLayerPopupConfigType0
 from .manifest_map_layer_style_config_type_0 import ManifestMapLayerStyleConfigType0
+from .manifest_map_links import ManifestMapLinks
 from .manifest_map_result import ManifestMapResult
 from .manifest_map_result_action import ManifestMapResultAction
 from .manifest_map_result_styling_type_0 import ManifestMapResultStylingType0
@@ -1679,6 +1681,7 @@ __all__ = (
     "ManifestCollectionRefusedWarning",
     "ManifestContact",
     "ManifestDataset",
+    "ManifestDatasetLinks",
     "ManifestDatasetVisibilityType0",
     "ManifestLossItem",
     "ManifestLossReport",
@@ -1690,6 +1693,7 @@ __all__ = (
     "ManifestMapLayerPaintType0",
     "ManifestMapLayerPopupConfigType0",
     "ManifestMapLayerStyleConfigType0",
+    "ManifestMapLinks",
     "ManifestMapResult",
     "ManifestMapResultAction",
     "ManifestMapResultStylingType0",

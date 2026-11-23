@@ -46,7 +46,7 @@ async def test_anonymous_gets_no_upload_or_me(client: AsyncClient):
     assert set(body) == ANONYMOUS_FIELDS
     assert body["upload"] is None
     assert body["me"] is None
-    assert body["publish_contract"] == 1
+    assert body["publish_contract"] == 2
     assert body["server"]["edition"] == "community"
     assert "app_signin" not in body["auth"]
     assert body["status_order"] == ["draft", "ready", "internal", "published"]

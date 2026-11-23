@@ -92,7 +92,11 @@ from app.modules.catalog.maps.service import (
     lock_map_layers,
     record_map_history_event,
 )
-from app.modules.catalog.maps.service_groups import map_has_groups, map_visibility_for
+from app.modules.catalog.maps.service_groups import (
+    map_groups,
+    map_has_groups,
+    map_visibility_for,
+)
 from app.modules.catalog.maps.service_update import apply_map_create, apply_map_update
 from app.modules.settings.basemaps import list_public_basemaps
 from app.platform.catalog_locks import CatalogLockConflict
@@ -696,11 +700,18 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         "map_id": map_obj.id if map_obj is not None else None,
         "messages": messages,
         "visibility": None if failed else stored_visibility,
+        "groups": []
+        if failed or map_obj is None
+        else [group.name for group in await map_groups(session, map_obj.id)],
         "styling": None if failed else "applied" if styling_applied else "kept",
         "removed_layers": []
         if failed
         else [
-            {"key": layer.manifest_key, "dataset_id": layer.dataset_id}
+            {
+                "key": layer.manifest_key,
+                "dataset_id": layer.dataset_id,
+                "layer_id": layer.id,
+            }
             for layer in removed
         ],
     }
@@ -866,7 +877,12 @@ async def _write_map(
         },
     )
     plan.published_at = map_obj.updated_at
-    return {**plan.result, "map_id": map_obj.id, "visibility": after}
+    return {
+        **plan.result,
+        "map_id": map_obj.id,
+        "visibility": after,
+        "groups": [group.name for group in await map_groups(session, map_obj.id)],
+    }
 
 
 def _refusal(exc: HTTPException) -> str:

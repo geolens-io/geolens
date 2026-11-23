@@ -34,7 +34,7 @@ from app.processing.ingest.upload_limits import (
 
 router = APIRouter(tags=["Admin"])
 
-PUBLISH_CONTRACT = 1
+PUBLISH_CONTRACT = 2
 
 
 class CapabilitiesServer(BaseModel):
