@@ -313,11 +313,12 @@ async def create_share_token(
     token_obj = existing.scalar_one_or_none()
     if token_obj is not None:
         requested = expires_at is not None or expires_in_days is not None
-        if requested:
-            token_obj.expires_at = resolved_expiration
+        # Judged on the stored expiry: a new one must not revive a lapsed token.
         lapsed = token_obj.expires_at is not None and token_obj.expires_at < (
             datetime.now(timezone.utc)
         )
+        if requested:
+            token_obj.expires_at = resolved_expiration
         if not token_obj.is_active or lapsed:
             # A link that isn't live is replaced, never revived under its old
             # token or with an expiry that has already passed.

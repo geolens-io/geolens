@@ -442,6 +442,32 @@ async def test_sharing_replaces_a_link_that_is_not_live(
     assert await _opens(client, test_db_session, new, created.map_id)
 
 
+async def test_a_new_expiry_on_a_lapsed_link_replaces_its_token(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    _, created = await _public_map(test_db_session, admin, visibility="public")
+    old = _token(created.links.share)
+    await test_db_session.execute(
+        update(MapShareToken)
+        .where(MapShareToken.map_id == created.map_id)
+        .values(**_not_live("active-expired"))
+    )
+    await test_db_session.commit()
+
+    response = await client.post(
+        f"/maps/{created.map_id}/share",
+        json={"expires_in_days": 7},
+        headers=admin_auth_header,
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["token"] != old and body["is_active"] and body["expires_at"]
+    assert await _opens(client, test_db_session, body["token"], created.map_id)
+    assert (await client.get(f"/maps/shared/{old}")).status_code == 404
+
+
 async def test_a_failure_building_other_links_keeps_a_minted_share(
     client, test_db_session, clean_tables, monkeypatch
 ):
