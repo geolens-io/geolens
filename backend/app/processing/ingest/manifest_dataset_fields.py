@@ -135,28 +135,42 @@ class ManifestEntryFields:
     def note_edits_since_publish(
         self, dataset: ManifestDataset, completed_job: Any, existing: Any
     ) -> None:
-        """Warn when the dataset's tile cache version moved since that publish."""
+        """Warn when the dataset's tile cache version moved since that publish.
+
+        A replaced raster keeps no previous version, so its warning says the
+        data it replaces can't be restored.
+        """
         recorded = (completed_job.user_metadata or {}).get(
             TILE_CACHE_VERSION_METADATA_KEY
         )
         current = getattr(existing, "tile_cache_version", None)
-        if (
+        if not (
             isinstance(recorded, int)
             and isinstance(current, int)
             and current > recorded
         ):
-            self.messages.append(
-                ManifestMessage(
-                    code=EDITED_SINCE_PUBLISH,
-                    severity="warning",
-                    message=(
-                        f"Features in {dataset.title!r} were edited in GeoLens "
-                        "since the last publish. Replacing discards those "
-                        "edits; the previous version stays restorable once."
-                    ),
-                    fix="Publish as new, or Continue.",
-                )
+            return
+        record = getattr(existing, "record", None)
+        if getattr(record, "record_type", None) == "raster_dataset":
+            message = (
+                f"The data in {dataset.title!r} was changed in GeoLens since "
+                "the last publish. Replacing discards it, and a replaced "
+                "raster can't be restored."
             )
+        else:
+            message = (
+                f"Features in {dataset.title!r} were edited in GeoLens "
+                "since the last publish. Replacing discards those "
+                "edits; the previous version stays restorable once."
+            )
+        self.messages.append(
+            ManifestMessage(
+                code=EDITED_SINCE_PUBLISH,
+                severity="warning",
+                message=message,
+                fix="Publish as new, or Continue.",
+            )
+        )
 
 
 def required_capabilities(metadata: dict, recorded: str | None) -> list[str]:

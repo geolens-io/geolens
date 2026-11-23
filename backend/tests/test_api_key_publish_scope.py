@@ -951,21 +951,67 @@ def test_a_manifest_update_refuses_a_publish_key_what_a_restore_cant_undo(
         _refuse_publish_key_irreversible_replace(session, dataset)
 
 
-def test_the_manifest_update_path_runs_the_remote_origin_refusal():
-    """Wired where the update is validated, before staging or a dry-run answer."""
-    import inspect
-
-    from app.processing.ingest import manifest_service
-
-    source = inspect.getsource(manifest_service)
-    validated = source.index(
-        "_validate_existing_dataset_update(existing_dataset, prepared)"
+@pytest.mark.anyio
+@pytest.mark.parametrize("dry_run", [True, False], ids=["dry-run", "apply"])
+@pytest.mark.parametrize("source_format", ["wfs", "stac"])
+async def test_a_publish_keys_manifest_update_of_a_remote_origin_vector_is_refused(
+    test_db_session, clean_tables, source_format, dry_run
+):
+    """A dry run reports the refusal, and an apply fetches and queues nothing."""
+    from app.platform.request_credential import ApiKeyCredential, record_api_key
+    from app.processing.ingest.manifest_service import apply_manifest
+    from tests.factories import create_dataset
+    from tests.test_manifest_apply_service import (
+        _admin_user,
+        _create_completed_manifest_job,
+        _http_request,
+        _manifest_dataset,
+        _request,
     )
-    refused = source.index(
-        "_refuse_publish_key_irreversible_replace(db, existing_dataset)"
+
+    user = await _admin_user(test_db_session)
+    key = f"remote-origin-{source_format}"
+    dataset = await create_dataset(
+        test_db_session, created_by=user.id, source_format=source_format
     )
-    dry_run = source.index("if request.dry_run:", validated)
-    assert validated < refused < dry_run
+    await _create_completed_manifest_job(
+        test_db_session,
+        user=user,
+        dataset=dataset,
+        manifest_dataset=_request(_manifest_dataset(key=key)).datasets[0],
+    )
+    changed = _request(
+        _manifest_dataset(key=key, uri="https://93.184.216.34/roads.geojson"),
+        dry_run=dry_run,
+    )
+    record_api_key(
+        test_db_session,
+        ApiKeyCredential(id=uuid.uuid4(), scope="publish", dataset_id=None),
+    )
+    try:
+        with (
+            patch(
+                "app.processing.ingest.manifest_service._stage_source_if_needed",
+                new=AsyncMock(),
+            ) as stage,
+            patch(
+                "app.processing.ingest.manifest_service.defer_async_with_tenant",
+                new=AsyncMock(),
+            ) as defer,
+        ):
+            response = await apply_manifest(
+                test_db_session, changed, user, _http_request()
+            )
+    finally:
+        test_db_session.info.pop(_SESSION_KEY, None)
+
+    [result] = response.results
+    assert (result.action, result.message) == (
+        "error",
+        "A publish key can't replace a dataset bound to a remote origin",
+    )
+    stage.assert_not_awaited()
+    defer.assert_not_awaited()
 
 
 def test_manifest_admission_rechecks_the_origin_under_the_lock():

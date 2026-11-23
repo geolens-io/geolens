@@ -17,17 +17,20 @@ from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastapi import Request
-from sqlalchemy import delete, func, select, text
+from sqlalchemy import delete, func, select, text, update
 
 from app.core.config import settings
 from app.modules.auth.models import User
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.modules.catalog.datasets.domain.models import Dataset, Record
-from app.platform.jobs.models import IngestJob
+from app.platform.jobs.models import UNPUBLISHED_STORAGE_KEYS_FIELD, IngestJob
 from app.platform.request_credential import (
     _SESSION_KEY,
     ApiKeyCredential,
     record_api_key,
+)
+from app.processing.ingest.manifest_dataset_fields import (
+    TILE_CACHE_VERSION_METADATA_KEY,
 )
 from app.processing.ingest.manifest_schemas import ManifestApplyRequest
 from app.processing.ingest.manifest_service import (
@@ -128,9 +131,14 @@ async def _published(session, storage, user: User) -> _Published:
             created_by=user.id,
             status="complete",
             completed_at=datetime.now(timezone.utc),
-            user_metadata=manifest_job_metadata(
-                original, prepared, fingerprint=manifest_dataset_fingerprint(original)
-            ),
+            user_metadata={
+                **manifest_job_metadata(
+                    original,
+                    prepared,
+                    fingerprint=manifest_dataset_fingerprint(original),
+                ),
+                TILE_CACHE_VERSION_METADATA_KEY: live.dataset.tile_cache_version,
+            },
         )
     )
     await session.commit()
@@ -506,3 +514,112 @@ async def test_a_mosaic_member_is_replaced_and_its_old_cog_kept_for_the_mosaic(
     finally:
         published.staged.unlink(missing_ok=True)
         await _purge_vrt(test_db_session, ids=ids)
+
+
+async def test_a_raster_replaced_since_its_publish_warns_it_cant_be_restored(
+    test_db_session, raster_storage
+):
+    """A053 on a raster says the data a republish discards is gone for good;
+    the vector wording promises a restorable previous version."""
+    user = await _admin(test_db_session)
+    published = await _published(test_db_session, raster_storage, user)
+    try:
+        # A re-upload in GeoLens moves the tile cache version past the publish.
+        await test_db_session.execute(
+            update(Dataset)
+            .where(Dataset.id == published.dataset_id)
+            .values(tile_cache_version=Dataset.tile_cache_version + 1)
+        )
+        await test_db_session.commit()
+        entry = _entry(
+            published.key, published.uri, _resurveyed(published), intent="internal"
+        )
+        result, defer = await _apply(
+            test_db_session, _request(entry, version="2", dry_run=True), user
+        )
+        assert result.action == "update", result
+        [warning] = result.messages
+        assert (warning.code, warning.severity) == ("A053", "warning")
+        assert "a replaced raster can't be restored" in warning.message
+        assert "restorable once" not in warning.message
+        defer.assert_not_awaited()
+    finally:
+        await _cleanup(test_db_session, published)
+
+
+async def test_a_refusal_in_the_raster_write_leaves_the_old_cog_serving(
+    client, admin_auth_header, test_db_session, raster_storage, monkeypatch
+):
+    """Admitted public as an admin while public is restricted, no longer one
+    when the replacement publishes: the record fields refuse inside the
+    write, after the new COG was stored. The job fails, the old COG still
+    serves and the attempt's keys are reaped."""
+    import app.core.persistent_config as pc
+    from tests.factories import create_user
+    from tests.write_recheck_races import _commit, _move_to_role
+
+    class _On:
+        async def get(self, _db):
+            return True
+
+        get_uncached = get
+
+    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", _On())
+    _, admin_id = await create_user(client, admin_auth_header, "admin")
+    owner = (
+        await test_db_session.execute(
+            select(User).where(User.id == uuid.UUID(admin_id))
+        )
+    ).scalar_one()
+    published = await _published(test_db_session, raster_storage, owner)
+    await test_db_session.execute(
+        update(Record)
+        .where(Record.id == published.record_id)
+        .values(visibility="internal")
+    )
+    await test_db_session.commit()
+    old_cog = published.live.cog_key
+    prefix = f"rasters/{published.dataset_id}/"
+    keys_before = sorted(await raster_storage.list(prefix))
+    try:
+        entry = _entry(
+            published.key,
+            published.uri,
+            _resurveyed(published),
+            visibility="public",
+        )
+        result, defer = await _apply(test_db_session, _request(entry, "2"), owner)
+        assert result.action == "update", result
+        queued = await test_db_session.get(IngestJob, result.job_id)
+        assert queued.user_metadata["admitted_public_visibility"] is True
+        # Only the public admission is judged here, not the admin-only local
+        # source the entry reads from.
+        queued.user_metadata = {
+            k: v for k, v in queued.user_metadata.items() if k != "admitted_raw_source"
+        }
+        await test_db_session.commit()
+        await _commit(_move_to_role(owner.id, "editor"))
+
+        await _run_worker(defer)
+
+        test_db_session.expire_all()
+        job = await test_db_session.get(IngestJob, result.job_id)
+        assert job.status == "failed"
+        assert "may not open this dataset to more readers" in job.error_message
+        # The attempt named its keys before it stored them.
+        attempt_keys = job.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD]
+        assert any(key.endswith("/source.cog.tif") for key in attempt_keys)
+        for key in attempt_keys:
+            assert not await raster_storage.exists(key), key
+        live_cog = await test_db_session.scalar(
+            select(RasterAsset.asset_uri).where(
+                RasterAsset.dataset_id == published.dataset_id
+            )
+        )
+        assert live_cog == old_cog
+        assert await raster_storage.exists(old_cog)
+        assert sorted(await raster_storage.list(prefix)) == keys_before
+        record = await test_db_session.get(Record, published.record_id)
+        assert record.visibility == "internal"
+    finally:
+        await _cleanup(test_db_session, published)
