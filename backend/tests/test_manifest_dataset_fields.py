@@ -1944,7 +1944,7 @@ async def test_a_create_by_an_admin_demoted_before_it_runs_is_judged_again(
     """Admitted public as an admin while public was restricted; no longer an
     admin when the create runs."""
     import app.core.persistent_config as pc
-    from app.processing.ingest.publication import WideningRefused
+    from app.processing.ingest.publication import PublicVisibilityRefused
     from tests.write_recheck_races import _commit, _move_to_role
 
     class _On:
@@ -1974,7 +1974,7 @@ async def test_a_create_by_an_admin_demoted_before_it_runs_is_judged_again(
     await _commit(_move_to_role(admin.id, "editor"))
 
     if fallback is None:
-        with pytest.raises(WideningRefused):
+        with pytest.raises(PublicVisibilityRefused):
             await _finalize(test_db_session, admin, job)
         return
     dataset = await _finalize(test_db_session, admin, job)
