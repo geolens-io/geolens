@@ -94,6 +94,19 @@ describe('FilterSheet 3D Tiles and point cloud filters', () => {
     expect(screen.getByRole('radio', { name: /All/ })).toHaveTextContent('(5)');
   });
 
+  it('puts each type\'s icon before its toggle without changing the toggle\'s name', () => {
+    facetCounts.record_type = { vector_dataset: 3, raster_dataset: 2 };
+    render(<FilterSheet totalResults={5} allTypesTotal={5} />);
+
+    fireEvent.click(screen.getByRole('button', { name: /Filters/i }));
+
+    const vector = screen.getByRole('radio', { name: /^Vector \(3\)$/ });
+    const chip = vector.querySelector('[data-slot="badge"]');
+    expect(chip).toHaveAttribute('aria-hidden', 'true');
+    expect(chip?.querySelector('svg.lucide-layers')).not.toBeNull();
+    expect(screen.getByRole('radio', { name: /^Raster \(2\)$/ }).querySelector('svg.lucide-grid-3x3')).not.toBeNull();
+  });
+
   it('shows the supplied All total, not the type-narrowed result total', () => {
     facetCounts.record_type = { vector_dataset: 10, raster_dataset: 5 };
     useSearchStore.getState().setFilter('record_type', 'raster_dataset');

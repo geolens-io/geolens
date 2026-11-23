@@ -39,9 +39,11 @@ interface RecordTypeBadgeProps {
   className?: string;
   /** Icon only; the type name stays as the accessible name. */
   iconOnly?: boolean;
+  /** Icon only and hidden from assistive technology, for beside a visible type name. */
+  decorative?: boolean;
 }
 
-export function RecordTypeBadge({ recordType, className, iconOnly = false }: RecordTypeBadgeProps) {
+export function RecordTypeBadge({ recordType, className, iconOnly = false, decorative = false }: RecordTypeBadgeProps) {
   const { t } = useTranslation('search');
 
   const config = TYPE_CONFIG[recordType as keyof typeof TYPE_CONFIG];
@@ -51,6 +53,18 @@ export function RecordTypeBadge({ recordType, className, iconOnly = false }: Rec
   const colorClass = recordTypeColors[recordType] ?? recordTypeColors.unknown;
 
   const label = t(config.labelKey);
+
+  if (decorative) {
+    return (
+      <Badge
+        variant="outline"
+        aria-hidden="true"
+        className={`px-1.5 ${colorClass}${className ? ` ${className}` : ''}`}
+      >
+        <Icon className="size-3" />
+      </Badge>
+    );
+  }
 
   return (
     <Badge
