@@ -6,8 +6,10 @@ Requirements: the docker database must be running with migrations applied.
 from __future__ import annotations
 
 import ast
+import copy
 import hashlib
-from datetime import datetime, timedelta
+import uuid
+from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from unittest.mock import patch
@@ -36,7 +38,9 @@ from tests.test_manifest_maps_apply import (
     _layers,
     _map_row,
 )
+from tests.factories import create_dataset
 from tests.test_manifest_maps_dry_run import (
+    _COLUMNS,
     _PNG,
     _admin,
     _codes,
@@ -958,35 +962,1218 @@ async def test_a_kept_replace_if_unedited_still_removes_dropped_layers(
     ] == ["parks"]
 
 
+async def _dataset_of(
+    session, owner_id, *, columns=_COLUMNS, geometry_type="MultiPolygon"
+) -> uuid.UUID:
+    dataset = await create_dataset(
+        session,
+        created_by=owner_id,
+        geometry_type=geometry_type,
+        column_info=[dict(column) for column in columns],
+    )
+    await session.commit()
+    return dataset.id
+
+
+async def _publish_then_edit(client, session, headers, user, entry, mode):
+    """Publish ``entry``, then, for ``replace_if_unedited``, restyle a layer
+    in the builder, so the next publish of either ``mode`` keeps the styling."""
+    [created] = (await _apply(session, user, entry)).maps
+    if mode == "replace_if_unedited":
+        await _edit_paint_in_the_builder(client, headers, session, created.map_id)
+    return created
+
+
+def _moving(parks_dataset, names_dataset, mode, **parks) -> dict:
+    """The parks layer pointed at ``parks_dataset``, with an opacity the
+    stored layer doesn't have, so taking the manifest's styling shows."""
+    return _entry(
+        "qgis-map-parks",
+        _layer(
+            "parks",
+            dataset_id=str(parks_dataset),
+            **{**_PARKS, "opacity": 0.5, **parks},
+        ),
+        _layer("names", dataset_id=str(names_dataset)),
+        styling=mode,
+    )
+
+
+async def _rows(session, map_id) -> list[tuple]:
+    return [
+        (layer.id, layer.manifest_key, layer.sort_order, layer.dataset_id)
+        for layer in await _layers(session, map_id)
+    ]
+
+
+def _warnings(result) -> list[tuple]:
+    return [code for code in _codes(result) if code[1] != "info"]
+
+
 @pytest.mark.parametrize("mode", ["replace_if_unedited", "keep"])
-async def test_a_kept_layer_says_it_still_shows_its_earlier_dataset(
+async def test_a_kept_layer_moves_with_its_styling_to_a_dataset_it_fits(
     client, test_db_session, admin_auth_header, clean_tables, mode
 ):
     admin = await _admin(test_db_session)
     first = await _dataset(test_db_session, admin.id)
-    second = await _dataset(test_db_session, admin.id)
-    [created] = (await _apply(test_db_session, admin, _publish(first))).maps
-    if mode == "replace_if_unedited":
-        await _edit_paint_in_the_builder(
-            client, admin_auth_header, test_db_session, created.map_id
-        )
-    moved = _entry(
-        "qgis-map-parks",
-        _layer("parks", dataset_id=str(second), **_PARKS),
-        _layer("names", dataset_id=str(first)),
-        styling=mode,
+    # Single and multi part geometries are one type.
+    second = await _dataset_of(test_db_session, admin.id, geometry_type="Polygon")
+    created = await _publish_then_edit(
+        client, test_db_session, admin_auth_header, admin, _publish(first), mode
     )
+    rows = await _rows(test_db_session, created.map_id)
+    styled = copy.deepcopy(await _state(test_db_session, created.map_id))
+    entry = _moving(second, first, mode)
 
-    [checked] = (await _apply(test_db_session, admin, moved, dry_run=True)).maps
-    [kept] = (await _apply(test_db_session, admin, moved)).maps
+    [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
+    assert await _rows(test_db_session, created.map_id) == rows
+    [moved] = (await _apply(test_db_session, admin, entry)).maps
 
-    for result in (checked, kept):
+    for result in (checked, moved):
+        assert (result.action, result.styling, _warnings(result)) == (
+            "update",
+            "kept",
+            [],
+        )
+    assert await _rows(test_db_session, created.map_id) == [
+        (*row[:3], second if row[1] == "parks" else first) for row in rows
+    ]
+    assert await _state(test_db_session, created.map_id) == styled
+
+
+@pytest.mark.parametrize("mode", ["replace_if_unedited", "keep"])
+@pytest.mark.parametrize(
+    ("geometry_type", "columns", "misfit"),
+    [
+        ("MultiPoint", _COLUMNS, "its geometry is point, not polygon"),
+        ("MultiPolygon", _COLUMNS[:1], "it has no column park_name"),
+    ],
+    ids=["geometry", "missing-column"],
+)
+async def test_a_kept_layer_that_doesnt_fit_takes_the_manifests_styling(
+    client,
+    test_db_session,
+    admin_auth_header,
+    clean_tables,
+    mode,
+    geometry_type,
+    columns,
+    misfit,
+):
+    admin = await _admin(test_db_session)
+    first = await _dataset(test_db_session, admin.id)
+    second = await _dataset_of(
+        test_db_session, admin.id, geometry_type=geometry_type, columns=columns
+    )
+    created = await _publish_then_edit(
+        client, test_db_session, admin_auth_header, admin, _publish(first), mode
+    )
+    rows = await _rows(test_db_session, created.map_id)
+    names_before = copy.deepcopy(
+        (await _state(test_db_session, created.map_id))["layers"]["names"]
+    )
+    entry = _moving(second, first, mode)
+
+    [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
+    assert await _rows(test_db_session, created.map_id) == rows
+    [moved] = (await _apply(test_db_session, admin, entry)).maps
+
+    for result in (checked, moved):
         assert result.styling == "kept"
         [warning] = [m for m in result.messages if m.code == "A073"]
         assert (warning.severity, warning.layer) == ("warning", "parks")
-        assert "still shows its earlier dataset" in warning.message
+        assert f"doesn't fit that dataset: {misfit}." in warning.message
+    assert await _rows(test_db_session, created.map_id) == [
+        (*row[:3], second if row[1] == "parks" else first) for row in rows
+    ]
+    layers = (await _state(test_db_session, created.map_id))["layers"]
+    assert layers["parks"]["opacity"] == 0.5
+    assert layers["parks"]["paint"]["fill-color"][0] == "match"
+    # The other layer keeps its styling and dataset.
+    assert layers["names"] == names_before
+
+
+_AREA = {"name": "area", "type": "double precision", "source_name": "AREA"}
+_GRADUATED = {
+    "style_config": {
+        "mode": "graduated",
+        "column": "AREA",
+        "breaks": [10],
+        "colors": ["#eeeeee", "#111111"],
+        "target": "color",
+    },
+    "paint": {"fill-color": ["step", ["get", "AREA"], "#eeeeee", 10, "#111111"]},
+}
+
+
+@pytest.mark.parametrize(("area_type", "fits"), [("integer", True), ("text", False)])
+async def test_a_graduated_layer_needs_a_number_where_it_moves(
+    test_db_session, clean_tables, area_type, fits
+):
+    admin = await _admin(test_db_session)
+    first = await _dataset_of(test_db_session, admin.id, columns=[*_COLUMNS, _AREA])
+    second = await _dataset_of(
+        test_db_session, admin.id, columns=[*_COLUMNS, {**_AREA, "type": area_type}]
+    )
+    graduated = _entry(
+        "qgis-map-parks", _layer("parks", dataset_id=str(first), **_GRADUATED)
+    )
+    [created] = (await _apply(test_db_session, admin, graduated)).maps
+    entry = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(second), **_PARKS),
+        styling="keep",
+    )
+
+    [result] = (await _apply(test_db_session, admin, entry)).maps
+
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert parks.dataset_id == second
+    if fits:
+        assert _warnings(result) == []
+        assert parks.style_config["mode"] == "graduated"
+    else:
+        [warning] = result.messages
+        assert (warning.code, warning.layer) == ("A073", "parks")
+        assert warning.message.endswith(": area (text) must be a number.")
+        assert parks.style_config["mode"] == "categorical"
+
+
+# A literal, so xdist workers collect the same parameters.
+_WIDGET_ID = "3b0c8f4e-2d71-4a59-9e16-7f2a5c4d8b90"
+_ACRES = {"name": "acres", "type": "numeric", "source_name": "ACRES"}
+_INSPECTED = {"name": "inspected", "type": "date", "source_name": "INSPECTED"}
+_HISTOGRAM = {"type": "histogram", "v": 1, "config": {"column": "acres", "bins": 10}}
+_MONTHLY = {
+    "type": "bar_chart",
+    "v": 2,
+    "config": {"mode": "date", "column": "inspected", "date_bucket": "month"},
+}
+_FILTERED = {
+    **_HISTOGRAM,
+    "v": 2,
+    "filter": ["==", ["get", "inspected"], "2024-01-01"],
+}
+
+
+def _typed(column: dict, kind: str) -> dict:
+    return {**column, "type": kind}
+
+
+@pytest.mark.parametrize(
+    ("widget", "columns", "version", "misfit"),
+    [
+        (_HISTOGRAM, [_ACRES, _INSPECTED], 1, None),
+        (_HISTOGRAM, [_INSPECTED], 1, "it has no column acres"),
+        (
+            _HISTOGRAM,
+            [_typed(_ACRES, "text"), _INSPECTED],
+            1,
+            "acres (text) must be a number",
+        ),
+        (_MONTHLY, [_ACRES, _INSPECTED], 1, None),
+        (
+            _MONTHLY,
+            [_ACRES, _typed(_INSPECTED, "text")],
+            1,
+            "inspected (text) must be a date",
+        ),
+        (
+            _FILTERED,
+            [_ACRES, _typed(_INSPECTED, "integer")],
+            1,
+            "a dashboard widget's filter can't run on it",
+        ),
+        # A dashboard a newer server saved keeps its widgets through a move.
+        (_HISTOGRAM, [_INSPECTED], 2, "it has no column acres"),
+    ],
+    ids=[
+        "fits",
+        "missing",
+        "not-a-number",
+        "date-fits",
+        "not-a-date",
+        "filter-misfit",
+        "newer-dashboard",
+    ],
+)
+async def test_a_column_only_a_dashboard_widget_reads_is_checked_too(
+    test_db_session, clean_tables, widget, columns, version, misfit
+):
+    from sqlalchemy import update
+
+    admin = await _admin(test_db_session)
+    first = await _dataset_of(
+        test_db_session, admin.id, columns=[*_COLUMNS, _ACRES, _INSPECTED]
+    )
+    second = await _dataset_of(test_db_session, admin.id, columns=[*_COLUMNS, *columns])
+    [created] = (await _apply(test_db_session, admin, _publish(first))).maps
+    parks, _ = await _layers(test_db_session, created.map_id)
+    placed = {**widget, "id": _WIDGET_ID, "layer_id": str(parks.id)}
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(dashboard_config={"version": version, "widgets": [placed]})
+    )
+    await test_db_session.commit()
+
+    [result] = (
+        await _apply(test_db_session, admin, _moving(second, first, "keep"))
+    ).maps
+
+    parks, _ = await _layers(test_db_session, created.map_id)
+    assert parks.dataset_id == second
+    widgets = (await _map_row(test_db_session, created.map_id)).dashboard_config[
+        "widgets"
+    ]
+    if misfit is None:
+        assert _warnings(result) == []
+        # The widget fits the new dataset, so it stays on its layer.
+        assert [w["layer_id"] for w in widgets] == [str(parks.id)]
+    elif version == 1:
+        [warning] = result.messages
+        assert warning.message.endswith(". Its dashboard widgets are removed.")
+        assert misfit in warning.message
+        assert widgets == []
+    else:
+        [warning] = result.messages
+        assert warning.message.endswith(f": {misfit}.")
+        assert [w["layer_id"] for w in widgets] == [str(parks.id)]
+
+
+@pytest.mark.parametrize(
+    ("render_mode", "misfit"),
+    [(None, None), ("heatmap", "it has no column acres")],
+    ids=["stashed", "heatmap"],
+)
+async def test_a_heatmap_weight_counts_only_while_the_layer_is_a_heatmap(
+    test_db_session, clean_tables, render_mode, misfit
+):
+    """The builder keeps a heatmap's weight column after the layer leaves
+    heatmap mode; nothing draws with it then."""
+    admin = await _admin(test_db_session)
+    first = await _dataset_of(test_db_session, admin.id, columns=[*_COLUMNS, _ACRES])
+    second = await _dataset_of(test_db_session, admin.id)
+    style = {"builder": {"heatmap_weight_column": "ACRES"}}
+    if render_mode is not None:
+        style["render_mode"] = render_mode
+    weighted = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(first), style_config=style),
+    )
+    [created] = (await _apply(test_db_session, admin, weighted)).maps
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _entry(
+                "qgis-map-parks",
+                _layer("parks", dataset_id=str(second), opacity=0.5),
+                styling="keep",
+            ),
+        )
+    ).maps
+
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert parks.dataset_id == second
+    if misfit is None:
+        assert (_warnings(result), parks.opacity) == ([], 1.0)
+    else:
+        [warning] = result.messages
+        assert warning.message.endswith(f": {misfit}.")
+        assert parks.opacity == 0.5
+
+
+async def _raster(session, owner_id, *, band_count, is_dem=False):
+    from app.processing.raster.models import RasterAsset
+
+    dataset = await create_dataset(
+        session,
+        created_by=owner_id,
+        geometry_type=None,
+        record_type="raster_dataset",
+        source_format="geotiff",
+        source_filename="ortho.tif",
+    )
+    session.add(
+        RasterAsset(
+            dataset_id=dataset.id,
+            asset_uri=f"rasters/{dataset.id}/source.cog.tif",
+            storage_backend="local",
+            is_dem=is_dem,
+            band_count=band_count,
+        )
+    )
+    await session.commit()
+    return dataset.id
+
+
+@pytest.mark.parametrize(
+    ("band_count", "is_dem", "misfit"),
+    [
+        (1, False, None),
+        (3, False, "the colormap needs one band, and it has 3"),
+        (1, True, "it is a DEM and the layer's earlier raster wasn't"),
+    ],
+    ids=["single-band", "three-band", "dem"],
+)
+async def test_a_raster_colormap_needs_one_band_where_it_moves(
+    test_db_session, clean_tables, band_count, is_dem, misfit
+):
+    admin = await _admin(test_db_session)
+    first = await _raster(test_db_session, admin.id, band_count=1)
+    second = await _raster(
+        test_db_session, admin.id, band_count=band_count, is_dem=is_dem
+    )
+    colormapped = _entry(
+        "qgis-map-ortho",
+        _layer("ortho", dataset_id=str(first), paint={"_colormap": "viridis"}),
+    )
+    [created] = (await _apply(test_db_session, admin, colormapped)).maps
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _entry(
+                "qgis-map-ortho",
+                _layer("ortho", dataset_id=str(second), opacity=0.5),
+                styling="keep",
+            ),
+        )
+    ).maps
+
+    [ortho] = await _layers(test_db_session, created.map_id)
+    assert ortho.dataset_id == second
+    if misfit is None:
+        assert _warnings(result) == []
+        assert ortho.style_config["builder"]["colormap"] == "viridis"
+    else:
+        [warning] = result.messages
+        assert (warning.code, warning.layer) == ("A073", "ortho")
+        assert warning.message.endswith(f": {misfit}.")
+        assert "colormap" not in (ortho.style_config or {}).get("builder", {})
+
+
+@pytest.mark.parametrize("mode", ["replace_if_unedited", "keep"])
+async def test_a_kept_layer_on_a_dataset_the_publisher_cant_read_stays(
+    client, test_db_session, admin_auth_header, clean_tables, mode
+):
+    """Its styling can't be judged without reading its dataset, so it stays
+    there, and the map isn't judged on the dataset the manifest names."""
+    admin = await _admin(test_db_session)
+    editor, headers = await _person(client, test_db_session, admin_auth_header)
+    admins = await _dataset(test_db_session, admin.id)
+    own = await _dataset(test_db_session, editor.id)
+    target = await _dataset(test_db_session, editor.id)
+    first = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(admins)),
+        _layer("names", dataset_id=str(own)),
+    )
+    created = await _publish_then_edit(
+        client, test_db_session, headers, editor, first, mode
+    )
+    await _hide(test_db_session, admins)
+    entry = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(target)),
+        _layer("names", dataset_id=str(own)),
+        styling=mode,
+    )
+
+    answers = [
+        (await _apply(test_db_session, editor, entry, dry_run=dry_run)).maps[0]
+        for dry_run in (True, False)
+    ]
+
+    for result in answers:
+        assert (result.action, result.styling, _warnings(result)) == (
+            "update",
+            "kept",
+            [],
+        )
+    assert {
+        layer.manifest_key: layer.dataset_id
+        for layer in await _layers(test_db_session, created.map_id)
+    } == {"parks": admins, "names": own}
+
+
+_MATCH = {"fill-color": ["match", ["get", "VALUE"], 1, "#ff0000", 2, "#00ff00", "#ccc"]}
+_RADIUS = {
+    "circle-radius": ["interpolate", ["linear"], ["get", "VALUE"], 0, 2, 100, 12]
+}
+
+
+def _value(kind: str) -> dict:
+    return {"name": "value", "type": kind, "source_name": "VALUE"}
+
+
+@pytest.mark.parametrize(
+    ("paint", "geometry_type", "before", "after", "misfit"),
+    [
+        (_MATCH, "MultiPolygon", "integer", "text", "value: number before, text now"),
+        (
+            _RADIUS,
+            "Point",
+            "double precision",
+            "text",
+            "value: number before, text now",
+        ),
+        (_MATCH, "MultiPolygon", "integer", "bigint", None),
+    ],
+    ids=["match-labels", "interpolated-radius", "same-family"],
+)
+async def test_a_column_keeps_its_type_family_where_it_moves(
+    test_db_session, clean_tables, paint, geometry_type, before, after, misfit
+):
+    """A match label or an interpolation reads the value by its type, so a
+    number that becomes text changes what the layer draws."""
+    admin = await _admin(test_db_session)
+    first = await _dataset_of(
+        test_db_session,
+        admin.id,
+        columns=[*_COLUMNS, _value(before)],
+        geometry_type=geometry_type,
+    )
+    second = await _dataset_of(
+        test_db_session,
+        admin.id,
+        columns=[*_COLUMNS, _value(after)],
+        geometry_type=geometry_type,
+    )
+    styled = _entry(
+        "qgis-map-parks", _layer("parks", dataset_id=str(first), paint=paint)
+    )
+    [created] = (await _apply(test_db_session, admin, styled)).maps
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _entry(
+                "qgis-map-parks",
+                _layer("parks", dataset_id=str(second), opacity=0.5),
+                styling="keep",
+            ),
+        )
+    ).maps
+
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert parks.dataset_id == second
+    if misfit is None:
+        assert (_warnings(result), parks.opacity) == ([], 1.0)
+    else:
+        [warning] = result.messages
+        assert warning.message.endswith(f": {misfit}.")
+        assert parks.opacity == 0.5
+
+
+_SECRET_CATEGORY = "harbour-annex"
+_SECRET = {
+    "paint": {
+        "fill-color": [
+            "match",
+            ["get", "PARK_TYPE"],
+            _SECRET_CATEGORY,
+            "#ff0000",
+            "#cccccc",
+        ]
+    }
+}
+
+
+@pytest.mark.parametrize(
+    ("was", "now", "widens"),
+    [
+        ("private", "public", True),
+        ("internal", "public", True),
+        ("private", "internal", True),
+        ("public", "public", False),
+        ("private", "private", False),
+        # One narrowing move from each kind of dataset keeps its styling.
+        ("public", "private", False),
+        ("internal", "restricted", False),
+        ("restricted", "private", False),
+    ],
+)
+async def test_a_move_that_widens_who_reads_the_layer_takes_the_manifests_styling(
+    client,
+    test_db_session,
+    admin_auth_header,
+    clean_tables,
+    monkeypatch,
+    was,
+    now,
+    widens,
+):
+    """Styling can carry values only the readers of the dataset it was
+    written for know, such as a category, so a move that lets anybody else
+    read the layer doesn't carry it, even for the owner of both datasets."""
+    # A known address, so the public map's share link adds no A074.
+    monkeypatch.setattr(settings, "public_app_url", "https://geolens.test")
+    admin = await _admin(test_db_session)
+    first = await _dataset(test_db_session, admin.id, visibility=was)
+    second = await _dataset(test_db_session, admin.id, visibility=now)
+    styled = _entry("qgis-map-parks", _layer("parks", dataset_id=str(first), **_SECRET))
+    [created] = (await _apply(test_db_session, admin, styled)).maps
+    moving = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(second), opacity=0.5),
+        styling="keep",
+        **({"visibility": "public"} if now == "public" else {}),
+    )
+
+    [checked] = (await _apply(test_db_session, admin, moving, dry_run=True)).maps
+    [result] = (await _apply(test_db_session, admin, moving)).maps
+
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert parks.dataset_id == second
+    for answer in (checked, result):
+        # A dry run that makes the map public also warns it reaches more people.
+        layer_warnings = [m for m in answer.messages if m.code != "A057"]
+        if widens:
+            [warning] = layer_warnings
+            assert (warning.code, warning.layer) == ("A073", "parks")
+            assert "some who can read it can't read the dataset the layer left" in (
+                warning.message
+            )
+        else:
+            assert [m for m in layer_warnings if m.severity != "info"] == []
+    assert (_SECRET_CATEGORY in str(parks.paint), parks.opacity) == (
+        (False, 0.5) if widens else (True, 1.0)
+    )
+    if now == "public" and widens:
+        anonymous = await client.get(f"/maps/{created.map_id}")
+        assert anonymous.status_code == 200, anonymous.text
+        assert _SECRET_CATEGORY not in anonymous.text
+
+
+async def _group(session, *members) -> uuid.UUID:
+    from app.modules.auth.models import Group, GroupMember
+
+    group = Group(name=f"moves-{uuid.uuid4().hex[:8]}")
+    session.add(group)
+    await session.flush()
+    for member in members:
+        session.add(GroupMember(group_id=group.id, user_id=member))
+    await session.commit()
+    return group.id
+
+
+async def _share(session, dataset_id, *group_ids) -> None:
+    from app.modules.catalog.datasets.domain.models import DatasetGroupGrant
+
+    for group_id in group_ids:
+        session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=group_id))
+    await session.commit()
+
+
+@pytest.mark.parametrize(
+    ("was", "now", "wider"),
+    [
+        (("private",), ("internal",), True),
+        (("restricted", "g1"), ("internal",), True),
+        (("restricted", "g1"), ("restricted", "g1", "g2"), True),
+        (("private",), ("restricted",), True),
+        (("internal",), ("public",), True),
+        (("private",), ("private", "other-owner"), True),
+        (("restricted", "g1", "g2"), ("restricted", "g1"), False),
+        (("restricted", "g1"), ("private",), False),
+        (("private",), ("private",), False),
+        (("internal",), ("restricted", "g1"), False),
+        (("public",), ("internal",), False),
+        (("public", "draft"), ("internal",), True),
+    ],
+)
+async def test_a_widening_move_is_judged_by_the_sharing_rules_not_todays_accounts(
+    client,
+    test_db_session,
+    admin_auth_header,
+    clean_tables,
+    monkeypatch,
+    was,
+    now,
+    wider,
+):
+    """With nobody yet in the gap, as on a server with only admins, a move
+    the rules make wider is still wider: the next account or group member
+    would read the old dataset's values."""
+    from app.modules.catalog import authorization
+
+    async def no_account_in_the_gap(db, pairs, **_):
+        return [False] * len(pairs)
+
+    admin = await _admin(test_db_session)
+    other, _ = await _person(client, test_db_session, admin_auth_header)
+    groups = {"g1": await _group(test_db_session), "g2": await _group(test_db_session)}
+
+    async def made(kind, *rest):
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=other.id if "other-owner" in rest else admin.id,
+            visibility=kind,
+            record_status="draft" if "draft" in rest else "published",
+        )
+        await test_db_session.commit()
+        await _share(
+            test_db_session, dataset.id, *(groups[g] for g in rest if g in groups)
+        )
+        return dataset.id
+
+    old, new = await made(*was), await made(*now)
+    monkeypatch.setattr(authorization, "_audiences_exceeded", no_account_in_the_gap)
+
+    assert await authorization.datasets_beyond_audience(
+        test_db_session, [(new, old)]
+    ) == [wider]
+
+
+async def test_an_answer_the_audience_check_cant_give_counts_as_wider(
+    test_db_session, clean_tables, monkeypatch
+):
+    """A dataset gone since the plan read it, or an authority whose audience
+    answer can't be trusted, keeps the layer from carrying its styling."""
+    from app.modules.catalog import authorization
+    from app.platform.extensions import DefaultPermissionExtension
+
+    class _WiderReads(DefaultPermissionExtension):
+        def filter_visible(self, *args, **kwargs):
+            return super().filter_visible(*args, **kwargs)
+
+    admin = await _admin(test_db_session)
+    old = await _dataset(test_db_session, admin.id, visibility="private")
+    new = await _dataset(test_db_session, admin.id, visibility="private")
+    gone = uuid.uuid4()
+    pairs = [(new, old), (gone, old), (new, gone)]
+
+    assert await authorization.datasets_beyond_audience(test_db_session, pairs) == [
+        False,
+        True,
+        True,
+    ]
+    monkeypatch.setattr(authorization, "get_permission_extension", _WiderReads)
+    assert await authorization.datasets_beyond_audience(
+        test_db_session, [(new, old)]
+    ) == [True]
+
+
+@pytest.mark.parametrize("changed", [False, True])
+async def test_a_sharing_change_between_the_audience_reads_counts_as_wider(
+    test_db_session, clean_tables, monkeypatch, changed
+):
+    """Visibility and grants are read in separate statements, so a change
+    committed between them could pair the old visibility with the new
+    grants; a row that differs on the second read counts as wider."""
+    import dataclasses
+
+    from app.modules.catalog import authorization
+
+    admin = await _admin(test_db_session)
+    old = await _dataset(test_db_session, admin.id, visibility="private")
+    new = await _dataset(test_db_session, admin.id, visibility="private")
+    real = authorization._record_audience_queries
+    reads = []
+
+    async def made_public_meanwhile(db, ids):
+        rows = await real(db, ids)
+        reads.append(rows)
+        if changed and len(reads) > 1:
+            query, title = rows[new]
+            rows = {
+                **rows,
+                new: (dataclasses.replace(query, visibility="public"), title),
+            }
+        return rows
+
+    monkeypatch.setattr(
+        authorization, "_record_audience_queries", made_public_meanwhile
+    )
+
+    assert await authorization.datasets_beyond_audience(
+        test_db_session, [(new, old)]
+    ) == [changed]
+    assert len(reads) == 2
+
+
+async def test_a_move_into_an_empty_group_is_wider_for_its_later_members(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    """Restricted to g1, then to g1 and an empty g2: whoever joins g2 later
+    reads the new dataset and not the old one."""
+    admin = await _admin(test_db_session)
+    member, _ = await _person(client, test_db_session, admin_auth_header)
+    g1, g2 = await _group(test_db_session, member.id), await _group(test_db_session)
+    first = await _dataset(test_db_session, admin.id, visibility="restricted")
+    second = await _dataset(test_db_session, admin.id, visibility="restricted")
+    await _share(test_db_session, first, g1)
+    await _share(test_db_session, second, g1, g2)
+    styled = _entry("qgis-map-parks", _layer("parks", dataset_id=str(first), **_SECRET))
+    [created] = (await _apply(test_db_session, admin, styled)).maps
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _entry(
+                "qgis-map-parks",
+                _layer("parks", dataset_id=str(second), opacity=0.5),
+                styling="keep",
+            ),
+        )
+    ).maps
+
+    [warning] = result.messages
+    assert (warning.code, warning.layer) == ("A073", "parks")
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert (parks.dataset_id, _SECRET_CATEGORY in str(parks.paint)) == (second, False)
+
+
+@pytest.mark.parametrize(
+    ("dashboard_version", "widget_version"),
+    [(2, 2), (1, 99)],
+    ids=["newer-dashboard", "unknown-widget"],
+)
+async def test_a_widening_move_refuses_a_map_whose_dashboard_it_cant_rewrite(
+    client,
+    test_db_session,
+    admin_auth_header,
+    clean_tables,
+    monkeypatch,
+    dashboard_version,
+    widget_version,
+):
+    """A dashboard a newer server saved, or a widget this server can't parse,
+    stays through a move, since it can't tell which layer the widget names;
+    the widget keeps the old dataset's values in its filter."""
+    from sqlalchemy import update
+
+    monkeypatch.setattr(settings, "public_app_url", "https://geolens.test")
+    admin = await _admin(test_db_session)
+    first = await _dataset(test_db_session, admin.id, visibility="internal")
+    second = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(first))).maps
     parks, names = await _layers(test_db_session, created.map_id)
-    assert (parks.dataset_id, names.dataset_id) == (first, first)
+    widget = {
+        **_HISTOGRAM,
+        "v": widget_version,
+        "id": _WIDGET_ID,
+        "layer_id": str(parks.id),
+        "filter": ["==", ["get", "park_type"], _SECRET_CATEGORY],
+    }
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(dashboard_config={"version": dashboard_version, "widgets": [widget]})
+    )
+    await test_db_session.commit()
+    rows = await _rows(test_db_session, created.map_id)
+    entry = _publish(second, styling="keep", visibility="public")
+
+    [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
+    [result] = (await _apply(test_db_session, admin, entry)).maps
+
+    for answer in (checked, result):
+        assert answer.action == "error"
+        refusals = [m for m in answer.messages if m.code == "A099"]
+        assert sorted(m.layer for m in refusals) == ["names", "parks"]
+        assert all(
+            "dashboard holds widgets this server can't read" in m.message
+            for m in refusals
+        )
+    assert await _rows(test_db_session, created.map_id) == rows
+    anonymous = await client.get(f"/maps/{created.map_id}")
+    assert _SECRET_CATEGORY not in anonymous.text
+
+
+async def test_a_publish_key_cant_replace_the_thumbnail_a_move_cleared(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    """The move clears the old images, which may show the dataset it left;
+    a key that couldn't have replaced the thumbnail doesn't store one."""
+    admin = await _admin(test_db_session)
+    first = await _dataset(test_db_session, admin.id)
+    second = await _dataset_of(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(first))).maps
+    response = await client.put(
+        f"/maps/{created.map_id}/thumbnail/",
+        json={"data_uri": _PNG},
+        headers=admin_auth_header,
+    )
+    assert response.status_code == 204, response.text
+    _as_publish_key(test_db_session)
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _publish(second, styling="replace", thumbnail=_PNG),
+        )
+    ).maps
+
+    assert (result.action, _codes(result)) == ("update", [("A072", "warning", None)])
+    assert "publish key" in result.messages[0].message
+    assert (await _map_row(test_db_session, created.map_id)).thumbnail_uri is None
+
+
+async def test_a_layer_hidden_in_geolens_stays_hidden_when_its_move_doesnt_fit(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    admin = await _admin(test_db_session)
+    first = await _dataset(test_db_session, admin.id)
+    points = await _dataset_of(test_db_session, admin.id, geometry_type="Point")
+    [created] = (await _apply(test_db_session, admin, _publish(first))).maps
+    parks, _ = await _layers(test_db_session, created.map_id)
+    await _patch_layers(
+        client,
+        admin_auth_header,
+        created.map_id,
+        {"updated": [{"id": str(parks.id), "visible": False}]},
+    )
+
+    [result] = (
+        await _apply(
+            test_db_session, admin, _moving(points, first, "replace_if_unedited")
+        )
+    ).maps
+
+    assert sorted(m.code for m in result.messages) == ["A070", "A073"]
+    parks, _ = await _layers(test_db_session, created.map_id)
+    assert (parks.dataset_id, parks.opacity, parks.visible) == (points, 0.5, False)
+
+
+async def test_a_failed_image_cleanup_after_the_commit_still_reports_the_publish(
+    client, test_db_session, admin_auth_header, clean_tables, monkeypatch
+):
+    async def fails(*_args, **_kwargs):
+        raise RuntimeError("storage is down")
+
+    admin = await _admin(test_db_session)
+    first = await _dataset(test_db_session, admin.id)
+    second = await _dataset_of(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(first))).maps
+    monkeypatch.setattr(manifest_apply, "discard_map_asset_objects", fails)
+
+    [result] = (
+        await _apply(test_db_session, admin, _moving(second, first, "keep"))
+    ).maps
+
+    assert (result.action, _warnings(result)) == ("update", [])
+    parks, _ = await _layers(test_db_session, created.map_id)
+    assert parks.dataset_id == second
+
+
+_ZONE = {"name": "zone", "type": "integer", "source_name": "ZONE"}
+
+
+@pytest.mark.parametrize(("value", "fits"), [(12, True), (32768, False)])
+async def test_a_layer_filter_that_stops_running_where_it_moves_doesnt_fit(
+    test_db_session, clean_tables, value, fits
+):
+    """The viewer drops a filter it can't send for the column's type, so the
+    layer and its widgets would read every feature on the new dataset."""
+    admin = await _admin(test_db_session)
+    first = await _dataset_of(test_db_session, admin.id, columns=[*_COLUMNS, _ZONE])
+    second = await _dataset_of(
+        test_db_session, admin.id, columns=[*_COLUMNS, _typed(_ZONE, "smallint")]
+    )
+    zone_filter = ["==", ["get", "zone"], value]
+    filtered = _entry(
+        "qgis-map-parks", _layer("parks", dataset_id=str(first), filter=zone_filter)
+    )
+    [created] = (await _apply(test_db_session, admin, filtered)).maps
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _entry(
+                "qgis-map-parks",
+                _layer("parks", dataset_id=str(second), opacity=0.5),
+                styling="keep",
+            ),
+        )
+    ).maps
+
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert parks.dataset_id == second
+    if fits:
+        assert (_warnings(result), parks.filter) == ([], zone_filter)
+    else:
+        [warning] = result.messages
+        assert warning.message.endswith(": the layer's filter can't run on it.")
+        assert (parks.filter, parks.opacity) == (None, 0.5)
+
+
+_CIRCLE_ACRES = {"circle-color": ["step", ["get", "ACRES"], "#eeeeee", 10, "#111111"]}
+
+
+@pytest.mark.parametrize(
+    ("fields", "misfit"),
+    [
+        (
+            {"style_config": {"render_mode": "symbol"}, "paint": _CIRCLE_ACRES},
+            None,
+        ),
+        (
+            {
+                "style_config": {
+                    "render_mode": "symbol",
+                    "mode": "graduated",
+                    "column": "ACRES",
+                    "breaks": [10],
+                    "colors": ["#eeeeee", "#111111"],
+                    "target": "color",
+                },
+                "paint": _CIRCLE_ACRES,
+            },
+            None,
+        ),
+        (
+            {
+                "style_config": {"render_mode": "heatmap"},
+                "label_config": {"column": "ACRES"},
+            },
+            None,
+        ),
+        (
+            {
+                "style_config": {
+                    "render_mode": "heatmap",
+                    "mode": "graduated",
+                    "column": "ACRES",
+                    "breaks": [10],
+                    "colors": ["#eeeeee", "#111111"],
+                    "target": "color",
+                },
+            },
+            None,
+        ),
+        (
+            {
+                "style_config": {"render_mode": "heatmap"},
+                "paint": {"heatmap-weight": ["get", "ACRES"]},
+            },
+            "it has no column acres",
+        ),
+        ({"paint": _CIRCLE_ACRES}, "it has no column acres"),
+        ({"popup_config": {"enabled": False, "visible_fields": ["acres"]}}, None),
+        (
+            {"popup_config": {"enabled": True, "visible_fields": ["acres"]}},
+            "it has no column acres",
+        ),
+    ],
+    ids=[
+        "symbol",
+        "symbol-classification",
+        "heatmap-labels",
+        "heatmap-classification",
+        "heatmap-paint",
+        "circle",
+        "popup-off",
+        "popup-on",
+    ],
+)
+async def test_styling_nothing_draws_with_isnt_judged_where_the_layer_moves(
+    test_db_session, clean_tables, fields, misfit
+):
+    """A symbol layer keeps its circle paint and classification, a heatmap
+    its classification and labels, and a disabled popup its fields, only to
+    restore them later; none of them reads the dataset."""
+    admin = await _admin(test_db_session)
+    first = await _dataset_of(
+        test_db_session, admin.id, columns=[*_COLUMNS, _ACRES], geometry_type="Point"
+    )
+    second = await _dataset_of(test_db_session, admin.id, geometry_type="Point")
+    styled = _entry("qgis-map-parks", _layer("parks", dataset_id=str(first), **fields))
+    [created] = (await _apply(test_db_session, admin, styled)).maps
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _entry(
+                "qgis-map-parks",
+                _layer("parks", dataset_id=str(second), opacity=0.5),
+                styling="keep",
+            ),
+        )
+    ).maps
+
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert parks.dataset_id == second
+    if misfit is None:
+        assert (_warnings(result), parks.opacity) == ([], 1.0)
+    else:
+        [warning] = result.messages
+        assert warning.message.endswith(f": {misfit}.")
+        assert parks.opacity == 0.5
+
+
+@pytest.mark.parametrize(
+    ("was_tiles", "now_tiles", "popup", "misfit"),
+    [
+        (None, None, None, None),
+        (None, ["area"], None, None),
+        (None, [], None, "its tiles leave out area"),
+        (None, ["park_type"], None, "its tiles leave out area"),
+        ([], [], None, None),
+        (None, ["area"], ["park_name"], "its tiles leave out park_name"),
+        (None, ["area"], ["park_name", "off"], None),
+    ],
+    ids=[
+        "default",
+        "listed",
+        "none",
+        "left-out",
+        "left-out-before",
+        "popup-field",
+        "popup-off",
+    ],
+)
+async def test_a_column_the_layer_draws_with_must_be_in_the_new_tiles(
+    test_db_session, clean_tables, was_tiles, now_tiles, popup, misfit
+):
+    """A dataset's tile allowlist holds back every other column, even one
+    the styling asks for; the viewer builds a popup from tile properties,
+    and a disabled popup reads nothing."""
+    from sqlalchemy import update
+
+    from app.modules.catalog.datasets.domain.models import Dataset
+
+    admin = await _admin(test_db_session)
+    first = await _dataset_of(test_db_session, admin.id, columns=[*_COLUMNS, _AREA])
+    second = await _dataset_of(test_db_session, admin.id, columns=[*_COLUMNS, _AREA])
+    for dataset_id, tiles in ((first, was_tiles), (second, now_tiles)):
+        await test_db_session.execute(
+            update(Dataset).where(Dataset.id == dataset_id).values(tile_columns=tiles)
+        )
+    await test_db_session.commit()
+    popup_config = (
+        {
+            "popup_config": {
+                "enabled": "off" not in popup,
+                "visible_fields": [name for name in popup if name != "off"],
+            }
+        }
+        if popup
+        else {}
+    )
+    graduated = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(first), **_GRADUATED, **popup_config),
+    )
+    [created] = (await _apply(test_db_session, admin, graduated)).maps
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _entry(
+                "qgis-map-parks",
+                _layer("parks", dataset_id=str(second), opacity=0.5),
+                styling="keep",
+            ),
+        )
+    ).maps
+
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert parks.dataset_id == second
+    if misfit is None:
+        assert (_warnings(result), parks.opacity) == ([], 1.0)
+    else:
+        [warning] = result.messages
+        assert warning.message.endswith(f": {misfit}.")
+        assert parks.opacity == 0.5
+
+
+async def test_a_move_clears_previews_that_may_show_the_dataset_it_left(
+    client, test_db_session, admin_auth_header, clean_tables, monkeypatch
+):
+    """A private map whose layers move from a private dataset to a public one
+    and go public must not serve its earlier images to anonymous readers."""
+    # A known address, so the public map's share link adds no A074.
+    monkeypatch.setattr(settings, "public_app_url", "https://geolens.test")
+    admin = await _admin(test_db_session)
+    private = await _dataset(test_db_session, admin.id, visibility="private")
+    public = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(private))).maps
+    for kind in ("thumbnail", "og-image"):
+        response = await client.put(
+            f"/maps/{created.map_id}/{kind}/",
+            json={"data_uri": _PNG},
+            headers=admin_auth_header,
+        )
+        assert response.status_code == 204, response.text
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _publish(public, styling="keep", visibility="public"),
+        )
+    ).maps
+
+    # Neither layer's styling, written for the private dataset, is carried.
+    assert (result.action, result.visibility, sorted(_warnings(result))) == (
+        "update",
+        "public",
+        [("A073", "warning", "names"), ("A073", "warning", "parks")],
+    )
+    stored = await _map_row(test_db_session, created.map_id)
+    assert (stored.thumbnail_uri, stored.og_image_uri) == (None, None)
+    for kind in ("thumbnail", "og-image"):
+        anonymous = await client.get(f"/maps/{created.map_id}/{kind}/")
+        assert anonymous.status_code == 404, kind
+
+
+async def test_replace_moves_a_layer_with_the_manifests_styling_as_before(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    first = await _dataset(test_db_session, admin.id)
+    points = await _dataset_of(test_db_session, admin.id, geometry_type="Point")
+    [created] = (await _apply(test_db_session, admin, _publish(first))).maps
+    rows = await _rows(test_db_session, created.map_id)
+
+    [result] = (
+        await _apply(test_db_session, admin, _moving(points, first, "replace"))
+    ).maps
+
+    assert (result.styling, _codes(result)) == ("applied", [])
+    assert await _rows(test_db_session, created.map_id) == [
+        (*row[:3], points if row[1] == "parks" else first) for row in rows
+    ]
+
+
+async def test_a_moved_layer_retires_embed_links_scoped_to_its_old_dataset(
+    test_db_session, clean_tables
+):
+    from app.modules.embed_tokens.models import EmbedToken
+
+    admin = await _admin(test_db_session)
+    first = await _dataset(test_db_session, admin.id)
+    second = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(first))).maps
+    token = EmbedToken(
+        map_id=created.map_id,
+        token_hash=hashlib.sha256(b"moved-layer-embed").hexdigest(),
+        token_hint="moved",
+        scoped_dataset_ids=[str(first)],
+        expires_at=datetime.now(UTC) + timedelta(days=1),
+        created_by=admin.id,
+    )
+    test_db_session.add(token)
+    await test_db_session.commit()
+
+    [result] = (
+        await _apply(test_db_session, admin, _publish(second, styling="keep"))
+    ).maps
+
+    assert (result.styling, _warnings(result)) == ("kept", [])
+    await test_db_session.refresh(token)
+    assert token.is_active is False
 
 
 # A dataset id nothing has; a literal, so xdist workers collect the same ids.
@@ -1051,14 +2238,15 @@ async def test_a_kept_publish_answers_alike_for_a_hidden_and_a_missing_dataset(
     assert hidden_applied.model_dump() == missing_applied.model_dump()
     assert ("A052", "error", "parks") in _codes(hidden_applied)
     assert _codes(hidden_checked) == _codes(hidden_applied)
-    # A readable kept layer still says the manifest named another dataset.
-    kept_warning = ("A073", "warning", "parks") in _codes(hidden_applied)
-    assert kept_warning is (hidden_side == "manifest")
+    # A layer can't move to a dataset the caller can't read.
+    assert "A073" not in {code for code, _, _ in _codes(hidden_applied)}
 
 
-async def test_a_kept_layer_on_a_dataset_the_request_creates_says_so(
+async def test_a_kept_layer_on_a_dataset_the_request_creates_isnt_judged_yet(
     test_db_session, clean_tables
 ):
+    """A dataset the request creates has no geometry or columns to judge the
+    layer's styling on until it is published."""
     from app.processing.ingest.manifest_maps import run_manifest_maps
     from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
     from tests.test_manifest_maps_apply import _maps_only
@@ -1083,7 +2271,7 @@ async def test_a_kept_layer_on_a_dataset_the_request_creates_says_so(
 
     [result] = await run_manifest_maps(test_db_session, request, admin, results)
 
-    assert _codes(result) == [("A073", "warning", "parks")]
+    assert _codes(result) == []
 
 
 async def test_a_map_another_change_holds_answers_busy(test_db_session, clean_tables):
@@ -1325,13 +2513,15 @@ def test_the_thumbnail_goes_through_the_upload_service():
     )
 
 
-async def test_a_kept_layer_is_judged_on_the_dataset_it_keeps(
-    client, test_db_session, admin_auth_header, clean_tables
+async def test_a_moved_layer_is_judged_on_the_dataset_it_moves_to(
+    client, test_db_session, admin_auth_header, clean_tables, monkeypatch
 ):
     from sqlalchemy import update
 
     from app.modules.catalog.datasets.domain.models import Dataset, Record
 
+    # A known address, so the public map's share link adds no A074.
+    monkeypatch.setattr(settings, "public_app_url", "https://geolens.test")
     admin = await _admin(test_db_session)
     kept_dataset = await _dataset(test_db_session, admin.id)
     named_now = await _dataset(test_db_session, admin.id)
@@ -1343,7 +2533,7 @@ async def test_a_kept_layer_is_judged_on_the_dataset_it_keeps(
     await _edit_paint_in_the_builder(
         client, admin_auth_header, test_db_session, created.map_id
     )
-    # The dataset the map goes on showing is narrowed after the publish.
+    # The dataset the layers leave is narrowed after the publish.
     record_id = select(Dataset.record_id).where(Dataset.id == kept_dataset)
     await test_db_session.execute(
         update(Record)
@@ -1354,12 +2544,17 @@ async def test_a_kept_layer_is_judged_on_the_dataset_it_keeps(
 
     [result] = (await _apply(test_db_session, admin, _publish(named_now))).maps
 
-    assert _codes(result) == [
+    # The layers leave a private dataset for a public one, so their styling
+    # isn't carried.
+    assert sorted(_codes(result)) == [
         ("A070", "info", None),
-        ("A073", "warning", "parks"),
         ("A073", "warning", "names"),
-        ("A020", "error", None),
+        ("A073", "warning", "parks"),
     ]
+    assert (result.action, result.visibility) == ("update", "public")
+    assert {
+        layer.dataset_id for layer in await _layers(test_db_session, created.map_id)
+    } == {named_now}
 
 
 async def test_a_kept_publish_keeps_the_builders_layer_order(
@@ -1473,7 +2668,7 @@ async def test_full_notes_drop_an_earlier_block_and_keep_the_users_text(
     assert (await _map_row(test_db_session, created.map_id)).notes == user
 
 
-async def test_a_dataset_a_kept_layer_drops_doesnt_refuse_a_public_map(
+async def test_a_kept_layer_moving_to_a_non_public_dataset_refuses_a_public_map(
     client, test_db_session, admin_auth_header, clean_tables, monkeypatch
 ):
     # A known address, so the public map's share link adds no A074.
@@ -1488,18 +2683,17 @@ async def test_a_dataset_a_kept_layer_drops_doesnt_refuse_a_public_map(
         client, admin_auth_header, test_db_session, created.map_id
     )
 
+    [checked] = (
+        await _apply(test_db_session, admin, _publish(discarded), dry_run=True)
+    ).maps
     [result] = (await _apply(test_db_session, admin, _publish(discarded))).maps
 
-    assert (result.action, result.styling, result.visibility) == (
-        "update",
-        "kept",
-        "public",
-    )
-    assert _codes(result) == [
-        ("A070", "info", None),
-        ("A073", "warning", "parks"),
-        ("A073", "warning", "names"),
-    ]
+    for answer in (checked, result):
+        assert answer.action == "error"
+        assert _codes(answer) == [("A070", "info", None), ("A020", "error", None)]
+    assert {
+        layer.dataset_id for layer in await _layers(test_db_session, created.map_id)
+    } == {shown}
 
 
 async def test_a_kept_publish_leaves_the_thumbnail(

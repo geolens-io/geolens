@@ -40,6 +40,21 @@ _NATIVE_VALUE_TYPES = {
 }
 
 
+def is_aggregate_number_type(data_type: str) -> bool:
+    """Whether the aggregate endpoint sums, averages and bins a column of
+    this information_schema type."""
+    return data_type in _NUMERIC_TYPES
+
+
+def is_date_type(data_type: str) -> bool:
+    """Whether the aggregate endpoint groups a column of this type by date."""
+    # Imported here: aggregate_rows imports the service façade, which
+    # imports this module.
+    from app.modules.catalog.datasets.domain.aggregate_rows import DATE_TYPES
+
+    return data_type in DATE_TYPES
+
+
 def _validate_identifier(name: str, label: str) -> None:
     """Validate a SQL identifier to prevent injection.
 

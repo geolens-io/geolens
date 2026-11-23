@@ -449,6 +449,62 @@ def named_columns(layer: MapLayerInput) -> set[str]:
     return collector.names
 
 
+# A symbol draws one icon and a heatmap its density; the classification of
+# the circles either replaced stays for switching back.
+_CLASSIFICATION = ("mode", "column")
+
+
+def live_styling(layer: MapLayerInput) -> MapLayerInput:
+    """``layer`` as the viewer draws it, for judging what it reads: without
+    the styling the builder keeps only to restore later (the saved heatmap and
+    circle paints, the heatmap weight outside heatmap mode, the circle paint
+    and classification under a symbol, and the classification and labels
+    under a heatmap, which neither the viewer nor the style export draws),
+    and without a disabled popup's fields. Never stored or used to rename."""
+    style = layer.style_config if isinstance(layer.style_config, dict) else None
+    mode = (style or {}).get("render_mode")
+    live = None
+    if style is not None:
+        classified = mode not in ("symbol", "heatmap")
+        unread = {*_SAVED_PAINT_KEYS, *(() if classified else _CLASSIFICATION)}
+        live = {key: value for key, value in style.items() if key not in unread}
+        if mode != "heatmap" and isinstance(live.get("builder"), dict):
+            live["builder"] = {
+                key: value
+                for key, value in live["builder"].items()
+                if key != "heatmap_weight_column"
+            }
+    paint = {
+        key: value
+        for key, value in (layer.paint or {}).items()
+        if not (key == "_heatmap-weight-column" and mode != "heatmap")
+        and not (key.startswith("circle-") and mode == "symbol")
+    }
+    popup = layer.popup_config
+    return layer.model_copy(
+        update={
+            "style_config": live,
+            "paint": paint if layer.paint is not None else None,
+            "popup_config": popup if popup is None or popup.enabled else None,
+            "label_config": None if mode == "heatmap" else layer.label_config,
+        }
+    )
+
+
+def number_columns(layer: MapLayerInput) -> set[str]:
+    """The columns among ``named_columns`` that the layer's styling reads as
+    numbers: a graduated style's column, a heatmap weight and an extrusion
+    height."""
+    style = layer.style_config if isinstance(layer.style_config, dict) else {}
+    builder = style.get("builder") if isinstance(style.get("builder"), dict) else {}
+    candidates = [
+        style.get("column") if style.get("mode") == "graduated" else None,
+        *(builder.get(key) for key in _BUILDER_COLUMN_KEYS),
+        *((layer.paint or {}).get(key) for key in _PAINT_COLUMN_KEYS),
+    ]
+    return {name for name in candidates if isinstance(name, str) and name}
+
+
 def emitted_columns(style_layer: dict[str, Any]) -> set[str]:
     """The columns a layer of an exported style document reads: every static
     ``get`` or ``has`` key in its paint, layout and filter, and the ``{name}``

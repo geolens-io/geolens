@@ -40,13 +40,17 @@ class ManifestMap:
             `replace_if_unedited` does unless styling it would write was edited in GeoLens since the last publish that
             replaced it, and answers info A070 when it keeps it. A view or basemap edit counts only when the manifest sends
             a `view` or `basemap_style` that would overwrite it, and a bookmarks edit only when it sends `bookmarks`. A kept
-            layer keeps its dataset too, with warning A073 when the manifest names another. Name, description, notes,
-            visibility and new layers are applied in every mode, and a new map takes the manifest's styling. Default:
-            'replace_if_unedited'.
+            layer the manifest points at another dataset moves to it and keeps its styling when that fits there: by the
+            datasets' sharing rules, everyone who can read the new dataset can read the old one, the same geometry type (for
+            a raster, the same DEM kind and one band under a colormap), and every column its styling and dashboard widgets
+            read, in the type family it had and of the type each use needs. A move clears the map's thumbnail and social
+            card image. Otherwise it takes the manifest's styling, with warning A073 naming what didn't fit. Name,
+            description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's
+            styling. Default: 'replace_if_unedited'.
         thumbnail (None | str | Unset): A PNG or JPEG data URI, stored as the map's thumbnail once the map is written,
             with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling
-            leaves the map's thumbnail as it is. One the storage step refuses or can't store is warning A072, and the map
-            stays published.
+            leaves the map's thumbnail as it is unless it moves a layer to another dataset, which clears it. One the storage
+            step refuses or can't store is warning A072, and the map stays published.
         loss_report (ManifestLossReport | None | Unset): Written, one line per item, in a block at the top of the map's
             notes, above a `---` line. A republish replaces the leading block only when it is exactly a block some publish
             of this map wrote; all other text is kept whole. Left out when the styling is kept, and cut to what fits the

@@ -579,6 +579,7 @@ def test_every_cleanup_caller_takes_the_row_lock_1778() -> None:
                 callers[f"{path.name}::{node.name}"] = names
 
     assert set(callers) == {
+        "manifest_apply.py::_apply_map",
         "router.py::delete_map_endpoint",
         "router.py::store_map_image",
     }, sorted(callers)
