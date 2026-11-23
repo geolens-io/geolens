@@ -25,6 +25,7 @@
     "A071",
     "A072",
     "A073",
+    "A074",
     "A092",
     "A099"
   ],
@@ -386,6 +387,14 @@
       }
     },
     "ManifestMapLinks": {
+      "embed": {
+        "required": false,
+        "type": "null|string"
+      },
+      "share": {
+        "required": false,
+        "type": "null|string"
+      },
       "viewer": {
         "required": true,
         "type": "string"
