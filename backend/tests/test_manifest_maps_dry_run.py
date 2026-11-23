@@ -1622,10 +1622,77 @@ async def test_every_operator_form_names_its_columns(
 
 
 @pytest.mark.parametrize(
+    "value",
+    [
+        ["let", [], ["properties"], ["get", "radius", ["var", "p"]]],
+        ["let", "p", ["properties"], ["get", "radius", ["var", {}]]],
+    ],
+    ids=["let-name", "var-name"],
+)
+async def test_a_malformed_let_or_var_name_does_not_fail_the_map(
+    test_db_session, clean_tables, value
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+
+    [result] = (
+        await _dry_run(
+            test_db_session,
+            admin,
+            _map(
+                "qgis-map-a",
+                _layer(dataset_id=str(dataset_id), layout={"unknown": value}),
+            ),
+        )
+    ).maps
+
+    assert result.action == "create"
+
+
+async def test_a_get_inside_an_object_operand_is_still_checked(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    paint = {"circle-radius": ["get", "radius", ["get", "MISSING"]]}
+
+    [result] = (
+        await _dry_run(
+            test_db_session,
+            admin,
+            _map("qgis-map-a", _layer(dataset_id=str(dataset_id), paint=paint)),
+        )
+    ).maps
+
+    assert result.messages[0].message.endswith("named MISSING.")
+
+
+@pytest.mark.parametrize(
     "fields",
     [
         {"paint": {"circle-radius": ["get", "MISSING", ["literal", {"MISSING": 1}]]}},
         {"paint": {"circle-radius": ["get", "MISSING", ["global-state", "row"]]}},
+        {
+            "paint": {
+                "circle-radius": [
+                    "let",
+                    "p",
+                    ["literal", {"MISSING": 5}],
+                    ["get", "MISSING", ["var", "p"]],
+                ]
+            }
+        },
+        {"paint": {"circle-radius": ["get", "MISSING", ["get", "PARK_NAME"]]}},
+        {
+            "paint": {
+                "circle-radius": [
+                    "let",
+                    "p",
+                    ["properties"],
+                    ["get", "MISSING", ["var", "p"]],
+                ]
+            }
+        },
         {"layout": {"text-field": ["to-string", {"x": ["get", "MISSING"]}]}},
         {"style_config": {"symbol": {"iconImage": "marker"}}},
         {
@@ -1790,9 +1857,7 @@ def test_every_builder_key_the_export_or_builder_reads_is_scanned_or_never_a_col
 
     source = Path(style_json.__file__).read_text()
     read = set(re.findall(r'builder\.get\("([A-Za-z_]+)"\)', source))
-    for keys in re.findall(r"for builder_key in \(([^)]*)\)", source):
-        read |= set(re.findall(r'"([A-Za-z_]+)"', keys))
-    assert {"outlineColor", "arrowColor", "heatmapWeightColumn"} <= read
+    assert {"outlineColor", "arrowColor", "heightColumn"} <= read
     builder_read = set()
     for path in _builder_sources():
         builder_read |= set(

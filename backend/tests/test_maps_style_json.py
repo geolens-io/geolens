@@ -42,7 +42,7 @@ def _layer(**overrides):
         dataset_geometry_type=overrides.get("dataset_geometry_type", "POINT"),
         dataset_table_name=overrides.get("dataset_table_name", "public_stops"),
         dataset_extent_bbox=None,
-        dataset_column_info=None,
+        dataset_column_info=overrides.get("dataset_column_info"),
         dataset_feature_count=overrides.get("dataset_feature_count", None),
         dataset_sample_values=None,
         display_name=overrides.get("display_name", "Stops"),
@@ -1747,7 +1747,6 @@ def test_export_tile_url_includes_sorted_cols_for_all_references_p1_02():
     layer = _layer(
         dataset_id=dataset_id,
         dataset_geometry_type="POINT",
-        style_config={"column": "pop"},
         paint={"circle-color": ["get", "category"], "circle-radius": 6},
         label_config={"column": "name"},
         # legacy bare-field filter — must be normalized then walked for `status`.
@@ -1756,12 +1755,12 @@ def test_export_tile_url_includes_sorted_cols_for_all_references_p1_02():
     style = build_maplibre_style(_map(), [layer])
     tile_url = style["sources"][f"geolens-{dataset_id}"]["tiles"][0]
     cols = parse_qs(urlsplit(tile_url).query)["cols"][0].split(",")
-    assert cols == sorted(["pop", "category", "name", "status"])
+    assert cols == sorted(["category", "name", "status"])
     # Stable + sorted output.
     assert cols == sorted(cols)
 
 
-def test_export_cols_includes_extrusion_and_heatmap_builder_columns_p1_02():
+def test_export_cols_includes_the_extrusion_height_column_but_not_an_unused_heatmap_weight_p1_02():
     layer = _layer(
         dataset_geometry_type="POLYGON",
         dataset_table_name="parcels",
@@ -1778,8 +1777,7 @@ def test_export_cols_includes_extrusion_and_heatmap_builder_columns_p1_02():
     style = build_maplibre_style(_map(), [layer])
     tile_url = style["sources"][f"geolens-{layer.dataset_id}"]["tiles"][0]
     cols = parse_qs(urlsplit(tile_url).query)["cols"][0].split(",")
-    assert "height_m" in cols
-    assert "magnitude" in cols
+    assert cols == ["height_m"]
 
 
 def test_terrain_export_emits_dedicated_raster_dem_source_for_image_dem_p1_05():
@@ -3090,7 +3088,7 @@ def test_a_shared_source_requests_the_columns_of_every_layer_that_draws_it():
         sort_order=0,
         filter=None,
         label_config={"column": "name"},
-        style_config={"column": "category"},
+        paint={"circle-color": ["get", "category"]},
     )
     lower = _layer(dataset_id=dataset_id, sort_order=1, filter=None, label_config=None)
 
@@ -3144,10 +3142,15 @@ def test_a_mesh_only_terrain_layer_leaves_the_hillshade_its_raster_dem_source(
     assert style["sources"][shaded["source"]]["type"] == "raster-dem"
 
 
+def _exported_cols(layer) -> list[str]:
+    [src] = style_json.build_maplibre_style(_map(), [layer])["sources"].values()
+    cols = parse_qs(urlsplit(src["tiles"][0]).query).get("cols", [""])[0]
+    return cols.split(",") if cols else []
+
+
 def _walked(node):
-    cols: set[str] = set()
-    style_json._walk_get_has_columns(node, cols)
-    return cols
+    layer = _layer(paint={"circle-radius": node}, label_config=None, filter=None)
+    return set(_exported_cols(layer))
 
 
 def test_walker_treats_match_labels_as_values_and_outputs_as_expressions():
@@ -3160,20 +3163,26 @@ def test_walker_skips_literal_operands():
 
 
 def test_walker_reads_through_a_list_whose_head_is_a_list():
-    assert _walked([["get", "x"], ["has", "y"]]) == {"x", "y"}
+    assert _walked([["get", "x"], ["has", "y"]]) == set()
 
 
-def test_walker_reads_get_with_an_object_expression_operand():
-    node = ["get", "radius", ["at", 0, ["literal", [{"radius": 5}]]]]
-    assert _walked(node) == {"radius"}
-    assert _walked(["get", "radius", ["get", "obj"]]) == {"radius", "obj"}
+def test_the_export_asks_for_a_get_key_whatever_object_it_reads():
+    for obj in (
+        ["at", 0, ["literal", [{"radius": 5}]]],
+        ["get", "obj"],
+        ["var", "unbound"],
+        ["coalesce", ["properties"], {}],
+        ["properties"],
+    ):
+        wanted = {"radius", "obj"} if obj == ["get", "obj"] else {"radius"}
+        assert _walked(["get", "radius", obj]) == wanted
 
 
 def test_walker_keeps_legacy_filter_columns_through_the_normalizer():
     layer = _layer(
         paint={}, label_config=None, filter=["all", ["==", "status", "open"]]
     )
-    assert style_json._data_driven_columns_for_layer(layer) == ["status"]
+    assert _exported_cols(layer) == ["status"]
 
 
 def test_layer_with_a_dict_in_literal_paint_still_exports_its_columns():
@@ -3189,4 +3198,410 @@ def test_layer_with_a_dict_in_literal_paint_still_exports_its_columns():
         label_config=None,
         filter=None,
     )
-    assert style_json._data_driven_columns_for_layer(layer) == ["radius", "tint"]
+    assert _exported_cols(layer) == ["radius", "tint"]
+
+
+_FORMS = {
+    "get-feature-object": ["get", "c", ["properties"]],
+    "get-literal-name": ["get", ["literal", "c"]],
+    "has-literal-name": ["has", ["literal", "c"]],
+    "format-options": ["format", "x", {"text-color": ["get", "c"]}],
+    "collator-options": ["collator", {"locale": ["get", "c"]}],
+    "number-format-options": ["number-format", 1, {"currency": ["get", "c"]}],
+    "semiliteral": ["semiliteral", [["get", "c"]]],
+    "semiliteral-after-literal": ["semiliteral", [["literal", 1], ["get", "c"]]],
+    "semiliteral-after-global-state": [
+        "semiliteral",
+        [["global-state", "x"], ["get", "c"]],
+    ],
+    "legacy-function": {"property": "c", "stops": [[0, 1]]},
+}
+
+
+@pytest.mark.parametrize("form", _FORMS.values(), ids=_FORMS.keys())
+def test_the_export_asks_for_every_column_the_dry_run_names(form):
+    from app.modules.catalog.maps.manifest_columns import named_columns
+    from app.modules.catalog.maps.schemas import MapLayerInput
+
+    layer = _layer(paint={"circle-radius": form}, label_config=None, filter=None)
+    checked = MapLayerInput(
+        dataset_id=layer.dataset_id,
+        paint=layer.paint,
+        layout={},
+        display_name="Stops",
+    )
+
+    assert named_columns(checked) == {"c"}
+    assert _exported_cols(layer) == ["c"]
+
+
+_POLYGON = {"dataset_geometry_type": "POLYGON", "paint": {"fill-color": "#fff"}}
+_SYMBOL = {"style_config": {"render_mode": "symbol"}}
+
+
+def _live(**overrides):
+    return {"label_config": None, "filter": None, "paint": {}, **overrides}
+
+
+_LIVE_SETTINGS = {
+    "label-column": _live(label_config={"column": "c"}),
+    "filter": _live(filter=["has", ["literal", "c"]]),
+    "legacy-filter": _live(filter=["==", "c", 1]),
+    "paint-expression": _live(paint={"circle-radius": ["get", "c"]}),
+    "outline-color": _live(
+        **{**_POLYGON, "style_config": {"builder": {"outlineColor": ["get", "c"]}}}
+    ),
+    "outline-width": _live(
+        **{**_POLYGON, "style_config": {"builder": {"outline_width": ["get", "c"]}}}
+    ),
+    "height-column": _live(
+        **{**_POLYGON, "style_config": {"builder": {"heightColumn": "c"}}}
+    ),
+    "legacy-height-column": _live(
+        **{**_POLYGON, "paint": {"fill-color": "#fff", "_height_column": "c"}}
+    ),
+    "symbol-size": _live(
+        style_config={"render_mode": "symbol", "symbol": {"iconSize": ["get", "c"]}}
+    ),
+    "symbol-icon-token": _live(
+        style_config={"render_mode": "symbol", "symbol": {"iconImage": "{c}"}}
+    ),
+}
+
+_STASHED_SETTINGS = {
+    "saved-fill-opacity": {
+        "style_config": {"builder": {"fill_opacity_saved": ["get", "c"]}}
+    },
+    "saved-outline-width": {
+        "style_config": {"builder": {"outline_width_saved": ["get", "c"]}}
+    },
+    "saved-circle-paint": {
+        "style_config": {"savedCirclePaint": {"circle-color": ["get", "c"]}}
+    },
+    "heatmap-paint": {
+        "style_config": {"heatmapPaint": {"heatmap-weight": ["get", "c"]}}
+    },
+    "style-config-column": {"style_config": {"column": "c"}},
+    "heatmap-weight-column": {
+        "style_config": {"builder": {"heatmapWeightColumn": "c"}}
+    },
+    "legacy-heatmap-weight-column": {"paint": {"_heatmap-weight-column": "c"}},
+}
+
+
+@pytest.mark.parametrize("overrides", _LIVE_SETTINGS.values(), ids=_LIVE_SETTINGS)
+def test_the_export_asks_for_a_column_a_live_setting_reads(overrides):
+    assert _exported_cols(_layer(**overrides)) == ["c"]
+
+
+@pytest.mark.parametrize("overrides", _STASHED_SETTINGS.values(), ids=_STASHED_SETTINGS)
+def test_the_export_leaves_out_a_column_only_a_stash_or_a_setting_not_in_use_reads(
+    overrides,
+):
+    layer = _layer(**_live(**overrides))
+
+    assert _exported_cols(layer) == []
+
+
+_ALIASED = [
+    "let",
+    "p",
+    ["properties"],
+    ["get", "radius", ["var", "p"]],
+]
+
+
+def test_the_export_asks_for_a_column_read_through_a_let_bound_properties_object():
+    layer = _layer(paint={"circle-radius": _ALIASED}, label_config=None, filter=None)
+
+    assert _exported_cols(layer) == ["radius"]
+    [src] = style_json.build_maplibre_style(_map(), [layer])["sources"].values()
+    assert "radius" in parse_qs(urlsplit(src["tiles"][0]).query)["cols"][0].split(",")
+
+
+@pytest.mark.parametrize(
+    "builder",
+    [
+        {"height_column": "old_height", "heightColumn": "height"},
+        {"heightColumn": "height", "height_column": "old_height"},
+    ],
+    ids=["snake-first", "camel-first"],
+)
+def test_the_export_asks_for_the_height_column_the_renderer_reads(builder):
+    layer = _layer(
+        dataset_geometry_type="POLYGON",
+        paint={"fill-color": "#fff"},
+        label_config=None,
+        filter=None,
+        style_config={"builder": {**builder, "extrusionMinZoom": 1}},
+    )
+
+    assert _exported_cols(layer) == ["height"]
+
+
+def _nested(depth: int, inner: list) -> list:
+    node = inner
+    for _ in range(depth):
+        node = ["to-number", node]
+    return node
+
+
+def test_a_deeply_nested_value_keeps_every_other_column_of_its_layer():
+    layer = _layer(
+        paint={
+            "circle-radius": _nested(3000, ["get", "size"]),
+            "circle-color": ["get", "tint"],
+        },
+        label_config={"column": "name"},
+        filter=["==", ["get", "status"], "open"],
+    )
+
+    assert _exported_cols(layer) == [
+        "name",
+        "size",
+        "status",
+        "tint",
+    ]
+
+
+def test_a_deep_value_in_one_layer_leaves_the_style_exporting_with_its_columns():
+    deep = _layer(
+        paint={"circle-radius": _nested(500, ["get", "size"])},
+        label_config=None,
+        filter=None,
+    )
+    other = _layer(
+        paint={"circle-color": ["get", "kind"]}, label_config=None, filter=None
+    )
+
+    style = style_json.build_maplibre_style(_map(), [deep, other])
+
+    cols = [
+        parse_qs(urlsplit(src["tiles"][0]).query)["cols"][0]
+        for src in style["sources"].values()
+    ]
+    assert sorted(cols) == ["kind", "size"]
+
+
+def _renamed_paint(value) -> object:
+    from app.modules.catalog.maps.manifest_columns import rename_layer_columns
+    from app.modules.catalog.maps.schemas import MapLayerInput
+
+    layer = MapLayerInput(
+        dataset_id=uuid.uuid4(), paint={"circle-radius": value}, display_name="Stops"
+    )
+    renamed = rename_layer_columns(layer, lambda name: f"stored_{name}")
+    return renamed.paint["circle-radius"]
+
+
+def test_a_publish_leaves_a_get_on_a_var_alone():
+    literal = [
+        "let",
+        "p",
+        ["literal", {"PARK_NAME": 7}],
+        ["get", "PARK_NAME", ["var", "p"]],
+    ]
+
+    assert _renamed_paint(literal) == literal
+    assert _renamed_paint(_ALIASED) == _ALIASED
+
+
+def test_the_export_still_asks_for_a_get_on_a_let_bound_literal_object():
+    value = [
+        "let",
+        "p",
+        ["literal", {"PARK_NAME": 7}],
+        ["get", "PARK_NAME", ["var", "p"]],
+    ]
+    layer = _layer(paint={"circle-radius": value}, label_config=None, filter=None)
+
+    assert _exported_cols(layer) == ["PARK_NAME"]
+
+
+def test_a_deeply_nested_filter_still_exports_its_column():
+    node: list = ["has", "radius"]
+    for _ in range(600):
+        node = ["all", node]
+    layer = _layer(paint={}, label_config=None, filter=node)
+
+    style = style_json.build_maplibre_style(_map(), [layer])
+
+    [src] = style["sources"].values()
+    assert parse_qs(urlsplit(src["tiles"][0]).query)["cols"] == ["radius"]
+
+
+_MALFORMED_NAMES = {
+    "let-name": ["let", [], ["properties"], ["get", "radius", ["var", "p"]]],
+    "var-name": ["let", "p", ["properties"], ["get", "radius", ["var", {}]]],
+}
+
+
+@pytest.mark.parametrize("value", _MALFORMED_NAMES.values(), ids=_MALFORMED_NAMES)
+def test_a_malformed_let_or_var_name_leaves_the_layer_exporting(value):
+    layer = _layer(
+        paint={"circle-color": ["get", "kind"], "circle-opacity": value},
+        label_config=None,
+        filter=None,
+    )
+
+    assert _exported_cols(layer) == ["kind", "radius"]
+    assert style_json.build_maplibre_style(_map(), [layer])["layers"]
+
+
+def test_the_export_asks_for_a_get_on_a_semiliteral_holding_the_feature():
+    value = ["get", "radius", ["at", 0, ["semiliteral", [["properties"]]]]]
+    layer = _layer(paint={"circle-radius": value}, label_config=None, filter=None)
+
+    [src] = style_json.build_maplibre_style(_map(), [layer])["sources"].values()
+    assert parse_qs(urlsplit(src["tiles"][0]).query)["cols"] == ["radius"]
+
+
+def test_deeply_nested_object_assertions_leave_the_style_exporting():
+    node: list = ["properties"]
+    for _ in range(990):
+        node = ["object", node]
+    layer = _layer(
+        paint={
+            "circle-radius": ["get", "radius", node],
+            "circle-opacity": ["get", "x", node],
+        },
+        label_config=None,
+        filter=None,
+    )
+
+    [src] = style_json.build_maplibre_style(_map(), [layer])["sources"].values()
+    assert parse_qs(urlsplit(src["tiles"][0]).query)["cols"] == ["radius,x"]
+
+
+def test_the_export_does_work_linear_in_the_size_of_the_styling():
+    import sys
+
+    def chain(column: str) -> list:
+        node: list = ["properties"]
+        for _ in range(900):
+            node = ["get", column, node]
+        return node
+
+    paint = {
+        "circle-radius": chain("a"),
+        "circle-color": chain("b"),
+        "circle-opacity": chain("c"),
+        "circle-stroke-width": chain("d"),
+    }
+    layers = [_layer(paint=paint, label_config=None, filter=None) for _ in range(20)]
+    nodes = 20 * 4 * 901
+    from app.modules.catalog.maps import manifest_columns
+
+    files = {style_json.__file__, manifest_columns.__file__}
+    # Lines run in the two modules; the walk costs about 30 a node.
+    budget = 60 * nodes
+    lines = 0
+
+    def line(frame, event, arg):
+        nonlocal lines
+        if event == "line":
+            lines += 1
+            assert lines <= budget, "the export's work isn't linear in its input"
+        return line
+
+    def call(frame, event, arg):
+        return line if frame.f_code.co_filename in files else None
+
+    sys.settrace(call)
+    try:
+        style = style_json.build_maplibre_style(_map(), layers)
+    finally:
+        sys.settrace(None)
+
+    assert len(style["sources"]) == 20
+    for source in style["sources"].values():
+        assert parse_qs(urlsplit(source["tiles"][0]).query)["cols"] == ["a,b,c,d"]
+    assert all(set(x["paint"]) >= set(paint) for x in style["layers"])
+
+
+def _saved_paint_layer(dataset_id, tag, **overrides):
+    return _layer(
+        dataset_id=dataset_id,
+        paint={},
+        label_config=None,
+        filter=None,
+        style_config={
+            "savedCirclePaint": {
+                f"circle-color-{i}": ["get", f"saved_column_{tag}_{i}_" + "x" * 30]
+                for i in range(8)
+            },
+            "heatmapPaint": {"heatmap-weight": ["get", "weight_" + tag]},
+            "builder": {
+                "fill_opacity_saved": ["get", f"saved_opacity_{tag}_" + "x" * 30],
+                "outline_width_saved": ["get", f"saved_width_{tag}_" + "x" * 30],
+            },
+        },
+        **overrides,
+    )
+
+
+def test_the_export_leaves_inactive_saved_paint_out_of_cols_but_the_dry_run_checks_it():
+    from app.modules.catalog.maps.manifest_columns import named_columns
+    from app.modules.catalog.maps.schemas import MapLayerInput
+
+    layer = _saved_paint_layer(uuid.uuid4(), "a")
+
+    assert _exported_cols(layer) == []
+    checked = MapLayerInput(
+        dataset_id=layer.dataset_id,
+        style_config=layer.style_config,
+        display_name="Stops",
+    )
+    assert "weight_a" in named_columns(checked)
+
+
+def test_layers_sharing_a_source_keep_the_tile_url_under_the_request_line_limit():
+    dataset_id = uuid.uuid4()
+    layers = [_saved_paint_layer(dataset_id, str(n)) for n in range(20)]
+
+    style = style_json.build_maplibre_style(_map(), layers)
+
+    urls = [tile for src in style["sources"].values() for tile in src["tiles"]]
+    assert urls
+    assert max(len(url) for url in urls) < 8192
+
+
+def test_a_layout_the_export_strips_adds_no_column_to_the_shared_tile_url():
+    dataset_id = uuid.uuid4()
+    layers = [
+        _layer(
+            dataset_id=dataset_id,
+            sort_order=n,
+            paint={"circle-color": ["get", "kind"]},
+            layout={
+                "text-field": "".join(
+                    "{token_%d_%d_%s}" % (n, i, "x" * 30) for i in range(8)
+                )
+            },
+            label_config=None,
+            filter=None,
+        )
+        for n in range(20)
+    ]
+
+    style = build_maplibre_style(_map(), layers)
+
+    [tile_url] = style["sources"][f"geolens-{dataset_id}"]["tiles"]
+    assert len(tile_url) < 8192
+    assert parse_qs(urlsplit(tile_url).query)["cols"] == ["kind"]
+    assert all("text-field" not in (x.get("layout") or {}) for x in style["layers"])
+
+
+def test_cols_keep_only_the_columns_of_the_dataset():
+    layer = _layer(
+        dataset_column_info=[{"name": "kind"}, {"name": "real"}],
+        paint={
+            "circle-color": ["get", "kind"],
+            "circle-radius": ["get", "x" * 300, ["literal", {"x" * 300: 1}]],
+            "circle-opacity": ["get", "real"],
+        },
+        label_config=None,
+        filter=None,
+    )
+
+    assert _exported_cols(layer) == ["kind", "real"]
