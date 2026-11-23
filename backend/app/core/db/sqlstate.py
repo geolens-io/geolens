@@ -139,6 +139,13 @@ LOCK_CONFLICT = frozenset(
     }
 )
 
+DEADLOCK_DETECTED = "40P01"
+
+
+def is_deadlock(exc: BaseException) -> bool:
+    """True when PostgreSQL picked this transaction as a deadlock victim."""
+    return isinstance(exc, DBAPIError) and sqlstate(exc) == DEADLOCK_DETECTED
+
 
 def is_lock_conflict(exc: BaseException) -> bool:
     """True when another transaction holds what this one wants.

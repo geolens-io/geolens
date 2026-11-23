@@ -22,6 +22,7 @@ and releases use semantic versioning.
 
 ### Fixed
 - The map's zoom, compass and attribution icons show in Windows high contrast mode with the dark theme.
+- Deleting a user account no longer fails with a 503 when one of that user's datasets is being deleted, or the user is saving a map, at the same moment. When PostgreSQL stops the account delete to break a deadlock, the delete now tries again, up to three times in all. The other request can still be the one PostgreSQL stops, and then it fails as it did before.
 - Toggle groups (the list / grid switches, filter toggles) grow to 44 px on touch screens, like buttons, and show the selected option and keyboard focus in Windows high contrast mode.
 - A catalog link or reload that carries a page, such as `/?offset=10`, opens on that page. The search box used to send it back to the first page a moment after loading.
 - A table whose row count is unknown no longer reads "0 rows" on its search result card, in the thumbnail, its accessible name or the generated description; the card shows the column count alone, or nothing. A table with zero rows still says so.
