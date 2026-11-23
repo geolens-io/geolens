@@ -233,10 +233,11 @@ def test_popup_visible_fields_hold_at_most_100_entries():
 _BOUNDS = ("maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum")
 # Bounded strings whose pattern fixes their shape, so a filler of "a" cannot
 # sit at the limit. Their patterns have their own invalid examples.
-MIN_BOUNDS = 89
+MIN_BOUNDS = 91
 MIN_REQUIRED = 27
 _PATTERN_PINNED = {
     ("datasets", 0, "sources", 0, "checksum"),
+    ("datasets", 0, "sources", 0, "uri"),
     ("maps", 0, "thumbnail"),
 }
 
