@@ -2077,6 +2077,7 @@ async def test_a_feature_edit_between_publishes_warns_a053_on_the_dry_run(
     assert (untouched.action, untouched.messages) == ("update", [])
     assert edited.action == "update"
     assert [(m.code, m.severity) for m in edited.messages] == [("A053", "warning")]
+    assert "stays restorable once" in edited.messages[0].message
 
 
 async def test_a053_is_left_to_the_dry_run(test_db_session, clean_tables):

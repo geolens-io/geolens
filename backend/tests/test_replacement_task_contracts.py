@@ -82,6 +82,12 @@ _CONTRACTS = {
             _KWARGS,
         ),
     ),
+    "app.ingest.tasks.reupload_manifest_raster": _Contract(
+        aliases=(),
+        queue="raster",
+        pass_context=False,
+        parameters=_FILE_PARAMETERS,
+    ),
     "app.processing.ingest.tasks_postgis_refresh.refresh_postgis": _Contract(
         aliases=(),
         queue="ingest",

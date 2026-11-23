@@ -794,25 +794,16 @@ class TestManifestApplyService:
         assert result.job_id == job.id
         assert result.dataset_id == dataset.id
         queue.assert_not_awaited()
-        # gh#1736: the message must not claim the source was checked, only
-        # that the manifest entry itself is unchanged. gh#1773:
-        # this is the vector branch, which does have a working checksum
-        # recovery path -- see test_completed_raster_fingerprint_skip_does_
-        # not_promise_checksum_recovery for the raster branch, which does not.
+        # The message must not claim the source was checked, only that the
+        # manifest entry itself is unchanged.
         assert "not inspected" in result.message
         assert "checksum" in result.message
 
-    async def test_completed_raster_fingerprint_skip_does_not_promise_checksum_recovery(
+    async def test_completed_raster_fingerprint_skip_names_checksum_recovery(
         self, test_db_session, clean_tables
     ):
-        """gh#1773: bumping checksum on a raster_cog entry does move
-        the fingerprint and reclassify skip_complete as update, but
-        _validate_existing_dataset_update then rejects a raster update
-        outright ("Manifest raster updates are not supported"). Naming
-        checksum in the skip message here would point a raster caller at a
-        recovery path that cannot succeed, so the raster branch must match
-        _validate_existing_dataset_update's own wording instead.
-        """
+        """A bumped checksum reclassifies a raster_cog entry as an update that
+        replaces the raster, so its skip names the same recovery as a vector's."""
         user = await _admin_user(test_db_session)
         request = _request(
             _manifest_dataset(
@@ -847,22 +838,15 @@ class TestManifestApplyService:
         assert result.dataset_id == dataset.id
         queue.assert_not_awaited()
         assert "not inspected" in result.message
-        assert "checksum" not in result.message
-        assert "raster updates are not supported" in result.message
+        assert "checksum" in result.message
+        assert "not supported" not in result.message
 
-    async def test_changed_raster_checksum_errors_instead_of_skipping(
+    async def test_changed_raster_checksum_on_a_vector_dataset_errors(
         self, test_db_session, clean_tables
     ):
-        """gh#1773: fresh evidence from the docs fix itself.
-        The README/Field/CLI-schema text said a raster entry with a changed
-        checksum "still classifies as skip, not update" -- but
-        _classify_dataset does not look at source type, so a changed
-        checksum moves ANY entry's fingerprint and yields "update". For
-        raster_cog, _validate_existing_dataset_update then raises before any
-        staging happens, and apply_manifest's per-entry wrapper turns that
-        into an error result, not a skip. This pins the actual behavior so
-        the docs can't drift from it again.
-        """
+        """A changed checksum moves any entry's fingerprint and yields an
+        update; a raster_cog update of a dataset that isn't a raster is an
+        error before any staging, not a skip."""
         user = await _admin_user(test_db_session)
         original_request = _request(
             _manifest_dataset(
@@ -883,7 +867,7 @@ class TestManifestApplyService:
         dataset = await create_dataset(
             test_db_session,
             created_by=user.id,
-            name="Existing raster",
+            name="Existing roads",
         )
         await _create_completed_manifest_job(
             test_db_session,
@@ -908,7 +892,7 @@ class TestManifestApplyService:
 
         result = response.results[0]
         assert result.action == "error"
-        assert "raster updates are not supported" in result.message
+        assert "can replace only a raster dataset" in result.message
         stage.assert_not_awaited()
         queue.assert_not_awaited()
 
@@ -1004,7 +988,7 @@ class TestManifestApplyService:
         assert job.user_metadata["manifest_key"] == "manifest-update"
         assert job.user_metadata["title"] == "Updated roads"
 
-    async def test_raster_update_is_rejected_before_staging_or_queue(
+    async def test_raster_update_of_a_vector_dataset_is_rejected_before_staging(
         self, test_db_session, clean_tables
     ):
         user = await _admin_user(test_db_session)
@@ -1044,7 +1028,7 @@ class TestManifestApplyService:
             )
 
         assert response.results[0].action == "error"
-        assert "raster updates are not supported" in response.results[0].message
+        assert "can replace only a raster dataset" in response.results[0].message
         stage.assert_not_awaited()
         queue.assert_not_awaited()
 

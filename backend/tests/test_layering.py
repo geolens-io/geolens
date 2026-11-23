@@ -1318,8 +1318,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # apply workflow, including the settlement of a contended or refused admission,
     # the records of an admin's raw seed source, restricted public intent and a
     # publish key, where a version 2 entry's publication is decided and a held or
-    # in-flight job is reused, and the maps section's results beside the datasets'.
-    "backend/app/processing/ingest/manifest_service.py": 1346,
+    # in-flight job is reused, the updates a publish key may not make, and the
+    # maps section's results beside the datasets'.
+    "backend/app/processing/ingest/manifest_service.py": 1379,
     # One map's check, plan and write: the styling decision, layer matching, the
     # history event and the result's visibility, groups and removed layers share
     # the row lock the apply holds.
@@ -1373,8 +1374,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # honours, plus settling the archive flags of jobs that owe no follow-up.
     "backend/app/processing/ingest/publish_followups.py": 1477,
     # What every ingest strategy shares: the task app, job lifecycle and phase
-    # sessions, finalization, and the reupload table swap and catalog write.
-    "backend/app/processing/ingest/tasks_common.py": 1452,
+    # sessions, finalization, the reupload table swap and catalog write, and
+    # the manifest fields every replacement applies.
+    "backend/app/processing/ingest/tasks_common.py": 1480,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
@@ -1382,7 +1384,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that lets a refresh or file re-upload of unchanged data publish nothing,
     # the rebuild of geometry from the columns a dataset's was built from, and
     # the task names that keep earlier workers off newer replacements.
-    "backend/app/processing/ingest/tasks_reupload.py": 2025,
+    "backend/app/processing/ingest/tasks_reupload.py": 2015,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1413,8 +1415,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup; regeneration's claim, build and store phases are functions here.
     "backend/app/processing/ingest/tasks_vrt.py": 1992,
-    # Raster replacement owns conversion, read-back and published-object cleanup.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 608,
+    # Raster replacement owns conversion, read-back, published-object cleanup
+    # and the task name that keeps earlier workers off a manifest's replacement.
+    "backend/app/processing/ingest/tasks_raster_replace.py": 626,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement, and the task name that keeps earlier workers off
     # a manifest version 2 create.
