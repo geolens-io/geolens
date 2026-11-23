@@ -24,6 +24,7 @@ and releases use semantic versioning.
 
 ### Fixed
 - A full `PUT /maps/{id}` that leaves the published layers' styling as it was no longer counts as a styling edit, so the next publish with the default styling policy (`replace_if_unedited`) replaces the styling instead of keeping it. Adding or removing a layer that has a manifest key, or changing one's styling, still counts.
+- The `style.json` export's tile URLs ask for the statically named columns its emitted layers read, so styles using `{name}` tokens, `["properties"]` reads, `let` variables and the other forms the publish dry run already checks keep their data-driven values below zoom 10. The tile server still decides which columns it returns.
 - The map's zoom, compass and attribution icons show in Windows high contrast mode with the dark theme.
 - Deleting a user account no longer fails with a 503 when one of that user's datasets is being deleted, or the user is saving a map, at the same moment. When PostgreSQL stops the account delete to break a deadlock, the delete now tries again, up to three times in all. The other request can still be the one PostgreSQL stops, and then it fails as it did before.
 - Toggle groups (the list / grid switches, filter toggles) grow to 44 px on touch screens, like buttons, and show the selected option and keyboard focus in Windows high contrast mode.

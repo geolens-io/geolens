@@ -1,16 +1,18 @@
-"""The feature columns a manifest map layer's styling names, and their renaming.
+"""The feature columns a map layer's styling names, and their renaming.
 
 A manifest names columns by their source names. One pass finds every place
 the style export, the labels, the popup and the filter read a column and
 hands each name to a ``rename`` callable: a dry run collects the names to
 check them, and an apply writes the stored names in their place. Both use the
-same pass, so the names checked are the names rewritten.
+same pass, so the names checked are the names rewritten. The style export
+reads the columns its tiles must carry from the layers it emits, with the
+same walk.
 """
 
 from __future__ import annotations
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Generator
 from typing import Any
 
 from app.modules.catalog.maps.schemas import MapLayerInput
@@ -89,6 +91,8 @@ _BUILDER_NON_COLUMN_KEYS = frozenset(
         "lineGradient",
     }
 )
+# Paint keys the builder keeps beside the paint, each holding a column name.
+_PAINT_COLUMN_KEYS = ("_heatmap-weight-column", "_height_column")
 _COMPARISON_OPERATORS = frozenset({"==", "!=", "<", ">", "<=", ">="})
 # The layout properties whose plain strings expand `{name}` tokens from the
 # feature, as the style spec marks them `tokens: true`, and MapLibre's token
@@ -99,9 +103,6 @@ _LAYOUT_TOKEN = re.compile(r"\{([^{}]+)\}")
 # and the GeoJSON `within` and `distance` take.
 _DATA_OPERATORS = frozenset({"literal", "within", "distance"})
 _OPTION_OBJECT_OPERATORS = frozenset({"format", "collator", "number-format"})
-# The second operands of a ``get`` or ``has`` that read the feature's own
-# properties.
-_FEATURE_OBJECTS = ([["properties"]], [["object", ["properties"]]])
 # The symbol settings the style export writes into the layout unchanged, so
 # each may be an expression. The icon itself is a name: the viewer reads an
 # icon as a sprite name, so ``expression_icons`` refuses any other value.
@@ -113,6 +114,49 @@ _LEGACY_PSEUDO_FIELDS = frozenset({"$type", "$id"})
 _POPUP_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
 
 
+class Collector:
+    """A ``rename`` that records the names it is given and keeps them.
+
+    By default it is given what a plain ``rename`` is: the keys a ``get`` or
+    ``has`` reads from the feature. With ``every_key`` it is given every
+    static ``get`` or ``has`` key, whatever object the read is on, which is
+    the set of columns a layer's tiles may need; asking a tile for a column
+    the layer doesn't use does no harm.
+    """
+
+    def __init__(self, *, every_key: bool = False) -> None:
+        self.every_key = every_key
+        self.names: set[str] = set()
+
+    def __call__(self, name: str) -> str:
+        self.names.add(name)
+        return name
+
+
+# The second operands of a ``get`` or ``has`` that read the feature's own
+# properties.
+_FEATURE_OBJECTS = ([["properties"]], [["object", ["properties"]]])
+
+
+_Steps = Generator["_Steps", Any, Any]
+
+
+def _run(steps: _Steps) -> Any:
+    """Run a walk that yields each nested walk it needs, on an explicit stack
+    so the nesting depth an expression can have isn't bounded by the call
+    stack."""
+    stack = [steps]
+    value: Any = None
+    while stack:
+        try:
+            stack.append(stack[-1].send(value))
+            value = None
+        except StopIteration as done:
+            stack.pop()
+            value = done.value
+    return value
+
+
 def _expression(node: Any, rename: Rename) -> Any:
     """A MapLibre expression with each feature property it reads renamed.
 
@@ -120,11 +164,16 @@ def _expression(node: Any, rename: Rename) -> Any:
     operands and ``match`` labels are data. A ``get`` or ``has`` reads the
     feature with one operand or with ``["properties"]`` as the second, and
     another object otherwise, ``["object", ["properties"]]`` being the
-    feature's too; its name may be a string or a literal string.
+    feature's too; its name may be a string or a literal string. A
+    ``Collector`` with ``every_key`` takes the key whatever the object.
     ``semiliteral`` evaluates its array's items, and ``format``, ``collator``
     and ``number-format`` evaluate the values of their option objects; any
     other object operand is data.
     """
+    return _run(_expression_steps(node, rename))
+
+
+def _expression_steps(node: Any, rename: Rename) -> _Steps:
     if not isinstance(node, list) or not node or not isinstance(node[0], str):
         return node
     operator, operands = node[0], list(node[1:])
@@ -136,11 +185,18 @@ def _expression(node: Any, rename: Rename) -> Any:
         key = key[1]
     walked: range | list[int]
     if operator in ("get", "has") and isinstance(key, str):
-        if len(operands) == 1 or operands[1:] in _FEATURE_OBJECTS:
+        if (
+            len(operands) == 1
+            or operands[1:] in _FEATURE_OBJECTS
+            or (isinstance(rename, Collector) and rename.every_key)
+        ):
             operands[0] = ["literal", rename(key)] if literal_key else rename(key)
         walked = range(1, len(operands))
     elif operator == "semiliteral" and operands and isinstance(operands[0], list):
-        operands[0] = [_operand(operator, item, rename) for item in operands[0]]
+        items = []
+        for item in operands[0]:
+            items.append((yield from _operand_steps(operator, item, rename)))
+        operands[0] = items
         walked = []
     elif operator == "match" and operands:
         branches = len(operands) - 1
@@ -153,14 +209,17 @@ def _expression(node: Any, rename: Rename) -> Any:
     else:
         walked = range(len(operands))
     for index in walked:
-        operands[index] = _operand(operator, operands[index], rename)
+        operands[index] = yield from _operand_steps(operator, operands[index], rename)
     return [operator, *operands]
 
 
-def _operand(operator: str, operand: Any, rename: Rename) -> Any:
+def _operand_steps(operator: str, operand: Any, rename: Rename) -> _Steps:
     if isinstance(operand, dict) and operator in _OPTION_OBJECT_OPERATORS:
-        return {key: _expression(value, rename) for key, value in operand.items()}
-    return _expression(operand, rename)
+        walked = {}
+        for key, value in operand.items():
+            walked[key] = yield _expression_steps(value, rename)
+        return walked
+    return (yield _expression_steps(operand, rename))
 
 
 def _style_value(value: Any, rename: Rename) -> Any:
@@ -179,11 +238,18 @@ def _filter(node: Any, rename: Rename) -> Any:
     ``isExpressionFilter`` applies, so ``["==", ["get", "a"], "b"]`` is an
     expression while ``["==", "a", "b"]`` names the field ``a``.
     """
+    return _run(_filter_steps(node, rename))
+
+
+def _filter_steps(node: Any, rename: Rename) -> _Steps:
     if not isinstance(node, list) or not node or not isinstance(node[0], str):
         return node
     operator, operands = node[0], node[1:]
     if operator in ("all", "any", "none"):
-        return [operator, *(_filter(operand, rename) for operand in operands)]
+        groups = []
+        for operand in operands:
+            groups.append((yield _filter_steps(operand, rename)))
+        return [operator, *groups]
     field = operands[0] if operands and isinstance(operands[0], str) else None
     legacy = field is not None and (
         operator in ("!has", "!in")
@@ -325,6 +391,17 @@ def _style_config(style_config: dict[str, Any] | None, rename: Rename) -> Any:
     return renamed
 
 
+def _paint(paint: dict[str, Any], rename: Rename) -> dict[str, Any]:
+    return {
+        key: (
+            rename(value)
+            if key in _PAINT_COLUMN_KEYS and isinstance(value, str) and value
+            else _style_value(value, rename)
+        )
+        for key, value in paint.items()
+    }
+
+
 def rename_layer_columns(layer: MapLayerInput, rename: Rename) -> MapLayerInput:
     """``layer`` with every column its styling, labels, popup and filter name
     passed through ``rename``. ``layer`` itself is left as it was."""
@@ -356,11 +433,7 @@ def rename_layer_columns(layer: MapLayerInput, rename: Rename) -> MapLayerInput:
     return layer.model_copy(
         update={
             "style_config": _style_config(layer.style_config, rename),
-            "paint": (
-                {key: _style_value(value, rename) for key, value in layer.paint.items()}
-                if layer.paint is not None
-                else None
-            ),
+            "paint": _paint(layer.paint, rename) if layer.paint is not None else None,
             "layout": layout,
             "label_config": label_config,
             "popup_config": popup,
@@ -371,11 +444,21 @@ def rename_layer_columns(layer: MapLayerInput, rename: Rename) -> MapLayerInput:
 
 def named_columns(layer: MapLayerInput) -> set[str]:
     """Every column the layer's style, labels, popup and filter name."""
-    names: set[str] = set()
+    collector = Collector()
+    rename_layer_columns(layer, collector)
+    return collector.names
 
-    def collect(name: str) -> str:
-        names.add(name)
-        return name
 
-    rename_layer_columns(layer, collect)
-    return names
+def emitted_columns(style_layer: dict[str, Any]) -> set[str]:
+    """The columns a layer of an exported style document reads: every static
+    ``get`` or ``has`` key in its paint, layout and filter, and the ``{name}``
+    tokens of its text field and icon."""
+    collector = Collector(every_key=True)
+    for value in (style_layer.get("paint") or {}).values():
+        _style_value(value, collector)
+    for key, value in (style_layer.get("layout") or {}).items():
+        _style_value(value, collector)
+        if key in _TOKEN_LAYOUT_PROPERTIES:
+            _tokens(value, _LAYOUT_TOKEN, collector)
+    _filter(style_layer.get("filter"), collector)
+    return collector.names
