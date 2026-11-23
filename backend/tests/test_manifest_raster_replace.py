@@ -623,3 +623,110 @@ async def test_a_refusal_in_the_raster_write_leaves_the_old_cog_serving(
         assert record.visibility == "internal"
     finally:
         await _cleanup(test_db_session, published)
+
+
+async def _throwaway_user(session) -> uuid.UUID:
+    suffix = uuid.uuid4().hex[:8]
+    user = User(
+        username=f"raster_new_owner_{suffix}",
+        email=f"raster_new_owner_{suffix}@example.invalid",
+        password_hash="x",
+    )
+    session.add(user)
+    await session.commit()
+    return user.id
+
+
+def _transfer_while_staging(dataset_id: uuid.UUID, new_owner: uuid.UUID):
+    """Stage the source, then commit a transfer of the dataset before the
+    entry is admitted, as a transfer during a slow download would."""
+    from app.processing.ingest import manifest_service
+    from tests.write_recheck_races import _commit, _transfer_dataset
+
+    real = manifest_service._stage_source_if_needed
+
+    async def _stage(*args, **kwargs):
+        staged = await real(*args, **kwargs)
+        await _commit(_transfer_dataset(dataset_id, new_owner))
+        return staged
+
+    return patch.object(manifest_service, "_stage_source_if_needed", _stage)
+
+
+async def test_a_raster_transferred_while_its_source_stages_is_not_replaced(
+    test_db_session, raster_storage
+):
+    """The key is its owner's alone, an admin's too: the owner is read again
+    under the admission lock, and nothing is queued for the new owner's data."""
+    user = await _admin(test_db_session)
+    published = await _published(test_db_session, raster_storage, user)
+    new_owner = await _throwaway_user(test_db_session)
+    old_cog = published.live.cog_key
+    try:
+        with _transfer_while_staging(published.dataset_id, new_owner):
+            result, defer = await _apply(
+                test_db_session,
+                _request(_entry(published.key, published.uri, _resurveyed(published))),
+                user,
+            )
+        assert (result.action, result.message) == ("error", MANIFEST_KEY_NOT_OWNED)
+        defer.assert_not_awaited()
+        test_db_session.expire_all()
+        live_cog = await test_db_session.scalar(
+            select(RasterAsset.asset_uri).where(
+                RasterAsset.dataset_id == published.dataset_id
+            )
+        )
+        assert live_cog == old_cog
+        assert await raster_storage.exists(old_cog)
+        [completed] = [
+            job
+            for job in await _jobs_for_key(test_db_session, published.key)
+            if job.status == "complete"
+        ]
+        assert completed.dataset_id == published.dataset_id
+    finally:
+        await _cleanup(test_db_session, published)
+        await test_db_session.execute(delete(User).where(User.id == new_owner))
+        await test_db_session.commit()
+
+
+async def test_a_vector_transferred_while_its_source_stages_is_not_replaced(
+    test_db_session, clean_tables
+):
+    from tests.factories import create_dataset
+    from tests.test_manifest_apply_service import (
+        _create_completed_manifest_job,
+        _manifest_dataset,
+        _stage_basic_vector_fixture,
+    )
+    from tests.test_manifest_apply_service import _request as _v1_request
+
+    _stage_basic_vector_fixture()
+    user = await _admin(test_db_session)
+    key = "vector-transferred-while-staging"
+    dataset = await create_dataset(test_db_session, created_by=user.id)
+    await _create_completed_manifest_job(
+        test_db_session,
+        user=user,
+        dataset=dataset,
+        manifest_dataset=_v1_request(_manifest_dataset(key=key)).datasets[0],
+    )
+    dataset_id = dataset.id
+    new_owner = await _throwaway_user(test_db_session)
+    try:
+        with _transfer_while_staging(dataset_id, new_owner):
+            result, defer = await _apply(
+                test_db_session,
+                _v1_request(_manifest_dataset(key=key, title="Resurveyed roads")),
+                user,
+            )
+        assert (result.action, result.message) == ("error", MANIFEST_KEY_NOT_OWNED)
+        defer.assert_not_awaited()
+    finally:
+        await test_db_session.execute(
+            delete(IngestJob).where(IngestJob.dataset_id == dataset_id)
+        )
+        await test_db_session.commit()
+        await test_db_session.execute(delete(User).where(User.id == new_owner))
+        await test_db_session.commit()

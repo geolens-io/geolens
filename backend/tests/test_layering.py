@@ -1320,7 +1320,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # publish key, where a version 2 entry's publication is decided and a held or
     # in-flight job is reused, the updates a publish key may not make, and the
     # maps section's results beside the datasets'.
-    "backend/app/processing/ingest/manifest_service.py": 1375,
+    "backend/app/processing/ingest/manifest_service.py": 1379,
     # One map's check, plan and write: the styling decision, layer matching, the
     # history event and the result's visibility, groups and removed layers share
     # the row lock the apply holds.

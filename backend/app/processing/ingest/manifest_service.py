@@ -679,9 +679,10 @@ async def _admit_refresh_run(
     catalog rows, the order a re-upload commit takes them in.
 
     Raises ``DatasetBusyError`` while the dataset has another active run or
-    another writer holds its catalog rows past the lock budget, and
+    another writer holds its catalog rows past the lock budget;
     ``WriteAccessRevoked`` when the caller has lost the dataset, or is no
-    longer the admin a raw seed source needs. ``trigger`` is ``api``.
+    longer the admin a raw seed source needs; and ``ManifestSourceError``
+    when the dataset has passed to another owner. ``trigger`` is ``api``.
     """
     from app.modules.catalog.authorization import lock_dataset_rows_for_write
 
@@ -707,9 +708,12 @@ async def _admit_refresh_run(
         raise DatasetBusyError(str(exc)) from exc
     except HTTPException as exc:
         raise WriteAccessRevoked from exc
-    # Rechecked under the lock: the binding may have changed while the source
-    # was being staged.
+    # Rechecked under the lock: the owner and the binding may have changed
+    # while the source was being staged, and a key stays its owner's alone.
     await db.refresh(dataset, attribute_names=["source_format"])
+    await db.refresh(dataset.record, attribute_names=["created_by"])
+    if dataset.record.created_by != user.id:
+        raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED)
     try:
         _refuse_publish_key_irreversible_replace(db, dataset)
     except HTTPException as exc:
