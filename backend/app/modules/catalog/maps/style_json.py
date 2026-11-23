@@ -1463,7 +1463,8 @@ def build_maplibre_style(
             _warn_dropped(layer)
             continue
         emitted_by_layer.append((layer, source_id, emitted))
-        known_cols.setdefault(source_id, set()).update(_column_names(layer))
+        if layer.dataset_column_info is not None:
+            known_cols.setdefault(source_id, set()).update(_column_names(layer))
         for style_layer in emitted:
             shared_cols.setdefault(source_id, set()).update(
                 emitted_columns(style_layer)
@@ -1477,7 +1478,7 @@ def build_maplibre_style(
                 _append_cluster_source_metadata(sources[source_id], layer)
             elif emitted:
                 cols = shared_cols.get(source_id)
-                if cols is not None and known_cols.get(source_id):
+                if cols is not None and source_id in known_cols:
                     # The static keys a style reads include data, such as a
                     # literal object's; only the dataset's columns can be asked
                     # for.

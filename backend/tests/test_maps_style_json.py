@@ -3507,11 +3507,12 @@ def test_the_export_does_work_linear_in_the_size_of_the_styling():
     def call(frame, event, arg):
         return line if frame.f_code.co_filename in files else None
 
+    previous = sys.gettrace()
     sys.settrace(call)
     try:
         style = style_json.build_maplibre_style(_map(), layers)
     finally:
-        sys.settrace(None)
+        sys.settrace(previous)
 
     assert len(style["sources"]) == 20
     for source in style["sources"].values():
@@ -3605,3 +3606,16 @@ def test_cols_keep_only_the_columns_of_the_dataset():
     )
 
     assert _exported_cols(layer) == ["kind", "real"]
+
+
+def test_a_recorded_empty_column_list_asks_for_no_columns():
+    paint = {"circle-color": ["get", "kind"], "circle-opacity": ["get", "real"]}
+    recorded_empty = _layer(
+        dataset_column_info=[], paint=paint, label_config=None, filter=None
+    )
+    unknown = _layer(
+        dataset_column_info=None, paint=paint, label_config=None, filter=None
+    )
+
+    assert _exported_cols(recorded_empty) == []
+    assert _exported_cols(unknown) == ["kind", "real"]
