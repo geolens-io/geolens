@@ -4,7 +4,9 @@
 This module gathers its inputs at each door that writes or reuses a manifest
 job: the apply, a held or in-flight job the apply would reuse, and the worker
 that publishes the job. Version 1 jobs, which store no ``manifest_version``,
-take none of this.
+and jobs no manifest created take none of this: their worker only refuses a
+public visibility the restriction no longer lets their submitter set
+(``refuse_restricted_public``).
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from app.platform.jobs.models import (
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
     ADMITTED_PUBLISH_KEY_METADATA_KEY,
     IngestJob,
+    publication_owner,
 )
 from app.platform.record_audience import (
     Publication,
@@ -245,7 +248,8 @@ async def settle_stored_publication(
 ) -> dict:
     """Judge a version 2 job's publication again against ``record`` as
     committed now, holding its rows (None for a create), with its submitter's
-    standing and the restriction as they are now.
+    standing and the restriction as they are now. Any other job goes through
+    ``refuse_restricted_public`` and publishes its metadata as stored.
 
     The publish writes the narrower of the stored and the recomputed
     visibility (``settled_visibility``). A recompute whose refused public
@@ -257,6 +261,7 @@ async def settle_stored_publication(
     from app.processing.ingest.publication import WideningRefused
 
     if not is_version_2(user_metadata):
+        await refuse_restricted_public(session, job, record, user_metadata)
         return user_metadata
     if isinstance(job, uuid.UUID):
         job = await session.get(IngestJob, job)
@@ -296,3 +301,47 @@ async def settle_stored_publication(
     if visibility is not None:
         settled["visibility"] = visibility
     return settled
+
+
+async def refuse_restricted_public(
+    session: AsyncSession, job: IngestJob | uuid.UUID, record: Any, user_metadata: dict
+) -> None:
+    """Raise ``PublicVisibilityRefused`` when a job that is not a version 2
+    manifest job would make its dataset public while public visibility is
+    restricted to admins now and the account it publishes for
+    (``publication_owner``, the one admission judged) is not one now,
+    whatever its admission recorded.
+
+    ``record`` is the dataset's record, held, or None for a create. An update
+    applies a visibility only from a manifest job, and one whose record is
+    already public widens nothing, so neither is refused.
+    """
+    from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
+    from app.processing.ingest.publication import PublicVisibilityRefused
+
+    if user_metadata.get("visibility") != "public":
+        return
+    if record is not None:
+        if "manifest_key" not in user_metadata:
+            return
+        await session.refresh(record, attribute_names=["visibility"])
+        if record.visibility == "public":
+            return
+    if not await RESTRICT_PUBLIC_VISIBILITY.get_uncached(session):
+        return
+    if isinstance(job, uuid.UUID):
+        job = await session.get(IngestJob, job)
+    owner = await load_submitter(session, publication_owner(job) if job else None)
+    if owner is None or not any(role.name == "admin" for role in owner.roles):
+        raise PublicVisibilityRefused
+
+
+async def settle_created_publication(
+    session: AsyncSession, job: IngestJob, record: Any, user_metadata: dict
+) -> None:
+    """Judge a create's publication once more as the last step before it
+    commits, after the waits, scans and storage writes since
+    ``settle_stored_publication`` first decided it, and narrow the new
+    ``record`` to the result. Raises as that does."""
+    settled = await settle_stored_publication(session, job, None, user_metadata)
+    record.visibility = settled.get("visibility", "private")

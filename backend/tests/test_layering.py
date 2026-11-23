@@ -1377,7 +1377,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # What every ingest strategy shares: the task app, job lifecycle and phase
     # sessions, finalization, the reupload table swap and catalog write, and
     # the manifest fields every replacement applies.
-    "backend/app/processing/ingest/tasks_common.py": 1480,
+    "backend/app/processing/ingest/tasks_common.py": 1488,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
@@ -1415,7 +1415,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup; regeneration's claim, build and store phases are functions here.
-    "backend/app/processing/ingest/tasks_vrt.py": 1992,
+    "backend/app/processing/ingest/tasks_vrt.py": 1994,
     # Raster replacement owns conversion, read-back, published-object cleanup
     # and the task name that keeps earlier workers off a manifest's replacement.
     "backend/app/processing/ingest/tasks_raster_replace.py": 626,

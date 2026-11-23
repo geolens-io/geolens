@@ -30,6 +30,7 @@ from app.platform.jobs.heartbeat import (
 )
 from app.platform.jobs.models import owned_presigned_staging_key
 from app.platform.storage.titiler_url import resolve_current_storage_key
+from app.processing.ingest.manifest_publication import refuse_restricted_public
 from app.processing.ingest.metadata_quality import compute_quality_score
 from app.processing.ingest.pointcloud import (
     PointCloud,
@@ -325,6 +326,7 @@ async def ingest_pointcloud(
             dataset.quality_detail = await compute_quality_score(
                 session, dataset.table_name, [], dataset
             )
+            await refuse_restricted_public(session, job, None, user_metadata)
             await note_publish_followups(
                 session, job_uuid, attempt_uuid, _TASK, reaps_staged_upload=True
             )

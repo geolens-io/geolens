@@ -484,6 +484,59 @@ async def test_the_worker_refuses_an_overshoot_before_the_copy(
     assert await pointcloud_objects() == []
 
 
+class _Restriction:
+    """``restrict_public_visibility``, turned on by the test."""
+
+    on = False
+
+    async def get(self, _db):
+        return self.on
+
+    get_uncached = get
+
+
+@pytest.mark.parametrize("when", ["before-the-worker", "while-publishing"])
+async def test_a_point_cloud_committed_public_is_refused_once_public_is_restricted(
+    client: AsyncClient, test_db_session, uploader, queued, monkeypatch, when
+) -> None:
+    """Committed public by an editor while anyone could; the restriction was
+    turned on before the worker. Nothing is published and the copied file
+    is reaped."""
+    import app.core.persistent_config as pc
+    from app.platform.record_audience import PUBLIC_VISIBILITY_DENIED
+    from app.processing.ingest.publication import PublicVisibilityRefused
+
+    headers, _ = uploader
+    job_id = await committed_upload(client, headers)
+    restriction = _Restriction()
+    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", restriction)
+    if when == "before-the-worker":
+        restriction.on = True
+    else:
+        from app.processing.ingest import tasks_pointcloud
+
+        score = tasks_pointcloud.compute_quality_score
+
+        async def score_then_restrict(*args, **kwargs):
+            restriction.on = True
+            return await score(*args, **kwargs)
+
+        monkeypatch.setattr(
+            tasks_pointcloud, "compute_quality_score", score_then_restrict
+        )
+
+    with pytest.raises(PublicVisibilityRefused):
+        await run_queued(queued)
+
+    job = await load_job(test_db_session, job_id)
+    assert (job.status, job.dataset_id) == ("failed", None)
+    assert (job.error_message, job.error_code) == (
+        PUBLIC_VISIBILITY_DENIED,
+        "public_visibility_restricted",
+    )
+    assert await pointcloud_objects() == []
+
+
 async def test_the_size_is_checked_again_at_commit(
     client: AsyncClient, test_db_session, uploader, queued
 ) -> None:

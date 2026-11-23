@@ -799,6 +799,64 @@ async def test_a_failed_publish_commits_no_tiles3d_record(
     assert await tileset_objects() == []
 
 
+class _Restriction:
+    """``restrict_public_visibility``, turned on by the test."""
+
+    on = False
+
+    async def get(self, _db):
+        return self.on
+
+    get_uncached = get
+
+
+@pytest.mark.parametrize("when", ["before-the-worker", "while-publishing"])
+async def test_a_tileset_committed_public_is_refused_once_public_is_restricted(
+    client: AsyncClient, test_db_session, uploader, queued, monkeypatch, when
+) -> None:
+    """Committed public by an editor while anyone could; the restriction was
+    turned on before the worker. Nothing is published and the unpacked
+    tileset is reaped."""
+    import app.core.persistent_config as pc
+    from app.platform.record_audience import PUBLIC_VISIBILITY_DENIED
+    from app.processing.ingest.publication import PublicVisibilityRefused
+
+    headers, user_id = uploader
+    job_id = (await upload(client, headers, campus_zip())).json()["job_id"]
+    assert (await commit(client, headers, job_id)).status_code == 202
+    restriction = _Restriction()
+    monkeypatch.setattr(pc, "RESTRICT_PUBLIC_VISIBILITY", restriction)
+    if when == "before-the-worker":
+        restriction.on = True
+    else:
+        from app.processing.ingest import tasks_tileset
+
+        score = tasks_tileset.compute_quality_score
+
+        async def score_then_restrict(*args, **kwargs):
+            restriction.on = True
+            return await score(*args, **kwargs)
+
+        monkeypatch.setattr(tasks_tileset, "compute_quality_score", score_then_restrict)
+
+    with pytest.raises(PublicVisibilityRefused):
+        await run_queued(queued)
+
+    records = await test_db_session.execute(
+        select(Record.id).where(
+            Record.created_by == user_id, Record.record_type == "tiles3d_dataset"
+        )
+    )
+    assert records.all() == []
+    job = await load_job(test_db_session, job_id)
+    assert (job.status, job.error_message, job.error_code) == (
+        "failed",
+        PUBLIC_VISIBILITY_DENIED,
+        "public_visibility_restricted",
+    )
+    assert await tileset_objects() == []
+
+
 async def test_a_lost_publish_commit_still_in_progress_keeps_the_unpacked_tileset(
     client: AsyncClient, test_db_session, uploader, queued
 ) -> None:

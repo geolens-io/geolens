@@ -50,6 +50,18 @@ describe('describeFailureReason', () => {
     );
   });
 
+  it("shows the restricted-public refusal in the reader's language", async () => {
+    await changeTestLanguage('es');
+
+    expect(
+      describeFailureReason(
+        'Public visibility is restricted to administrators on this instance.',
+        'Something went wrong',
+        'public_visibility_restricted',
+      ),
+    ).toContain('La visibilidad pública está restringida');
+  });
+
   it("shows a point cloud refusal the worker stored in the reader's language", async () => {
     await changeTestLanguage('fr');
 

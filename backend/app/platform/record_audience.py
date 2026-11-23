@@ -10,6 +10,11 @@ from dataclasses import dataclass
 
 VISIBILITY_ORDER = ("private", "restricted", "internal", "public")
 
+PUBLIC_VISIBILITY_DENIED = (
+    "Public visibility is restricted to administrators on this instance. "
+    "Choose a narrower visibility or ask an admin to make this content public."
+)
+
 
 def opens_to_anonymous(
     now_visibility: str,
