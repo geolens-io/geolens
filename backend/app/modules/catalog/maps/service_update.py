@@ -202,15 +202,16 @@ async def apply_map_update(
     await _check_map_update(db, map_obj, body, user)
 
     changed_fields = list(body.model_dump(exclude_unset=True).keys())
-    if record_history and any(getattr(body, f) is not None for f in VIEW_FIELDS):
+    compares_view = any(getattr(body, f) is not None for f in VIEW_FIELDS)
+    compares_layers = body.layers is not None
+    if record_history and (compares_view or compares_layers):
         # The values compared with are read under the lock the save holds.
         await lock_map_layers(db, map_id)
+    if record_history and compares_view:
         await db.refresh(map_obj, attribute_names=[*_HISTORY_FIELDS, *VIEW_FIELDS])
     previous = {f: getattr(map_obj, f) for f in (*_HISTORY_FIELDS, *VIEW_FIELDS)}
     keyed_before = (
-        await _keyed_layers(db, map_id)
-        if record_history and body.layers is not None
-        else None
+        await _keyed_layers(db, map_id) if record_history and compares_layers else None
     )
     kwargs = {**_update_kwargs(body, layer_keys), "keep_layer_ids": keep_layer_ids}
     saved = await _save_map_update(db, map_id, body, user, kwargs)
