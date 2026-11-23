@@ -104,6 +104,8 @@ describe('FilterSheet 3D Tiles and point cloud filters', () => {
     const chip = vector.querySelector('[data-slot="badge"]');
     expect(chip).toHaveAttribute('aria-hidden', 'true');
     expect(chip?.querySelector('svg.lucide-layers')).not.toBeNull();
+    expect(chip).toHaveClass('forced-colors:bg-transparent', 'forced-colors:text-[inherit]');
+    expect(vector).toHaveClass('gap-1');
     expect(screen.getByRole('radio', { name: /^Raster \(2\)$/ }).querySelector('svg.lucide-grid-3x3')).not.toBeNull();
   });
 

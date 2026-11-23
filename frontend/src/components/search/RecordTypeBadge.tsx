@@ -59,7 +59,7 @@ export function RecordTypeBadge({ recordType, className, iconOnly = false, decor
       <Badge
         variant="outline"
         aria-hidden="true"
-        className={`px-1.5 ${colorClass}${className ? ` ${className}` : ''}`}
+        className={`px-1.5 forced-colors:border-[currentColor] forced-colors:bg-transparent forced-colors:text-[inherit] ${colorClass}${className ? ` ${className}` : ''}`}
       >
         <Icon className="size-3" />
       </Badge>

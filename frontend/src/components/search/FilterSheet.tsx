@@ -364,25 +364,25 @@ export function FilterSheet({ totalResults, allTypesTotal }: FilterSheetProps) {
               }
               className="w-full flex-wrap"
             >
-              <ToggleGroupItem value="all" className="flex-1 text-xs">
+              <ToggleGroupItem value="all" className="flex-1 gap-1 text-xs">
                 {t('filters.allTypes', { defaultValue: 'All' })}
                 {(allTypesTotal !== undefined || Object.keys(counts).length > 0) && ` (${allTypeCount})`}
               </ToggleGroupItem>
-              <ToggleGroupItem value="vector_dataset" className="flex-1 text-xs" disabled={counts.vector_dataset === 0}>
+              <ToggleGroupItem value="vector_dataset" className="flex-1 gap-1 text-xs" disabled={counts.vector_dataset === 0}>
                 <span className="flex min-w-0 items-center gap-2">
                   <RecordTypeBadge recordType="vector_dataset" decorative />
                   {t('filters.vector', { defaultValue: 'Vector' })}
                 </span>
                 {counts.vector_dataset !== undefined && ` (${counts.vector_dataset})`}
               </ToggleGroupItem>
-              <ToggleGroupItem value="raster_dataset" className="flex-1 text-xs" disabled={counts.raster_dataset === 0}>
+              <ToggleGroupItem value="raster_dataset" className="flex-1 gap-1 text-xs" disabled={counts.raster_dataset === 0}>
                 <span className="flex min-w-0 items-center gap-2">
                   <RecordTypeBadge recordType="raster_dataset" decorative />
                   {t('filters.raster', { defaultValue: 'Raster' })}
                 </span>
                 {counts.raster_dataset !== undefined && ` (${counts.raster_dataset})`}
               </ToggleGroupItem>
-              <ToggleGroupItem value="vrt_dataset" className="flex-1 text-xs" disabled={counts.vrt_dataset === 0}>
+              <ToggleGroupItem value="vrt_dataset" className="flex-1 gap-1 text-xs" disabled={counts.vrt_dataset === 0}>
                 <span className="flex min-w-0 items-center gap-2">
                   <RecordTypeBadge recordType="vrt_dataset" decorative />
                   {t('filters.vrt', { defaultValue: 'VRT' })}
@@ -390,7 +390,7 @@ export function FilterSheet({ totalResults, allTypesTotal }: FilterSheetProps) {
                 {counts.vrt_dataset !== undefined && ` (${counts.vrt_dataset})`}
               </ToggleGroupItem>
               {showsTableToggle && (
-                <ToggleGroupItem value="table" className="flex-1 text-xs" disabled={counts.table === 0}>
+                <ToggleGroupItem value="table" className="flex-1 gap-1 text-xs" disabled={counts.table === 0}>
                   <span className="flex min-w-0 items-center gap-2">
                     <RecordTypeBadge recordType="table" decorative />
                     {t('card.table', { defaultValue: 'Table' })}
@@ -399,7 +399,7 @@ export function FilterSheet({ totalResults, allTypesTotal }: FilterSheetProps) {
                 </ToggleGroupItem>
               )}
               {showsTiles3dToggle && (
-                <ToggleGroupItem value="tiles3d_dataset" className="flex-1 text-xs" disabled={counts.tiles3d_dataset === 0}>
+                <ToggleGroupItem value="tiles3d_dataset" className="flex-1 gap-1 text-xs" disabled={counts.tiles3d_dataset === 0}>
                   <span className="flex min-w-0 items-center gap-2">
                     <RecordTypeBadge recordType="tiles3d_dataset" decorative />
                     {t('card.tiles3d', { defaultValue: '3D Tiles' })}
@@ -408,7 +408,7 @@ export function FilterSheet({ totalResults, allTypesTotal }: FilterSheetProps) {
                 </ToggleGroupItem>
               )}
               {showsPointcloudToggle && (
-                <ToggleGroupItem value="pointcloud_dataset" className="flex-1 text-xs" disabled={counts.pointcloud_dataset === 0}>
+                <ToggleGroupItem value="pointcloud_dataset" className="flex-1 gap-1 text-xs" disabled={counts.pointcloud_dataset === 0}>
                   <span className="flex min-w-0 items-center gap-2">
                     <RecordTypeBadge recordType="pointcloud_dataset" decorative />
                     {t('card.pointcloud', { defaultValue: 'Point cloud' })}
