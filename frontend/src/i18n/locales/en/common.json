@@ -321,6 +321,7 @@
     "jobFailureMissingCrsRaster": "Missing CRS: raster has no coordinate reference system. Provide a CRS override (EPSG code) at import time.",
     "jobFailureMissingCrsReupload": "Missing CRS: no coordinate system detected. Ensure the file includes CRS information (e.g., .prj file for Shapefiles) or provide an SRID override.",
     "jobFailureMixedSridDatabase": "The table's geometries use more than one SRID, so no single coordinate system describes them. Give them one SRID in a view and import that.",
+    "jobFailurePublicVisibilityRestricted": "Public visibility is restricted to administrators on this instance, so this job changed nothing. Choose a narrower visibility or ask an admin to make this content public.",
     "jobFailureRefreshAbandoned": "The refresh task was never picked up by a worker, or the worker disappeared before recording an outcome.",
     "jobFailureRefreshOriginUnsupported": "This refresh was not started: only service datasets refresh this way.",
     "jobFailureReviewRequired": "This replacement changes the dataset in ways that need review, so it was not published. Review the changes on the dataset's Sources tab and accept them there.",

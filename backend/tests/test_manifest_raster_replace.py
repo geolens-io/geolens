@@ -604,8 +604,10 @@ async def test_a_refusal_in_the_raster_write_leaves_the_old_cog_serving(
 
         test_db_session.expire_all()
         job = await test_db_session.get(IngestJob, result.job_id)
-        assert job.status == "failed"
-        assert "may not open this dataset to more readers" in job.error_message
+        assert (job.status, job.error_code) == (
+            "failed",
+            "public_visibility_restricted",
+        )
         # The attempt named its keys before it stored them.
         attempt_keys = job.user_metadata[UNPUBLISHED_STORAGE_KEYS_FIELD]
         assert any(key.endswith("/source.cog.tif") for key in attempt_keys)

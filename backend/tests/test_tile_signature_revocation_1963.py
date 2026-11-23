@@ -527,7 +527,8 @@ class TestEveryPublicationStateWriterIsAccountedFor:
         and ``manifest_publication.py``'s item writes fill a manifest job's
         metadata, which the worker applies through the metadata edit (which
         rolls the counter) or a create; ``manifest_publication.py``'s attribute
-        write sets a request's ``ManifestEntryFields``, not a record, and
+        writes set a request's ``ManifestEntryFields``, not a record, and narrow
+        a record a create made in the same uncommitted transaction, and
         ``manifest_links.py``'s sets the level an apply result reports.
         """
         import pathlib
@@ -554,6 +555,7 @@ class TestEveryPublicationStateWriterIsAccountedFor:
             "processing/ingest/manifest_dataset_fields.py": ["item:visibility"],
             "processing/ingest/manifest_links.py": ["attr:visibility"] * 4,
             "processing/ingest/manifest_publication.py": [
+                "attr:visibility",
                 "attr:visibility",
                 "item:visibility",
             ],

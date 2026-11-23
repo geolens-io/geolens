@@ -52,6 +52,7 @@ from app.platform.jobs.models import (
     MANIFEST_VERSION_METADATA_KEY,
     IngestJob,
 )
+from app.platform.record_audience import PUBLIC_VISIBILITY_DENIED
 from app.platform.refresh.service import (
     claim_run_for_job,
     record_refresh_failure,
@@ -199,9 +200,25 @@ class WideningRefused(WriteAccessRevoked):
         )
 
 
+class PublicVisibilityRefused(WriteAccessRevoked):
+    """The job would make its dataset public while public visibility is
+    restricted to admins, and the account it publishes for is not one."""
+
+    def __init__(self) -> None:
+        Exception.__init__(
+            self,
+            FixedReason(PUBLIC_VISIBILITY_DENIED, code="public_visibility_restricted"),
+        )
+
+
 # Recorded on the job and its run without a notice: the account it would
 # go to has lost access to the dataset.
 _WRITE_ACCESS_REVOKED = Failure("write_access_revoked", notify=False, refused=True)
+# The same, with the restriction's own code on the run, which the refresh
+# history shows in the reader's language.
+_PUBLIC_VISIBILITY_RESTRICTED = Failure(
+    "public_visibility_restricted", notify=False, refused=True
+)
 
 
 class ReplacementStrategy(Protocol):
@@ -412,6 +429,8 @@ async def settle_replacement(
         failed = True
         if isinstance(exc, DatasetDeleted):
             failure = _DATASET_DELETED
+        elif isinstance(exc, PublicVisibilityRefused):
+            failure = _PUBLIC_VISIBILITY_RESTRICTED
         elif isinstance(exc, WriteAccessRevoked):
             failure = _WRITE_ACCESS_REVOKED
         else:
