@@ -193,8 +193,7 @@ async def test_a_manifest_create_is_judged_by_the_restriction_when_it_runs(
         user_id = user.id
         with pytest.raises(WriteAccessRevoked) as refused:
             await _finalize(test_db_session, user, job)
-        if version == "1":
-            assert str(refused.value) == PUBLIC_VISIBILITY_DENIED
+        assert str(refused.value) == PUBLIC_VISIBILITY_DENIED
         await test_db_session.rollback()
         assert (
             await test_db_session.scalar(

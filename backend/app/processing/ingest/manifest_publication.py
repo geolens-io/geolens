@@ -254,11 +254,15 @@ async def settle_stored_publication(
     The publish writes the narrower of the stored and the recomputed
     visibility (``settled_visibility``). A recompute whose refused public
     fell back to internal by the stored fallback adds an A020 job warning; a
-    refused one raises ``WideningRefused``. Returns the metadata to publish
+    public refused by the restriction raises ``PublicVisibilityRefused`` and
+    any other refusal ``WideningRefused``. Returns the metadata to publish
     from.
     """
     from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
-    from app.processing.ingest.publication import WideningRefused
+    from app.processing.ingest.publication import (
+        PublicVisibilityRefused,
+        WideningRefused,
+    )
 
     if not is_version_2(user_metadata):
         await refuse_restricted_public(session, job, record, user_metadata)
@@ -286,7 +290,9 @@ async def settle_stored_publication(
             is_key=is_key,
             now=now,
         )
-    except PublicationRefused:
+    except PublicationRefused as refused:
+        if refused.reason == "restriction":
+            raise PublicVisibilityRefused from None
         raise WideningRefused from None
     stored = user_metadata.get("visibility")
     if result.fell_back_for is not None and result.visibility != stored:
