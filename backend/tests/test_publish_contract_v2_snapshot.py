@@ -64,6 +64,46 @@ def _ref(root: dict[str, Any], node: dict[str, Any]) -> dict[str, Any]:
     return node
 
 
+_CONSTRAINTS = (
+    "minLength",
+    "maxLength",
+    "minItems",
+    "maxItems",
+    "minimum",
+    "maximum",
+    "exclusiveMinimum",
+    "exclusiveMaximum",
+    "pattern",
+)
+_AT_MOST = ("maxLength", "maxItems", "maximum", "exclusiveMaximum")
+_AT_LEAST = ("minLength", "minItems", "minimum", "exclusiveMinimum")
+
+
+def _both(outer: dict[str, Any], branch: dict[str, Any]) -> dict[str, Any]:
+    """A branch that also satisfies the constraints written beside its union."""
+    merged = dict(branch)
+    for key, value in outer.items():
+        if key not in merged:
+            merged[key] = value
+        elif key in _AT_MOST:
+            merged[key] = min(merged[key], value)
+        elif key in _AT_LEAST:
+            merged[key] = max(merged[key], value)
+    return merged
+
+
+def _json_type(value: Any) -> str:
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    return {str: "string", list: "array", dict: "object", type(None): "null"}[
+        type(value)
+    ]
+
+
 def _branches(root: dict[str, Any], node: dict[str, Any]) -> tuple[list, bool]:
     """Flatten a node's unions into non-null branches, and whether null is allowed."""
     node = _ref(root, node)
@@ -74,9 +114,10 @@ def _branches(root: dict[str, Any], node: dict[str, Any]) -> tuple[list, bool]:
         # A union beside `properties` only adds constraints to that object.
         if key in node and "properties" not in node:
             out: list = []
+            siblings = {k: v for k, v in node.items() if k in _CONSTRAINTS}
             for option in node[key]:
                 inner, null = _branches(root, option)
-                out += inner
+                out += [_both(siblings, branch) for branch in inner]
                 nullable = nullable or null
             return out, nullable
     if node.get("type") == "null":
@@ -123,6 +164,25 @@ def _upper(node: dict[str, Any]) -> tuple[float, int]:
     ):
         return (node["exclusiveMaximum"], 0)
     return (node.get("maximum", float("inf")), 1)
+
+
+def _hand_values(node: dict[str, Any]) -> list[Any]:
+    return [node["const"]] if "const" in node else list(node.get("enum", []))
+
+
+def _value_problems(hand: dict[str, Any], model: dict[str, Any]) -> list[str]:
+    problems = []
+    allowed = set(model["enum"]) if "enum" in model else None
+    if "const" in model:
+        allowed = {model["const"]}
+    mine = _hand_values(hand)
+    if allowed is not None and (not mine or not set(mine) <= allowed):
+        problems.append(f"values {sorted(map(str, mine))} outside the model's")
+    types = _types(model) | ({"integer"} if "number" in _types(model) else set())
+    stray = sorted({_json_type(v) for v in mine} - types) if types else []
+    if stray:
+        problems.append(f"values of type {stray} where the model takes {sorted(types)}")
+    return problems
 
 
 class Audit:
@@ -173,15 +233,7 @@ class Audit:
             problems.append(f"upper bound {_upper(hand)} looser than {_upper(model)}")
         if problem := self._pattern_problem(hand, model, path):
             problems.append(problem)
-        allowed = set(model["enum"]) if "enum" in model else None
-        if "const" in model:
-            allowed = {model["const"]}
-        if allowed is not None:
-            mine = {hand["const"]} if "const" in hand else set(hand.get("enum", []))
-            if not mine or not mine <= allowed:
-                problems.append(
-                    f"values {sorted(mine)} outside the model's {sorted(allowed)}"
-                )
+        problems += _value_problems(hand, model)
         if _types(model):
             unrestricted = (
                 not _types(hand) and "enum" not in hand and "const" not in hand
@@ -398,3 +450,18 @@ def test_a_named_hand_property_is_held_to_a_model_value_schema():
         }
 
     assert any("effect_dropped" in p for p in _edited_hand(edit).looser())
+
+
+def test_a_constraint_beside_a_model_union_still_applies():
+    model = {"anyOf": [{"type": "string"}, {"type": "null"}], "maxLength": 5}
+    loose = Audit({"type": "string", "maxLength": 100}, model)
+    tight = Audit({"type": "string", "maxLength": 5}, model)
+    assert loose.looser()
+    assert tight.looser() == []
+
+
+def test_enum_values_must_have_the_models_type_even_without_a_type():
+    assert Audit({"enum": [42]}, {"type": "string"}).looser()
+    assert Audit({"const": 1.5}, {"type": "integer"}).looser()
+    assert Audit({"enum": ["a"]}, {"type": "string"}).looser() == []
+    assert Audit({"enum": [1]}, {"type": "number"}).looser() == []
