@@ -105,12 +105,35 @@ def _join(path: str, name: str) -> str:
     return f"{path}.{name}" if path else name
 
 
-_LOWER = ("minLength", "minItems", "minimum")
-_UPPER = ("maxLength", "maxItems", "maximum")
+def _lower(node: dict[str, Any]) -> tuple[float, int]:
+    """Numeric lower bound as a sortable pair: higher is stricter, and at the
+    same value an exclusive bound is stricter than an inclusive one."""
+    if "exclusiveMinimum" in node and node["exclusiveMinimum"] >= node.get(
+        "minimum", float("-inf")
+    ):
+        return (node["exclusiveMinimum"], 1)
+    return (node.get("minimum", float("-inf")), 0)
+
+
+def _upper(node: dict[str, Any]) -> tuple[float, int]:
+    """Numeric upper bound as a sortable pair: lower is stricter, and at the
+    same value an exclusive bound is stricter than an inclusive one."""
+    if "exclusiveMaximum" in node and node["exclusiveMaximum"] <= node.get(
+        "maximum", float("inf")
+    ):
+        return (node["exclusiveMaximum"], 0)
+    return (node.get("maximum", float("inf")), 1)
 
 
 class Audit:
-    """Compares a hand-written schema with the request model's schema."""
+    """Compares a hand-written schema with the request model's schema.
+
+    It compares the keywords the v2 schemas use: `type`, `enum`, `const`,
+    `properties`, `required`, `additionalProperties` (false or a value schema),
+    `items`, `prefixItems`, unions (`anyOf`, `oneOf`), `$ref`, `pattern`, and the
+    length, item-count and numeric bounds, exclusive ones included. A schema
+    that starts using another keyword needs it added here.
+    """
 
     def __init__(self, hand: dict[str, Any], model: dict[str, Any]) -> None:
         self.hand, self.model = hand, model
@@ -138,12 +161,16 @@ class Audit:
 
     def _keyword_problems(self, hand, model, path) -> list[str]:
         problems = []
-        for key in _LOWER:
+        for key in ("minLength", "minItems"):
             if key in model and hand.get(key, float("-inf")) < model[key]:
-                problems.append(f"{key} {hand.get(key)} below the model's {model[key]}")
-        for key in _UPPER:
+                problems.append(f"{key} {hand.get(key)} below the model's {key}")
+        for key in ("maxLength", "maxItems"):
             if key in model and hand.get(key, float("inf")) > model[key]:
-                problems.append(f"{key} {hand.get(key)} above the model's {model[key]}")
+                problems.append(f"{key} {hand.get(key)} above the model's {key}")
+        if _lower(hand) < _lower(model):
+            problems.append(f"lower bound {_lower(hand)} looser than {_lower(model)}")
+        if _upper(hand) > _upper(model):
+            problems.append(f"upper bound {_upper(hand)} looser than {_upper(model)}")
         if problem := self._pattern_problem(hand, model, path):
             problems.append(problem)
         allowed = set(model["enum"]) if "enum" in model else None
@@ -177,9 +204,15 @@ class Audit:
         ]
         hand_props = hand.get("properties", {})
         model_props = model.get("properties", {})
-        if model.get("additionalProperties") is False:
-            for name in sorted(hand_props.keys() - model_props.keys()):
+        unnamed = sorted(hand_props.keys() - model_props.keys())
+        model_extra = model.get("additionalProperties")
+        for name in unnamed:
+            if model_extra is False:
                 problems.append(f"{_join(path, name)}: the model has no such field")
+            elif isinstance(model_extra, dict):
+                problems += self._compare(
+                    hand_props[name], model_extra, _join(path, name)
+                )
         for name in sorted(
             set(model.get("required", [])) - set(hand.get("required", []))
         ):
@@ -343,3 +376,25 @@ def test_the_snapshot_records_the_response_roots_and_array_positions():
     assert snapshot.build()["models"]["ManifestMapView"]["center"]["type"] == (
         "tuple<number,number>"
     )
+
+
+def test_an_exclusive_model_bound_is_stricter_than_an_inclusive_hand_bound():
+    def upper(defs):
+        zoom = defs["ManifestMapView"]["properties"]["zoom"]
+        zoom["exclusiveMaximum"] = zoom.pop("maximum")
+
+    def lower(defs):
+        zoom = defs["ManifestMapView"]["properties"]["zoom"]
+        zoom["exclusiveMinimum"] = zoom.pop("minimum")
+
+    assert any("zoom" in p for p in _edited_model(upper).looser())
+    assert any("zoom" in p for p in _edited_model(lower).looser())
+
+
+def test_a_named_hand_property_is_held_to_a_model_value_schema():
+    def edit(defs):
+        defs["lossReport"]["properties"]["summary"]["properties"] = {
+            "effect_dropped": {"type": "string"}
+        }
+
+    assert any("effect_dropped" in p for p in _edited_hand(edit).looser())
