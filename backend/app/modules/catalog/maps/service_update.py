@@ -7,6 +7,7 @@ from decimal import ROUND_HALF_UP, Context, Decimal
 from typing import Any
 
 from fastapi import HTTPException, status
+from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
@@ -16,12 +17,13 @@ from app.modules.catalog.authorization import (
     get_user_roles,
 )
 from app.modules.catalog.maps._router_helpers import (
+    _layer_patch_history_actions,
     _readable_terrain,
     _reject_non_public_datasets,
 )
 from app.modules.catalog.maps.author_key import map_author_key_id, refuse_map_author_key
 from app.platform.map_bookmarks import stored_bookmarks
-from app.modules.catalog.maps.models import Map
+from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.schemas import MapCreate, MapUpdate, MapVisibility
 from app.modules.catalog.maps.service import (
     LayerRow,
@@ -41,6 +43,21 @@ _HISTORY_FIELDS = ("name", "visibility", "terrain_config", "basemap_config")
 # settings event records which of them changed value, not only which were sent.
 CAMERA_FIELDS = ("center_lng", "center_lat", "zoom", "bearing", "pitch")
 VIEW_FIELDS = (*CAMERA_FIELDS, "basemap_style")
+# The stored layer fields a save can change that the per-layer history
+# actions count as styling, plus the dataset a keyed layer draws.
+_LAYER_STYLE_FIELDS = (
+    "display_name",
+    "visible",
+    "opacity",
+    "filter",
+    "label_config",
+    "popup_config",
+    "style_config",
+    "paint",
+    "layout",
+    "layer_type",
+    "show_in_legend",
+)
 _BUILDER_STEP = Decimal("0.000001")
 # Room for any finite double at 6 decimals; the default 28 digits refuse a
 # large one.
@@ -190,6 +207,11 @@ async def apply_map_update(
         await lock_map_layers(db, map_id)
         await db.refresh(map_obj, attribute_names=[*_HISTORY_FIELDS, *VIEW_FIELDS])
     previous = {f: getattr(map_obj, f) for f in (*_HISTORY_FIELDS, *VIEW_FIELDS)}
+    keyed_before = (
+        await _keyed_layers(db, map_id)
+        if record_history and body.layers is not None
+        else None
+    )
     kwargs = {**_update_kwargs(body, layer_keys), "keep_layer_ids": keep_layer_ids}
     saved = await _save_map_update(db, map_id, body, user, kwargs)
     map_obj, layer_tuples = saved[0], saved[1]
@@ -206,8 +228,20 @@ async def apply_map_update(
         ),
     )
     if record_history:
+        keyed_styling_changed = (
+            _keyed_styling_changed(keyed_before, await _keyed_layers(db, map_id))
+            if keyed_before is not None
+            else None
+        )
         await _record_update_history(
-            db, map_obj, user, kwargs, previous, changed_fields, len(layer_tuples)
+            db,
+            map_obj,
+            user,
+            kwargs,
+            previous,
+            changed_fields,
+            len(layer_tuples),
+            keyed_styling_changed,
         )
 
     if body.layers is not None:
@@ -216,6 +250,41 @@ async def apply_map_update(
         # scoped to; revoke orphaned tokens so they stop serving its tiles.
         await revoke_embed_tokens_for_dropped_datasets(db, map_id)
     return saved
+
+
+async def _keyed_layers(db: AsyncSession, map_id: uuid.UUID) -> dict[uuid.UUID, dict]:
+    """Each stored layer that has a manifest key, by id, with the fields a
+    styling edit changes and the dataset it draws."""
+    columns = [getattr(MapLayer, field) for field in _LAYER_STYLE_FIELDS]
+    rows = await db.execute(
+        select(MapLayer.id, MapLayer.dataset_id, *columns).where(
+            MapLayer.map_id == map_id, MapLayer.manifest_key.is_not(None)
+        )
+    )
+    return {
+        row.id: {
+            "dataset_id": row.dataset_id,
+            **{f: getattr(row, f) for f in _LAYER_STYLE_FIELDS},
+        }
+        for row in rows
+    }
+
+
+def _keyed_styling_changed(
+    before: dict[uuid.UUID, dict], after: dict[uuid.UUID, dict]
+) -> bool:
+    """Whether a save added or removed a keyed layer, or changed what a
+    per-layer edit would record as styling on one that stayed."""
+    if before.keys() != after.keys():
+        return True
+    for layer_id, was in before.items():
+        now = after[layer_id]
+        if was["dataset_id"] != now["dataset_id"]:
+            return True
+        patch = {f: now[f] for f in _LAYER_STYLE_FIELDS if now[f] != was[f]}
+        if _layer_patch_history_actions(patch):
+            return True
+    return False
 
 
 async def _check_map_update(
@@ -317,8 +386,13 @@ async def _record_update_history(
     previous: dict,
     changed_fields: list[str],
     layer_count: int,
+    keyed_styling_changed: bool | None = None,
 ) -> None:
-    """Record one builder history event per kind of change the update made."""
+    """Record one builder history event per kind of change the update made.
+
+    A layer replacement's event says whether it changed the styling of the
+    layers that have a manifest key, or which of them there are.
+    """
     new_visibility = map_obj.visibility
     config_fields = sorted(set(changed_fields) - {*_HISTORY_FIELDS, "layers"})
     history_events = [
@@ -372,7 +446,14 @@ async def _record_update_history(
             "layers" in kwargs,
             "layer.replace",
             f"Replaced map layers with {layer_count} layer(s)",
-            {"layer_count": layer_count},
+            {
+                "layer_count": layer_count,
+                **(
+                    {}
+                    if keyed_styling_changed is None
+                    else {"keyed_styling_changed": keyed_styling_changed}
+                ),
+            },
         ),
         (
             bool(config_fields),

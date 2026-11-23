@@ -135,6 +135,13 @@ async def styling_edited_since_publish(
         and_(
             event.action.in_(sorted(STYLING_EDIT_ACTIONS - {"map.config_update"})),
             or_(event.target_type != "layer", published_layer),
+            # A full save counts when it changed keyed styling. An event from
+            # before it said so has no such key, and counts.
+            or_(
+                event.action != "layer.replace",
+                ~event.details.has_key("keyed_styling_changed"),
+                event.details["keyed_styling_changed"].as_boolean(),
+            ),
             event.created_at > styled,
         )
     ]

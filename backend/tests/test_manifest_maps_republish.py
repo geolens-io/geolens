@@ -1680,3 +1680,145 @@ async def test_a_publish_whose_map_changed_before_its_thumbnail_keeps_the_newer_
     assert _codes(a) == [("A072", "warning", None)]
     assert "changed after this publish" in a.messages[0].message
     assert (await _map_row(test_db_session, a.map_id)).thumbnail_uri == after_b["uri"]
+
+
+# ---------------------------------------------------------------------------
+# A full layer save
+# ---------------------------------------------------------------------------
+
+_SAVED_LAYER_FIELDS = (
+    "dataset_id",
+    "sort_order",
+    "visible",
+    "opacity",
+    "paint",
+    "layout",
+    "display_name",
+    "filter",
+    "label_config",
+    "popup_config",
+    "style_config",
+    "layer_type",
+    "show_in_legend",
+)
+
+
+def _as_saved(layer) -> dict:
+    return {
+        "id": str(layer.id),
+        **{f: getattr(layer, f) for f in _SAVED_LAYER_FIELDS},
+        "dataset_id": str(layer.dataset_id),
+    }
+
+
+async def _full_layer_save(client, headers, session, map_id, change) -> None:
+    """``PUT /maps/{id}`` with the stored layers written back, ``change``
+    applied to the list first."""
+    layers = [_as_saved(layer) for layer in await _layers(session, map_id)]
+    response = await client.put(
+        f"/maps/{map_id}", json={"layers": change(layers) or layers}, headers=headers
+    )
+    assert response.status_code == 200, response.text
+
+
+async def _republish_after_full_save(
+    client, session, headers, change, *, unkeyed: bool = False
+):
+    admin = await _admin(session)
+    dataset_id = await _dataset(session, admin.id)
+    [created] = (await _apply(session, admin, _publish(dataset_id))).maps
+    if unkeyed:
+        # A layer the publish never made, added in GeoLens.
+        response = await client.patch(
+            f"/maps/{created.map_id}/layers",
+            json={"added": [{"dataset_id": str(dataset_id)}]},
+            headers=headers,
+        )
+        assert response.status_code == 200, response.text
+    await _full_layer_save(client, headers, session, created.map_id, change)
+    [result] = (await _apply(session, admin, _publish(dataset_id))).maps
+    return result
+
+
+async def test_a_full_save_that_sends_the_layers_back_is_not_an_edit(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    result = await _republish_after_full_save(
+        client, test_db_session, admin_auth_header, lambda layers: None
+    )
+
+    assert (result.styling, _codes(result)) == ("applied", [])
+
+
+async def test_a_full_save_that_changes_a_keyed_layers_paint_is_an_edit(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    def change(layers):
+        layers[0]["paint"] = {"fill-color": "#ff0000"}
+
+    result = await _republish_after_full_save(
+        client, test_db_session, admin_auth_header, change
+    )
+
+    assert (result.styling, _codes(result)) == ("kept", [("A070", "info", None)])
+
+
+async def test_a_full_save_that_removes_a_keyed_layer_is_an_edit(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    result = await _republish_after_full_save(
+        client, test_db_session, admin_auth_header, lambda layers: layers[:1]
+    )
+
+    assert (result.styling, _codes(result)) == ("kept", [("A070", "info", None)])
+
+
+async def test_a_full_save_that_adds_a_layer_without_a_key_is_not_an_edit(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    def change(layers):
+        return [*layers, {**layers[0], "id": None}]
+
+    result = await _republish_after_full_save(
+        client, test_db_session, admin_auth_header, change
+    )
+
+    assert (result.styling, _codes(result)) == ("applied", [])
+
+
+async def test_a_full_save_that_changes_only_an_unkeyed_layer_is_not_an_edit(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    def change(layers):
+        layers[-1]["paint"] = {"fill-color": "#00ff00"}
+
+    result = await _republish_after_full_save(
+        client, test_db_session, admin_auth_header, change, unkeyed=True
+    )
+
+    assert (result.styling, _codes(result)) == ("applied", [])
+
+
+async def test_a_full_save_recorded_without_the_detail_still_counts(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    from app.modules.catalog.maps.service_history import record_map_history_event
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await record_map_history_event(
+        test_db_session,
+        map_id=created.map_id,
+        actor=admin,
+        target_type="map",
+        target_id=created.map_id,
+        action="layer.replace",
+        summary="Replaced map layers with 2 layer(s)",
+        details={"layer_count": 2},
+    )
+    await test_db_session.commit()
+
+    [result] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+
+    assert (result.styling, _codes(result)) == ("kept", [("A070", "info", None)])
