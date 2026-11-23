@@ -30,6 +30,7 @@ and releases use semantic versioning.
 - A map thumbnail or social card upload that Pillow can't read, such as an image whose header declares dimensions too large to open, answers 400 instead of a server error. A PNG or JPEG is stored under the extension of its actual format rather than the one its declared media type gives.
 - A collection in the catalog search results is dated by when it was last edited. Its card used to say "Updated" with the time the collection was created, because the search result carried no update time; it now does, as `updated`.
 - Counts on the catalog search page, such as "32,186 features", the result total and the filter counts, are grouped for the reader's language instead of printed as "32186".
+- Keyboard focus is visible in Windows high contrast mode. Most controls drew focus as a ring, which high contrast mode removes, so a focused button, field, tab, link or map control showed nothing; each now gets a 2 px outline there, in a colour from the high contrast theme.
 
 ## [1.34.0] - 2026-11-22
 

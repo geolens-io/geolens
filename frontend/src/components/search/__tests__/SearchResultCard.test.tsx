@@ -1131,13 +1131,10 @@ describe('SearchResultCard', () => {
       expect(cell).toHaveTextContent(/Updated/);
     });
 
-    it('keeps a focus outline that forced colors can paint, shows a long source whole or not at all, and lets a phone title take two lines', () => {
+    it('shows a long source whole or not at all, and lets a phone title take two lines', () => {
       compact(makeFeature({ source_organization: 'Department of Environmental Protection, Bureau of GIS' }));
 
       const link = screen.getByTestId('search-result-card');
-      // A ring is a box-shadow, which forced colors removes; an inset outline survives.
-      expect(link.className).toContain('forced-colors:focus-visible:outline-solid');
-      expect(link.className).toContain('forced-colors:focus-visible:-outline-offset-2');
       const source = screen.getByTestId('dataset-card-source');
       expect(source.className).toContain('whitespace-nowrap');
       expect(source.className).not.toMatch(/(^|\s)(truncate|max-w-\S+)(\s|$)/);

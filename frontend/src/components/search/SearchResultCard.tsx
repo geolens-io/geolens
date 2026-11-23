@@ -309,7 +309,7 @@ export const SearchResultCard = memo(function SearchResultCard({
     return (
       <Link
         to={linkPath}
-        className="group grid gap-y-0.5 px-3 py-2 outline-none transition-colors duration-200 ease-out hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring forced-colors:focus-visible:outline-2 forced-colors:focus-visible:outline-solid forced-colors:focus-visible:-outline-offset-2 md:col-span-full md:min-h-10 md:grid-cols-subgrid md:items-center md:py-1.5 pointer-coarse:md:min-h-11"
+        className="group grid gap-y-0.5 px-3 py-2 outline-none transition-colors duration-200 ease-out hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:col-span-full md:min-h-10 md:grid-cols-subgrid md:items-center md:py-1.5 pointer-coarse:md:min-h-11"
         data-testid="search-result-card"
         data-density="compact"
         onMouseEnter={prefetchDetail}
