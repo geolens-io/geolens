@@ -9,7 +9,7 @@ from typing import Annotated, Any
 from pydantic import BaseModel, ConfigDict, Field, StringConstraints, field_validator
 
 from app.core.text import normalize_nfc as _nfc
-from app.modules.catalog.maps.bookmarks import MapBookmark
+from app.platform.map_bookmarks import MapBookmark
 from app.modules.catalog.maps.schemas import MapLayerInput, MapResponse, MapVisibility
 
 MAX_WEBMAP_BYTES = 1_000_000

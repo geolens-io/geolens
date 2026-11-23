@@ -736,6 +736,7 @@ async def test_each_apply_records_one_manifest_publish_event(
         "styling_applied": True,
         "view_written": False,
         "basemap_written": False,
+        "bookmarks_written": False,
         "layer_keys": ["parks", "names"],
     }
     assert events[1].details["visibility"] == {

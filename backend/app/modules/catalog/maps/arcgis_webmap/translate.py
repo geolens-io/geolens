@@ -42,7 +42,7 @@ from app.modules.catalog.maps.arcgis_webmap.layout import (
 )
 from app.modules.catalog.maps.arcgis_webmap.loss import LossReport
 from app.modules.catalog.maps.arcgis_webmap.renderer import translate_renderer
-from app.modules.catalog.maps.bookmarks import MAX_MAP_BOOKMARKS, MapBookmark
+from app.platform.map_bookmarks import MAX_MAP_BOOKMARKS, MapBookmark
 from app.modules.catalog.maps.schemas import _MAX_LAYERS_PER_MAP, MapLayerInput
 
 DEFAULT_MAP_NAME = "Imported ArcGIS web map"

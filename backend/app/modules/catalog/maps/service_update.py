@@ -20,7 +20,7 @@ from app.modules.catalog.maps._router_helpers import (
     _reject_non_public_datasets,
 )
 from app.modules.catalog.maps.author_key import map_author_key_id, refuse_map_author_key
-from app.modules.catalog.maps.bookmarks import stored_bookmarks
+from app.platform.map_bookmarks import stored_bookmarks
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.schemas import MapCreate, MapUpdate, MapVisibility
 from app.modules.catalog.maps.service import (

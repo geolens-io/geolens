@@ -21,7 +21,7 @@ from pydantic import (
 from app.core.edition import is_enterprise
 from app.core.text import normalize_nfc as _nfc
 from app.modules.auth.schemas import GroupRef
-from app.modules.catalog.maps.bookmarks import MAX_MAP_BOOKMARKS, MapBookmark
+from app.platform.map_bookmarks import MAX_MAP_BOOKMARKS, MapBookmark
 from app.modules.catalog.maps.dashboard import DashboardConfig, DashboardConfigInput
 from app.modules.catalog.maps.filter_grammar import bounded_filter
 from app.modules.catalog.maps.publish_vocabulary import (

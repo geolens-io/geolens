@@ -72,7 +72,12 @@ NOTES_LIMIT = 50_000
 
 
 async def styling_edited_since_publish(
-    session: AsyncSession, map_id: uuid.UUID, *, view: bool, basemap: bool
+    session: AsyncSession,
+    map_id: uuid.UUID,
+    *,
+    view: bool,
+    basemap: bool,
+    bookmarks: bool = False,
 ) -> bool:
     """Whether the map's styling that a publish would write was edited after
     the last publish that wrote it, or ever when none did.
@@ -83,8 +88,9 @@ async def styling_edited_since_publish(
     and adds a removed keyed layer back as new. A settings save counts for the camera only with ``view``, when the publish
     sends a view, and after the last publish that wrote the camera; for
     ``basemap_style`` only with ``basemap``, after the last publish that
-    wrote it. A publish that didn't write a view or basemap leaves the ones
-    it didn't write as edited as they were.
+    wrote it. A save that sent bookmarks counts only with ``bookmarks``, after
+    the last publish that wrote them. A publish that didn't write a view, basemap or bookmarks leaves the
+    ones it didn't write as edited as they were.
     """
     event = MapEditHistoryEvent
 
@@ -140,6 +146,16 @@ async def styling_edited_since_publish(
         if wanted:
             baselines.append(last_publish(flag))
             edits.append(and_(moved(fields), event.created_at > baselines[-1]))
+    if bookmarks:
+        # The builder sends bookmarks only when they were edited.
+        baselines.append(last_publish("bookmarks_written"))
+        edits.append(
+            and_(
+                event.action == "map.config_update",
+                event.details["changed_fields"].has_key("bookmarks"),
+                event.created_at > baselines[-1],
+            )
+        )
     return bool(
         await session.scalar(
             select(
