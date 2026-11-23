@@ -635,8 +635,8 @@ def apply_manifest_command(
         cancelled = _cancel_manifest_uploads(state, active_client, unused)
         if kept and not state.json_mode:
             state.output.warn(
-                "Kept upload(s) the server may still use; check them with "
-                "`geolens` job status before cancelling: "
+                "Kept upload(s) the server may still be using; check their "
+                "jobs in the GeoLens web app before cancelling them: "
                 + ", ".join(str(job_id) for job_id in kept)
             )
 
