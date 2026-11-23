@@ -2103,3 +2103,79 @@ async def test_a053_is_left_to_the_dry_run(test_db_session, clean_tables):
 
     assert response.results[0].action == "update"
     assert response.results[0].messages == []
+
+
+async def test_a_retried_queued_public_create_reports_public(
+    test_db_session, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    entry = _entry("audience-retry-create", visibility="public")
+    await _in_flight(
+        test_db_session,
+        user,
+        entry,
+        manifest_version="2",
+        manifest_requested_visibility="public",
+        visibility="public",
+    )
+
+    response, _ = await _apply(test_db_session, user, _request(entry))
+
+    result = response.results[0]
+    assert (result.action, result.dataset_id, result.visibility) == (
+        "skip",
+        None,
+        "public",
+    )
+
+
+async def test_a_retried_queued_update_reports_the_level_it_changes_to(
+    test_db_session, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    dataset = await create_dataset(
+        test_db_session, created_by=user.id, visibility="private"
+    )
+    entry = _entry("audience-retry-update", visibility="internal")
+    job = await _in_flight(
+        test_db_session,
+        user,
+        entry,
+        manifest_version="2",
+        manifest_requested_visibility="internal",
+        visibility="internal",
+    )
+    job.dataset_id = dataset.id
+    await test_db_session.commit()
+
+    response, _ = await _apply(test_db_session, user, _request(entry))
+
+    result = response.results[0]
+    assert (result.action, result.visibility) == ("skip", "internal")
+
+
+async def test_a_retried_queued_create_with_a_refused_public_reports_internal(
+    test_db_session, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    entry = _entry("audience-retry-fallback", visibility="public")
+    await _in_flight(
+        test_db_session,
+        user,
+        entry,
+        manifest_version="2",
+        manifest_requested_visibility="public",
+        visibility="internal",
+        manifest_public_fallback="internal",
+    )
+
+    with _forbid_public():
+        response, _ = await _apply(
+            test_db_session, user, _request(entry, public_fallback="internal")
+        )
+
+    result = response.results[0]
+    assert (result.action, result.visibility) == ("skip", "internal")

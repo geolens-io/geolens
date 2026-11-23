@@ -12736,6 +12736,13 @@ export interface components {
              * @description Coded messages for the entry. Left out in manifest version 1.
              */
             messages?: components["schemas"]["ManifestMessage"][] | null;
+            /**
+             * Visibility
+             * @description Who can see the dataset once the entry's job finishes: the level the entry writes, or the stored one when it writes none. Null when the entry failed or the dataset can't be read. Left out in manifest version 1.
+             */
+            visibility?: string | null;
+            /** @description Links to the dataset. Null when there is no dataset yet or the caller can't read it. Left out in manifest version 1. */
+            links?: components["schemas"]["ManifestDatasetLinks"] | null;
         };
         /** ManifestApplyRequest */
         ManifestApplyRequest: {
@@ -12912,6 +12919,27 @@ export interface components {
              */
             attributes?: components["schemas"]["ManifestAttribute"][] | null;
         };
+        /**
+         * ManifestDatasetLinks
+         * @description Absolute links to a dataset, each one a route the server serves.
+         */
+        ManifestDatasetLinks: {
+            /**
+             * Page
+             * @description The dataset's page in the web app.
+             */
+            page: string;
+            /**
+             * Items
+             * @description The OGC API Features items. Null for a dataset with no items.
+             */
+            items?: string | null;
+            /**
+             * Tiles
+             * @description The vector tile URL template, with {z}, {x} and {y}. Null for a dataset with no vector tiles, and while a job is still writing the dataset (queued, running or held): read the template again once it completes. A private dataset's tiles need the caller's API key header.
+             */
+            tiles?: string | null;
+        };
         /** ManifestLossItem */
         ManifestLossItem: {
             /** Path */
@@ -13044,6 +13072,17 @@ export interface components {
              */
             show_in_legend: boolean;
         };
+        /**
+         * ManifestMapLinks
+         * @description Absolute links to a map.
+         */
+        ManifestMapLinks: {
+            /**
+             * Viewer
+             * @description The map in the web app.
+             */
+            viewer: string;
+        };
         /** ManifestMapResult */
         ManifestMapResult: {
             /** Map Key */
@@ -13071,6 +13110,13 @@ export interface components {
              * @description `applied` when the manifest's styling replaced the map's, `kept` when the map kept its own. Null for a map in error.
              */
             styling?: ("applied" | "kept") | null;
+            /**
+             * Groups
+             * @description Names of the groups the map is shared with.
+             */
+            groups?: string[];
+            /** @description Links to the map. Null while the map doesn't exist yet. */
+            links?: components["schemas"]["ManifestMapLinks"] | null;
             /**
              * Removed Layers
              * @description Keyed layers the manifest no longer lists and the caller can read, removed from the map (info A059). Their datasets stay. One on a dataset the caller can't read stays on the map.
@@ -13180,6 +13226,16 @@ export interface components {
              * @description Its dataset, which stays on the server.
              */
             dataset_id: string;
+            /**
+             * Layer Id
+             * @description The removed layer's id, which no longer names a layer.
+             */
+            layer_id?: string | null;
+            /**
+             * Link
+             * @description The dataset's page in the web app, to delete it there.
+             */
+            link?: string | null;
         };
         /** ManifestSource */
         ManifestSource: {
