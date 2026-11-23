@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from ..models.manifest_loss_report import ManifestLossReport
     from ..models.manifest_map_layer import ManifestMapLayer
     from ..models.manifest_map_view import ManifestMapView
+    from ..models.map_bookmark import MapBookmark
 
 
 T = TypeVar("T", bound="ManifestMap")
@@ -32,14 +33,15 @@ class ManifestMap:
         description (None | str | Unset):
         view (ManifestMapView | None | Unset):
         basemap_style (None | str | Unset): A basemap id from GET /capabilities.
-        styling (ManifestMapStyling | Unset): Whether a republish replaces the map's styling: its view, basemap and its
-            keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always
-            does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless
-            styling it would write was edited in GeoLens since the last publish that replaced it, and answers info A070 when
-            it keeps it. A view or basemap edit counts only when the manifest sends a `view` or `basemap_style` that would
-            overwrite it. A kept layer keeps its dataset too, with warning A073 when the manifest names another. Name,
-            description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's
-            styling. Default: 'replace_if_unedited'.
+        styling (ManifestMapStyling | Unset): Whether a republish replaces the map's styling: its view, basemap,
+            bookmarks and its keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name.
+            `replace` always does. `keep` never does, and keeps keyed layers the manifest no longer lists.
+            `replace_if_unedited` does unless styling it would write was edited in GeoLens since the last publish that
+            replaced it, and answers info A070 when it keeps it. A view or basemap edit counts only when the manifest sends
+            a `view` or `basemap_style` that would overwrite it, and a bookmarks edit only when it sends `bookmarks`. A kept
+            layer keeps its dataset too, with warning A073 when the manifest names another. Name, description, notes,
+            visibility and new layers are applied in every mode, and a new map takes the manifest's styling. Default:
+            'replace_if_unedited'.
         thumbnail (None | str | Unset): A PNG or JPEG data URI, stored as the map's thumbnail once the map is written,
             with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling
             leaves the map's thumbnail as it is. One the storage step refuses or can't store is warning A072, and the map
@@ -51,6 +53,9 @@ class ManifestMap:
             removed if the notes start with one; the rest of the notes is untouched (info A071).
         visibility (ManifestMapVisibilityType0 | None | Unset): Who can see the map. Omitted on create the map is
             private; omitted on update the current level is kept.
+        bookmarks (list[MapBookmark] | None | Unset): Named areas, in display order (max 100). Part of the map's
+            styling: a republish that applies styling replaces the map's bookmarks with these, and an empty list removes
+            them. Left out, the map's bookmarks are kept.
     """
 
     key: str
@@ -63,6 +68,7 @@ class ManifestMap:
     thumbnail: None | str | Unset = UNSET
     loss_report: ManifestLossReport | None | Unset = UNSET
     visibility: ManifestMapVisibilityType0 | None | Unset = UNSET
+    bookmarks: list[MapBookmark] | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.manifest_loss_report import ManifestLossReport
@@ -123,6 +129,18 @@ class ManifestMap:
         else:
             visibility = self.visibility
 
+        bookmarks: list[dict[str, Any]] | None | Unset
+        if isinstance(self.bookmarks, Unset):
+            bookmarks = UNSET
+        elif isinstance(self.bookmarks, list):
+            bookmarks = []
+            for bookmarks_type_0_item_data in self.bookmarks:
+                bookmarks_type_0_item = bookmarks_type_0_item_data.to_dict()
+                bookmarks.append(bookmarks_type_0_item)
+
+        else:
+            bookmarks = self.bookmarks
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -146,6 +164,8 @@ class ManifestMap:
             field_dict["loss_report"] = loss_report
         if visibility is not UNSET:
             field_dict["visibility"] = visibility
+        if bookmarks is not UNSET:
+            field_dict["bookmarks"] = bookmarks
 
         return field_dict
 
@@ -154,6 +174,7 @@ class ManifestMap:
         from ..models.manifest_loss_report import ManifestLossReport
         from ..models.manifest_map_layer import ManifestMapLayer
         from ..models.manifest_map_view import ManifestMapView
+        from ..models.map_bookmark import MapBookmark
 
         d = dict(src_dict)
         key = d.pop("key")
@@ -254,6 +275,30 @@ class ManifestMap:
 
         visibility = _parse_visibility(d.pop("visibility", UNSET))
 
+        def _parse_bookmarks(data: object) -> list[MapBookmark] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                bookmarks_type_0 = []
+                _bookmarks_type_0 = data
+                for bookmarks_type_0_item_data in _bookmarks_type_0:
+                    bookmarks_type_0_item = MapBookmark.from_dict(
+                        bookmarks_type_0_item_data
+                    )
+
+                    bookmarks_type_0.append(bookmarks_type_0_item)
+
+                return bookmarks_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[MapBookmark] | None | Unset, data)
+
+        bookmarks = _parse_bookmarks(d.pop("bookmarks", UNSET))
+
         manifest_map = cls(
             key=key,
             name=name,
@@ -265,6 +310,7 @@ class ManifestMap:
             thumbnail=thumbnail,
             loss_report=loss_report,
             visibility=visibility,
+            bookmarks=bookmarks,
         )
 
         return manifest_map

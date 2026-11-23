@@ -7,7 +7,7 @@ from httpx import AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import text
 
-from app.modules.catalog.maps.bookmarks import MAX_MAP_BOOKMARKS, MapBookmark
+from app.platform.map_bookmarks import MAX_MAP_BOOKMARKS, MapBookmark
 from tests.factories import create_dataset, get_user_id
 from tests.test_embed_token_creator_access import _embed
 from tests.test_map_dashboard_config import _map_with_layers

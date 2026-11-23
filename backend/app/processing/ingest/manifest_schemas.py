@@ -20,6 +20,7 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from app.core.text import normalize_nfc, reject_html_markup
+from app.platform.map_bookmarks import MAX_MAP_BOOKMARKS, MapBookmark
 from app.platform.value_labels import is_storable_text
 
 NonEmptyString100 = Annotated[str, Field(min_length=1, max_length=100)]
@@ -473,14 +474,15 @@ class ManifestMap(_ManifestBaseModel):
         default="replace_if_unedited",
         description=(
             "Whether a republish replaces the map's styling: its view, "
-            "basemap and its keyed layers' paint, layout, style, labels, "
+            "basemap, bookmarks and its keyed layers' paint, layout, style, labels, "
             "popup, filter, opacity, visible flag and name. `replace` always "
             "does. `keep` never does, and keeps keyed layers the manifest no "
             "longer lists. `replace_if_unedited` does unless styling it would "
             "write was edited in GeoLens since the last publish that replaced "
             "it, and answers info A070 when it keeps it. A view or basemap "
             "edit counts only when the manifest sends a `view` or "
-            "`basemap_style` that would overwrite it. A kept layer keeps its "
+            "`basemap_style` that would overwrite it, and a bookmarks edit "
+            "only when it sends `bookmarks`. A kept layer keeps its "
             "dataset too, with warning A073 when the manifest names another. "
             "Name, description, notes, visibility and new layers are applied "
             "in every mode, and a new map takes the manifest's styling."
@@ -529,6 +531,16 @@ class ManifestMap(_ManifestBaseModel):
     )
     layers: list[ManifestMapLayer] = Field(
         min_length=1, max_length=MAX_MANIFEST_MAP_LAYERS
+    )
+    bookmarks: list[MapBookmark] | None = Field(
+        default=None,
+        max_length=MAX_MAP_BOOKMARKS,
+        description=(
+            f"Named areas, in display order (max {MAX_MAP_BOOKMARKS}). Part of "
+            "the map's styling: a republish that applies styling replaces the "
+            "map's bookmarks with these, and an empty list removes them. Left "
+            "out, the map's bookmarks are kept."
+        ),
     )
 
     _storable = field_validator("name", "description")(_storable_text)

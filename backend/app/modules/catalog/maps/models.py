@@ -104,7 +104,7 @@ class Map(Base):
         JSONB, nullable=True, default=None
     )
 
-    # Named areas in display order, validated by maps/bookmarks.py (null = none)
+    # Named areas in display order, validated by platform/map_bookmarks.py (null = none)
     bookmarks: Mapped[list[dict] | None] = mapped_column(
         JSONB, nullable=True, default=None
     )

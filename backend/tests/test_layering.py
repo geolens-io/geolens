@@ -1320,6 +1320,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # publish key, where a version 2 entry's publication is decided and a held or
     # in-flight job is reused, and the maps section's results beside the datasets'.
     "backend/app/processing/ingest/manifest_service.py": 1339,
+    # One map's check, plan and write: the styling decision, layer matching and
+    # the history event share the row lock the apply holds.
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1002,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,

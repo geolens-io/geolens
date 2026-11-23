@@ -516,6 +516,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             map_obj.id,
             view=entry.view is not None,
             basemap=entry.basemap_style is not None,
+            bookmarks=entry.bookmarks is not None,
         )
         styling_applied = styling_applies(entry.styling, edited=edited)
         if not styling_applied and entry.styling == "replace_if_unedited":
@@ -800,8 +801,9 @@ async def _write_map(
         )
         await check_map_ownership(map_obj, user, session)
     before = map_obj.visibility
-    # The view and the basemap are styling; a kept publish leaves them.
+    # The view, basemap and bookmarks are styling; a kept publish leaves them.
     view = entry.view if plan.styling_applied else None
+    bookmarks = entry.bookmarks if plan.styling_applied else None
     basemap_style = entry.basemap_style if plan.styling_applied else None
     body = MapUpdate(
         name=entry.name,
@@ -820,6 +822,7 @@ async def _write_map(
             }
         ),
         **({} if basemap_style is None else {"basemap_style": basemap_style}),
+        **({} if bookmarks is None else {"bookmarks": bookmarks}),
         **(
             {}
             if plan.write_visibility in (None, before)
@@ -852,6 +855,7 @@ async def _write_map(
             "styling_applied": plan.styling_applied,
             "view_written": view is not None,
             "basemap_written": basemap_style is not None,
+            "bookmarks_written": bookmarks is not None,
             "notes_digest": plan.notes.digest,
             "layer_keys": [layer.key for layer in entry.layers],
             **(

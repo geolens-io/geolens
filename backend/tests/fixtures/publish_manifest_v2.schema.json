@@ -187,6 +187,27 @@
         "pitch": {"type": "number", "minimum": 0, "maximum": 85}
       }
     },
+    "bookmark": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["name", "extent"],
+      "properties": {
+        "name": {"type": "string", "minLength": 1, "maxLength": 120},
+        "extent": {
+          "type": "array",
+          "minItems": 4,
+          "maxItems": 4,
+          "prefixItems": [
+            {"type": "number", "minimum": -180, "maximum": 180},
+            {"type": "number", "minimum": -90, "maximum": 90},
+            {"type": "number", "minimum": -180, "maximum": 180},
+            {"type": "number", "minimum": -90, "maximum": 90}
+          ]
+        },
+        "bearing": {"type": "number", "minimum": -180, "maximum": 180},
+        "pitch": {"type": "number", "minimum": 0, "maximum": 85}
+      }
+    },
     "lossReport": {
       "type": "object",
       "additionalProperties": false,
@@ -276,6 +297,11 @@
           "minItems": 1,
           "maxItems": 200,
           "items": {"$ref": "#/$defs/layer"}
+        },
+        "bookmarks": {
+          "type": "array",
+          "maxItems": 100,
+          "items": {"$ref": "#/$defs/bookmark"}
         }
       }
     }

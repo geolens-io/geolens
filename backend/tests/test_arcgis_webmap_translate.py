@@ -26,7 +26,7 @@ from app.modules.catalog.maps.arcgis_webmap.translate import (
     DEFAULT_MAP_NAME,
     translate_webmap,
 )
-from app.modules.catalog.maps.bookmarks import MAX_MAP_BOOKMARKS
+from app.platform.map_bookmarks import MAX_MAP_BOOKMARKS
 from app.modules.catalog.maps.schemas import MapLayerInput
 
 FIXTURES = Path(__file__).parent / "fixtures" / "arcgis_webmaps"
