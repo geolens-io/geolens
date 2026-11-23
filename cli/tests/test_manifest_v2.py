@@ -972,3 +972,186 @@ def test_a_skip_without_the_unused_upload_message_is_kept(
     runner.invoke(app, ["--json", "apply", str(path)])
 
     assert cancels == []
+
+
+# --- review threads ---
+
+
+def _plan(tmp_path: Path, uri: str):
+    from geolens_cli.manifest_upload import plan_local_uploads
+
+    document = _v2_document()
+    document["datasets"][0]["sources"][0]["uri"] = uri
+    return plan_local_uploads(document, tmp_path)
+
+
+def test_a_source_outside_the_manifest_folder_is_refused(tmp_path) -> None:
+    from geolens_cli.manifest_upload import ManifestUploadError
+
+    folder = tmp_path / "project"
+    folder.mkdir()
+    secret = tmp_path / "secret.geojson"
+    secret.write_bytes(ROADS)
+    (folder / "link.geojson").symlink_to(secret)
+    for uri in ("../secret.geojson", str(secret), "./link.geojson"):
+        with pytest.raises(ManifestUploadError, match="outside the manifest folder"):
+            _plan(folder, uri)
+
+
+def test_sources_inside_the_manifest_folder_still_upload(tmp_path) -> None:
+    (tmp_path / "data").mkdir()
+    (tmp_path / "data" / "roads.geojson").write_bytes(ROADS)
+    (tmp_path / "alias.geojson").symlink_to(tmp_path / "data" / "roads.geojson")
+
+    assert _plan(tmp_path, "./data/roads.geojson")[0].checksum == ROADS_SHA
+    assert _plan(tmp_path, "alias.geojson")[0].path.name == "roads.geojson"
+
+
+def test_an_escaping_source_exits_usage_before_any_upload(
+    runner, tmp_xdg_home, tmp_path, monkeypatch, uploads
+) -> None:
+    folder = tmp_path / "project"
+    folder.mkdir()
+    (tmp_path / "secret.geojson").write_bytes(ROADS)
+    document = _v2_document()
+    document["datasets"][0]["sources"][0]["uri"] = "../secret.geojson"
+    path = folder / "geolens.yaml"
+    path.write_text(yaml.safe_dump(document), encoding="utf-8")
+
+    result = runner.invoke(app, ["apply", str(path)])
+
+    assert result.exit_code == EXIT_USAGE
+    assert "'roads' source 0" in result.output
+    assert uploads == []
+
+
+def test_a_malformed_remote_uri_is_an_input_error(
+    runner, tmp_xdg_home, tmp_path, monkeypatch, uploads
+) -> None:
+    document = _v2_document()
+    document["datasets"][0]["sources"][0]["uri"] = "https://[example.org/roads.geojson"
+    path = _write_manifest(tmp_path, document)
+
+    result = runner.invoke(app, ["apply", str(path)])
+
+    assert result.exit_code == EXIT_USAGE
+    assert "not a valid URI" in result.output
+    assert uploads == []
+
+
+def _two_dataset_document(tmp_path: Path) -> Path:
+    document = _v2_document()
+    document["datasets"].append(
+        {
+            "key": "rivers",
+            "title": "Rivers",
+            "sources": [{"type": "vector", "uri": "./rivers.geojson"}],
+            "publication": {"intent": "draft"},
+        }
+    )
+    path = _write_manifest(tmp_path, document)
+    (tmp_path / "rivers.geojson").write_bytes(ROADS + b" ")
+    return path
+
+
+def _second_upload_fails(monkeypatch, exc: BaseException | None = None) -> None:
+    calls: list[Path] = []
+
+    def flaky(client: Any, path: Path) -> Any:
+        calls.append(path)
+        if len(calls) == 2:
+            if exc is not None:
+                raise exc
+            return SimpleNamespace(status_code=413, parsed=None)
+        return SimpleNamespace(status_code=201, parsed=SimpleNamespace(job_id=JOB_ID))
+
+    monkeypatch.setattr(publish_module, "upload_file", flaky)
+
+
+def test_json_reports_an_upload_failure_with_the_cancelled_uploads(
+    runner, tmp_xdg_home, tmp_path, monkeypatch, cancels
+) -> None:
+    _second_upload_fails(monkeypatch)
+    _install_sdk(monkeypatch, _response())
+    path = _two_dataset_document(tmp_path)
+
+    result = runner.invoke(app, ["--json", "apply", str(path)])
+
+    assert result.exit_code == 1
+    payload = json.loads(result.stdout)
+    assert payload["ok"] is False and payload["error"]
+    assert payload["cancelled_uploads"] == [str(JOB_ID)]
+    assert payload["uncancelled_uploads"] == []
+
+
+def test_json_reports_a_422_refusal_with_the_cancelled_uploads(
+    runner, tmp_xdg_home, tmp_path, monkeypatch, uploads, cancels
+) -> None:
+    sdk = FakeSdk(FakeResponse(422, {"detail": "no"}))
+    monkeypatch.setattr(AppState, "sdk", lambda _self: sdk)
+    path = _write_manifest(tmp_path, _v2_document())
+
+    result = runner.invoke(app, ["--json", "apply", str(path)])
+
+    assert result.exit_code == EXIT_USAGE
+    payload = json.loads(result.stdout)
+    assert "422" in payload["error"]
+    assert payload["cancelled_uploads"] == [str(JOB_ID)]
+
+
+def test_an_upload_that_could_not_be_cancelled_is_reported_apart(
+    runner, tmp_xdg_home, tmp_path, monkeypatch, uploads
+) -> None:
+    from geolens.api.admin import cancel_job_jobs_job_id_cancel_post as mod
+
+    monkeypatch.setattr(
+        mod, "sync_detailed", lambda *, client, job_id: SimpleNamespace(status_code=500)
+    )
+    _install_sdk(monkeypatch, _response(dry_run=True))
+    path = _write_manifest(tmp_path, _v2_document())
+
+    result = runner.invoke(app, ["--json", "apply", "--dry-run", str(path)])
+
+    report = json.loads(result.stdout)
+    assert report["cancelled_uploads"] == []
+    assert report["uncancelled_uploads"] == [str(JOB_ID)]
+
+
+def test_ctrl_c_during_uploads_cancels_the_ones_made_and_reraises(
+    runner, tmp_xdg_home, tmp_path, monkeypatch, cancels
+) -> None:
+    _second_upload_fails(monkeypatch, KeyboardInterrupt())
+    _install_sdk(monkeypatch, _response())
+    path = _two_dataset_document(tmp_path)
+
+    result = runner.invoke(app, ["apply", str(path)])
+
+    assert isinstance(result.exception, KeyboardInterrupt) or result.exit_code != 0
+    assert cancels == [JOB_ID]
+
+
+def test_const_advice_is_about_the_failing_field() -> None:
+    bad_fallback = _v2_document(public_fallback="public")
+    bad_version = _v2_document(manifest_version="3")
+    from geolens_cli.manifest.reporting import validation_report_payload
+
+    def advice(document: dict[str, Any], at: str) -> str:
+        report = validation_report_payload(Path("m.yaml"), validate_manifest(document))
+        return next(e["remediation"] for e in report["errors"] if e["path"] == at)
+
+    assert "manifest_version" not in advice(bad_fallback, "$.public_fallback")
+    assert "manifest_version" in advice(bad_version, "$.manifest_version")
+
+
+def test_printed_schema_refuses_a_uri_with_a_trailing_newline() -> None:
+    from jsonschema import Draft202012Validator
+
+    from geolens_cli.manifest.schema import authoring_schema
+
+    validator = Draft202012Validator(authoring_schema())
+    good = _v2_document()
+    bad = _v2_document()
+    bad["datasets"][0]["sources"][0]["uri"] = "./roads.geojson\n"
+
+    assert list(validator.iter_errors(good)) == []
+    assert list(validator.iter_errors(bad))

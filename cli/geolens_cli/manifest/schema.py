@@ -40,7 +40,7 @@ def manifest_schema(version: str = "1") -> dict[str, Any]:
 
 _AUTHORING_URI_PATTERN = (
     r"^(?:(?:\./)?[^\s:/][^\s:]*|https?://[^\s]+|s3://[^\s]+|"
-    r"upload:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$"
+    r"upload:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?![\s\S])"
 )
 
 

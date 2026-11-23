@@ -23,9 +23,15 @@ _REMEDIATIONS = {
 }
 
 
-def remediation_for_error(code: str) -> str:
-    """Return human-readable remediation text for a stable error code."""
+def remediation_for_error(code: str, path: str = "") -> str:
+    """Return human-readable remediation text for a stable error code.
 
+    A `const` failure is version advice only at `$.manifest_version`; any other
+    constant field gets the generic advice.
+    """
+
+    if code == "const" and not path.endswith("manifest_version"):
+        return "Use the one value the manifest schema allows at this manifest path."
     return _REMEDIATIONS.get(
         code,
         "Update this manifest value so it satisfies the GeoLens manifest schema.",
@@ -44,7 +50,7 @@ def validation_report_payload(
                 "code": error.code,
                 "message": error.message,
                 "path": error.path,
-                "remediation": remediation_for_error(error.code),
+                "remediation": remediation_for_error(error.code, error.path),
             }
             for error in errors
         ],
@@ -62,7 +68,7 @@ def format_validation_error_lines(
     return [
         (
             f"{path} {error.path} [{error.code}]: {error.message}. "
-            f"Remediation: {remediation_for_error(error.code)}"
+            f"Remediation: {remediation_for_error(error.code, error.path)}"
         )
         for error in errors
     ]

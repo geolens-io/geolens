@@ -379,24 +379,71 @@ def _upload_manifest_sources(
             return _manifest_upload.upload_local_sources(
                 sdk.client, document, uploads, on_progress=describe, created=created, owners=owners
             )
-        except (_manifest_upload.ManifestUploadError, typer.Exit, OSError) as exc:
+        except (
+            _manifest_upload.ManifestUploadError,
+            typer.Exit,
+            OSError,
+            KeyboardInterrupt,
+        ) as exc:
             # Nothing was submitted, so the uploads already made are spare.
-            _cancel_manifest_uploads(state, sdk.client, list(created))
-            if isinstance(exc, typer.Exit):
+            cancelled, failed = _cancel_manifest_uploads(
+                state, sdk.client, list(created)
+            )
+            if isinstance(exc, KeyboardInterrupt):
                 raise
+            if isinstance(exc, typer.Exit):
+                _fail_manifest_apply(
+                    state,
+                    f"An upload request failed (exit code {exc.exit_code}).",
+                    exc.exit_code,
+                    cancelled,
+                    failed,
+                    printed=True,
+                )
             if isinstance(exc, OSError):
-                state.output.error(f"Could not read a source file: {exc}")
-                raise typer.Exit(EXIT_USAGE)
-            state.output.error(exc.message)
-            raise typer.Exit(exc.exit_code)
+                _fail_manifest_apply(
+                    state,
+                    f"Could not read a source file: {exc}",
+                    EXIT_USAGE,
+                    cancelled,
+                    failed,
+                )
+            _fail_manifest_apply(state, exc.message, exc.exit_code, cancelled, failed)
+
+
+def _fail_manifest_apply(
+    state: "AppState",
+    message: str,
+    exit_code: int,
+    cancelled: list[Any],
+    failed: list[Any],
+    *,
+    printed: bool = False,
+) -> None:
+    """Report a failure before any entry ran, as one JSON payload or an error line.
+
+    ``printed`` means the message is already on stderr.
+    """
+    if state.json_mode:
+        state.output.json(
+            {
+                "cancelled_uploads": [str(job_id) for job_id in cancelled],
+                "error": message,
+                "ok": False,
+                "uncancelled_uploads": [str(job_id) for job_id in failed],
+            }
+        )
+    elif not printed:
+        state.output.error(message)
+    raise typer.Exit(exit_code)
 
 
 def _cancel_manifest_uploads(
     state: "AppState", client: Any, job_ids: list[Any]
-) -> list[Any]:
-    """Cancel uploads nothing will use, and say which. Returns those cancelled."""
+) -> tuple[list[Any], list[Any]]:
+    """Cancel uploads nothing will use, and say which. Returns (cancelled, failed)."""
     if not job_ids:
-        return []
+        return [], []
     cancelled, failed = _manifest_upload.cancel_uploads(client, job_ids)
     if failed and not state.json_mode:
         state.output.warn(
@@ -408,7 +455,7 @@ def _cancel_manifest_uploads(
             "Cancelled unused upload(s): "
             + ", ".join(str(job_id) for job_id in cancelled)
         )
-    return cancelled
+    return cancelled, failed
 
 
 @app.command("apply")
@@ -540,8 +587,7 @@ def apply_manifest_command(
         try:
             uploads = _manifest_upload.plan_local_uploads(document, path.parent)
         except _manifest_upload.ManifestUploadError as exc:
-            state.output.error(exc.message)
-            raise typer.Exit(exc.exit_code)
+            _fail_manifest_apply(state, exc.message, exc.exit_code, [], [])
 
     # A document that asks for a dry run keeps asking for one.
     dry_run = dry_run or document.get("dry_run") is True
@@ -598,10 +644,12 @@ def apply_manifest_command(
     except _manifest_apply.ManifestApplyRequestError as exc:
         # A server error may still have used the uploads; any other refusal
         # did not.
+        cancelled, failed = [], []
         if exc.exit_code != EXIT_SERVER:
-            _cancel_manifest_uploads(state, sdk.client, list(created_uploads))
-        state.output.error(exc.message)
-        raise typer.Exit(exc.exit_code)
+            cancelled, failed = _cancel_manifest_uploads(
+                state, sdk.client, list(created_uploads)
+            )
+        _fail_manifest_apply(state, exc.message, exc.exit_code, cancelled, failed)
 
     active_client = sdk.client
     retry_failure = 0
@@ -628,11 +676,12 @@ def apply_manifest_command(
             )
 
     cancelled: list[Any] = []
+    uncancelled: list[Any] = []
     if created_uploads:
         unused, kept = _manifest_upload.sort_uploads(
             response, created_uploads, upload_owners, dry_run=dry_run
         )
-        cancelled = _cancel_manifest_uploads(state, active_client, unused)
+        cancelled, uncancelled = _cancel_manifest_uploads(state, active_client, unused)
         if kept and not state.json_mode:
             state.output.warn(
                 "Kept upload(s) the server may still be using; check their "
@@ -644,6 +693,7 @@ def apply_manifest_command(
     if created_uploads:
         report["cancelled_uploads"] = [str(job_id) for job_id in cancelled]
         report["kept_uploads"] = [str(job_id) for job_id in kept]
+        report["uncancelled_uploads"] = [str(job_id) for job_id in uncancelled]
     if state.json_mode:
         state.output.json(report)
     else:

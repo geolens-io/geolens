@@ -51,12 +51,15 @@ def plan_local_uploads(
 ) -> list[LocalUpload]:
     """Find every local file the document names and check it before any upload.
 
-    Paths resolve against ``base_dir`` (the manifest's folder). Remote URLs are
-    sent as they are. A declared checksum that disagrees with the file is
+    Paths resolve against ``base_dir`` (the manifest's folder) and must stay
+    inside it once symlinks are resolved: an absolute path or a `..` escape is
+    refused, so a manifest from someone else can't send files from elsewhere.
+    Remote URLs are sent as they are. A declared checksum that disagrees with the file is
     refused, since the server would refuse the upload for the same reason.
     """
 
     uploads: list[LocalUpload] = []
+    root = base_dir.resolve()
     datasets = document.get("datasets")
     if not isinstance(datasets, list):
         return uploads
@@ -68,9 +71,22 @@ def plan_local_uploads(
             if not isinstance(source, Mapping) or not names_unuploaded_source(source):
                 continue
             uri = source["uri"]
-            if urlsplit(uri).scheme.lower() in _REMOTE_URI_SCHEMES:
+            where = f"dataset {dataset.get('key')!r} source {s_index}"
+            try:
+                scheme = urlsplit(uri).scheme.lower()
+            except ValueError as exc:
+                raise ManifestUploadError(
+                    f"{where}: {uri!r} is not a valid URI ({exc})."
+                ) from exc
+            if scheme in _REMOTE_URI_SCHEMES:
                 continue
-            path = base_dir / uri
+            path = (root / uri).resolve()
+            if Path(uri).is_absolute() or not path.is_relative_to(root):
+                raise ManifestUploadError(
+                    f"{where}: {uri!r} is outside the manifest folder {root}. "
+                    "Move the file into that folder or point to it with a "
+                    "relative path inside it."
+                )
             if not path.is_file():
                 raise ManifestUploadError(
                     f"Source file not found: {path} "
