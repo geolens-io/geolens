@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.identity import Identity
+from app.core.processing_port import MINTED_SHARE_KEY, withholding_share_links
 from app.platform.extensions import get_processing_port
 from app.platform.jobs.in_flight import datasets_with_jobs_in_flight
 from app.platform.jobs.models import ACTIVE_STATUSES, IngestJob
@@ -27,6 +28,11 @@ from app.processing.ingest.manifest_schemas import (
     ManifestMessage,
 )
 from app.processing.ingest.manifest_sources import publication_to_catalog_fields
+from app.processing.ingest.manifest_share_links import (
+    ShareOriginUnavailable,
+    minted_share_links,
+    share_base_url,
+)
 
 OTHER_REFUSAL = "A099"
 PUBLIC_RESTRICTED = "A020"
@@ -90,6 +96,28 @@ def _failed(map_key: str, message: str) -> ManifestMapResult:
             ManifestMessage(code=OTHER_REFUSAL, severity="error", message=message)
         ],
     )
+
+
+async def _share_base_url(db: AsyncSession, http_request: Request | None) -> str | None:
+    try:
+        async with db.begin_nested():
+            return await share_base_url(db, http_request)
+    except ShareOriginUnavailable:
+        log.info("manifest_share_origin_unknown")
+        return None
+    except Exception:  # broad: only a map that would mint a share link needs it
+        log.warning("manifest_share_base_url_failed", exc_info=True)
+        return None
+
+
+def _map_result(result: dict, app_url: str | None) -> ManifestMapResult:
+    minted = result.pop(MINTED_SHARE_KEY, None)
+    map_result = ManifestMapResult.model_validate(result)
+    if minted is not None and app_url is not None:
+        map_result._minted_links = minted_share_links(
+            app_url, map_result.map_id, minted["token"], minted["title"]
+        )
+    return map_result
 
 
 async def run_manifest_maps(
@@ -168,30 +196,39 @@ async def run_manifest_maps(
                 not_ready.add(r.dataset_key)
                 if r.dataset_id is not None:
                     unsettled.add(r.dataset_id)
-        results = await get_processing_port().apply_manifest_maps(
-            db,
-            maps,
-            user,
-            dry_run=request.dry_run,
-            dataset_ids_by_key={
-                **{key: id_ for key, id_ in bindings.items() if key not in not_ready},
-                **{
-                    key: dataset_id
-                    for key, dataset_id in ready.items()
-                    if key not in not_ready
+        # Resolved before any map is written: a share link the apply mints
+        # can be read only from its result, never again. Without it, a map
+        # that would mint one publishes without it.
+        app_url = None if request.dry_run else await _share_base_url(db, http_request)
+        with withholding_share_links(db, not request.dry_run and app_url is None):
+            results = await get_processing_port().apply_manifest_maps(
+                db,
+                maps,
+                user,
+                dry_run=request.dry_run,
+                dataset_ids_by_key={
+                    **{
+                        key: id_
+                        for key, id_ in bindings.items()
+                        if key not in not_ready
+                    },
+                    **{
+                        key: dataset_id
+                        for key, dataset_id in ready.items()
+                        if key not in not_ready
+                    },
                 },
-            },
-            pending_datasets=pending,
-            unsettled_dataset_ids=frozenset(unsettled),
-            public_fallback=request.public_fallback,
-            client=request.client,
-            ip_address=(
-                http_request.client.host
-                if http_request is not None and http_request.client
-                else None
-            ),
-        )
-        return [ManifestMapResult.model_validate(result) for result in results]
+                pending_datasets=pending,
+                unsettled_dataset_ids=frozenset(unsettled),
+                public_fallback=request.public_fallback,
+                client=request.client,
+                ip_address=(
+                    http_request.client.host
+                    if http_request is not None and http_request.client
+                    else None
+                ),
+            )
+        return [_map_result(result, app_url) for result in results]
     except Exception:  # broad: the dataset results above must still reach the caller
         log.exception("manifest_maps_check_failed")
         return [_failed(entry.key, MAPS_CHECK_FAILED) for entry in maps]

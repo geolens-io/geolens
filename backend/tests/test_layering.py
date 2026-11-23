@@ -1210,8 +1210,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Page search and its counts share one candidate and semantic-window selection.
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,
-        # restricted maps' group members and embed tokens included.
-        "backend/app/modules/catalog/maps/service_public.py": 1156,
+        # restricted maps' group members and embed tokens included, beside the
+        # share-link lifecycle they gate.
+        "backend/app/modules/catalog/maps/service_public.py": 1170,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 662,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
@@ -1322,9 +1323,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # maps section's results beside the datasets'.
     "backend/app/processing/ingest/manifest_service.py": 1379,
     # One map's check, plan and write: the styling decision, layer matching, the
-    # history event and the result's visibility, groups and removed layers share
-    # the row lock the apply holds.
-    "backend/app/modules/catalog/maps/manifest_apply.py": 1018,
+    # history event, the share link and the result's visibility, groups and
+    # removed layers share the row lock the apply holds.
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1036,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,

@@ -12,12 +12,18 @@ STYLING_KEPT = "A070"
 NOTES_NOT_WRITTEN = "A071"
 THUMBNAIL_NOT_STORED = "A072"
 KEPT_LAYER_DATASET = "A073"
+SHARE_LINK_NOT_CREATED = "A074"
 KEY_NOT_WRITABLE = "A050"
 DATASET_NOT_READY = "A052"
 LAYER_REMOVED = "A059"
 STYLE_KEY_DROPPED = "A062"
 COLUMN_MISSING = "A063"
 OTHER_REFUSAL = "A099"
+
+SHARE_LINK_WITHHELD = (
+    "The map's share link wasn't created because no web app address is "
+    "configured. Set PUBLIC_APP_URL, or create the link in the web app."
+)
 
 MAX_REPORTED_ERRORS = 5
 # Names in a message come from the caller, so a message lists only so many.

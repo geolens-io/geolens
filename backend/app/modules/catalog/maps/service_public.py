@@ -285,7 +285,13 @@ async def create_share_token(
     expires_at: datetime | None = None,
     expires_in_days: ShareExpirationPresetDays | int | None = None,
 ) -> MapShareToken:
-    """Create a share token for a map. Reuses existing token if one exists. Does NOT commit."""
+    """Create a share token for a map. Does NOT commit.
+
+    A live link is reused, under its token and expiry. A revoked or expired
+    one gets a new token, and an expiry that has passed is cleared unless the
+    call sets one. The raw token of a new or replaced link is left on the
+    returned object as ``_raw_token``.
+    """
     resolved_expiration = _resolve_share_expiration(expires_at, expires_in_days)
     await lock_map_layers(session, map_id)
     # Read under the lock: a change to private may have committed since the
@@ -306,9 +312,17 @@ async def create_share_token(
     )
     token_obj = existing.scalar_one_or_none()
     if token_obj is not None:
-        if expires_at is not None or expires_in_days is not None:
+        requested = expires_at is not None or expires_in_days is not None
+        if requested:
             token_obj.expires_at = resolved_expiration
-        if not token_obj.is_active:
+        lapsed = token_obj.expires_at is not None and token_obj.expires_at < (
+            datetime.now(timezone.utc)
+        )
+        if not token_obj.is_active or lapsed:
+            # A link that isn't live is replaced, never revived under its old
+            # token or with an expiry that has already passed.
+            if lapsed and not requested:
+                token_obj.expires_at = None
             token_obj.is_active = True
             # 32 bytes (256 bits), as for embed tokens. Existing 16-byte
             # tokens still validate: the lookup is by sha256 hash.
