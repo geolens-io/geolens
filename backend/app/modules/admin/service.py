@@ -6,6 +6,7 @@ from typing import Any
 
 import structlog
 from sqlalchemy import delete, func, nulls_last, select, text, update
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import InstrumentedAttribute
 
@@ -20,6 +21,7 @@ from app.modules.auth.oauth.models import OAuthAccount, OAuthProvider
 from app.modules.auth.providers.local import hash_password_async
 from app.modules.auth.service import AuthService
 from app.modules.catalog.group_access import reactivate_member_access
+from app.core.db.sqlstate import is_deadlock
 from app.core.identity import Identity
 from app.core.text import escape_ilike
 from app.platform.catalog_locks import (
@@ -34,6 +36,9 @@ logger = structlog.stdlib.get_logger(__name__)
 # locking individual User rows is insufficient when two admins concurrently
 # deactivate each other (each operation targets a different row).
 _ADMIN_LIFECYCLE_LOCK_KEY = 0x47454F4C41444D49  # "GEOLADMI"
+
+# Tries a user delete gets before a deadlock answers 503.
+_DELETE_USER_ATTEMPTS = 3
 
 # Inner half of the user-list sort allowlist (outer: UserSortField in
 # schemas.py). A sort key is only ever a dict lookup, so an unmapped value
@@ -226,11 +231,17 @@ class AdminService:
         if await self._get_other_admin_count(exclude_user_id=user.id) == 0:
             raise ValueError(f"Cannot {action} the last admin user")
 
-    async def _get_lifecycle_user(self, user_id: uuid.UUID) -> User:
+    async def _get_lifecycle_user(
+        self, user_id: uuid.UUID, *, lock_held: bool = False
+    ) -> User:
         """Lock the invariant and return the latest target user row."""
-        await self._lock_admin_lifecycle()
+        if not lock_held:
+            await self._lock_admin_lifecycle()
         result = await self.db.execute(
-            select(User).where(User.id == user_id).with_for_update()
+            select(User)
+            .where(User.id == user_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
         )
         user = result.scalar_one_or_none()
         if user is None:
@@ -780,8 +791,30 @@ class AdminService:
 
         Raises ValueError for self-deletion, last-admin deletion, or not found.
         FK SET NULL handles audit_logs, datasets, ingest_jobs automatically.
+
+        The delete's foreign keys reach rows that other writers take in other
+        orders (a dataset delete takes its job rows before the membership rows
+        this reaches first), so PostgreSQL can pick it as a deadlock victim.
+        Each attempt runs in a savepoint: rolling it back releases the rows it
+        took, the other transaction finishes, and the next attempt runs after
+        it. The last attempt's deadlock propagates.
         """
-        user = await self._get_lifecycle_user(user_id)
+        await self._lock_admin_lifecycle()
+        attempt = 1
+        while True:
+            try:
+                async with self.db.begin_nested():
+                    return await self._delete_user_rows(user_id, current_user_id)
+            except DBAPIError as exc:
+                if attempt == _DELETE_USER_ATTEMPTS or not is_deadlock(exc):
+                    raise
+                logger.warning("user_delete_deadlock_retry", attempt=attempt)
+                attempt += 1
+
+    async def _delete_user_rows(
+        self, user_id: uuid.UUID, current_user_id: uuid.UUID
+    ) -> str:
+        user = await self._get_lifecycle_user(user_id, lock_held=True)
 
         if user_id == current_user_id:
             raise ValueError("Cannot delete your own account")
