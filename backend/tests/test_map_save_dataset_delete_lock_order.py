@@ -81,6 +81,9 @@ async def world(client: AsyncClient, admin_auth_header: dict, test_db_session):
         sa.select(MapLayer.id).where(MapLayer.map_id == created.map_id)
     )
     yield world
+    await test_db_session.rollback()
+    await test_db_session.execute(sa.delete(Map).where(Map.id == world["map_id"]))
+    await test_db_session.commit()
     await _cleanup_data_table(test_db_session, world["table"])
 
 

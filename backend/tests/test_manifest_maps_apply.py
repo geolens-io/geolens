@@ -130,8 +130,14 @@ async def _history(session, map_id) -> list[MapEditHistoryEvent]:
     return list(rows.scalars())
 
 
-async def _count(session, model) -> int:
-    return await session.scalar(select(func.count()).select_from(model))
+async def _count(session, model, *keys: str) -> int:
+    """Rows of ``model`` on the maps published under ``keys``, so maps other
+    tests committed don't count."""
+    maps = select(Map.id).where(Map.manifest_key.in_(keys))
+    column = Map.id if model is Map else model.map_id
+    return await session.scalar(
+        select(func.count()).select_from(model).where(column.in_(maps))
+    )
 
 
 def _as_publish_key(session) -> None:
@@ -240,7 +246,7 @@ async def test_a_republish_keeps_the_map_and_each_keyed_layer_row(
     ]
     assert (stored[1].opacity, stored[1].display_name) == (0.25, "Parks")
     assert (await _map_row(test_db_session, created.map_id)).name == "Renamed"
-    assert await _count(test_db_session, Map) == 1
+    assert await _count(test_db_session, Map, "qgis-map-parks") == 1
 
 
 async def test_a_republish_adds_new_keys_and_removes_missing_ones(
@@ -430,7 +436,7 @@ async def test_a_caller_without_edit_metadata_gets_a003(
     ).maps
 
     assert _codes(result) == [("A003", "error", None)]
-    assert await _count(test_db_session, Map) == 0
+    assert await _count(test_db_session, Map, "qgis-map-viewer") == 0
 
 
 class _Inserts:
@@ -470,7 +476,7 @@ async def test_a_layer_on_a_dataset_the_caller_cant_read_writes_no_map_row(
     assert (late.action, _codes(late)) == ("error", [("A099", "error", None)])
     assert "Cannot access" in late.messages[0].message
     assert inserts.maps == 0
-    assert await _count(test_db_session, Map) == 0
+    assert await _count(test_db_session, Map, "qgis-map-peek") == 0
 
 
 async def test_a_dataset_a_map_cant_show_is_refused_and_a_table_is_noted(
@@ -497,7 +503,7 @@ async def test_a_dataset_a_map_cant_show_is_refused_and_a_table_is_noted(
             ("A099", "error", "tileset"),
             ("A032", "info", "table"),
         ]
-    assert await _count(test_db_session, Map) == 0
+    assert await _count(test_db_session, Map, "qgis-map-kinds", "qgis-map-table") == 0
     [table_only] = (
         await _apply(
             test_db_session,
@@ -537,7 +543,7 @@ async def test_a_public_map_over_a_private_dataset_is_a020_in_both_runs(
     assert (fell_back.action, fell_back.visibility) == ("create", "internal")
     assert _codes(fell_back) == [("A020", "warning", None)]
     assert (await _map_row(test_db_session, fell_back.map_id)).visibility == "internal"
-    assert await _count(test_db_session, Map) == 1
+    assert await _count(test_db_session, Map, "qgis-map-open") == 1
 
 
 async def test_a_dry_run_judges_the_requests_own_datasets_as_they_publish(
@@ -771,7 +777,7 @@ async def test_one_maps_failed_write_leaves_the_other_maps_written(
     assert (failed.action, _codes(failed)) == ("error", [("A099", "error", None)])
     names = (await test_db_session.scalars(select(Map.name))).all()
     assert names == ["A"]
-    assert await _count(test_db_session, MapLayer) == 1
+    assert await _count(test_db_session, MapLayer, "qgis-map-a", "qgis-map-b") == 1
 
 
 async def test_applies_of_one_key_wait_for_its_lock(test_db_session, clean_tables):
@@ -811,7 +817,7 @@ async def test_applies_of_one_key_wait_for_its_lock(test_db_session, clean_table
 
     [result] = (await apply).maps
     assert result.action == "update"
-    assert await _count(test_db_session, Map) == 1
+    assert await _count(test_db_session, Map, "qgis-map-race") == 1
 
 
 # ---------------------------------------------------------------------------
@@ -1146,7 +1152,7 @@ async def test_an_apply_writes_a_layer_only_on_a_settled_dataset(
         assert (result.action, result.messages) == ("create", [])
     else:
         assert _codes(result) == [("A052", "error", "parks")]
-    assert await _count(test_db_session, Map) == int(written)
+    assert await _count(test_db_session, Map, "qgis-map-a") == int(written)
 
 
 @pytest.mark.parametrize("form", ["key", "id"])
@@ -1175,7 +1181,7 @@ async def test_a_public_map_over_a_dataset_the_request_narrows_is_not_written(
     [result] = await run_manifest_maps(test_db_session, request, admin, results)
 
     assert _codes(result) == [("A052", "error", "parks")]
-    assert await _count(test_db_session, Map) == 0
+    assert await _count(test_db_session, Map, "qgis-map-a") == 0
 
 
 @pytest.mark.parametrize("form", ["key", "id"])
@@ -1205,7 +1211,7 @@ async def test_a_key_with_a_job_in_flight_answers_a052(
     ).maps
 
     assert _codes(result) == [("A052", "error", "parks")]
-    assert await _count(test_db_session, Map) == 0
+    assert await _count(test_db_session, Map, "qgis-map-a") == 0
 
 
 async def test_a_dry_run_and_an_apply_report_the_visibility_groups_leave(
@@ -1282,7 +1288,7 @@ async def test_a_layer_past_the_size_cap_once_renamed_is_refused(
 
     assert (result.action, _codes(result)) == ("error", [("A099", "error", "parks")])
     assert "too large" in result.messages[0].message
-    assert await _count(test_db_session, Map) == 0
+    assert await _count(test_db_session, Map, "qgis-map-big") == 0
 
 
 async def test_a_reupload_in_flight_holds_a_layer_named_by_id(
@@ -1345,7 +1351,7 @@ async def test_a_completed_skip_is_judged_on_the_dataset_as_it_is(
     [result] = await run_manifest_maps(test_db_session, request, admin, results)
 
     assert _codes(result) == [("A020", "error", None)]
-    assert await _count(test_db_session, Map) == 0
+    assert await _count(test_db_session, Map, "qgis-map-a") == 0
 
 
 async def test_an_apply_refuses_a_symbol_icon_that_isnt_a_name(
@@ -1367,7 +1373,7 @@ async def test_an_apply_refuses_a_symbol_icon_that_isnt_a_name(
     ).maps
 
     assert _codes(result) == [("A099", "error", "parks")]
-    assert await _count(test_db_session, Map) == 0
+    assert await _count(test_db_session, Map, "qgis-map-icons") == 0
 
 
 @pytest.mark.parametrize("names_dataset", [True, False])
@@ -1397,7 +1403,7 @@ async def test_a_failed_entrys_dataset_supplies_no_layer(
     [result] = await run_manifest_maps(test_db_session, request, admin, results)
 
     assert _codes(result) == [("A052", "error", "parks")]
-    assert await _count(test_db_session, Map) == 0
+    assert await _count(test_db_session, Map, "qgis-map-a") == 0
 
 
 async def test_a_replacement_queued_while_the_apply_waits_answers_a052(
