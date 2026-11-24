@@ -1956,6 +1956,14 @@
             ],
             "description": "Initial rotation in degrees.",
             "title": "Bearing"
+          },
+          "bookmarks": {
+            "description": "The bookmarks the map gets.",
+            "items": {
+              "$ref": "#/components/schemas/MapBookmark"
+            },
+            "title": "Bookmarks",
+            "type": "array"
           }
         },
         "required": [
@@ -9913,6 +9921,13 @@
               }
             ]
           },
+          "bookmarks": {
+            "items": {
+              "$ref": "#/components/schemas/MapBookmark"
+            },
+            "title": "Bookmarks",
+            "type": "array"
+          },
           "visibility": {
             "$ref": "#/components/schemas/MapVisibility"
           },
@@ -12689,6 +12704,9 @@
               "discriminator": {
                 "mapping": {
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
+                  "manifest_attribute_unmatched": "#/components/schemas/ManifestAttributeUnmatchedWarning",
+                  "manifest_collection_refused": "#/components/schemas/ManifestCollectionRefusedWarning",
+                  "manifest_public_fallback": "#/components/schemas/ManifestPublicFallbackWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
                   "reserved_rename": "#/components/schemas/ReservedRenameWarning",
                   "zm_dropped": "#/components/schemas/ZmDroppedWarning"
@@ -12707,6 +12725,15 @@
                 },
                 {
                   "$ref": "#/components/schemas/ZmDroppedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestCollectionRefusedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestAttributeUnmatchedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestPublicFallbackWarning"
                 }
               ]
             },
@@ -12869,6 +12896,9 @@
               "discriminator": {
                 "mapping": {
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
+                  "manifest_attribute_unmatched": "#/components/schemas/ManifestAttributeUnmatchedWarning",
+                  "manifest_collection_refused": "#/components/schemas/ManifestCollectionRefusedWarning",
+                  "manifest_public_fallback": "#/components/schemas/ManifestPublicFallbackWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
                   "reserved_rename": "#/components/schemas/ReservedRenameWarning",
                   "zm_dropped": "#/components/schemas/ZmDroppedWarning"
@@ -12887,6 +12917,15 @@
                 },
                 {
                   "$ref": "#/components/schemas/ZmDroppedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestCollectionRefusedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestAttributeUnmatchedWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestPublicFallbackWarning"
                 }
               ]
             },
@@ -13602,6 +13641,44 @@
             },
             "title": "Errors",
             "type": "array"
+          },
+          "messages": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ManifestMessage"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Coded messages for the entry. Left out in manifest version 1.",
+            "title": "Messages"
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who can see the dataset once the entry's job finishes: the level the entry writes, or the stored one when it writes none. Null when the entry failed or the dataset can't be read. Left out in manifest version 1.",
+            "title": "Visibility"
+          },
+          "links": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestDatasetLinks"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Links to the dataset. Null when there is no dataset yet or the caller can't read it. Left out in manifest version 1."
           }
         },
         "required": [
@@ -13616,7 +13693,11 @@
         "additionalProperties": false,
         "properties": {
           "manifest_version": {
-            "const": "1",
+            "description": "Manifest format. Version 2 adds `client`, which it requires, and `upload:<job_id>` sources. Version 2 is a preview and may change in any release until the desktop connectors ship; version 1 is stable.",
+            "enum": [
+              "1",
+              "2"
+            ],
             "title": "Manifest Version",
             "type": "string"
           },
@@ -13624,11 +13705,11 @@
             "$ref": "#/components/schemas/ManifestCatalog"
           },
           "datasets": {
+            "description": "Required, with at least one entry, in version 1. In version 2 it may be empty, or left out, when `maps` is not.",
             "items": {
               "$ref": "#/components/schemas/ManifestDataset"
             },
             "maxItems": 100,
-            "minItems": 1,
             "title": "Datasets",
             "type": "array"
           },
@@ -13636,12 +13717,51 @@
             "default": false,
             "title": "Dry Run",
             "type": "boolean"
+          },
+          "client": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestClient"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The publishing client. Required in version 2, refused in 1."
+          },
+          "public_fallback": {
+            "anyOf": [
+              {
+                "const": "internal",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version 2 only. When public visibility is refused for an entry, write it as internal with warning A020 instead of failing it.",
+            "title": "Public Fallback"
+          },
+          "maps": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ManifestMap"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version 2 only, which is a preview. Maps built from datasets the caller can read, created or updated by key after the request's datasets. A dry run answers for the whole publish, so a layer may name a dataset the same request publishes. An apply writes a layer only once its dataset's job is complete: a layer, by dataset key or id, on a dataset the request creates, replaces or holds, or on one with a job still running, answers A052, and the map is sent again once the jobs finish.",
+            "title": "Maps"
           }
         },
         "required": [
           "manifest_version",
-          "catalog",
-          "datasets"
+          "catalog"
         ],
         "title": "ManifestApplyRequest",
         "type": "object"
@@ -13662,6 +13782,21 @@
             },
             "title": "Results",
             "type": "array"
+          },
+          "maps": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ManifestMapResult"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "One result per map, in request order. Left out in version 1.",
+            "title": "Maps"
           }
         },
         "required": [
@@ -13670,6 +13805,95 @@
           "results"
         ],
         "title": "ManifestApplyResponse",
+        "type": "object"
+      },
+      "ManifestAttribute": {
+        "additionalProperties": false,
+        "description": "Per-column text for the column named ``source_name`` in the uploaded file.",
+        "properties": {
+          "source_name": {
+            "minLength": 1,
+            "title": "Source Name",
+            "type": "string"
+          },
+          "title": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "units": {
+            "anyOf": [
+              {
+                "maxLength": 50,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Units"
+          }
+        },
+        "required": [
+          "source_name"
+        ],
+        "title": "ManifestAttribute",
+        "type": "object"
+      },
+      "ManifestAttributeUnmatchedDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "source_names": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Source Names",
+            "type": "array"
+          }
+        },
+        "required": [
+          "source_names"
+        ],
+        "title": "ManifestAttributeUnmatchedDetail",
+        "type": "object"
+      },
+      "ManifestAttributeUnmatchedWarning": {
+        "additionalProperties": false,
+        "description": "Publish manifest code A092: these attribute names matched no column.",
+        "properties": {
+          "kind": {
+            "const": "manifest_attribute_unmatched",
+            "title": "Kind",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ManifestAttributeUnmatchedDetail"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "ManifestAttributeUnmatchedWarning",
         "type": "object"
       },
       "ManifestCatalog": {
@@ -13722,6 +13946,134 @@
           "title"
         ],
         "title": "ManifestCatalog",
+        "type": "object"
+      },
+      "ManifestClient": {
+        "additionalProperties": false,
+        "description": "The publishing client that built the manifest.",
+        "properties": {
+          "id": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Id",
+            "type": "string"
+          },
+          "version": {
+            "maxLength": 100,
+            "minLength": 1,
+            "title": "Version",
+            "type": "string"
+          },
+          "app": {
+            "anyOf": [
+              {
+                "maxLength": 200,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "App"
+          },
+          "project": {
+            "anyOf": [
+              {
+                "maxLength": 500,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Project"
+          }
+        },
+        "required": [
+          "id",
+          "version"
+        ],
+        "title": "ManifestClient",
+        "type": "object"
+      },
+      "ManifestCollectionRef": {
+        "additionalProperties": false,
+        "description": "A collection by id, or by name, which apply creates when the caller may.",
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          }
+        },
+        "title": "ManifestCollectionRef",
+        "type": "object"
+      },
+      "ManifestCollectionRefusedDetail": {
+        "additionalProperties": false,
+        "description": "The collection a manifest asked for that the dataset was not added to.",
+        "properties": {
+          "collection_id": {
+            "title": "Collection Id",
+            "type": "string"
+          },
+          "reason": {
+            "default": "refused",
+            "description": "refused: the submitter can't add datasets to the collection. busy: another change held the collection too long; publishing again may add the dataset.",
+            "enum": [
+              "refused",
+              "busy"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "collection_id"
+        ],
+        "title": "ManifestCollectionRefusedDetail",
+        "type": "object"
+      },
+      "ManifestCollectionRefusedWarning": {
+        "additionalProperties": false,
+        "description": "Publish manifest code A033: the dataset was published without its collection.",
+        "properties": {
+          "kind": {
+            "const": "manifest_collection_refused",
+            "title": "Kind",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ManifestCollectionRefusedDetail"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "ManifestCollectionRefusedWarning",
         "type": "object"
       },
       "ManifestContact": {
@@ -13821,6 +14173,50 @@
           },
           "publication": {
             "$ref": "#/components/schemas/ManifestPublication"
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "private",
+                  "internal",
+                  "public"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who can see the dataset. Version 2 only. Omitted on create the dataset is private; omitted on update the current level is kept.",
+            "title": "Visibility"
+          },
+          "collection": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestCollectionRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Collection to add the dataset to. Version 2 only. Adding needs the manage_collections permission and ownership of the collection; otherwise the entry carries warning A033."
+          },
+          "attributes": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ManifestAttribute"
+                },
+                "maxItems": 500,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Per-column title, description and units, by column name in the uploaded file. Version 2 only. A null field keeps the stored text; a name matching no column is warning A092.",
+            "title": "Attributes"
           }
         },
         "required": [
@@ -13830,6 +14226,658 @@
           "publication"
         ],
         "title": "ManifestDataset",
+        "type": "object"
+      },
+      "ManifestDatasetLinks": {
+        "description": "Absolute links to a dataset, each one a route the server serves.",
+        "properties": {
+          "page": {
+            "description": "The dataset's page in the web app.",
+            "title": "Page",
+            "type": "string"
+          },
+          "items": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The OGC API Features items. Null for a dataset with no items.",
+            "title": "Items"
+          },
+          "tiles": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The vector tile URL template, with {z}, {x} and {y}. Null for a dataset with no vector tiles, and while a job is still writing the dataset (queued, running or held): read the template again once it completes. A private dataset's tiles need the caller's API key header.",
+            "title": "Tiles"
+          }
+        },
+        "required": [
+          "page"
+        ],
+        "title": "ManifestDatasetLinks",
+        "type": "object"
+      },
+      "ManifestLossItem": {
+        "additionalProperties": false,
+        "properties": {
+          "path": {
+            "minLength": 1,
+            "title": "Path",
+            "type": "string"
+          },
+          "kind": {
+            "minLength": 1,
+            "title": "Kind",
+            "type": "string"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "required": [
+          "path",
+          "kind"
+        ],
+        "title": "ManifestLossItem",
+        "type": "object"
+      },
+      "ManifestLossReport": {
+        "additionalProperties": false,
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ManifestLossItem"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "summary": {
+            "additionalProperties": {
+              "minimum": 0.0,
+              "type": "integer"
+            },
+            "title": "Summary",
+            "type": "object"
+          }
+        },
+        "title": "ManifestLossReport",
+        "type": "object"
+      },
+      "ManifestMap": {
+        "additionalProperties": false,
+        "properties": {
+          "key": {
+            "description": "Stable map identity key, unique across the server. A key on a map the caller can't edit answers A050.",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "name": {
+            "maxLength": 255,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "view": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestMapView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "basemap_style": {
+            "anyOf": [
+              {
+                "maxLength": 2000,
+                "minLength": 1,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A basemap id from GET /capabilities.",
+            "title": "Basemap Style"
+          },
+          "styling": {
+            "default": "replace_if_unedited",
+            "description": "Whether a republish replaces the map's styling: its view, basemap, bookmarks and its keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless styling it would write was edited in GeoLens since the last publish that replaced it, and answers info A070 when it keeps it. A view or basemap edit counts only when the manifest sends a `view` or `basemap_style` that would overwrite it, and a bookmarks edit only when it sends `bookmarks`. A kept layer keeps its dataset too, with warning A073 when the manifest names another. Name, description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's styling.",
+            "enum": [
+              "replace_if_unedited",
+              "replace",
+              "keep"
+            ],
+            "title": "Styling",
+            "type": "string"
+          },
+          "thumbnail": {
+            "anyOf": [
+              {
+                "maxLength": 100000,
+                "minLength": 22,
+                "pattern": "^data:image/(?:png|jpeg);base64,[A-Za-z0-9+/]+={0,2}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A PNG or JPEG data URI, stored as the map's thumbnail once the map is written, with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling leaves the map's thumbnail as it is. One the storage step refuses or can't store is warning A072, and the map stays published.",
+            "title": "Thumbnail"
+          },
+          "loss_report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestLossReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Written, one line per item, in a block at the top of the map's notes, above a `---` line. A republish replaces the leading block only when it is exactly a block some publish of this map wrote; all other text is kept whole. Left out when the styling is kept, and cut to what fits the notes limit. When the notes leave no room for the block, none is written, and an earlier publish's block is removed if the notes start with one; the rest of the notes is untouched (info A071)."
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "enum": [
+                  "private",
+                  "internal",
+                  "public"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who can see the map. Omitted on create the map is private; omitted on update the current level is kept.",
+            "title": "Visibility"
+          },
+          "layers": {
+            "items": {
+              "$ref": "#/components/schemas/ManifestMapLayer"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "title": "Layers",
+            "type": "array"
+          },
+          "bookmarks": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MapBookmark"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Named areas, in display order (max 100). Part of the map's styling: a republish that applies styling replaces the map's bookmarks with these, and an empty list removes them. Left out, the map's bookmarks are kept.",
+            "title": "Bookmarks"
+          }
+        },
+        "required": [
+          "key",
+          "name",
+          "layers"
+        ],
+        "title": "ManifestMap",
+        "type": "object"
+      },
+      "ManifestMapLayer": {
+        "additionalProperties": false,
+        "description": "One map layer. Column names in its styling are the uploaded file's.",
+        "properties": {
+          "key": {
+            "description": "Stable layer identity key, unique within its map.",
+            "maxLength": 128,
+            "minLength": 1,
+            "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+            "title": "Key",
+            "type": "string"
+          },
+          "dataset_key": {
+            "anyOf": [
+              {
+                "description": "Stable dataset identity key used for idempotent apply operations.",
+                "maxLength": 128,
+                "minLength": 1,
+                "pattern": "^[a-z0-9][a-z0-9._-]{0,127}$",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A dataset the caller published under this key. Exactly one of dataset_key and dataset_id.",
+            "title": "Dataset Key"
+          },
+          "dataset_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A dataset already in GeoLens that the caller can read.",
+            "title": "Dataset Id"
+          },
+          "display_name": {
+            "anyOf": [
+              {
+                "maxLength": 255,
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Name"
+          },
+          "visible": {
+            "default": true,
+            "title": "Visible",
+            "type": "boolean"
+          },
+          "opacity": {
+            "default": 1.0,
+            "maximum": 1.0,
+            "minimum": 0.0,
+            "title": "Opacity",
+            "type": "number"
+          },
+          "min_zoom": {
+            "anyOf": [
+              {
+                "maximum": 24.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min Zoom"
+          },
+          "max_zoom": {
+            "anyOf": [
+              {
+                "maximum": 24.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max Zoom"
+          },
+          "style_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The builder's style description. Unknown top-level keys are dropped with info A062. A symbol's icon and its categories' icons are icon names; any other value is refused with A099.",
+            "title": "Style Config"
+          },
+          "paint": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Paint"
+          },
+          "layout": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Layout"
+          },
+          "filter": {
+            "anyOf": [
+              {
+                "items": {},
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filter"
+          },
+          "label_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Text labels. Unknown keys are dropped with info A062.",
+            "title": "Label Config"
+          },
+          "popup_config": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Popup Config"
+          },
+          "show_in_legend": {
+            "default": true,
+            "title": "Show In Legend",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "key"
+        ],
+        "title": "ManifestMapLayer",
+        "type": "object"
+      },
+      "ManifestMapLinks": {
+        "description": "Absolute links to a map.",
+        "properties": {
+          "viewer": {
+            "description": "The map in the web app.",
+            "title": "Viewer",
+            "type": "string"
+          },
+          "share": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The public map's share link, sent once, by the publish that created it. Share links are stored hashed and can't be read back, so keep it: later publishes send null, as does a publish of a map that isn't public, a dry run and a map in error. When no web app address is configured (PUBLIC_APP_URL, or a hosted tenant's own origin), no link is created, this is null, and the map answers info A074.",
+            "title": "Share"
+          },
+          "embed": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "An iframe snippet that embeds the share link, sent with `share` and null whenever it is.",
+            "title": "Embed"
+          }
+        },
+        "required": [
+          "viewer"
+        ],
+        "title": "ManifestMapLinks",
+        "type": "object"
+      },
+      "ManifestMapResult": {
+        "properties": {
+          "map_key": {
+            "title": "Map Key",
+            "type": "string"
+          },
+          "action": {
+            "description": "What apply did, or in a dry run would do, with the map. A map with an error message is `error`, and nothing was written for it.",
+            "enum": [
+              "create",
+              "update",
+              "skip",
+              "error"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "map_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The map the key names, when the caller may edit it, or the map an apply created.",
+            "title": "Map Id"
+          },
+          "messages": {
+            "items": {
+              "$ref": "#/components/schemas/ManifestMessage"
+            },
+            "title": "Messages",
+            "type": "array"
+          },
+          "visibility": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who can see the map after the apply, or in a dry run would. Null for a map in error.",
+            "title": "Visibility"
+          },
+          "styling": {
+            "anyOf": [
+              {
+                "enum": [
+                  "applied",
+                  "kept"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`applied` when the manifest's styling replaced the map's, `kept` when the map kept its own. Null for a map in error.",
+            "title": "Styling"
+          },
+          "groups": {
+            "description": "Names of the groups the map is shared with.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Groups",
+            "type": "array"
+          },
+          "links": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ManifestMapLinks"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Links to the map. Null while the map doesn't exist yet."
+          },
+          "removed_layers": {
+            "description": "Keyed layers the manifest no longer lists and the caller can read, removed from the map (info A059). Their datasets stay. One on a dataset the caller can't read stays on the map.",
+            "items": {
+              "$ref": "#/components/schemas/ManifestRemovedLayer"
+            },
+            "title": "Removed Layers",
+            "type": "array"
+          }
+        },
+        "required": [
+          "map_key",
+          "action"
+        ],
+        "title": "ManifestMapResult",
+        "type": "object"
+      },
+      "ManifestMapView": {
+        "additionalProperties": false,
+        "properties": {
+          "center": {
+            "description": "Longitude and latitude, WGS84.",
+            "maxItems": 2,
+            "minItems": 2,
+            "prefixItems": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "maximum": 90.0,
+                "minimum": -90.0,
+                "type": "number"
+              }
+            ],
+            "title": "Center",
+            "type": "array"
+          },
+          "zoom": {
+            "maximum": 24.0,
+            "minimum": 0.0,
+            "title": "Zoom",
+            "type": "number"
+          },
+          "bearing": {
+            "default": 0,
+            "maximum": 180.0,
+            "minimum": -180.0,
+            "title": "Bearing",
+            "type": "number"
+          },
+          "pitch": {
+            "default": 0,
+            "maximum": 85.0,
+            "minimum": 0.0,
+            "title": "Pitch",
+            "type": "number"
+          }
+        },
+        "required": [
+          "center",
+          "zoom"
+        ],
+        "title": "ManifestMapView",
+        "type": "object"
+      },
+      "ManifestMessage": {
+        "properties": {
+          "code": {
+            "description": "Stable code, for example `A020`.",
+            "title": "Code",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "error",
+              "warning",
+              "info"
+            ],
+            "title": "Severity",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "fix": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fix"
+          },
+          "layer": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The map layer key the message is about. Left out otherwise.",
+            "title": "Layer"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "ManifestMessage",
         "type": "object"
       },
       "ManifestMetadata": {
@@ -13925,6 +14973,45 @@
         "title": "ManifestMetadata",
         "type": "object"
       },
+      "ManifestPublicFallbackDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "description": "key: a publish key can't make anything public. restriction: public visibility is restricted to admins on this server.",
+            "enum": [
+              "key",
+              "restriction"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
+        ],
+        "title": "ManifestPublicFallbackDetail",
+        "type": "object"
+      },
+      "ManifestPublicFallbackWarning": {
+        "additionalProperties": false,
+        "description": "Publish manifest code A020: public was refused when the job ran, so\nthe dataset was shared with the organization instead.",
+        "properties": {
+          "kind": {
+            "const": "manifest_public_fallback",
+            "title": "Kind",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ManifestPublicFallbackDetail"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "ManifestPublicFallbackWarning",
+        "type": "object"
+      },
       "ManifestPublication": {
         "additionalProperties": false,
         "properties": {
@@ -13942,6 +15029,52 @@
         "title": "ManifestPublication",
         "type": "object"
       },
+      "ManifestRemovedLayer": {
+        "properties": {
+          "key": {
+            "description": "The removed layer's key.",
+            "title": "Key",
+            "type": "string"
+          },
+          "dataset_id": {
+            "description": "Its dataset, which stays on the server.",
+            "format": "uuid",
+            "title": "Dataset Id",
+            "type": "string"
+          },
+          "layer_id": {
+            "anyOf": [
+              {
+                "format": "uuid",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The removed layer's id, which no longer names a layer.",
+            "title": "Layer Id"
+          },
+          "link": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The dataset's page in the web app, to delete it there.",
+            "title": "Link"
+          }
+        },
+        "required": [
+          "key",
+          "dataset_id"
+        ],
+        "title": "ManifestRemovedLayer",
+        "type": "object"
+      },
       "ManifestSource": {
         "additionalProperties": false,
         "properties": {
@@ -13955,10 +15088,10 @@
             "type": "string"
           },
           "uri": {
-            "description": "Relative path (no `..` traversal), HTTP(S) URL, or s3:// storage URI.",
+            "description": "Relative path (no `..` traversal), HTTP(S) URL, s3:// storage URI, or, in manifest_version 2, `upload:<job_id>` naming a pending upload the caller made.",
             "maxLength": 2000,
             "minLength": 1,
-            "pattern": "^(?:(?:\\./)?[^\\s:/][^\\s:]*|https?://[^\\s]+|s3://[^\\s]+)$",
+            "pattern": "^(?:(?:\\./)?[^\\s:/][^\\s:]*|https?://[^\\s]+|s3://[^\\s]+|upload:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})$",
             "title": "Uri",
             "type": "string"
           },
@@ -14017,7 +15150,7 @@
           "checksum": {
             "anyOf": [
               {
-                "description": "Declared SHA-256 digest of the source bytes, as 'sha256:<64 lowercase hex characters>'. Apply uses this only as a change-detection input alongside the rest of the entry; it is not verified against the fetched bytes. For a vector source, bump it when the file under a stable URI changes, to force apply to reclassify the entry as an update instead of skipping it. Manifest raster updates are not supported: do not set or change checksum on a raster_cog source, because a changed value there makes apply report that entry as an error ('Manifest raster updates are not supported; create a new raster dataset instead.'), not a skip. An unchanged raster entry, checksum included, still skips normally.",
+                "description": "Declared SHA-256 digest of the source bytes, as 'sha256:<64 lowercase hex characters>'. Required on an `upload:` source, where apply checks it against the uploaded file and refuses the entry when they differ. On any other source apply uses it only as a change-detection input alongside the rest of the entry; it is not verified against the fetched bytes. Bump it when the file under a stable URI changes, to force apply to reclassify the entry as an update instead of skipping it. An update of a raster_cog entry replaces the raster's data on the same dataset. A publish key can't replace a raster, because a replaced raster can't be restored: apply reports that entry as an error (A054 in version 2) and queues nothing.",
                 "maxLength": 71,
                 "minLength": 71,
                 "pattern": "^sha256:[0-9a-f]{64}$",
@@ -14055,6 +15188,62 @@
           "can_edit"
         ],
         "title": "MapAccessResponse",
+        "type": "object"
+      },
+      "MapBookmark": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "description": "Bookmark name",
+            "maxLength": 120,
+            "minLength": 1,
+            "title": "Name",
+            "type": "string"
+          },
+          "extent": {
+            "description": "[west, south, east, north] in EPSG:4326. A west greater than east means the area crosses the antimeridian.",
+            "items": {
+              "type": "number"
+            },
+            "maxItems": 4,
+            "minItems": 4,
+            "title": "Extent",
+            "type": "array"
+          },
+          "bearing": {
+            "anyOf": [
+              {
+                "maximum": 180.0,
+                "minimum": -180.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map rotation in degrees",
+            "title": "Bearing"
+          },
+          "pitch": {
+            "anyOf": [
+              {
+                "maximum": 85.0,
+                "minimum": 0.0,
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Map tilt in degrees (0-85)",
+            "title": "Pitch"
+          }
+        },
+        "required": [
+          "name",
+          "extent"
+        ],
+        "title": "MapBookmark",
         "type": "object"
       },
       "MapCreate": {
@@ -14115,6 +15304,22 @@
               }
             ],
             "description": "Curated map-level basemap appearance preferences"
+          },
+          "bookmarks": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MapBookmark"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Named areas, in display order (max 100)",
+            "title": "Bookmarks"
           }
         },
         "required": [
@@ -15409,6 +16614,13 @@
               }
             ]
           },
+          "bookmarks": {
+            "items": {
+              "$ref": "#/components/schemas/MapBookmark"
+            },
+            "title": "Bookmarks",
+            "type": "array"
+          },
           "visibility": {
             "$ref": "#/components/schemas/MapVisibility"
           },
@@ -16184,6 +17396,22 @@
               }
             ],
             "description": "The dashboard. Omit to keep it; null removes the widgets you see."
+          },
+          "bookmarks": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/MapBookmark"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Named areas, in display order (max 100). Omit to keep them; null or an empty list removes them.",
+            "title": "Bookmarks"
           },
           "visibility": {
             "anyOf": [
@@ -22255,6 +23483,13 @@
               }
             ]
           },
+          "bookmarks": {
+            "items": {
+              "$ref": "#/components/schemas/MapBookmark"
+            },
+            "title": "Bookmarks",
+            "type": "array"
+          },
           "has_non_public_layers": {
             "default": false,
             "title": "Has Non Public Layers",
@@ -27561,7 +28796,7 @@
     "summary": "PostGIS-native geospatial data catalog with OGC API Features and Records support",
     "termsOfService": "https://github.com/geolens-io/geolens/blob/main/LICENSE",
     "title": "GeoLens API",
-    "version": "1.33.0"
+    "version": "1.34.0"
   },
   "openapi": "3.1.0",
   "paths": {

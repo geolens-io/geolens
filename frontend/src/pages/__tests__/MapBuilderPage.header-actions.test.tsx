@@ -216,6 +216,7 @@ const mockChatAddDataset = vi.fn();
 vi.mock('@/components/builder/hooks/use-builder-layers', () => ({
   useBuilderLayers: () => ({
     dashboard: { panel: 'right', widgets: [] },
+    bookmarks: [],
     localLayers: mockLocalLayers,
     savedLayerBaseline: mockLocalLayers,
     layersMapId: mockLayersMapId,

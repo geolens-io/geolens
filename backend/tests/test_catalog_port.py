@@ -65,3 +65,16 @@ def test_a_port_missing_the_cog_reader_test_does_not_satisfy_the_contract() -> N
         cog_may_be_read = None
 
     assert not isinstance(_OverlayPortWithoutIt(), CatalogPort)
+
+
+def test_a_port_missing_the_manifest_v2_replacement_does_not_satisfy_the_contract() -> (
+    None
+):
+    """Why EXTENSION_API_VERSION went 24 -> 25: manifest version 2
+    replacements are queued through ``manifest_v2_reupload_task``, so an
+    overlay port without it would fail each one."""
+
+    class _OverlayPortWithoutIt(DefaultCatalogPort):
+        manifest_v2_reupload_task = None
+
+    assert not isinstance(_OverlayPortWithoutIt(), CatalogPort)

@@ -8,7 +8,7 @@
   "delete": "Löschen",
   "confirm": "Bestätigen",
   "newVersion": {
-    "message": "Eine neue Version von GeoLens ist verfügbar",
+    "message": "Diese Website wurde aktualisiert. Laden Sie die Seite neu, um die neue Version zu verwenden.",
     "reload": "Neu laden"
   },
   "close": "Schließen",
@@ -163,6 +163,7 @@
     "jobFailureMissingCrsRaster": "CRS fehlt: Das Raster hat kein Koordinatenreferenzsystem. Geben Sie beim Import eine CRS-Überschreibung (EPSG-Code) an.",
     "jobFailureMissingCrsReupload": "CRS fehlt: Es wurde kein Koordinatensystem erkannt. Stellen Sie sicher, dass die Datei CRS-Informationen enthält (z. B. eine .prj-Datei bei Shapefiles), oder geben Sie eine SRID-Überschreibung an.",
     "jobFailureMixedSridDatabase": "Die Geometrien der Tabelle verwenden mehr als eine SRID, daher beschreibt kein einzelnes Koordinatensystem sie. Geben Sie ihnen in einer Ansicht eine einzige SRID und importieren Sie diese.",
+    "jobFailurePublicVisibilityRestricted": "Öffentliche Sichtbarkeit ist auf dieser Instanz Administratoren vorbehalten, daher hat dieser Auftrag nichts geändert. Wählen Sie eine engere Sichtbarkeit oder bitten Sie einen Administrator, diesen Inhalt öffentlich zu machen.",
     "jobFailureRefreshAbandoned": "Die Aktualisierungsaufgabe wurde nie von einem Worker übernommen, oder der Worker ist verschwunden, bevor er ein Ergebnis melden konnte.",
     "jobFailureRefreshOriginUnsupported": "Diese Aktualisierung wurde nicht gestartet: Nur Dienst-Datensätze werden auf diese Weise aktualisiert.",
     "jobFailureReviewRequired": "Dieser Austausch ändert den Datensatz auf eine Weise, die geprüft werden muss, und wurde daher nicht veröffentlicht. Prüfen Sie die Änderungen auf der Registerkarte „Quellen“ des Datensatzes und akzeptieren Sie sie dort.",
@@ -608,7 +609,8 @@
     },
     "anonMapRecovery": "Diese Karte ist möglicherweise privat. Melden Sie sich an, um zu prüfen, ob Ihr Konto sie öffnen kann.",
     "map": {
-      "ariaLabel": "Kartenansicht"
+      "ariaLabel": "Kartenansicht",
+      "bookmarks": "Lesezeichen"
     }
   },
   "maps": {

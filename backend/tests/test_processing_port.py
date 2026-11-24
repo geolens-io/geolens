@@ -324,6 +324,35 @@ class FakeProcessingPort:
             return self._dataset
         return None
 
+    async def resolve_manifest_collection(self, session, ref, user, *, may_create):
+        return None, "A033"
+
+    async def add_dataset_to_manifest_collection(
+        self, session, collection_id, dataset_id, user
+    ):
+        return "A033"
+
+    async def apply_manifest_attributes(
+        self, session, dataset_id, attributes, *, actor_id
+    ):
+        return [a["source_name"] for a in attributes]
+
+    async def apply_manifest_maps(
+        self,
+        session,
+        maps,
+        user,
+        *,
+        dry_run,
+        dataset_ids_by_key,
+        pending_datasets,
+        unsettled_dataset_ids,
+        public_fallback,
+        client,
+        ip_address,
+    ):
+        return []
+
 
 # =============================================================================
 # Tests

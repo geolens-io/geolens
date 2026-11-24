@@ -21,9 +21,10 @@ import {
   type BuilderCamera,
 } from '@/components/builder/builder-camera';
 import { deepEqual } from '@/lib/deep-equal';
-import type { MapBasemapConfig, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
+import type { MapBasemapConfig, MapBookmark, MapLayerResponse, MapResponse, MapTerrainConfig, StyleConfig } from '@/types/api';
 import type { useAddLayer, useRemoveLayer } from '@/hooks/use-maps';
 import { useEphemeralLayers } from '@/components/builder/hooks/use-ephemeral-layers';
+import { useBookmarksDraft } from '@/components/builder/hooks/use-bookmarks-draft';
 import { useLayerMapSync } from '@/components/builder/hooks/use-layer-map-sync';
 import type { SaveBaselineSync, SaveFence } from '@/components/builder/hooks/use-builder-save';
 import {
@@ -185,6 +186,7 @@ export function useBuilderLayers(
   );
   const { dashboard, savedDashboard, setDashboard, beginSave: beginDashboardSave, dashboardEdited } =
     useDashboardDraft(mapData?.dashboard_config, mapId, mapData?.layers, localLayers, warnDashboardChanged);
+  const savedBookmarks = useMemo(() => mapData?.bookmarks ?? [], [mapData?.bookmarks]);
   const [freshLayerId, setFreshLayerId] = useState<string | null>(null);
   const freshLayerTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const savedLayerBaselineRef = useRef<MapLayerResponse[]>([]);
@@ -212,6 +214,12 @@ export function useBuilderLayers(
       [queryClient],
     ),
     () => (mapId ? fetchedVersionRef.current.get(mapId) ?? 0 : 0),
+  );
+  const { bookmarks, bookmarksEdited, setBookmarks, beginSave: beginBookmarksSave } = useBookmarksDraft(
+    savedBookmarks,
+    mapId,
+    detailVersion,
+    () => detailDataVersion(queryClient, mapId),
   );
   const saveFenced = useCallback((): boolean => {
     const settled = mapId ? saveFenceRef.current.get(mapId) : undefined;
@@ -1040,7 +1048,7 @@ export function useBuilderLayers(
     if (showBasemapLabels !== (mapData.show_basemap_labels ?? true)) return false;
     if (!deepEqual(basemapConfig, mapData.basemap_config ?? null)) return false;
     if (!deepEqual(localTerrainConfig, savedTerrainConfig(mapData))) return false;
-    if (dashboardEdited) return false;
+    if (dashboardEdited || bookmarksEdited) return false;
 
     // Folder expansion is persisted (prepareLayersForPersistence reads
     // groupMeta) and handleToggleGroupExpand dirties the map, so an
@@ -1056,7 +1064,7 @@ export function useBuilderLayers(
     return true;
   }, [
     mapData, localName, localDescription, localLegendTitle, localShowAttributeTable, localBasemap,
-    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta, dashboardEdited,
+    showBasemapLabels, basemapConfig, localTerrainConfig, groupMeta, dashboardEdited, bookmarksEdited,
   ]);
 
   // The recheck must observe the reverted layers, so it runs in an effect after
@@ -1084,6 +1092,12 @@ export function useBuilderLayers(
     setHasUnsavedChanges(true);
     requestCleanRecheck();
   }, [setDashboard, requestCleanRecheck]);
+
+  const handleBookmarksChange = useCallback((next: MapBookmark[]) => {
+    setBookmarks(next);
+    setHasUnsavedChanges(true);
+    requestCleanRecheck();
+  }, [setBookmarks, requestCleanRecheck]);
 
   // A visibility toggle is the only edit a user routinely undoes by repeating
   // it, so each one asks whether the map is back to the saved state.
@@ -1269,6 +1283,10 @@ export function useBuilderLayers(
     dashboardEdited,
     handleDashboardChange,
     beginDashboardSave,
+    bookmarks,
+    bookmarksEdited,
+    handleBookmarksChange,
+    beginBookmarksSave,
     localLayers,
     layersMapId,
     freshLayerId,

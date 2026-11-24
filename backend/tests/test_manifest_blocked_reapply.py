@@ -16,6 +16,7 @@ from app.modules.auth.models import User
 from app.modules.catalog.datasets.domain.models import Dataset
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
+from app.processing.ingest.manifest_schemas import ManifestApplyRequest
 from app.processing.ingest.manifest_service import apply_manifest
 from app.processing.ingest.manifest_sources import (
     classify_manifest_source,
@@ -55,8 +56,9 @@ class _Held:
     run_id: uuid.UUID
 
 
-async def _held_apply(session) -> _Held:
-    """A manifest update that dropped a column and is now held for review."""
+async def _held_apply(session, request=None, *, visibility="public") -> _Held:
+    """A manifest update that dropped a column and is now held for review;
+    ``request`` is the update, the version 1 resurvey by default."""
     _stage_fixture()
     user = await _admin(session)
     table = f"manifest_held_{uuid.uuid4().hex[:10]}"
@@ -64,6 +66,7 @@ async def _held_apply(session) -> _Held:
         session,
         created_by=user.id,
         name="Roads",
+        visibility=visibility,
         table_name=table,
         record_type="vector_dataset",
         geometry_type="POINT",
@@ -98,7 +101,9 @@ async def _held_apply(session) -> _Held:
     await session.commit()
 
     with _reupload_task() as task:
-        response = await apply_manifest(session, _resurveyed(), user, _http_request())
+        response = await apply_manifest(
+            session, request or _resurveyed(), user, _http_request()
+        )
     assert response.results[0].action == "update"
     await _run_worker(task)
     run = (
@@ -227,3 +232,34 @@ async def test_another_user_learns_nothing_about_the_hold(
         assert result.review_reasons == []
         assert str(held.run_id) not in result.message
         task.defer_async.assert_not_awaited()
+
+
+async def test_a_held_replacement_reports_the_visibility_it_would_publish(
+    test_db_session, clean_tables
+):
+    """A private dataset whose held replacement widens it to public: a dry
+    run says public, which Accept will publish, not the stored private."""
+    entry = {
+        **_entry(_KEY, title="Resurveyed roads", intent="published"),
+        "visibility": "public",
+    }
+    request = ManifestApplyRequest.model_validate(
+        {
+            "manifest_version": "2",
+            "catalog": {"title": "Manifest catalog"},
+            "client": {"id": "geolens-qgis", "version": "0.2.0"},
+            "datasets": [entry],
+        }
+    )
+    held = await _held_apply(test_db_session, request, visibility="private")
+
+    with _reupload_task():
+        response = await apply_manifest(
+            test_db_session,
+            request.model_copy(update={"dry_run": True}),
+            held.user,
+            _http_request(),
+        )
+
+    [result] = response.results
+    assert (result.action, result.visibility) == ("blocked", "public")

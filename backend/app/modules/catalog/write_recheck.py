@@ -24,6 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity, IdentityRole, IdentitySnapshot
 from app.modules.auth.permissions import admitted_capabilities, user_standing_columns
 from app.platform.extensions import get_permission_extension
+from app.platform.record_audience import (
+    PUBLIC_VISIBILITY_DENIED as PUBLIC_VISIBILITY_DENIED,
+    publish_key_widening,
+)
 from app.platform.request_credential import api_key_scope_refusal, is_publish_key
 
 
@@ -136,11 +140,6 @@ async def _recheck_capabilities(
                 detail=f"Missing permission: {capability}",
             )
 
-
-PUBLIC_VISIBILITY_DENIED = (
-    "Public visibility is restricted to administrators on this instance. "
-    "Choose a narrower visibility or ask an admin to make this content public."
-)
 
 _ADMITTED_PUBLIC_VISIBILITY = "admitted_public_visibility"
 
@@ -255,9 +254,6 @@ async def recheck_record_write_access(db: AsyncSession, record_id: uuid.UUID) ->
     )
 
 
-_VISIBILITY_ORDER = ("private", "restricted", "internal", "public")
-
-
 async def refuse_publish_key_widening(
     db: AsyncSession,
     record_id: uuid.UUID,
@@ -266,12 +262,9 @@ async def refuse_publish_key_widening(
     record_status: str | None,
 ) -> None:
     """Refuse a publish key a metadata change that widens a record's visibility
-    or opens it to anonymous readers.
+    or opens it to anonymous readers, as ``publish_key_widening`` judges it.
 
-    A publish key may keep a record's visibility or narrow it. It may publish
-    an internal or restricted draft, but not a public one, since publishing is
-    what opens a public record to anonymous readers. Call holding the record
-    row, so the values compared are the committed ones.
+    Call holding the record row, so the values compared are the committed ones.
     """
     if not is_publish_key(db):
         return
@@ -285,16 +278,14 @@ async def refuse_publish_key_widening(
                 )
             )
         ).one()
-    if visibility is not None and _VISIBILITY_ORDER.index(
-        visibility
-    ) > _VISIBILITY_ORDER.index(now.visibility):
-        raise api_key_scope_refusal("A publish key can't widen a dataset's visibility")
-    if (
-        (visibility or now.visibility) == "public"
-        and record_status == "published"
-        and now.record_status != "published"
-    ):
-        raise api_key_scope_refusal("A publish key can't publish a public dataset")
+    refusal = publish_key_widening(
+        now.visibility,
+        now.record_status,
+        visibility=visibility,
+        record_status=record_status,
+    )
+    if refusal is not None:
+        raise api_key_scope_refusal(refusal)
 
 
 def refuse_stale_write(updated_at: datetime, expected: datetime | None) -> None:

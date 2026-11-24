@@ -1224,7 +1224,8 @@
     "notes": "Notas",
     "notesPlaceholder": "Agregar notas sobre este mapa...",
     "dashboard": "Panel",
-    "dashboardDescription": "Widgets que los lectores ven junto al mapa"
+    "dashboardDescription": "Widgets que los lectores ven junto al mapa",
+    "bookmarks": "Marcadores"
   },
   "leaveWarning": {
     "title": "Cambios sin guardar",
@@ -1372,7 +1373,9 @@
     "closePanel": "Cerrar panel",
     "notesButtonWithNotes": "Notas (el mapa tiene notas)",
     "dashboardButtonWithWidgets_one": "Panel ({{count}} widget)",
-    "dashboardButtonWithWidgets_other": "Panel ({{count}} widgets)"
+    "dashboardButtonWithWidgets_other": "Panel ({{count}} widgets)",
+    "bookmarksButtonWithCount_one": "Marcadores ({{count}} vista guardada)",
+    "bookmarksButtonWithCount_other": "Marcadores ({{count}} vistas guardadas)"
   },
   "stackRow": {
     "dragHandle": "Arrastrar para reordenar {{name}}",
@@ -1594,5 +1597,19 @@
     "sourceBoundedGeojson": "Grupo GeoJSON acotado",
     "sourceFallback": "Grupo alternativo"
   },
-  "mobileNotice": "El editor de mapas funciona mejor en una pantalla más grande. Algunos controles están limitados aquí."
+  "mobileNotice": "El editor de mapas funciona mejor en una pantalla más grande. Algunos controles están limitados aquí.",
+  "bookmarks": {
+    "description": "Vistas guardadas a las que los lectores pueden saltar",
+    "add": "Añadir vista actual",
+    "addNoMap": "El mapa aún no está listo.",
+    "limitReached": "Un mapa puede tener hasta {{count}} marcadores.",
+    "empty": "Los marcadores guardan una vista del mapa para que los lectores puedan volver a ella.",
+    "listLabel": "Marcadores",
+    "defaultName": "Marcador {{number}}",
+    "nameLabel": "Nombre del marcador {{number}}",
+    "goTo": "Ir a {{name}}",
+    "moveUp": "Subir {{name}}",
+    "moveDown": "Bajar {{name}}",
+    "delete": "Eliminar {{name}}"
+  }
 }

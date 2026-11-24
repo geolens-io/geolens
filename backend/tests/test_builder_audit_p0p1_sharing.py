@@ -10,7 +10,7 @@ The backend share create/update endpoints reject a custom ``expires_at``
 in Community with the same advanced-sharing error taxonomy embed tokens use.
 Community accepts fixed expiration presets, and Enterprise accepts a custom date.
 
-The table-driven history-emission loop in ``update_map_endpoint`` must
+The table-driven history-emission loop behind ``PUT /maps/{id}`` must
 still emit one event per changed field
 (name/visibility/terrain_config/basemap_config/layers/config_update).
 

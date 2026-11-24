@@ -99,6 +99,7 @@ export function DashboardWidget({
   selection,
   onSelect,
   mapHidden = false,
+  panelFollowsView = false,
   onZoomTo,
 }: {
   parsed: ReadyWidget;
@@ -117,6 +118,8 @@ export function DashboardWidget({
   onSelect?: (selection: WidgetSelection | null) => void;
   /** Set where the dashboard hides its map: a view-scoped widget then reads its whole layer and says so. */
   mapHidden?: boolean;
+  /** Set where the panel says its numbers follow the map view, so a card that doesn't says so. */
+  panelFollowsView?: boolean;
   /** Set where the dashboard has a map the widget can zoom; see `WidgetRenderProps`. */
   onZoomTo?: WidgetRenderProps<unknown>['onZoomTo'];
 }) {
@@ -142,6 +145,7 @@ export function DashboardWidget({
     </Skeleton>
   );
   const layerName = layerDisplayName(layer);
+  const wholeLayer = panelFollowsView && !followsView;
   const named = widgetName(definition, instance, layer.column_info, t);
   const heading = named || layerName;
   // A stat card titled with its layer's name would print the name twice.
@@ -171,11 +175,11 @@ export function DashboardWidget({
             <Loader2 aria-hidden="true" className="mt-0.5 size-3.5 shrink-0 animate-spin text-muted-foreground" />
           )}
         </div>
-        {(layerBelow || followsView) && (
+        {(layerBelow || wholeLayer) && (
           <p className="text-xs text-muted-foreground break-words">
             {layerBelow && <span id={layerLineId}>{layerName}</span>}
-            {layerBelow && followsView && ' · '}
-            {followsView && t('dashboard.followsView')}
+            {layerBelow && wholeLayer && ' · '}
+            {wholeLayer && t('dashboard.wholeLayer')}
           </p>
         )}
       </header>
@@ -273,6 +277,30 @@ export function dashboardLayout(config: PanelConfig | null | undefined): Dashboa
 const WIDE_SPAN = '@[32.75rem]:col-span-2';
 const WIDE_TYPES: ReadonlySet<string> = new Set(['bar_chart', 'pie_chart', 'histogram', 'table', 'feature_list']);
 
+/** The widgets left once the reader's hidden layers are taken out; a layer saved hidden still counts. */
+function shownWidgets(widgets: readonly PanelWidget[], hiddenLayers?: ReadonlySet<string>): readonly PanelWidget[] {
+  return hiddenLayers?.size
+    ? widgets.filter(({ parsed }) => !parsed.ok || !hiddenLayers.has(parsed.instance.layer_id ?? ''))
+    : widgets;
+}
+
+/** Whether any shown widget reads the map view; a table layer has no geometry to bound, so its widget never does. */
+function panelFollowsView(
+  layout: DashboardLayout,
+  shown: readonly PanelWidget[],
+  layers: readonly SharedLayerResponse[],
+): boolean {
+  return (
+    layout !== 'page' &&
+    shown.some(
+      ({ parsed }) =>
+        parsed.ok &&
+        parsed.instance.scope === 'view' &&
+        layers.some((layer) => layer.id === parsed.instance.layer_id && !!layer.geometry_type),
+    )
+  );
+}
+
 /** The expanded panel's widgets; unmounted on collapse, so the view bbox starts over on reopen. */
 function DashboardWidgetList({
   id,
@@ -308,10 +336,8 @@ function DashboardWidgetList({
   const layersById = useMemo(() => new Map(layers.map((layer) => [layer.id, layer])), [layers]);
   // A widget leaves the panel only when the reader turns its layer off; a
   // layer saved hidden can still drive numbers, as a reference layer does.
-  const shown = hiddenLayers?.size
-    ? widgets.filter(({ parsed }) => !parsed.ok || !hiddenLayers.has(parsed.instance.layer_id ?? ''))
-    : widgets;
-  const followsView = layout !== 'page' && shown.some(({ parsed }) => parsed.ok && parsed.instance.scope === 'view');
+  const shown = shownWidgets(widgets, hiddenLayers);
+  const followsView = panelFollowsView(layout, shown, layers);
   const viewBbox = useMapViewBbox(map, followsView);
   // Built once per change of picks, so each widget's request memo holds between them.
   const linkedByWidget = useMemo(() => {
@@ -382,6 +408,7 @@ function DashboardWidgetList({
                 viewBbox={parsed.instance.scope === 'view' ? viewBbox : null}
                 embedToken={embedToken}
                 mapHidden={layout === 'page'}
+                panelFollowsView={followsView}
                 onZoomTo={onZoom ? (feature) => onZoom(layer, feature) : undefined}
                 onProblemChange={onProblemChange}
                 linked={linkedByWidget.get(widgetId)}
@@ -620,6 +647,9 @@ export function DashboardPanel({
       {!collapsed && chips('border-b px-3 py-2')}
       {!collapsed && mapHidden && widgets.some(({ parsed }) => parsed.ok && parsed.instance.scope === 'view') && (
         <p className="px-3 pt-2 text-xs text-muted-foreground">{t('dashboard.viewScopeUnavailable')}</p>
+      )}
+      {!collapsed && panelFollowsView(layout, shownWidgets(widgets, hiddenLayers), layers) && (
+        <p className="px-3 pt-2 text-xs text-muted-foreground">{t('dashboard.followsView')}</p>
       )}
       {!collapsed && (
         <DashboardWidgetList

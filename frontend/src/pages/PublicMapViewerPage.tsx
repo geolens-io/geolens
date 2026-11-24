@@ -115,6 +115,7 @@ function PublicMapViewer() {
                 onDrawnChange={setDrawnLayers}
                 showAttributeTable={data.show_attribute_table}
                 overlays={mapOverlays}
+                bookmarks={data.bookmarks}
               />
             </Suspense>
           </MapErrorBoundary>

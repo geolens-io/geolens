@@ -151,11 +151,32 @@ class TestExtensionApiVersionConstant:
         methods to ``CatalogPort``. An overlay that replaces the ``catalog_port``
         key without them fails every database import and refresh.
 
+        v24 adds the required ``resolve_manifest_collection``,
+        ``add_dataset_to_manifest_collection``, ``apply_manifest_attributes``
+        and ``apply_manifest_maps`` methods to ``ProcessingPort``. An overlay
+        that replaces the ``processing_port`` key without them fails manifest
+        v2 applies.
+
+        v25 adds the required ``manifest_v2_reupload_task`` method to
+        ``CatalogPort``. An overlay that replaces the ``catalog_port`` key
+        without it fails every manifest version 2 replacement.
+
+        v26 adds the required keyword-only ``dataset_ids_by_key`` and
+        ``pending_dataset_keys`` to ``ProcessingPort.apply_manifest_maps``.
+
+        v27 makes ``ProcessingPort.apply_manifest_maps`` write maps outside a
+        dry run, replaces ``pending_dataset_keys`` with the required
+        ``pending_datasets`` mapping, and adds the required keyword-only
+        ``unsettled_dataset_ids``, ``public_fallback``, ``client`` and
+        ``ip_address``. An overlay that
+        replaces the ``processing_port`` key with the old signature gets a
+        TypeError on every manifest with maps.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 23
+        assert EXTENSION_API_VERSION == 27
 
 
 class TestCheckExtensionApiVersion:

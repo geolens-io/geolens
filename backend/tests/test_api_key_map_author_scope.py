@@ -60,7 +60,7 @@ NOT_ITS_MAP = {
 # except at its default in MAP_AUTHOR_DEFAULTS_ACCEPTED bodies. With
 # MAP_AUTHOR_SETTABLE_FIELDS this covers each model exactly.
 _REFUSED_FIELDS: dict[type, set[str]] = {
-    MapCreate: {"notes", "terrain_config"},
+    MapCreate: {"notes", "terrain_config", "bookmarks"},
     MapUpdate: {
         "name",
         "description",
@@ -69,6 +69,7 @@ _REFUSED_FIELDS: dict[type, set[str]] = {
         "show_attribute_table",
         "terrain_config",
         "dashboard_config",
+        "bookmarks",
         "visibility",
         "layers",
         "plugins",
@@ -663,6 +664,7 @@ async def test_the_query_string_key_cannot_write(client: AsyncClient, owner, dat
 def transfer_after_precheck(owner):
     """Moves the map to ``owner`` once the key pre-check passes, before the write locks it."""
     from app.modules.catalog.maps import router as maps_router
+    from app.modules.catalog.maps import service_update as map_update
 
     _, new_owner = owner
     original = maps_router.refuse_map_author_key
@@ -682,7 +684,10 @@ def transfer_after_precheck(owner):
         finally:
             engine.dispose()
 
-    with patch.object(maps_router, "refuse_map_author_key", precheck_then_transfer):
+    with (
+        patch.object(maps_router, "refuse_map_author_key", precheck_then_transfer),
+        patch.object(map_update, "refuse_map_author_key", precheck_then_transfer),
+    ):
         yield
 
 

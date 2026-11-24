@@ -1228,7 +1228,8 @@
     "notes": "Notes",
     "notesPlaceholder": "Add notes about this map...",
     "dashboard": "Dashboard",
-    "dashboardDescription": "Widgets readers see beside the map"
+    "dashboardDescription": "Widgets readers see beside the map",
+    "bookmarks": "Bookmarks"
   },
   "leaveWarning": {
     "title": "Unsaved changes",
@@ -1376,7 +1377,9 @@
     "aiConfigureSettings": "Configure in Settings",
     "notesButtonWithNotes": "Notes (map has notes)",
     "dashboardButtonWithWidgets_one": "Dashboard ({{count}} widget)",
-    "dashboardButtonWithWidgets_other": "Dashboard ({{count}} widgets)"
+    "dashboardButtonWithWidgets_other": "Dashboard ({{count}} widgets)",
+    "bookmarksButtonWithCount_one": "Bookmarks ({{count}} saved view)",
+    "bookmarksButtonWithCount_other": "Bookmarks ({{count}} saved views)"
   },
   "stackRow": {
     "dragHandle": "Drag to reorder {{name}}",
@@ -1594,5 +1597,19 @@
     "sourceBoundedGeojson": "Bounded GeoJSON cluster",
     "sourceFallback": "Cluster fallback"
   },
-  "mobileNotice": "The map builder works best on a larger screen. Some controls are limited here."
+  "mobileNotice": "The map builder works best on a larger screen. Some controls are limited here.",
+  "bookmarks": {
+    "description": "Saved views readers can jump to",
+    "add": "Add current view",
+    "addNoMap": "The map is not ready yet.",
+    "limitReached": "A map can have up to {{count}} bookmarks.",
+    "empty": "Bookmarks save a map view so readers can jump back to it.",
+    "listLabel": "Bookmarks",
+    "defaultName": "Bookmark {{number}}",
+    "nameLabel": "Name of bookmark {{number}}",
+    "goTo": "Go to {{name}}",
+    "moveUp": "Move {{name}} up",
+    "moveDown": "Move {{name}} down",
+    "delete": "Delete {{name}}"
+  }
 }

@@ -17,7 +17,8 @@ from typing import Any, Awaitable, Callable
 
 import structlog
 from fastapi import HTTPException, status
-from sqlalchemy import inspect as sa_inspect, update
+from sqlalchemy import bindparam, func, inspect as sa_inspect, text, update
+from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession, async_object_session
 from sqlalchemy.orm.attributes import set_committed_value
 
@@ -94,17 +95,43 @@ async def stamp_commit_attempted(job: IngestJob, *, db: AsyncSession) -> None:
 
     Idempotent, and written as an UPDATE keyed on the id (not an ORM
     mutation) so it lands even for a detached instance; mirrored onto the
-    instance afterwards.
+    instance afterwards. The UPDATE merges the marker into the row rather than
+    writing back the instance's copy, and only at the instance's attempt: a
+    copy read before another flow took the row, such as a manifest claim,
+    must not erase what that flow wrote.
     """
     metadata = dict(job.user_metadata or {})
     if metadata.get(COMMIT_ATTEMPTED_METADATA_KEY):
         return
-    metadata.update(commit_attempted_marker())
+    marker = commit_attempted_marker()
+    metadata.update(marker)
+    attempt_id = getattr(job, "attempt_id", None)
     await db.execute(
-        update(IngestJob).where(IngestJob.id == job.id).values(user_metadata=metadata)
+        update(IngestJob)
+        .where(
+            IngestJob.id == job.id,
+            IngestJob.attempt_id.is_(None)
+            if attempt_id is None
+            else IngestJob.attempt_id == attempt_id,
+        )
+        .values(
+            # A JSON null, which a row created with None may hold, merges
+            # into an array; it counts as empty here.
+            user_metadata=func.coalesce(
+                func.nullif(IngestJob.user_metadata, text("'null'::jsonb")),
+                text("'{}'::jsonb"),
+            ).op("||", return_type=JSONB)(
+                bindparam("dispatch_marker", value=marker, type_=JSONB)
+            )
+        )
+        .execution_options(synchronize_session=False)
     )
     await db.commit()
-    job.user_metadata = metadata
+    # Committed state, not a change: a later flush must not write the copy back.
+    if sa_inspect(job, raiseerr=False) is not None:
+        set_committed_value(job, "user_metadata", metadata)
+    else:
+        job.user_metadata = metadata
 
 
 def _restore_settlement_identifiers(

@@ -100,7 +100,7 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
     """
     result = await bounded_row_lock(
         session,
-        select(Map.thumbnail_uri, Map.og_image_uri)
+        select(Map.thumbnail_uri, Map.og_image_uri, Map.updated_at)
         .where(Map.id == map_id)
         .with_for_update(),
         message=_ASSETS_BUSY,
@@ -196,7 +196,9 @@ async def create_map(
     notes: str | None = None,
     terrain_config: dict | None = None,
     basemap_config: dict | None = None,
+    bookmarks: list[dict] | None = None,
     created_by_api_key_id: uuid.UUID | None = None,
+    manifest_key: str | None = None,
 ) -> Map:
     """Create a map. Does NOT commit."""
     map_obj = Map(
@@ -205,8 +207,10 @@ async def create_map(
         notes=notes,
         terrain_config=terrain_config,
         basemap_config=basemap_config,
+        bookmarks=bookmarks,
         created_by=created_by,
         created_by_api_key_id=created_by_api_key_id,
+        manifest_key=manifest_key,
     )
     session.add(map_obj)
     await session.flush()
@@ -436,6 +440,13 @@ async def _keeps_hidden_terrain(
     return str(stored["source_dataset_id"]) not in visible
 
 
+def _set_sent(map_obj: Map, **fields: object) -> None:
+    """Set each field whose value is not ``_UNSET``; ``None`` is a value."""
+    for key, value in fields.items():
+        if value is not _UNSET:
+            setattr(map_obj, key, value)
+
+
 async def update_map(
     session: AsyncSession,
     map_id: uuid.UUID,
@@ -454,17 +465,20 @@ async def update_map(
     basemap_config: dict | None | object = _UNSET,
     terrain_config: dict | None | object = _UNSET,
     dashboard_config: dict | None | object = _UNSET,
+    bookmarks: list[dict] | None | object = _UNSET,
     visibility: str | None = None,
     plugins: list[str] | None | object = _UNSET,
     legend_title: str | None | object = _UNSET,
     layers: list[dict] | None = None,
     user: Identity | None = None,
     expected_updated_at: datetime | None = None,
+    keep_layer_ids: Sequence[uuid.UUID] = (),
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Update map fields. If 'layers' key present, replace all layers.
 
     ``user`` is the caller the save acts for (None reads as anonymous). Layers
-    whose dataset map reads hide from it survive a replacement, and a stored
+    whose dataset map reads hide from it, and those in ``keep_layer_ids``,
+    survive a replacement, and a stored
     terrain binding to a DEM hidden from it survives a request naming no DEM.
     A ``dashboard_config`` is checked against the layers the map has after the
     save (``merge_dashboard``), and a layer filter the save changes against the
@@ -522,16 +536,18 @@ async def update_map(
     for key, value in scalar_fields.items():
         if value is not None:
             setattr(map_obj, key, value)
-    if notes is not _UNSET:
-        map_obj.notes = cast(str | None, notes)
-    if basemap_config is not _UNSET:
-        map_obj.basemap_config = cast(dict | None, basemap_config)
+    _set_sent(
+        map_obj,
+        notes=notes,
+        basemap_config=basemap_config,
+        plugins=plugins,
+        # An empty list reads as no bookmarks, as a map that never had any.
+        bookmarks=bookmarks or None if bookmarks is not _UNSET else _UNSET,
+    )
     if terrain_config is not _UNSET and not await _keeps_hidden_terrain(
         session, map_obj.terrain_config, terrain_config, user
     ):
         map_obj.terrain_config = cast(dict | None, terrain_config)
-    if plugins is not _UNSET:
-        map_obj.plugins = cast(list[str] | None, plugins)
     if legend_title is not _UNSET:
         # Treat empty/whitespace-only titles as "no custom title" so the
         # legend falls back to the default heading on the read path.
@@ -544,7 +560,9 @@ async def update_map(
         before = {}
         if map_obj.dashboard_config is not None or isinstance(dashboard_config, dict):
             before = await _stored_layers(session, map_id)
-        created_ids = await _replace_layers(session, map_id, layers, user)
+        created_ids = await _replace_layers(
+            session, map_id, layers, user, keep_layer_ids
+        )
         await touch_map(session, map_id)
         dashboard_config = _with_created_layer_ids(dashboard_config, created_ids)
     if dashboard_config is not _UNSET or before:
@@ -755,6 +773,7 @@ async def duplicate_map(
         ),
         # Widgets follow their layers, so one on a layer the fork skips goes too.
         dashboard_config=fork_dashboard(source.dashboard_config, copied_layers),
+        bookmarks=source.bookmarks,
         plugins=source.plugins,
         legend_title=source.legend_title,
         thumbnail_uri=None,

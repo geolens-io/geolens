@@ -69,6 +69,19 @@
             },
             "basemap_style": "openfreemap-positron",
             "styling": "replace_if_unedited",
+            "bookmarks": [
+              {
+                "name": "Riverside park",
+                "extent": [
+                  -89.7,
+                  39.7,
+                  -89.6,
+                  39.8
+                ],
+                "bearing": 20,
+                "pitch": 30
+              }
+            ],
             "thumbnail": "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==",
             "loss_report": {
               "items": [

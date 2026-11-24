@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, type FocusEvent as ReactFocusEvent, type KeyboardEvent as ReactKeyboardEvent } from 'react';
-import { Check } from 'lucide-react';
+import { Check, Layers } from 'lucide-react';
 import { useBasemaps } from '@/hooks/use-settings';
 import { basemapThumbnail } from '@/lib/basemap-utils';
 import { cn } from '@/lib/utils';
@@ -65,7 +65,7 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
         ref={triggerRef}
         type="button"
         onClick={() => setOpen(!open)}
-        className="rounded-lg border-2 border-background shadow-lg overflow-hidden hover:border-primary/50 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+        className="relative block rounded-lg border-2 border-foreground/70 ring-1 ring-background shadow-lg overflow-hidden hover:border-primary/50 transition-[color,background-color,box-shadow,border-color,opacity] duration-200 ease-out focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
         title={title}
         aria-label={title}
         aria-expanded={open}
@@ -78,8 +78,14 @@ export function BasemapToggle({ value, onChange, title = 'Change basemap', class
         <img
           src={basemapThumbnail(value)}
           alt=""
-          className="w-16 h-16 object-cover"
+          className="size-11 sm:size-16 object-cover"
         />
+        <span
+          aria-hidden="true"
+          className="absolute bottom-0.5 end-0.5 flex size-5 items-center justify-center rounded-sm bg-background text-foreground shadow-sm"
+        >
+          <Layers className="size-3.5" />
+        </span>
       </button>
 
       {/* Popover: list of basemap options with labels */}

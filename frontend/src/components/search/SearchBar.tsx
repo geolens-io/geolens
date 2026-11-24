@@ -111,7 +111,7 @@ export function SearchBar({ mode = 'hero', className }: SearchBarProps) {
         }}
         placeholder={t('placeholder')}
         className={cn(
-          'w-full bg-background text-ellipsis shadow-sm placeholder:text-muted-foreground/75',
+          'w-full bg-background text-ellipsis shadow-sm placeholder:text-muted-foreground',
           isCompact
             ? 'h-11 rounded-md ps-11 pe-11 text-base'
             : 'h-14 rounded-lg ps-12 pe-12 text-base',

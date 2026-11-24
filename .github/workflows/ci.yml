@@ -224,6 +224,9 @@ jobs:
               # module it loads still exists.
               - 'frontend/scripts/dev-readiness.mjs'
               - 'frontend/src/components/builder/BuilderMap.tsx'
+              # test_manifest_response_links.py checks the dataset and map links
+              # against the app's routes.
+              - 'frontend/src/App.tsx'
               # Decides which test files each Backend Tests shard runs; a PR
               # touching only it must exercise the sharded run.
               - 'scripts/ci_backend_shards.py'

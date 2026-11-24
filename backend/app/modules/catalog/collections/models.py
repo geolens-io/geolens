@@ -20,6 +20,12 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.core.db import Base
 
 
+# The stamp for every write to a collection row: the time of the write, never
+# earlier than the stored value. ``now()`` is the transaction's start, which a
+# writer that waited for the row can leave behind a change committed meanwhile.
+COLLECTION_UPDATED_AT_ON_WRITE = text("greatest(updated_at, clock_timestamp())")
+
+
 class Collection(Base):
     __tablename__ = "collections"
     __table_args__ = (
@@ -60,7 +66,9 @@ class Collection(Base):
         DateTime(timezone=True), server_default=func.now()
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now()
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=COLLECTION_UPDATED_AT_ON_WRITE,
     )
 
 

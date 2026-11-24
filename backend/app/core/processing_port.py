@@ -19,7 +19,8 @@ subsequent requests.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
+from contextlib import contextmanager
 from datetime import date, datetime
 from typing import Any, Protocol, runtime_checkable
 
@@ -27,6 +28,31 @@ from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+
+# An apply_manifest_maps result key: ``{"token": <raw share token>, "title":
+# <map name>}`` for the map whose share link the apply minted. The raw token
+# exists nowhere else, so this result is its only way to the caller.
+MINTED_SHARE_KEY = "minted_share"
+_SHARE_LINKS_WITHHELD = "geolens.manifest_share_links_withheld"
+
+
+@contextmanager
+def withholding_share_links(session: AsyncSession, withheld: bool) -> Iterator[None]:
+    """With ``withheld``, tell an apply_manifest_maps run in the block that a
+    share link it mints could not be returned, so it must mint none."""
+    if not withheld:
+        yield
+        return
+    session.info[_SHARE_LINKS_WITHHELD] = True
+    try:
+        yield
+    finally:
+        session.info.pop(_SHARE_LINKS_WITHHELD, None)
+
+
+def share_links_withheld(session: AsyncSession) -> bool:
+    """Whether a share link minted on ``session`` now could not be returned."""
+    return bool(session.info.get(_SHARE_LINKS_WITHHELD))
 
 
 @runtime_checkable
@@ -469,3 +495,65 @@ class ProcessingPort(Protocol):
     async def get_dataset_with_attributes(
         self, session: AsyncSession, dataset_id: uuid.UUID
     ) -> DatasetProtocol | None: ...
+
+    # Publish manifest v2. Collection refusals come back as the warning code
+    # "A033" rather than raising, and a collection row that stays locked as
+    # "collection_busy"; ``user`` is an Identity, ``ref`` is ``{"id": ...}``
+    # or ``{"name": ...}``. ``may_create=False`` writes nothing and answers a
+    # name the caller could create with ``(None, None)``.
+    async def resolve_manifest_collection(
+        self,
+        session: AsyncSession,
+        ref: Any,
+        user: Identity,
+        *,
+        may_create: bool,
+    ) -> tuple[uuid.UUID | None, str | None]: ...
+
+    async def add_dataset_to_manifest_collection(
+        self,
+        session: AsyncSession,
+        collection_id: uuid.UUID,
+        dataset_id: uuid.UUID,
+        user: Identity,
+    ) -> str | None: ...
+
+    # Returns the ``source_name`` of every entry that matched no column.
+    async def apply_manifest_attributes(
+        self,
+        session: AsyncSession,
+        dataset_id: uuid.UUID,
+        attributes: Sequence[Any],
+        *,
+        actor_id: uuid.UUID,
+    ) -> list[str]: ...
+
+    # ``maps`` are the request's ``ManifestMap`` entries and
+    # ``dataset_ids_by_key`` the dataset each layer ``dataset_key`` names,
+    # resolved by the caller; a key it couldn't resolve is absent.
+    # ``pending_datasets`` are the request's own dataset entries that change
+    # their dataset, by key and by dataset id, each with the visibility (None
+    # keeps the dataset's) and record status it publishes; a dry run judges a
+    # map on them. ``unsettled_dataset_ids`` are datasets a job is still
+    # replacing, which a layer may not use yet. ``public_fallback`` and
+    # ``client`` are the request's. Outside a dry run each map that checks
+    # clean is written and committed on its own. Returns one
+    # ``ManifestMapResult``-shaped dict per map, in order. A map whose apply
+    # minted its share link may also carry ``MINTED_SHARE_KEY``, which the
+    # caller removes before the result reaches a response model. Under
+    # ``withholding_share_links`` a map that would mint one mints none and
+    # answers info A074 instead.
+    async def apply_manifest_maps(
+        self,
+        session: AsyncSession,
+        maps: Sequence[Any],
+        user: Identity,
+        *,
+        dry_run: bool,
+        dataset_ids_by_key: Mapping[str, uuid.UUID],
+        pending_datasets: Mapping[str | uuid.UUID, tuple[str | None, str]],
+        unsettled_dataset_ids: Collection[uuid.UUID],
+        public_fallback: str | None,
+        client: Any,
+        ip_address: str | None,
+    ) -> list[dict[str, Any]]: ...

@@ -56,6 +56,7 @@ from app.processing.raster.vrt_members import note_vrt_members
 from app.processing.raster.vrt_rewrite import rewrite_vrt_sources
 from app.platform.storage import get_storage
 
+from app.processing.ingest.manifest_publication import refuse_restricted_public
 from app.processing.ingest.publication import (
     WriteAccessRevoked,
     require_submitter_can_write,
@@ -907,6 +908,7 @@ async def ingest_vrt(
                 session.add(distribution)
 
                 # 12. Finalize job
+                await refuse_restricted_public(session, job, None, um)
                 await note_publish_followups(
                     session, job_uuid, attempt_uuid, "ingest_vrt"
                 )

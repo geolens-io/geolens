@@ -202,10 +202,10 @@ export function MapsPage() {
             onValueChange={handleViewChange}
             className="ms-auto"
           >
-            <ToggleGroupItem value="list" aria-label={t('maps.listView')}>
+            <ToggleGroupItem value="list" size="icon" aria-label={t('maps.listView')}>
               <LayoutList className="h-4 w-4" />
             </ToggleGroupItem>
-            <ToggleGroupItem value="grid" aria-label={t('maps.gridView')}>
+            <ToggleGroupItem value="grid" size="icon" aria-label={t('maps.gridView')}>
               <LayoutGrid className="h-4 w-4" />
             </ToggleGroupItem>
           </ToggleGroup>

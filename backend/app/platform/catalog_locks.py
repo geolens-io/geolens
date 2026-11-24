@@ -263,6 +263,42 @@ async def worker_lock_budget(session: AsyncSession) -> AsyncIterator[None]:
         await _set_lock_timeout(session, previous)
 
 
+async def lock_row_in_savepoint(
+    session: AsyncSession, stmt: Executable, *, lock_timeout: str | None = None
+) -> bool:
+    """Run a locking statement in a savepoint under ``lock_timeout``
+    (``WORKER_LOCK_TIMEOUT`` by default); False when the wait expires or
+    deadlocks.
+
+    Unlike :func:`bounded_row_lock`, a failed wait rolls back only the
+    savepoint, so the caller's transaction keeps its work. The row, once
+    taken, is held until the caller's transaction ends.
+    """
+    async with lock_timeout_kept(session):
+        savepoint = await session.begin_nested()
+        try:
+            await _set_lock_timeout(session, lock_timeout or WORKER_LOCK_TIMEOUT)
+            await session.execute(stmt)
+        except DBAPIError as exc:
+            await savepoint.rollback()
+            if not is_lock_conflict(exc):
+                raise
+            return False
+        await savepoint.commit()
+    return True
+
+
+@asynccontextmanager
+async def lock_timeout_kept(session: AsyncSession) -> AsyncIterator[None]:
+    """Put the transaction's lock budget back as it was when the block ends
+    without an error, whatever a lock taken in the block set or reset."""
+    with session.no_autoflush:
+        previous = await session.scalar(text("SELECT current_setting('lock_timeout')"))
+    yield
+    with session.no_autoflush:
+        await _set_lock_timeout(session, previous)
+
+
 async def _set_lock_timeout(session: AsyncSession, value: str) -> None:
     # `set_config(..., true)` is `SET LOCAL` taking a bind parameter.
     await session.execute(

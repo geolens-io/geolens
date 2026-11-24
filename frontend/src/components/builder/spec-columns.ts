@@ -25,6 +25,7 @@ export function columnsReadBy(layer: LayerSpec['layer']): { cols: string[]; dyna
 
   function walk(node: unknown): void {
     if (Array.isArray(node)) {
+      if (node[0] === 'literal') return;
       if ((node[0] === 'get' || node[0] === 'has') && typeof node[1] === 'string') {
         cols.add(node[1]);
         // The optional third operand is an object that can read fields too.
@@ -34,7 +35,12 @@ export function columnsReadBy(layer: LayerSpec['layer']): { cols: string[]; dyna
       if (node[0] === 'properties' || ((node[0] === 'get' || node[0] === 'has') && node.length > 1 && typeof node[1] !== 'string')) {
         dynamic = true;
       }
-      for (const child of node) walk(child);
+      // The labels of a match are values to compare, not expressions.
+      const last = node.length - 1;
+      node.forEach((child, i) => {
+        if (node[0] === 'match' && i >= 2 && i % 2 === 0 && i < last) return;
+        walk(child);
+      });
       return;
     }
     if (node && typeof node === 'object') {

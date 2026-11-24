@@ -1,3 +1,4 @@
+import { _resetChosenDensity } from '@/lib/search-view'
 import '@testing-library/jest-dom/vitest'
 
 // Initialize i18n for tests so useTranslation() resolves English strings
@@ -136,4 +137,5 @@ vi.mock('maplibre-gl/dist/maplibre-gl.css', () => ({}))
 // Clean up persisted Zustand state between tests
 afterEach(() => {
   localStorage.clear()
+  _resetChosenDensity()
 })

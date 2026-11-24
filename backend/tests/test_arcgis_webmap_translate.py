@@ -26,6 +26,7 @@ from app.modules.catalog.maps.arcgis_webmap.translate import (
     DEFAULT_MAP_NAME,
     translate_webmap,
 )
+from app.platform.map_bookmarks import MAX_MAP_BOOKMARKS
 from app.modules.catalog.maps.schemas import MapLayerInput
 
 FIXTURES = Path(__file__).parent / "fixtures" / "arcgis_webmaps"
@@ -1173,17 +1174,146 @@ class TestMapLevel:
     def test_unsupported_parts_are_reported(self) -> None:
         webmap = _webmap(
             tables=[{"title": "T"}],
-            bookmarks=[{"name": "b"}],
             timeSlider={"x": 1},
             widgets={"y": 1},
         )
-        assert {"table_in_map", "bookmarks", "time", "widget"} <= _kinds(
-            _translate(webmap)
-        )
+        assert {"table_in_map", "time", "widget"} <= _kinds(_translate(webmap))
 
     def test_name_falls_back(self) -> None:
         assert _translate(_webmap(), name="  Mine ").name == "Mine"
         assert _translate(_webmap()).name == DEFAULT_MAP_NAME
+
+
+def _extent(xmin, ymin, xmax, ymax, wkid=102100, **extra) -> dict:
+    return {
+        "xmin": xmin,
+        "ymin": ymin,
+        "xmax": xmax,
+        "ymax": ymax,
+        "spatialReference": {"wkid": wkid},
+        **extra,
+    }
+
+
+def _bookmark(name="Harbor", **extra) -> dict:
+    return {
+        "name": name,
+        "viewpoint": {"targetGeometry": _extent(-8240000, 4960000, -8220000, 4980000)},
+        **extra,
+    }
+
+
+class TestBookmarks:
+    def test_a_web_mercator_extent_becomes_degrees(self) -> None:
+        result = _translate(_webmap(bookmarks=[_bookmark()]))
+        (bookmark,) = result.bookmarks
+        assert bookmark.name == "Harbor"
+        west, south, east, north = bookmark.extent
+        assert west == pytest.approx(-74.0, abs=0.1) and east > west
+        assert south == pytest.approx(40.7, abs=0.2) and north > south
+        assert bookmark.extent == [round(v, 6) for v in bookmark.extent]
+        assert "bookmarks" not in _kinds(result)
+        assert _kinds(result).isdisjoint({"unsupported_property", "bookmark_skipped"})
+
+    def test_a_4326_extent_is_taken_as_degrees(self) -> None:
+        item = {
+            "name": "Wide",
+            "viewpoint": {"targetGeometry": _extent(-75, 40, -73, 41, wkid=4326)},
+        }
+        (bookmark,) = _translate(_webmap(bookmarks=[item])).bookmarks
+        assert bookmark.extent == [-75, 40, -73, 41]
+
+    def test_the_older_top_level_extent_is_used_when_there_is_no_viewpoint(
+        self,
+    ) -> None:
+        item = {"name": "Old", "extent": _extent(-75, 40, -73, 41, wkid=4326)}
+        (bookmark,) = _translate(_webmap(bookmarks=[item])).bookmarks
+        assert bookmark.extent == [-75, 40, -73, 41]
+
+    def test_the_viewpoint_wins_over_the_top_level_extent(self) -> None:
+        item = _bookmark(extent=_extent(0, 0, 1, 1, wkid=4326))
+        (bookmark,) = _translate(_webmap(bookmarks=[item])).bookmarks
+        assert bookmark.extent[0] == pytest.approx(-74.0, abs=0.1)
+
+    def test_rotation_has_the_sign_the_map_view_uses(self) -> None:
+        item = _bookmark()
+        item["viewpoint"]["rotation"] = 90
+        webmap = _webmap(
+            bookmarks=[item],
+            initialState={"viewpoint": {**item["viewpoint"]}},
+        )
+        result = _translate(webmap)
+        assert result.bookmarks[0].bearing == -90
+        assert result.bookmarks[0].bearing == result.bearing
+        assert _translate(_webmap(bookmarks=[_bookmark()])).bookmarks[0].bearing is None
+
+    def test_longitudes_wrap_and_latitudes_clamp(self) -> None:
+        item = {
+            "name": "Over",
+            "viewpoint": {"targetGeometry": _extent(170, -95, 190, 95, wkid=4326)},
+        }
+        (bookmark,) = _translate(_webmap(bookmarks=[item])).bookmarks
+        assert bookmark.extent == [170, -90, -170, 90]
+        world = {"name": "World", "extent": _extent(-200, -10, 200, 10, wkid=4326)}
+        assert _translate(_webmap(bookmarks=[world])).bookmarks[0].extent == [
+            -180,
+            -10,
+            180,
+            10,
+        ]
+
+    @pytest.mark.parametrize(
+        "item",
+        [
+            {"name": "Other CRS", "extent": _extent(1, 1, 2, 2, wkid=27700)},
+            {"name": "No area"},
+            {
+                "name": "Missing",
+                "extent": {"xmin": 1, "spatialReference": {"wkid": 4326}},
+            },
+            {"name": "Huge", "extent": _extent(0, 0, 1e12, 1, wkid=4326)},
+        ],
+    )
+    def test_an_unusable_area_is_skipped_and_named(self, item) -> None:
+        result = _translate(_webmap(bookmarks=[item, _bookmark("Kept")]))
+        assert [b.name for b in result.bookmarks] == ["Kept"]
+        (loss,) = [i for i in result.loss.items if i.kind == "bookmark_skipped"]
+        assert item["name"] in loss.detail and loss.path.startswith("bookmarks[")
+
+    def test_a_blank_name_is_skipped_and_a_long_one_cut(self) -> None:
+        result = _translate(
+            _webmap(bookmarks=[_bookmark("   "), _bookmark(None), _bookmark("x" * 300)])
+        )
+        assert [len(b.name) for b in result.bookmarks] == [120]
+        assert [i.kind for i in result.loss.items].count("bookmark_skipped") == 2
+
+    def test_bookmarks_past_the_limit_are_skipped_with_one_entry(self) -> None:
+        result = _translate(
+            _webmap(
+                bookmarks=[_bookmark(f"B{n}") for n in range(MAX_MAP_BOOKMARKS + 3)]
+            )
+        )
+        assert len(result.bookmarks) == MAX_MAP_BOOKMARKS
+        assert result.bookmarks[0].name == "B0"
+        (loss,) = [i for i in result.loss.items if i.kind == "bookmark_skipped"]
+        assert loss.detail.startswith("3 ")
+
+    def test_keys_that_are_not_carried_are_reported(self) -> None:
+        result = _translate(
+            _webmap(bookmarks=[_bookmark(thumbnail={"url": "x"}, tag=1)])
+        )
+        (item,) = [i for i in result.loss.items if i.kind == "unsupported_property"]
+        assert item.path == "bookmarks" and item.detail == "tag"
+
+    def test_a_time_extent_is_reported_and_the_bookmark_kept(self) -> None:
+        result = _translate(
+            _webmap(
+                bookmarks=[_bookmark(), _bookmark("Pier", timeExtent=[0, 86400000])]
+            )
+        )
+        assert [b.name for b in result.bookmarks] == ["Harbor", "Pier"]
+        (item,) = [i for i in result.loss.items if i.kind == "time"]
+        assert item.path == "bookmarks[1]" and item.detail == "Pier: time extent"
 
 
 class TestFixtures:

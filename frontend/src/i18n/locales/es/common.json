@@ -8,7 +8,7 @@
   "delete": "Eliminar",
   "confirm": "Confirmar",
   "newVersion": {
-    "message": "Hay una nueva versión de GeoLens disponible",
+    "message": "Este sitio se ha actualizado. Recarga para usar la nueva versión.",
     "reload": "Recargar"
   },
   "close": "Cerrar",
@@ -163,6 +163,7 @@
     "jobFailureMissingCrsRaster": "Falta el CRS: el ráster no tiene sistema de referencia de coordenadas. Proporciona una anulación de CRS (código EPSG) al importar.",
     "jobFailureMissingCrsReupload": "Falta el CRS: no se detectó ningún sistema de coordenadas. Asegúrate de que el archivo incluya la información del CRS (por ejemplo, un archivo .prj para Shapefiles) o proporciona una anulación de SRID.",
     "jobFailureMixedSridDatabase": "Las geometrías de la tabla usan más de un SRID, por lo que ningún sistema de coordenadas único las describe. Dales un único SRID en una vista e importa esa vista.",
+    "jobFailurePublicVisibilityRestricted": "La visibilidad pública está restringida a los administradores en esta instancia, así que este trabajo no cambió nada. Elige una visibilidad más limitada o pide a un administrador que haga público este contenido.",
     "jobFailureRefreshAbandoned": "La tarea de actualización nunca fue tomada por un proceso de trabajo, o este desapareció antes de registrar un resultado.",
     "jobFailureRefreshOriginUnsupported": "Esta actualización no se inició: solo los conjuntos de datos de servicio se actualizan de esta forma.",
     "jobFailureReviewRequired": "Este reemplazo cambia el conjunto de datos de formas que requieren revisión, así que no se publicó. Revise los cambios en la pestaña Fuentes del conjunto de datos y acéptelos allí.",
@@ -608,7 +609,8 @@
     },
     "anonMapRecovery": "Puede que este mapa sea privado. Inicia sesión para comprobar si tu cuenta puede abrirlo.",
     "map": {
-      "ariaLabel": "Visor del mapa"
+      "ariaLabel": "Visor del mapa",
+      "bookmarks": "Marcadores"
     }
   },
   "maps": {

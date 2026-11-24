@@ -221,6 +221,9 @@ def handled(monkeypatch):
                 entry.map_snapshot = {"owner": ctx.operator_id, "updated_at": READ_AT}
         else:
             entry.dataset_ids = [_created_id(item["id"])]
+            # As the import records the visibility its commit gave the dataset.
+            for dataset in entry.dataset_ids:
+                entry.visibility.setdefault(dataset, item["target"]["visibility"])
         return migrate.ItemResult()
 
     _install(monkeypatch, handler)

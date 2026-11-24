@@ -50,6 +50,11 @@ from app.processing.ingest.publish_followups import (
     note_publish_followups,
     run_publish_followups,
 )
+from app.processing.ingest.manifest_dataset_fields import apply_dataset_fields
+from app.processing.ingest.manifest_publication import (
+    settle_created_publication,
+    settle_stored_publication,
+)
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
@@ -386,6 +391,7 @@ async def ingest_raster(
             job.current_step = "finalize"
             job.progress = 0.8
 
+            um = await settle_stored_publication(session, job, None, um)
             # 9. Create DB records
             title = um.get("title") or source_filename or "raster_dataset"
             if is_manifest_vrt:
@@ -568,6 +574,9 @@ async def ingest_raster(
                 source_filename=source_filename,
             )
 
+            await apply_dataset_fields(session, job, dataset, um)
+            await settle_created_publication(session, job, record, um)
+
             # 12. Finalize job. ``rows_processed`` stays NULL: a raster has no
             # rows.
             await note_publish_followups(
@@ -728,3 +737,13 @@ async def ingest_raster(
                     final_status=final_status,
                     failed_source_replayable=True,
                 )
+
+
+# A manifest version 2 raster create, under a name earlier workers lack, for
+# the reason ``ingest_manifest_v2_file`` gives.
+ingest_manifest_v2_raster = task_app.task(
+    ingest_raster.func,
+    queue="raster",
+    retry=0,
+    name="app.ingest.tasks.ingest_manifest_v2_raster",
+)

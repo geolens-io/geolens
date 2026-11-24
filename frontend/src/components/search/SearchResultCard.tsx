@@ -19,6 +19,7 @@ import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
 import { queryKeys } from '@/lib/query-keys';
 import { distinctDescription } from '@/lib/text';
 import { getDataset } from '@/api/datasets';
+import type { SearchResultDensity } from '@/lib/search-view';
 import type { OGCRecordResponse } from '@/types/api';
 
 const statusStyles: Record<string, string> = {
@@ -131,7 +132,9 @@ function buildAutoDescription(
         count: properties.source_count,
       });
     case 'table':
-      return t('card.autoDesc.table', { count: properties.feature_count ?? 0 });
+      // An unknown row count is not an empty table.
+      if (properties.feature_count == null) break;
+      return t('card.autoDesc.table', { count: properties.feature_count });
     case 'tiles3d_dataset':
       return t('card.autoDesc.tiles3d');
     default:
@@ -140,13 +143,37 @@ function buildAutoDescription(
   return t('card.autoDesc.fallback');
 }
 
-export const SearchResultCard = memo(function SearchResultCard({ feature }: { feature: OGCRecordResponse }) {
+interface SearchResultCardProps {
+  feature: OGCRecordResponse;
+  density?: SearchResultDensity;
+}
+
+export const SearchResultCard = memo(function SearchResultCard({
+  feature,
+  density = 'comfortable',
+}: SearchResultCardProps) {
   const { t, i18n } = useTranslation('search');
   const queryClient = useQueryClient();
   const { properties } = feature;
   const recordType = properties.record_type ?? 'vector_dataset';
   const isCollection = recordType === 'collection';
   const isTable = recordType === 'table';
+  const rowsKnown = properties.feature_count != null;
+  const colsKnown = !!properties.column_count;
+  const tableRowsText = rowsKnown ? t('card.tableRows', { count: properties.feature_count ?? 0 }) : '';
+  const tableColsText = colsKnown ? t('card.tableCols', { count: properties.column_count }) : '';
+  const tableThumbText =
+    rowsKnown && colsKnown
+      ? t('card.tableRowsColsJoined', { rows: tableRowsText, cols: tableColsText })
+      : tableRowsText || tableColsText;
+  const tableAriaLabel =
+    rowsKnown && colsKnown
+      ? t('card.tableAriaLabel', { rows: properties.feature_count, cols: properties.column_count })
+      : rowsKnown
+        ? t('card.tableAriaLabelNoCols', { rows: properties.feature_count })
+        : colsKnown
+          ? t('card.tableAriaLabelColsOnly', { cols: properties.column_count })
+          : t('card.table');
   const collectionDescription = isCollection ? distinctDescription(properties.title, properties.description) : undefined;
   const origin = datasetOrigin(properties);
   const linkPath = isCollection ? `/collections/${feature.id}` : `/datasets/${feature.id}`;
@@ -157,7 +184,8 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
   // (Bearer attached) and returns a blob URL; genuine file-missing 404s are
   // cached in quicklook-cache.ts for the session.
   const featureId = feature.id as string;
-  const enableQuicklook = !isCollection && !isTable && Boolean(properties.has_quicklook);
+  const isCompact = density === 'compact';
+  const enableQuicklook = !isCompact && !isCollection && !isTable && Boolean(properties.has_quicklook);
   const { url: quicklookBlobUrl } = useQuicklook(
     enableQuicklook ? featureId : null,
     256,
@@ -197,6 +225,24 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
 
   const showStatusBadge = !isCollection && !!recordStatus && recordStatus !== 'published';
 
+  const updatedLabel = hasMissingProvenance
+    ? properties.created
+      ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
+      : noUpdateMetadataLabel
+    : t('card.updatedFallback', { time: updatedRelative, defaultValue: 'Updated {{time}}' });
+  const updatedTitle = hasMissingProvenance ? createdTime.absolute : updatedAbsolute;
+  const statusBadge =
+    showStatusBadge && recordStatus ? (
+      <Badge
+        variant={statusVariants[recordStatus] ?? 'outline'}
+        className={statusStyles[recordStatus] ?? 'text-xs'}
+      >
+        {t(`card.status.${recordStatus}`, {
+          defaultValue: recordStatus.charAt(0).toUpperCase() + recordStatus.slice(1),
+        })}
+      </Badge>
+    ) : null;
+
   // Warms the detail query on hover/focus so navigation doesn't pay chunk and
   // query serially; prefetchQuery is a no-op when the data is fresh.
   const prefetchDetail = () => {
@@ -208,11 +254,128 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
     });
   };
 
+  if (isCompact) {
+    const compactSpec = isCollection
+      ? properties.dataset_count != null
+        ? t('collection.datasetCount', { count: properties.dataset_count, defaultValue: '{{count}} datasets' })
+        : ''
+      : isTable
+        ? [
+            properties.feature_count != null
+              ? t('card.tableRows', { count: properties.feature_count })
+              : '',
+            properties.column_count ? t('card.tableCols', { count: properties.column_count }) : '',
+          ]
+            .filter(Boolean)
+            .join(' · ')
+        : cardSpecs
+            .filter((spec) => spec.label !== properties.crs)
+            .map((spec) => spec.label)
+            .join(' · ');
+    // Shown bare in its own column; the full sentence stays for assistive tech.
+    // A collection's creation time is not an update time, so a collection
+    // that reports no update time gets a dash.
+    const collectionUndated = isCollection && !properties.updated;
+    const updatedAbbrev = isCollection
+      ? properties.updated
+        ? updatedTime.relative
+        : '—'
+      : hasMissingProvenance
+        ? properties.created
+          ? createdTime.relative
+          : '—'
+        : updatedRelative;
+    const updatedFull = isCollection
+      ? properties.updated
+        ? t('card.updatedFallback', { time: updatedTime.relative, defaultValue: 'Updated {{time}}' })
+        : ''
+      : updatedLabel;
+    const meta = 'truncate text-xs text-muted-foreground';
+    // A dense row leaves out a healthy, fresh source and marks only one that needs attention.
+    const sourceMissing = properties.source_health === 'missing' || properties.source_health === 'inaccessible';
+    const sourceOverdue = properties.source_freshness === 'overdue';
+    const flags =
+      !isCollection && (sourceMissing || sourceOverdue || statusBadge) ? (
+        <span className="flex shrink-0 items-center gap-1.5">
+          {sourceMissing && <HealthChip state={properties.source_health} iconOnly />}
+          {sourceOverdue && <FreshnessChip state="overdue" iconOnly />}
+          {statusBadge}
+        </span>
+      ) : null;
+
+    // A row of SearchResultList's grid: its columns are that list's, so every
+    // row lines up. The title comes first in the source so the link is named
+    // by it; `order-first` puts the type icon back in front.
+    return (
+      <Link
+        to={linkPath}
+        className="group grid gap-y-0.5 px-3 py-2 outline-none transition-colors duration-200 ease-out hover:bg-muted/50 focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring md:col-span-full md:min-h-10 md:grid-cols-subgrid md:items-center md:py-1.5 pointer-coarse:md:min-h-11"
+        data-testid="search-result-card"
+        data-density="compact"
+        onMouseEnter={prefetchDetail}
+        onFocus={prefetchDetail}
+      >
+        <div className="flex min-w-0 items-start gap-2 md:contents">
+          <div className="flex min-w-0 flex-1 items-start gap-2 md:items-center">
+            {/* From md, one line tall and clipped: a source that doesn't fit
+                beside the title wraps out of sight instead of being cut to a
+                fragment. On a phone the title may take two lines, since
+                catalog names often differ only at the end. */}
+            <div className="flex min-w-0 flex-wrap items-center gap-x-2 md:h-5 md:overflow-hidden">
+              <h3
+                className="line-clamp-2 max-w-full text-sm font-semibold leading-5 text-foreground wrap-break-word transition-colors group-hover:text-primary md:line-clamp-1"
+                title={properties.title}
+              >
+                {properties.title}
+              </h3>
+              {sourceOrganization && (
+                <span
+                  className="hidden shrink-0 whitespace-nowrap text-xs leading-5 text-muted-foreground md:block"
+                  data-testid="dataset-card-source"
+                  title={sourceOrganization}
+                >
+                  {sourceOrganization}
+                </span>
+              )}
+            </div>
+            {flags}
+          </div>
+          <RecordTypeBadge recordType={recordType} iconOnly className="order-first shrink-0 px-1.5" />
+        </div>
+        <div className="flex min-w-0 items-center gap-x-3 md:contents">
+          <div className="flex h-4 min-w-0 flex-1 flex-wrap items-center gap-x-3 overflow-hidden md:contents">
+            <span
+              className={`max-w-full font-mono tracking-wide empty:hidden md:max-w-64 md:empty:block ${meta}`}
+              title={compactSpec || undefined}
+              data-testid="dataset-card-specs"
+            >
+              {compactSpec}
+            </span>
+            {sourceOrganization && (
+              <span className={`max-w-full md:hidden ${meta}`} title={sourceOrganization}>
+                {sourceOrganization}
+              </span>
+            )}
+          </div>
+          <span
+            className="shrink-0 whitespace-nowrap text-xs text-muted-foreground md:text-end"
+            title={collectionUndated ? undefined : isCollection ? updatedTime.absolute : updatedTitle}
+            data-testid="dataset-card-updated-attribution"
+          >
+            <span aria-hidden="true" data-testid="dataset-card-updated-visible">{updatedAbbrev}</span>
+            <span className="sr-only">{updatedFull}</span>
+          </span>
+        </div>
+      </Link>
+    );
+  }
+
   return (
     <Link
       to={linkPath}
       className="group block rounded-lg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
       data-testid="search-result-card"
+      data-density="comfortable"
       onMouseEnter={prefetchDetail}
       onFocus={prefetchDetail}
     >
@@ -311,30 +474,10 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
 
                   {/* Updated time */}
                   <div className="flex items-center gap-2 text-xs text-muted-foreground">
-                    {hasMissingProvenance ? (
-                      <span data-testid="dataset-card-updated-attribution" title={createdTime.absolute}>
-                        {properties.created
-                          ? t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })
-                          : noUpdateMetadataLabel}
-                      </span>
-                    ) : (
-                      <span
-                        data-testid="dataset-card-updated-attribution"
-                        title={updatedAbsolute}
-                      >
-                        {t('card.updatedFallback', { time: updatedRelative, defaultValue: 'Updated {{time}}' })}
-                      </span>
-                    )}
-                    {showStatusBadge && recordStatus && (
-                      <Badge
-                        variant={statusVariants[recordStatus] ?? 'outline'}
-                        className={statusStyles[recordStatus] ?? 'text-xs'}
-                      >
-                        {t(`card.status.${recordStatus}`, {
-                          defaultValue: recordStatus.charAt(0).toUpperCase() + recordStatus.slice(1),
-                        })}
-                      </Badge>
-                    )}
+                    <span data-testid="dataset-card-updated-attribution" title={updatedTitle}>
+                      {updatedLabel}
+                    </span>
+                    {statusBadge}
                   </div>
                 </div>
 
@@ -345,11 +488,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                       <div
                         className="flex size-[132px] flex-col items-center justify-center gap-2 bg-type-table-bg text-type-table xl:size-[148px]"
                         role="img"
-                        aria-label={
-                          properties.column_count
-                            ? t('card.tableAriaLabel', { rows: properties.feature_count ?? 0, cols: properties.column_count })
-                            : t('card.tableAriaLabelNoCols', { rows: properties.feature_count ?? 0 })
-                        }
+                        aria-label={tableAriaLabel}
                       >
                         <Table2
                           className="h-10 w-10 opacity-80"
@@ -357,12 +496,7 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
                           data-testid="table-thumbnail-icon"
                         />
                         <span className="text-xs font-medium font-mono tabular-nums tracking-wide">
-                          {properties.column_count
-                            ? t('card.tableRowsColsJoined', {
-                                rows: t('card.tableRows', { count: properties.feature_count ?? 0 }),
-                                cols: t('card.tableCols', { count: properties.column_count }),
-                              })
-                            : t('card.tableRows', { count: properties.feature_count ?? 0 })}
+                          {tableThumbText}
                         </span>
                       </div>
                     ) : quicklookBlobUrl ? (
@@ -383,12 +517,12 @@ export const SearchResultCard = memo(function SearchResultCard({ feature }: { fe
             {/* Collection footer */}
             {isCollection && (
               <div className="flex items-center justify-between text-xs text-muted-foreground">
-                {properties.created ? (
+                {properties.updated ? (
                   <span
                     data-testid="dataset-card-updated-attribution"
-                    title={createdTime.absolute}
+                    title={updatedTime.absolute}
                   >
-                    {t('card.updatedFallback', { time: createdTime.relative, defaultValue: 'Updated {{time}}' })}
+                    {t('card.updatedFallback', { time: updatedTime.relative, defaultValue: 'Updated {{time}}' })}
                   </span>
                 ) : (
                   <span />

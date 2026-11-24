@@ -1198,6 +1198,12 @@ export type ArcgisTranslatedView = {
      * Initial rotation in degrees.
      */
     bearing: number | null;
+    /**
+     * Bookmarks
+     *
+     * The bookmarks the map gets.
+     */
+    bookmarks?: Array<MapBookmark>;
 };
 
 /**
@@ -5786,6 +5792,10 @@ export type DuplicateMapResponse = {
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
     dashboard_config?: DashboardConfig | null;
+    /**
+     * Bookmarks
+     */
+    bookmarks?: Array<MapBookmark>;
     visibility: MapVisibility;
     /**
      * Thumbnail Url
@@ -7465,7 +7475,7 @@ export type JobStatusBatchEntry = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning | ManifestCollectionRefusedWarning | ManifestAttributeUnmatchedWarning | ManifestPublicFallbackWarning>;
     /**
      * Can Retry
      */
@@ -7543,7 +7553,7 @@ export type JobStatusResponse = {
     /**
      * Warnings
      */
-    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning>;
+    warnings?: Array<ReservedRenameWarning | DbfTruncationCollisionWarning | MercatorClipWarning | ZmDroppedWarning | ManifestCollectionRefusedWarning | ManifestAttributeUnmatchedWarning | ManifestPublicFallbackWarning>;
     /**
      * Progress
      */
@@ -7954,6 +7964,22 @@ export type ManifestApplyEntryResult = {
      * Errors
      */
     errors?: Array<string>;
+    /**
+     * Messages
+     *
+     * Coded messages for the entry. Left out in manifest version 1.
+     */
+    messages?: Array<ManifestMessage> | null;
+    /**
+     * Visibility
+     *
+     * Who can see the dataset once the entry's job finishes: the level the entry writes, or the stored one when it writes none. Null when the entry failed or the dataset can't be read. Left out in manifest version 1.
+     */
+    visibility?: string | null;
+    /**
+     * Links to the dataset. Null when there is no dataset yet or the caller can't read it. Left out in manifest version 1.
+     */
+    links?: ManifestDatasetLinks | null;
 };
 
 /**
@@ -7962,17 +7988,37 @@ export type ManifestApplyEntryResult = {
 export type ManifestApplyRequest = {
     /**
      * Manifest Version
+     *
+     * Manifest format. Version 2 adds `client`, which it requires, and `upload:<job_id>` sources. Version 2 is a preview and may change in any release until the desktop connectors ship; version 1 is stable.
      */
-    manifest_version: '1';
+    manifest_version: '1' | '2';
     catalog: ManifestCatalog;
     /**
      * Datasets
+     *
+     * Required, with at least one entry, in version 1. In version 2 it may be empty, or left out, when `maps` is not.
      */
-    datasets: Array<ManifestDataset>;
+    datasets?: Array<ManifestDataset>;
     /**
      * Dry Run
      */
     dry_run?: boolean;
+    /**
+     * The publishing client. Required in version 2, refused in 1.
+     */
+    client?: ManifestClient | null;
+    /**
+     * Public Fallback
+     *
+     * Version 2 only. When public visibility is refused for an entry, write it as internal with warning A020 instead of failing it.
+     */
+    public_fallback?: 'internal' | null;
+    /**
+     * Maps
+     *
+     * Version 2 only, which is a preview. Maps built from datasets the caller can read, created or updated by key after the request's datasets. A dry run answers for the whole publish, so a layer may name a dataset the same request publishes. An apply writes a layer only once its dataset's job is complete: a layer, by dataset key or id, on a dataset the request creates, replaces or holds, or on one with a job still running, answers A052, and the map is sent again once the jobs finish.
+     */
+    maps?: Array<ManifestMap> | null;
 };
 
 /**
@@ -7991,6 +8037,59 @@ export type ManifestApplyResponse = {
      * Results
      */
     results: Array<ManifestApplyEntryResult>;
+    /**
+     * Maps
+     *
+     * One result per map, in request order. Left out in version 1.
+     */
+    maps?: Array<ManifestMapResult> | null;
+};
+
+/**
+ * ManifestAttribute
+ *
+ * Per-column text for the column named ``source_name`` in the uploaded file.
+ */
+export type ManifestAttribute = {
+    /**
+     * Source Name
+     */
+    source_name: string;
+    /**
+     * Title
+     */
+    title?: string | null;
+    /**
+     * Description
+     */
+    description?: string | null;
+    /**
+     * Units
+     */
+    units?: string | null;
+};
+
+/**
+ * ManifestAttributeUnmatchedDetail
+ */
+export type ManifestAttributeUnmatchedDetail = {
+    /**
+     * Source Names
+     */
+    source_names: Array<string>;
+};
+
+/**
+ * ManifestAttributeUnmatchedWarning
+ *
+ * Publish manifest code A092: these attribute names matched no column.
+ */
+export type ManifestAttributeUnmatchedWarning = {
+    /**
+     * Kind
+     */
+    kind: 'manifest_attribute_unmatched';
+    details: ManifestAttributeUnmatchedDetail;
 };
 
 /**
@@ -8010,6 +8109,77 @@ export type ManifestCatalog = {
      */
     organization?: string | null;
     contact?: ManifestContact | null;
+};
+
+/**
+ * ManifestClient
+ *
+ * The publishing client that built the manifest.
+ */
+export type ManifestClient = {
+    /**
+     * Id
+     */
+    id: string;
+    /**
+     * Version
+     */
+    version: string;
+    /**
+     * App
+     */
+    app?: string | null;
+    /**
+     * Project
+     */
+    project?: string | null;
+};
+
+/**
+ * ManifestCollectionRef
+ *
+ * A collection by id, or by name, which apply creates when the caller may.
+ */
+export type ManifestCollectionRef = {
+    /**
+     * Id
+     */
+    id?: string | null;
+    /**
+     * Name
+     */
+    name?: string | null;
+};
+
+/**
+ * ManifestCollectionRefusedDetail
+ *
+ * The collection a manifest asked for that the dataset was not added to.
+ */
+export type ManifestCollectionRefusedDetail = {
+    /**
+     * Collection Id
+     */
+    collection_id: string;
+    /**
+     * Reason
+     *
+     * refused: the submitter can't add datasets to the collection. busy: another change held the collection too long; publishing again may add the dataset.
+     */
+    reason?: 'refused' | 'busy';
+};
+
+/**
+ * ManifestCollectionRefusedWarning
+ *
+ * Publish manifest code A033: the dataset was published without its collection.
+ */
+export type ManifestCollectionRefusedWarning = {
+    /**
+     * Kind
+     */
+    kind: 'manifest_collection_refused';
+    details: ManifestCollectionRefusedDetail;
 };
 
 /**
@@ -8056,6 +8226,366 @@ export type ManifestDataset = {
     ];
     metadata?: ManifestMetadata | null;
     publication: ManifestPublication;
+    /**
+     * Visibility
+     *
+     * Who can see the dataset. Version 2 only. Omitted on create the dataset is private; omitted on update the current level is kept.
+     */
+    visibility?: 'private' | 'internal' | 'public' | null;
+    /**
+     * Collection to add the dataset to. Version 2 only. Adding needs the manage_collections permission and ownership of the collection; otherwise the entry carries warning A033.
+     */
+    collection?: ManifestCollectionRef | null;
+    /**
+     * Attributes
+     *
+     * Per-column title, description and units, by column name in the uploaded file. Version 2 only. A null field keeps the stored text; a name matching no column is warning A092.
+     */
+    attributes?: Array<ManifestAttribute> | null;
+};
+
+/**
+ * ManifestDatasetLinks
+ *
+ * Absolute links to a dataset, each one a route the server serves.
+ */
+export type ManifestDatasetLinks = {
+    /**
+     * Page
+     *
+     * The dataset's page in the web app.
+     */
+    page: string;
+    /**
+     * Items
+     *
+     * The OGC API Features items. Null for a dataset with no items.
+     */
+    items?: string | null;
+    /**
+     * Tiles
+     *
+     * The vector tile URL template, with {z}, {x} and {y}. Null for a dataset with no vector tiles, and while a job is still writing the dataset (queued, running or held): read the template again once it completes. A private dataset's tiles need the caller's API key header.
+     */
+    tiles?: string | null;
+};
+
+/**
+ * ManifestLossItem
+ */
+export type ManifestLossItem = {
+    /**
+     * Path
+     */
+    path: string;
+    /**
+     * Kind
+     */
+    kind: string;
+    /**
+     * Detail
+     */
+    detail?: string | null;
+};
+
+/**
+ * ManifestLossReport
+ */
+export type ManifestLossReport = {
+    /**
+     * Items
+     */
+    items?: Array<ManifestLossItem>;
+    /**
+     * Summary
+     */
+    summary?: {
+        [key: string]: number;
+    };
+};
+
+/**
+ * ManifestMap
+ */
+export type ManifestMap = {
+    /**
+     * Key
+     *
+     * Stable map identity key, unique across the server. A key on a map the caller can't edit answers A050.
+     */
+    key: string;
+    /**
+     * Name
+     */
+    name: string;
+    /**
+     * Description
+     */
+    description?: string | null;
+    view?: ManifestMapView | null;
+    /**
+     * Basemap Style
+     *
+     * A basemap id from GET /capabilities.
+     */
+    basemap_style?: string | null;
+    /**
+     * Styling
+     *
+     * Whether a republish replaces the map's styling: its view, basemap, bookmarks and its keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless styling it would write was edited in GeoLens since the last publish that replaced it, and answers info A070 when it keeps it. A view or basemap edit counts only when the manifest sends a `view` or `basemap_style` that would overwrite it, and a bookmarks edit only when it sends `bookmarks`. A kept layer keeps its dataset too, with warning A073 when the manifest names another. Name, description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's styling.
+     */
+    styling?: 'replace_if_unedited' | 'replace' | 'keep';
+    /**
+     * Thumbnail
+     *
+     * A PNG or JPEG data URI, stored as the map's thumbnail once the map is written, with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling leaves the map's thumbnail as it is. One the storage step refuses or can't store is warning A072, and the map stays published.
+     */
+    thumbnail?: string | null;
+    /**
+     * Written, one line per item, in a block at the top of the map's notes, above a `---` line. A republish replaces the leading block only when it is exactly a block some publish of this map wrote; all other text is kept whole. Left out when the styling is kept, and cut to what fits the notes limit. When the notes leave no room for the block, none is written, and an earlier publish's block is removed if the notes start with one; the rest of the notes is untouched (info A071).
+     */
+    loss_report?: ManifestLossReport | null;
+    /**
+     * Visibility
+     *
+     * Who can see the map. Omitted on create the map is private; omitted on update the current level is kept.
+     */
+    visibility?: 'private' | 'internal' | 'public' | null;
+    /**
+     * Layers
+     */
+    layers: Array<ManifestMapLayer>;
+    /**
+     * Bookmarks
+     *
+     * Named areas, in display order (max 100). Part of the map's styling: a republish that applies styling replaces the map's bookmarks with these, and an empty list removes them. Left out, the map's bookmarks are kept.
+     */
+    bookmarks?: Array<MapBookmark> | null;
+};
+
+/**
+ * ManifestMapLayer
+ *
+ * One map layer. Column names in its styling are the uploaded file's.
+ */
+export type ManifestMapLayer = {
+    /**
+     * Key
+     *
+     * Stable layer identity key, unique within its map.
+     */
+    key: string;
+    /**
+     * Dataset Key
+     *
+     * A dataset the caller published under this key. Exactly one of dataset_key and dataset_id.
+     */
+    dataset_key?: string | null;
+    /**
+     * Dataset Id
+     *
+     * A dataset already in GeoLens that the caller can read.
+     */
+    dataset_id?: string | null;
+    /**
+     * Display Name
+     */
+    display_name?: string | null;
+    /**
+     * Visible
+     */
+    visible?: boolean;
+    /**
+     * Opacity
+     */
+    opacity?: number;
+    /**
+     * Min Zoom
+     */
+    min_zoom?: number | null;
+    /**
+     * Max Zoom
+     */
+    max_zoom?: number | null;
+    /**
+     * Style Config
+     *
+     * The builder's style description. Unknown top-level keys are dropped with info A062. A symbol's icon and its categories' icons are icon names; any other value is refused with A099.
+     */
+    style_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Paint
+     */
+    paint?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Layout
+     */
+    layout?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Filter
+     */
+    filter?: Array<unknown> | null;
+    /**
+     * Label Config
+     *
+     * Text labels. Unknown keys are dropped with info A062.
+     */
+    label_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Popup Config
+     */
+    popup_config?: {
+        [key: string]: unknown;
+    } | null;
+    /**
+     * Show In Legend
+     */
+    show_in_legend?: boolean;
+};
+
+/**
+ * ManifestMapLinks
+ *
+ * Absolute links to a map.
+ */
+export type ManifestMapLinks = {
+    /**
+     * Viewer
+     *
+     * The map in the web app.
+     */
+    viewer: string;
+    /**
+     * Share
+     *
+     * The public map's share link, sent once, by the publish that created it. Share links are stored hashed and can't be read back, so keep it: later publishes send null, as does a publish of a map that isn't public, a dry run and a map in error. When no web app address is configured (PUBLIC_APP_URL, or a hosted tenant's own origin), no link is created, this is null, and the map answers info A074.
+     */
+    share?: string | null;
+    /**
+     * Embed
+     *
+     * An iframe snippet that embeds the share link, sent with `share` and null whenever it is.
+     */
+    embed?: string | null;
+};
+
+/**
+ * ManifestMapResult
+ */
+export type ManifestMapResult = {
+    /**
+     * Map Key
+     */
+    map_key: string;
+    /**
+     * Action
+     *
+     * What apply did, or in a dry run would do, with the map. A map with an error message is `error`, and nothing was written for it.
+     */
+    action: 'create' | 'update' | 'skip' | 'error';
+    /**
+     * Map Id
+     *
+     * The map the key names, when the caller may edit it, or the map an apply created.
+     */
+    map_id?: string | null;
+    /**
+     * Messages
+     */
+    messages?: Array<ManifestMessage>;
+    /**
+     * Visibility
+     *
+     * Who can see the map after the apply, or in a dry run would. Null for a map in error.
+     */
+    visibility?: string | null;
+    /**
+     * Styling
+     *
+     * `applied` when the manifest's styling replaced the map's, `kept` when the map kept its own. Null for a map in error.
+     */
+    styling?: 'applied' | 'kept' | null;
+    /**
+     * Groups
+     *
+     * Names of the groups the map is shared with.
+     */
+    groups?: Array<string>;
+    /**
+     * Links to the map. Null while the map doesn't exist yet.
+     */
+    links?: ManifestMapLinks | null;
+    /**
+     * Removed Layers
+     *
+     * Keyed layers the manifest no longer lists and the caller can read, removed from the map (info A059). Their datasets stay. One on a dataset the caller can't read stays on the map.
+     */
+    removed_layers?: Array<ManifestRemovedLayer>;
+};
+
+/**
+ * ManifestMapView
+ */
+export type ManifestMapView = {
+    /**
+     * Center
+     *
+     * Longitude and latitude, WGS84.
+     */
+    center: [
+        number,
+        number
+    ];
+    /**
+     * Zoom
+     */
+    zoom: number;
+    /**
+     * Bearing
+     */
+    bearing?: number;
+    /**
+     * Pitch
+     */
+    pitch?: number;
+};
+
+/**
+ * ManifestMessage
+ */
+export type ManifestMessage = {
+    /**
+     * Code
+     *
+     * Stable code, for example `A020`.
+     */
+    code: string;
+    /**
+     * Severity
+     */
+    severity: 'error' | 'warning' | 'info';
+    /**
+     * Message
+     */
+    message: string;
+    /**
+     * Fix
+     */
+    fix?: string | null;
+    /**
+     * Layer
+     *
+     * The map layer key the message is about. Left out otherwise.
+     */
+    layer?: string | null;
 };
 
 /**
@@ -8094,6 +8624,32 @@ export type ManifestMetadata = {
 };
 
 /**
+ * ManifestPublicFallbackDetail
+ */
+export type ManifestPublicFallbackDetail = {
+    /**
+     * Reason
+     *
+     * key: a publish key can't make anything public. restriction: public visibility is restricted to admins on this server.
+     */
+    reason: 'key' | 'restriction';
+};
+
+/**
+ * ManifestPublicFallbackWarning
+ *
+ * Publish manifest code A020: public was refused when the job ran, so
+ * the dataset was shared with the organization instead.
+ */
+export type ManifestPublicFallbackWarning = {
+    /**
+     * Kind
+     */
+    kind: 'manifest_public_fallback';
+    details: ManifestPublicFallbackDetail;
+};
+
+/**
  * ManifestPublication
  */
 export type ManifestPublication = {
@@ -8103,6 +8659,36 @@ export type ManifestPublication = {
      * Publication intent. Deliberately not pinned to an enum: the values come from the workflow extension's status_order(), so an overlay may define its own, and apply validates against the live extension. Community default order: draft, ready, internal, published.
      */
     intent: string;
+};
+
+/**
+ * ManifestRemovedLayer
+ */
+export type ManifestRemovedLayer = {
+    /**
+     * Key
+     *
+     * The removed layer's key.
+     */
+    key: string;
+    /**
+     * Dataset Id
+     *
+     * Its dataset, which stays on the server.
+     */
+    dataset_id: string;
+    /**
+     * Layer Id
+     *
+     * The removed layer's id, which no longer names a layer.
+     */
+    layer_id?: string | null;
+    /**
+     * Link
+     *
+     * The dataset's page in the web app, to delete it there.
+     */
+    link?: string | null;
 };
 
 /**
@@ -8118,7 +8704,7 @@ export type ManifestSource = {
     /**
      * Uri
      *
-     * Relative path (no `..` traversal), HTTP(S) URL, or s3:// storage URI.
+     * Relative path (no `..` traversal), HTTP(S) URL, s3:// storage URI, or, in manifest_version 2, `upload:<job_id>` naming a pending upload the caller made.
      */
     uri: string;
     /**
@@ -8162,6 +8748,41 @@ export type MapAccessResponse = {
 };
 
 /**
+ * MapBookmark
+ */
+export type MapBookmark = {
+    /**
+     * Name
+     *
+     * Bookmark name
+     */
+    name: string;
+    /**
+     * Extent
+     *
+     * [west, south, east, north] in EPSG:4326. A west greater than east means the area crosses the antimeridian.
+     */
+    extent: [
+        number,
+        number,
+        number,
+        number
+    ];
+    /**
+     * Bearing
+     *
+     * Map rotation in degrees
+     */
+    bearing?: number | null;
+    /**
+     * Pitch
+     *
+     * Map tilt in degrees (0-85)
+     */
+    pitch?: number | null;
+};
+
+/**
  * MapCreate
  */
 export type MapCreate = {
@@ -8191,6 +8812,12 @@ export type MapCreate = {
      * Curated map-level basemap appearance preferences
      */
     basemap_config?: BasemapConfig | null;
+    /**
+     * Bookmarks
+     *
+     * Named areas, in display order (max 100)
+     */
+    bookmarks?: Array<MapBookmark> | null;
 };
 
 /**
@@ -8900,6 +9527,10 @@ export type MapResponse = {
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
     dashboard_config?: DashboardConfig | null;
+    /**
+     * Bookmarks
+     */
+    bookmarks?: Array<MapBookmark>;
     visibility: MapVisibility;
     /**
      * Thumbnail Url
@@ -9287,6 +9918,12 @@ export type MapUpdate = {
      * The dashboard. Omit to keep it; null removes the widgets you see.
      */
     dashboard_config?: DashboardConfigInput | null;
+    /**
+     * Bookmarks
+     *
+     * Named areas, in display order (max 100). Omit to keep them; null or an empty list removes them.
+     */
+    bookmarks?: Array<MapBookmark> | null;
     /**
      * private, internal, public or restricted. A map shared with groups is restricted when it would otherwise be private, so private keeps it restricted; restricted needs at least one group.
      */
@@ -12877,6 +13514,10 @@ export type SharedMapResponse = {
     basemap_config?: BasemapConfig | null;
     terrain_config?: TerrainConfig | null;
     dashboard_config?: DashboardConfig | null;
+    /**
+     * Bookmarks
+     */
+    bookmarks?: Array<MapBookmark>;
     /**
      * Has Non Public Layers
      */

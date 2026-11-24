@@ -96,6 +96,45 @@ class TestCreate:
         assert got.status_code == 200
         assert len(got.json()["layers"]) == 1
 
+    async def test_bookmarks_are_saved_and_a_dry_run_shows_them_without_a_map(
+        self, client: AsyncClient, editor
+    ) -> None:
+        headers, _ = editor
+        webmap = _webmap()
+        webmap["bookmarks"] = [
+            {
+                "name": "Harbor",
+                "extent": {
+                    "xmin": -75,
+                    "ymin": 40,
+                    "xmax": -73,
+                    "ymax": 41,
+                    "spatialReference": {"wkid": 4326},
+                },
+            }
+        ]
+        before = len(await _owned_maps(client, headers))
+
+        dry = await client.post(URL, json=_body(webmap, dry_run=True), headers=headers)
+        assert dry.status_code == 201, dry.text
+        assert dry.json()["map"] is None
+        assert dry.json()["view"]["bookmarks"][0]["name"] == "Harbor"
+        assert len(await _owned_maps(client, headers)) == before
+
+        resp = await client.post(URL, json=_body(webmap), headers=headers)
+        assert resp.status_code == 201, resp.text
+        created = resp.json()["map"]
+        assert created["bookmarks"] == [
+            {
+                "name": "Harbor",
+                "extent": [-75, 40, -73, 41],
+                "bearing": None,
+                "pitch": None,
+            }
+        ]
+        got = await client.get(f"/maps/{created['id']}", headers=headers)
+        assert got.json()["bookmarks"] == created["bookmarks"]
+
     async def test_the_description_is_saved_on_the_new_map(
         self, client: AsyncClient, editor
     ) -> None:

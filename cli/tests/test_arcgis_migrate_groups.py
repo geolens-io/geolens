@@ -1203,6 +1203,7 @@ def test_a_dataset_share_follows_the_target_and_keeps_geolens_grants(
 def test_a_dataset_share_never_makes_a_private_dataset_restricted_off_plan(
     monkeypatch, visibility, target, current, granted, wanted, sent
 ):
+    """Each dataset holds the visibility this command last gave it."""
     from geolens_cli import arcgis_migrate_refresh as refresh
 
     monkeypatch.setattr(
@@ -1224,7 +1225,10 @@ def test_a_dataset_share_never_makes_a_private_dataset_restricted_off_plan(
     )
     ds = DATASETS[0]
     entry = ItemState(
-        dataset_ids=[ds], groups={ds: granted} if granted else {}, granted={ds: granted}
+        dataset_ids=[ds],
+        groups={ds: granted} if granted else {},
+        granted={ds: granted},
+        visibility={ds: visibility},
     )
     item = {
         "id": "i1",
@@ -1238,6 +1242,110 @@ def test_a_dataset_share_never_makes_a_private_dataset_restricted_off_plan(
     else:
         share(ctx, item, entry)
         assert puts == [sorted(sent)]
+
+
+@pytest.mark.parametrize("recorded", ["restricted", None])
+def test_a_dataset_made_private_in_geolens_is_not_shared_and_the_sharing_is_owed(
+    monkeypatch, recorded
+):
+    """A restricted item's dataset that is private in GeoLens, where this command last made it restricted or an older state file doesn't say, keeps that: its groups aren't put on it, nothing is recorded as shared, and every run returns the sharing as owed instead of failing the item."""
+    from geolens_cli import arcgis_migrate_refresh as refresh
+
+    monkeypatch.setattr(
+        refresh,
+        "get_dataset",
+        lambda ctx, dataset_id: SimpleNamespace(groups=[], visibility="private"),
+    )
+    puts: list = []
+    ctx = SimpleNamespace(
+        shared_layers=None,
+        geolens=SimpleNamespace(call=lambda fn, **kw: puts.append(kw)),
+        save=lambda: None,
+        operator_id=OPERATOR,
+        sharing=None,
+    )
+    ds = DATASETS[0]
+    entry = ItemState(dataset_ids=[ds], visibility={ds: recorded} if recorded else {})
+    item = {
+        "id": "i1",
+        "target": {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]},
+    }
+
+    for with_map in (True, False, False):
+        [owed] = share(ctx, item, entry, with_map=with_map)
+
+        assert f"dataset {ds} was made private in GeoLens" in owed
+    assert puts == [] and entry.groups == {} and entry.granted == {}
+
+
+def test_a_share_records_no_visibility_it_did_not_move(monkeypatch):
+    """A group write leaves an internal or public dataset's visibility alone. One that turns internal between this command's read and its write was changed in GeoLens, so the record keeps what this command last wrote."""
+    from geolens_cli import arcgis_migrate_refresh as refresh
+
+    ds = DATASETS[0]
+    monkeypatch.setattr(
+        refresh,
+        "get_dataset",
+        lambda ctx, dataset_id: SimpleNamespace(groups=[], visibility="restricted"),
+    )
+    ctx = SimpleNamespace(
+        shared_layers=None,
+        geolens=SimpleNamespace(
+            call=lambda fn, **kw: SimpleNamespace(visibility="internal")
+        ),
+        save=lambda: None,
+        operator_id=OPERATOR,
+        sharing=None,
+    )
+    entry = ItemState(dataset_ids=[ds], visibility={ds: "restricted"})
+    target = {"visibility": "restricted", "geolens_groups": [C], "groups": ["g1"]}
+
+    assert share(ctx, {"id": "i1", "target": target}, entry) == []
+
+    assert entry.visibility == {ds: "restricted"} and entry.groups == {ds: [C]}
+
+
+def test_a_share_that_moves_a_dataset_to_restricted_records_that_visibility(
+    monkeypatch,
+):
+    """Sharing a private dataset makes it restricted in GeoLens, and removing its last group makes it private again. Both are this command's writes, so the record follows and the next share isn't taken for an edit."""
+    from geolens_cli import arcgis_migrate_refresh as refresh
+
+    ds = DATASETS[0]
+    held = {"groups": [], "visibility": "private"}
+    monkeypatch.setattr(
+        refresh,
+        "get_dataset",
+        lambda ctx, dataset_id: SimpleNamespace(
+            groups=[SimpleNamespace(id=g) for g in held["groups"]],
+            visibility=held["visibility"],
+        ),
+    )
+
+    def put(fn, **kw):
+        held["groups"] = kw["body"].to_dict()["group_ids"]
+        held["visibility"] = "restricted" if held["groups"] else "private"
+        return SimpleNamespace(visibility=held["visibility"])
+
+    ctx = SimpleNamespace(
+        shared_layers=None,
+        geolens=SimpleNamespace(call=put),
+        save=lambda: None,
+        operator_id=OPERATOR,
+        sharing=None,
+    )
+    entry = ItemState(dataset_ids=[ds], visibility={ds: "private"})
+
+    def item(visibility, groups):
+        target = {"visibility": visibility, "geolens_groups": groups, "groups": ["g1"]}
+        return {"id": "i1", "target": target}
+
+    assert share(ctx, item("restricted", [C]), entry) == []
+    assert entry.visibility == {ds: "restricted"} and held["groups"] == [C]
+    assert share(ctx, item("private", []), entry) == []
+    assert entry.visibility == {ds: "private"} and held["groups"] == []
+    assert share(ctx, item("restricted", [C]), entry) == []
+    assert held["groups"] == [C]
 
 
 def test_a_dataset_group_removed_in_geolens_and_shared_again_is_theirs(monkeypatch):

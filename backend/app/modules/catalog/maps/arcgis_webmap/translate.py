@@ -19,6 +19,7 @@ from app.modules.catalog.maps.arcgis_webmap.filter_sql import (
     is_match_all,
 )
 from app.modules.catalog.maps.arcgis_webmap.keys import (
+    BOOKMARK_KEYS,
     DRAWING_INFO_KEYS,
     BASEMAP_KEYS,
     BASEMAP_LAYER_KEYS,
@@ -33,6 +34,7 @@ from app.modules.catalog.maps.arcgis_webmap.keys import (
 from app.modules.catalog.maps.arcgis_webmap.labels import label_config, popup_config
 from app.modules.catalog.maps.arcgis_webmap.layout import (
     describe,
+    extent_to_bbox,
     extent_to_view,
     is_web_mercator,
     num,
@@ -40,6 +42,7 @@ from app.modules.catalog.maps.arcgis_webmap.layout import (
 )
 from app.modules.catalog.maps.arcgis_webmap.loss import LossReport
 from app.modules.catalog.maps.arcgis_webmap.renderer import translate_renderer
+from app.platform.map_bookmarks import MAX_MAP_BOOKMARKS, MapBookmark
 from app.modules.catalog.maps.schemas import _MAX_LAYERS_PER_MAP, MapLayerInput
 
 DEFAULT_MAP_NAME = "Imported ArcGIS web map"
@@ -67,6 +70,7 @@ class Translation:
     center_lat: float | None = None
     zoom: float | None = None
     bearing: float | None = None
+    bookmarks: list[MapBookmark] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -392,8 +396,6 @@ def _extras(webmap: dict, loss: LossReport) -> None:
         loss.add("spatialReference", "spatial_reference", "drawn in Web Mercator")
     for item in _l(webmap.get("tables")):
         loss.add("tables", "table_in_map", _text(_d(item).get("title"), 120))
-    if webmap.get("bookmarks"):
-        loss.add("bookmarks", "bookmarks", str(len(_l(webmap["bookmarks"]))))
     if webmap.get("timeSlider") or _d(webmap.get("widgets")).get("timeSlider"):
         loss.add("timeSlider", "time")
     if webmap.get("widgets") or _d(webmap.get("applicationProperties")).get("viewing"):
@@ -417,12 +419,62 @@ def _viewpoint(webmap: dict, result: Translation) -> None:
         result.loss.add("initialState.viewpoint", "viewpoint", "extent not usable")
         return
     result.center_lng, result.center_lat, result.zoom = view
+    result.bearing = _bearing(viewpoint)
+
+
+def _bearing(viewpoint: dict) -> float | None:
     rotation = num(viewpoint.get("rotation"))
-    if rotation:
-        # ArcGIS rotates due north clockwise from the top; a MapLibre bearing is
-        # the compass direction at the top, so the two have opposite signs.
-        bearing = (-rotation) % 360
-        result.bearing = round(bearing - 360 if bearing > 180 else bearing, 2)
+    if not rotation:
+        return None
+    # ArcGIS rotates due north clockwise from the top; a MapLibre bearing is
+    # the compass direction at the top, so the two have opposite signs.
+    bearing = (-rotation) % 360
+    return round(bearing - 360 if bearing > 180 else bearing, 2)
+
+
+def _bookmarks(webmap: dict, result: Translation) -> None:
+    items = _l(webmap.get("bookmarks"))
+    report_unknown_keys(items, BOOKMARK_KEYS, "bookmarks", result.loss)
+    skipped = 0
+    for index, raw in enumerate(items):
+        item = _d(raw)
+        path = f"bookmarks[{index}]"
+        name = _text(item.get("name"), 120).strip()
+        if not name:
+            result.loss.add(path, "bookmark_skipped", "no name")
+            continue
+        viewpoint = _d(item.get("viewpoint"))
+        report_unknown_keys(
+            [viewpoint], VIEWPOINT_KEYS, f"{path}.viewpoint", result.loss
+        )
+        try:
+            extent = extent_to_bbox(viewpoint.get("targetGeometry")) or extent_to_bbox(
+                item.get("extent")
+            )
+        except (ArithmeticError, TypeError, ValueError):
+            extent = None
+        if extent is None:
+            result.loss.add(path, "bookmark_skipped", f"{name[:60]}: extent not usable")
+            continue
+        if len(result.bookmarks) >= MAX_MAP_BOOKMARKS:
+            skipped += 1
+            continue
+        try:
+            bookmark = MapBookmark(
+                name=name, extent=extent, bearing=_bearing(viewpoint)
+            )
+        except ValidationError:
+            result.loss.add(path, "bookmark_skipped", f"{name[:60]}: not valid")
+            continue
+        result.bookmarks.append(bookmark)
+        if item.get("timeExtent"):
+            result.loss.add(path, "time", f"{name[:60]}: time extent")
+    if skipped:
+        result.loss.add(
+            "bookmarks",
+            "bookmark_skipped",
+            f"{skipped} past the {MAX_MAP_BOOKMARKS} limit",
+        )
 
 
 _Built = tuple[MapLayerInput | None, LossReport]
@@ -568,5 +620,6 @@ def translate_webmap(
     result.basemap_style = _basemap(webmap, basemap_map, available_basemaps, loss)
     report_unknown_keys([webmap], WEBMAP_KEYS, "webmap", loss)
     _viewpoint(webmap, result)
+    _bookmarks(webmap, result)
     _extras(webmap, loss)
     return result

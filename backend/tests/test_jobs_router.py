@@ -630,6 +630,32 @@ class TestGetJobStatus:
             {"original": "gid", "renamed": "src_gid"}
         ]
 
+    async def test_get_job_drops_a_warning_whose_kind_is_not_a_string(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        job = await _create_job(test_db_session, created_by=admin_id, status="complete")
+        job.user_metadata = {
+            "warnings": [
+                {"kind": ["reserved_rename"], "details": []},
+                {"kind": {"name": "zm_dropped"}, "details": []},
+                {
+                    "kind": "reserved_rename",
+                    "details": [{"original": "gid", "renamed": "src_gid"}],
+                },
+            ],
+        }
+        await test_db_session.commit()
+
+        single = await client.get(f"/jobs/{job.id}", headers=admin_auth_header)
+        batch = await client.post(
+            "/jobs/status", json={"job_ids": [str(job.id)]}, headers=admin_auth_header
+        )
+
+        assert single.status_code == 200, single.text
+        assert [w["kind"] for w in single.json()["warnings"]] == ["reserved_rename"]
+        assert batch.status_code == 200, batch.text
+
     async def test_get_job_drops_unknown_temporal_parse_error_keys(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):

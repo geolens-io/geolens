@@ -4,6 +4,8 @@ Collection license derivation. No database needed: the
 helpers under test take plain dicts.
 """
 
+from datetime import datetime, timezone
+
 from app.modules.catalog.search.records_protocol import (
     collection_search_feature,
     derive_collection_license,
@@ -20,6 +22,7 @@ def _coll(**overrides):
         "description": "A test collection",
         "dataset_count": 0,
         "created_at": "2026-01-01T00:00:00",
+        "updated_at": "2026-03-01T00:00:00",
     }
     coll.update(overrides)
     return coll
@@ -40,6 +43,25 @@ class TestDeriveCollectionLicense:
 
     def test_mixed_licenses_are_various(self):
         assert derive_collection_license([PDDL, CC_BY]) == "various"
+
+
+class TestCollectionSearchFeatureTimes:
+    def test_updated_is_the_update_time_and_created_the_creation_time(self):
+        properties = collection_search_feature(_coll(), "https://api.example.com")[
+            "properties"
+        ]
+
+        assert properties["created"] == "2026-01-01T00:00:00"
+        assert properties["updated"] == "2026-03-01T00:00:00"
+
+    def test_datetime_values_are_written_as_iso_text(self):
+        updated_at = datetime(2026, 3, 1, 12, 30, tzinfo=timezone.utc)
+
+        properties = collection_search_feature(
+            _coll(updated_at=updated_at), "https://api.example.com"
+        )["properties"]
+
+        assert properties["updated"] == "2026-03-01T12:30:00+00:00"
 
 
 class TestCollectionSearchFeatureLicense:

@@ -1224,7 +1224,8 @@
     "notes": "Notizen",
     "notesPlaceholder": "Notizen zu dieser Karte hinzufügen...",
     "dashboard": "Dashboard",
-    "dashboardDescription": "Widgets, die Leser neben der Karte sehen"
+    "dashboardDescription": "Widgets, die Leser neben der Karte sehen",
+    "bookmarks": "Lesezeichen"
   },
   "leaveWarning": {
     "title": "Nicht gespeicherte Änderungen",
@@ -1372,7 +1373,9 @@
     "closePanel": "Panel schließen",
     "notesButtonWithNotes": "Notizen (Karte hat Notizen)",
     "dashboardButtonWithWidgets_one": "Dashboard ({{count}} Widget)",
-    "dashboardButtonWithWidgets_other": "Dashboard ({{count}} Widgets)"
+    "dashboardButtonWithWidgets_other": "Dashboard ({{count}} Widgets)",
+    "bookmarksButtonWithCount_one": "Lesezeichen ({{count}} gespeicherte Ansicht)",
+    "bookmarksButtonWithCount_other": "Lesezeichen ({{count}} gespeicherte Ansichten)"
   },
   "stackRow": {
     "dragHandle": "Ziehen zum Neuanordnen von {{name}}",
@@ -1594,5 +1597,19 @@
     "sourceBoundedGeojson": "Begrenzter GeoJSON-Cluster",
     "sourceFallback": "Cluster-Fallback"
   },
-  "mobileNotice": "Der Karten-Editor funktioniert am besten auf einem größeren Bildschirm. Einige Steuerelemente sind hier eingeschränkt."
+  "mobileNotice": "Der Karten-Editor funktioniert am besten auf einem größeren Bildschirm. Einige Steuerelemente sind hier eingeschränkt.",
+  "bookmarks": {
+    "description": "Gespeicherte Ansichten, zu denen Leser springen können",
+    "add": "Aktuelle Ansicht hinzufügen",
+    "addNoMap": "Die Karte ist noch nicht bereit.",
+    "limitReached": "Eine Karte kann bis zu {{count}} Lesezeichen haben.",
+    "empty": "Lesezeichen speichern eine Kartenansicht, damit Leser dorthin zurückspringen können.",
+    "listLabel": "Lesezeichen",
+    "defaultName": "Lesezeichen {{number}}",
+    "nameLabel": "Name von Lesezeichen {{number}}",
+    "goTo": "Gehe zu {{name}}",
+    "moveUp": "{{name}} nach oben",
+    "moveDown": "{{name}} nach unten",
+    "delete": "{{name}} löschen"
+  }
 }

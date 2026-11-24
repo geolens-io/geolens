@@ -5,11 +5,15 @@ Write functions flush but never commit; callers own the commit boundary
 so multiple calls can batch into one transaction.
 """
 
+import time
 import uuid
+from collections.abc import Iterable
 from typing import Any
 
+import structlog
+
 from fastapi import HTTPException, status
-from sqlalchemy import delete, func, select
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload
 
@@ -20,13 +24,22 @@ from app.modules.catalog.authorization import (
     get_user_roles,
     visible_extent_column,
 )
-from app.modules.catalog.collections.models import Collection, CollectionDataset
+from app.modules.catalog.collections.models import (
+    COLLECTION_UPDATED_AT_ON_WRITE,
+    Collection,
+    CollectionDataset,
+)
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.write_recheck import admit_writer, recheck_admitted_writer
 from app.platform.catalog_locks import bounded_row_lock
 
 
+logger = structlog.stdlib.get_logger(__name__)
+
 _COLLECTION_BUSY = "Another change to this collection is in progress. Retry shortly."
+# How long all the stamps after one delete request may wait, together: the
+# request answers after them.
+_MEMBER_DELETE_STAMP_BUDGET_S = 2.0
 
 
 async def create_collection(
@@ -170,6 +183,35 @@ async def lock_collection_for_write(
     )
 
 
+async def lock_datasets_for_membership(
+    session: AsyncSession, dataset_ids: list[uuid.UUID]
+) -> None:
+    """Take ``KEY SHARE`` on the datasets a membership insert will reference,
+    in id order, before ``lock_collection_for_write``.
+
+    The insert's foreign-key check takes the same lock later. A manifest
+    publish holds its dataset row and then locks the collection, so a writer
+    that locked the collection first and then waited on the dataset would
+    close a deadlock. Only the wait is bounded; one that outlasts the bound
+    answers 409. A dataset deleted while the lock waited answers the 404 the
+    access check gives, with the transaction rolled back.
+    """
+    locked = await bounded_row_lock(
+        session,
+        select(Dataset.id)
+        .where(Dataset.id.in_(dataset_ids))
+        .order_by(Dataset.id)
+        .with_for_update(read=True, key_share=True),
+        message=_COLLECTION_BUSY,
+        detail=_COLLECTION_BUSY,
+    )
+    if set(locked.scalars()) != set(dataset_ids):
+        await session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND, detail="Dataset not found"
+        )
+
+
 async def list_collections(
     session: AsyncSession,
     skip: int = 0,
@@ -231,6 +273,7 @@ async def add_datasets_to_collection(
 
     if added_count > 0:
         await session.flush()
+        await _stamp_member_list_change(session, [collection_id])
 
     return added_count
 
@@ -250,7 +293,73 @@ async def remove_dataset_from_collection(
             CollectionDataset.dataset_id == dataset_id,
         )
     )
-    return result.rowcount > 0
+    if result.rowcount == 0:
+        return False
+    await _stamp_member_list_change(session, [collection_id])
+    return True
+
+
+async def get_dataset_collection_ids(
+    session: AsyncSession, dataset_id: uuid.UUID
+) -> tuple[uuid.UUID, ...]:
+    """The ids of the collections a dataset is in, read without locking them."""
+    result = await session.scalars(
+        select(CollectionDataset.collection_id)
+        .where(CollectionDataset.dataset_id == dataset_id)
+        .order_by(CollectionDataset.collection_id)
+    )
+    return tuple(result)
+
+
+async def stamp_collections_after_member_delete(
+    session: AsyncSession, collection_ids: Iterable[uuid.UUID]
+) -> int:
+    """Move ``updated_at`` on the collections a deleted dataset was in, once
+    the delete has committed, and return how many were stamped.
+
+    Best effort: each collection is stamped and committed in a transaction of
+    its own, so none holds two collection rows, and all of them share one
+    wait budget; once it is spent, a collection that is held is skipped at
+    once. A wait that outlasts the budget, or any other failure, is logged
+    and that collection keeps its time. Call it last: a failure rolls the
+    session back, which expires its instances.
+    """
+    deadline = time.monotonic() + _MEMBER_DELETE_STAMP_BUDGET_S
+    stamped = 0
+    for collection_id in collection_ids:
+        remaining_ms = max(1, int((deadline - time.monotonic()) * 1000))
+        try:
+            await bounded_row_lock(
+                session,
+                update(Collection)
+                .where(Collection.id == collection_id)
+                .values(updated_at=COLLECTION_UPDATED_AT_ON_WRITE),
+                message=_COLLECTION_BUSY,
+                lock_timeout=f"{remaining_ms}ms",
+                reset=False,
+            )
+            await session.commit()
+            stamped += 1
+        except Exception:  # broad: the delete has committed; a missed stamp only leaves an older update time
+            await session.rollback()
+            logger.warning(
+                "collection_member_delete_stamp_skipped",
+                collection_id=str(collection_id),
+                exc_info=True,
+            )
+    return stamped
+
+
+async def _stamp_member_list_change(
+    session: AsyncSession, collection_ids: list[uuid.UUID]
+) -> None:
+    """Move ``updated_at`` on collections whose member list changed, with
+    their rows already held by this transaction."""
+    await session.execute(
+        update(Collection)
+        .where(Collection.id.in_(collection_ids))
+        .values(updated_at=COLLECTION_UPDATED_AT_ON_WRITE)
+    )
 
 
 async def get_collection_datasets(

@@ -26,7 +26,7 @@ from datetime import datetime, timedelta, timezone
 from typing import Any
 
 from sqlalchemy import String, func, inspect as sa_inspect, literal, or_, select, text
-from sqlalchemy import update
+from sqlalchemy import bindparam, update
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
@@ -36,6 +36,8 @@ from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     IngestJob,
+    commit_attempted_marker,
+    dispatch_attempted,
 )
 
 # The three VRT regeneration doors create their job under this filename, and
@@ -253,19 +255,37 @@ def create(
 
 
 async def claim(
-    session: AsyncSession, job_id: uuid.UUID, attempt_id: uuid.UUID
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None,
+    *,
+    values: Mapping[str, Any] | None = None,
+    require: Sequence[Any] = (),
+    new_attempt: bool = False,
 ) -> bool:
     """Move this attempt's pending job to running and start its lease.
 
-    Returns whether it landed. Does not commit.
+    ``values`` are further columns the claim writes, and ``require`` further
+    predicates the row must still meet. ``new_attempt`` starts the lease under
+    a fresh attempt, for a claimant that takes over a row another flow made:
+    whoever still holds the old attempt then matches no row. Returns whether
+    it landed. Does not commit.
     """
     now = datetime.now(timezone.utc)
+    rotated = {"attempt_id": uuid.uuid4()} if new_attempt else {}
     return await _move(
         session,
         job_id,
         attempt_id,
         expect=("pending",),
-        written={"status": "running", "started_at": now, "heartbeat_at": now},
+        written={
+            "status": "running",
+            "started_at": now,
+            "heartbeat_at": now,
+            **_extra(values),
+            **rotated,
+        },
+        require=require,
     )
 
 
@@ -295,18 +315,29 @@ async def stage(
 
 
 async def fan_out(
-    session: AsyncSession, job_id: uuid.UUID, attempt_id: uuid.UUID | None
+    session: AsyncSession,
+    job_id: uuid.UUID,
+    attempt_id: uuid.UUID | None,
+    *,
+    values: Mapping[str, Any] | None = None,
 ) -> bool:
     """Move this attempt's pending parent to ``fanned_out``, before any child exists.
 
-    Returns whether it landed. Does not commit.
+    A job already dispatched as a whole, by an import commit or a manifest
+    apply, can't also fan out. ``values`` are further columns the transition
+    writes. Returns whether it landed. Does not commit.
     """
     return await _move(
         session,
         job_id,
         attempt_id,
         expect=("pending",),
-        written={"status": "fanned_out", "completed_at": datetime.now(timezone.utc)},
+        written={
+            "status": "fanned_out",
+            "completed_at": datetime.now(timezone.utc),
+            **_extra(values),
+        },
+        require=(~dispatch_attempted(),),
     )
 
 
@@ -652,8 +683,10 @@ async def retry(session: AsyncSession, job: IngestJob) -> Outcome:
     Clears what the failed attempt left: its reason, its clocks and its
     dataset binding. ``staged_at`` is stamped now, because the stale-pending
     sweep ages a pending row from it and an hour-old failure would otherwise
-    be stale the moment the retry commits. A late worker on the old attempt
-    then matches no row. When the write lands, the new state, new attempt
+    be stale the moment the retry commits. The dispatch marker is stamped in
+    the same write, since a retry always dispatches next: until then, a
+    pending row without it reads as an upload a manifest or a commit may
+    still take. A late worker on the old attempt then matches no row. When the write lands, the new state, new attempt
     included, is mirrored onto the instance. Ends no linked rows, and does
     not commit.
     """
@@ -676,10 +709,20 @@ async def retry(session: AsyncSession, job: IngestJob) -> Outcome:
                 heartbeat_at=None,
                 completed_at=None,
                 dataset_id=None,
+                # A JSON null, as a row created with None holds, counts as
+                # empty; merged as is, it would nest the fields in an array.
                 user_metadata=func.coalesce(
-                    IngestJob.user_metadata, text("'{}'::jsonb")
+                    func.nullif(IngestJob.user_metadata, text("'null'::jsonb")),
+                    text("'{}'::jsonb"),
                 ).op("||", return_type=JSONB)(
-                    func.jsonb_build_object("staged_at", retried_at.isoformat())
+                    bindparam(
+                        "retry_fields",
+                        value={
+                            "staged_at": retried_at.isoformat(),
+                            **commit_attempted_marker(),
+                        },
+                        type_=JSONB,
+                    )
                 ),
             )
             .returning(

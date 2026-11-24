@@ -575,3 +575,65 @@ class DefaultProcessingPort:
         )
         result = await session.execute(stmt)
         return result.unique().scalar_one_or_none()
+
+    async def resolve_manifest_collection(  # type: ignore[no-untyped-def]
+        self, session, ref, user, *, may_create
+    ):
+        from app.modules.catalog.collections.manifest import (
+            resolve_manifest_collection,
+        )
+
+        return await resolve_manifest_collection(
+            session, ref, user, may_create=may_create
+        )
+
+    async def add_dataset_to_manifest_collection(  # type: ignore[no-untyped-def]
+        self, session, collection_id, dataset_id, user
+    ):
+        from app.modules.catalog.collections.manifest import (
+            add_dataset_to_manifest_collection,
+        )
+
+        return await add_dataset_to_manifest_collection(
+            session, collection_id, dataset_id, user
+        )
+
+    async def apply_manifest_attributes(  # type: ignore[no-untyped-def]
+        self, session, dataset_id, attributes, *, actor_id
+    ):
+        from app.modules.catalog.datasets.domain.service import (
+            update_manifest_attributes,
+        )
+
+        return await update_manifest_attributes(
+            session, dataset_id, attributes, actor_id=actor_id
+        )
+
+    async def apply_manifest_maps(  # type: ignore[no-untyped-def]
+        self,
+        session,
+        maps,
+        user,
+        *,
+        dry_run,
+        dataset_ids_by_key,
+        pending_datasets,
+        unsettled_dataset_ids,
+        public_fallback,
+        client,
+        ip_address,
+    ):
+        from app.modules.catalog.maps.manifest_apply import apply_manifest_maps
+
+        return await apply_manifest_maps(
+            session,
+            maps,
+            user,
+            dry_run=dry_run,
+            dataset_ids_by_key=dataset_ids_by_key,
+            pending_datasets=pending_datasets,
+            unsettled_dataset_ids=unsettled_dataset_ids,
+            public_fallback=public_fallback,
+            client=client,
+            ip_address=ip_address,
+        )

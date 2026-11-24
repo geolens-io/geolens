@@ -279,3 +279,36 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           sbom-path: sbom-${{ matrix.image }}.spdx.json
           push-to-registry: true
+
+  # Build provenance for install.sh, which release.yml attaches to the GitHub
+  # Release as install.sh.intoto.jsonl. It is made here, on the tag, because
+  # the signing certificate records the triggering ref: release.yml runs on
+  # workflow_run, whose ref is main, so an attestation made there would not
+  # verify against --source-ref refs/tags/<tag>. The subject is the script in
+  # the tagged checkout, never a downloaded release asset. It attests only
+  # for a publishing run (a tag push, or push_images=true) from a tag ref
+  # whose checks are green; it runs alongside the image jobs, not after them.
+  #
+  # continue-on-error keeps a failed attestation from turning the image
+  # publish red; release.yml publishes without the bundle and says so.
+  attest-installer:
+    name: Attest the install script
+    needs: require-green-commit
+    continue-on-error: true
+    runs-on: ubuntu-26.04
+    timeout-minutes: 10
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1  # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Attest the install script
+        if: ${{ github.ref_type == 'tag' && (github.event_name == 'push' || github.event.inputs.push_images == 'true') && !github.event.repository.private }}
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6  # v4.2.2
+        with:
+          subject-path: scripts/install.sh

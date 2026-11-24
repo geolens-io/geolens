@@ -1200,10 +1200,10 @@ def _migrate_one(
 ) -> None:
     entry = state.start(item["id"])
     item, sharing_notes = _targeted(ctx, item, owner)
-    ctx.kept_titles.clear()
+    ctx.kept_notes.clear()
     try:
         result = handler(ctx, item, entry)
-        notes = [*result.notes, *ctx.kept_titles, *sharing_notes]
+        notes = [*result.notes, *ctx.kept_notes, *sharing_notes]
         entry.notes = [state.clean(note) for note in dict.fromkeys(notes)]
         state.save()
         if owner is not None:
@@ -1211,20 +1211,18 @@ def _migrate_one(
             ours = writable(ctx, entry, entry.dataset_ids)
             fresh = [d for d in ours if d not in entry.last_update]
             revisions = _import_revisions(ctx, fresh)
-            # A double-recorded dataset keeps the visibility last given it.
+            # Each record is the visibility this command last wrote, which
+            # the plan's isn't where an edit made in GeoLens was kept.
             entry.visibility = {
-                **{
-                    d: v
-                    for d, v in entry.visibility.items()
-                    if d in entry.dataset_ids and d not in ours
-                },
-                **dict.fromkeys(ours, item["target"]["visibility"]),
+                d: v for d, v in entry.visibility.items() if d in entry.dataset_ids
             }
             apply_item_metadata(ctx, item, entry, fresh)
             entry.notes.extend(
                 state.clean(n) for n in file_into_collections(ctx, item, entry)
             )
-            share(ctx, item, entry)
+            for owed in share(ctx, item, entry):
+                if (note := state.clean(owed)) not in entry.notes:
+                    entry.notes.append(note)
             # Even to the operator: a run that failed part way may have handed
             # some of the item's objects to another owner already.
             if ctx.own_content:

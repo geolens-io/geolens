@@ -69,6 +69,7 @@ from app.platform.jobs.models import (
     COMMIT_ATTEMPTED_METADATA_KEY,
     PUBLISHED_FOR_METADATA_KEY,
     DATABASE_SOURCE_METADATA_KEY,
+    MANIFEST_VERSION_METADATA_KEY,
     IngestJob,
     commit_attempted_marker,
 )
@@ -1277,20 +1278,20 @@ async def claim_fan_out_parent(
 ) -> bool:
     """CAS the parent ``pending -> fanned_out`` BEFORE any child is dispatched.
 
-    Dispatching children first and CASing the terminal state after the loop
-    would let a cancel commit mid-loop while an already-deferred fast child
-    claimed and completed before cleanup: the child CAS refused the terminal
-    row, so a 200 cancel still created that child's dataset. This CAS is the
-    mutex for the whole dispatch. It commits before the first child exists,
-    so only two clean orderings remain: cancel first (zero children ever
-    created, endpoint 409s, nothing to reconcile), or this CAS first (parent
-    terminal, every cancel 409s, each child is its own individually
-    cancellable job). Committed here rather than riding a later flush, since
-    a fence is only a fence once durable.
-
-    Returns whether the claim landed. The caller renders the refusal.
+    The CAS is the mutex for the whole dispatch: committed before the first
+    child exists, it lets a cancel either land first (no child is ever created,
+    the route 409s) or find the parent terminal and 409, leaving each child
+    individually cancellable. A portal link the route merged into ``job`` rides
+    the same fenced write; flushed ahead of it, the link would land on a row the
+    fence refuses. Returns whether the claim landed, for the caller to report.
     """
-    claimed = await ledger.fan_out(session, job.id, parent_attempt_id)
+    from sqlalchemy.orm.attributes import instance_state, set_committed_value
+
+    merged = instance_state(job).attrs.user_metadata.history.added
+    if merged:
+        set_committed_value(job, "user_metadata", merged[0])
+    values = {"user_metadata": merged[0]} if merged else None
+    claimed = await ledger.fan_out(session, job.id, parent_attempt_id, values=values)
     await session.commit()
     return claimed
 
@@ -1443,11 +1444,16 @@ async def queue_ingest_job(
     from app.processing.ingest.tasks import (
         ingest_database,
         ingest_file,
+        ingest_manifest_v2_file,
+        ingest_manifest_v2_raster,
         ingest_pointcloud,
         ingest_raster,
         ingest_service,
         ingest_tileset,
     )
+
+    # A manifest version 2 create, under names earlier workers lack.
+    manifest_v2 = (job.user_metadata or {}).get(MANIFEST_VERSION_METADATA_KEY) == "2"
 
     database_source = (job.user_metadata or {}).get(DATABASE_SOURCE_METADATA_KEY)
     if database_source is not None:
@@ -1545,7 +1551,7 @@ async def queue_ingest_job(
     file_path = job.file_path
 
     whole_file_task = {
-        "raster": ingest_raster,
+        "raster": ingest_manifest_v2_raster if manifest_v2 else ingest_raster,
         TILESET_FILE_TYPE: ingest_tileset,
         POINTCLOUD_FILE_TYPE: ingest_pointcloud,
     }.get((job.user_metadata or {}).get("file_type"))
@@ -1572,7 +1578,7 @@ async def queue_ingest_job(
     use_priority = 0 < _local_file_size(file_path) <= PRIORITY_QUEUE_THRESHOLD_BYTES
 
     async def _defer_vector() -> None:
-        task = ingest_file
+        task = ingest_manifest_v2_file if manifest_v2 else ingest_file
         if use_priority:
             task = task.configure(queue="priority")
         await defer_async_with_tenant(

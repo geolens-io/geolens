@@ -30,7 +30,6 @@ from app.modules.auth.dependencies import (
 )
 from app.modules.catalog.authorization import (
     check_map_access,
-    check_public_visibility_allowed,
     get_user_roles,
     visible_vrt_extents,
 )
@@ -52,12 +51,10 @@ from app.modules.catalog.maps.schemas import (
     MapStyleImportResponse,
     MapSummaryResponse,
     MapUpdate,
-    MapVisibility,
     OgImageUploadRequest,
     ThumbnailUploadRequest,
 )
 from app.modules.catalog.maps.author_key import (
-    map_author_key_id,
     refuse_map_author_key,
 )
 from app.modules.catalog.maps.router_assets import router as assets_router
@@ -84,15 +81,16 @@ from app.modules.catalog.maps.service import (
     map_groups,
     new_map_asset_key,
     record_map_history_event,
-    RestrictedWithoutGroupsError,
     remove_layer,
-    update_map,
-    validate_public_visibility,
-    with_visible_vrt_extents,
 )
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service import remove_layers_bulk
+from app.modules.catalog.maps.service_update import (
+    apply_map_create,
+    apply_map_update,
+)
 from app.modules.embed_tokens.service import revoke_embed_tokens_for_dropped_datasets
+from app.modules.catalog.write_recheck import refuse_stale_write
 from app.platform.request_credential import api_key_audit_details, refuse_publish_key
 from app.platform.binary_response import binary_response
 from app.platform.storage.titiler_url import (
@@ -111,7 +109,6 @@ from app.modules.catalog.maps._router_helpers import (
     _layer_history_name,
     _layer_patch_history_actions,
     _layer_rows_by_id,
-    _layers_from_tuples,
     _meta_to_kwargs,
     _readable_layers,
     _reject_non_public_datasets,
@@ -161,49 +158,12 @@ async def create_map_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Create a new map."""
-    refuse_map_author_key(db, user.id, body)
-    terrain_config = (
-        body.terrain_config.model_dump(mode="json")
-        if body.terrain_config is not None
-        else None
-    )
-    await _readable_terrain(db, user, terrain_config)
-    basemap_config = (
-        body.basemap_config.model_dump(mode="json")
-        if body.basemap_config is not None
-        else None
-    )
-    map_obj = await create_map(
+    map_obj = await apply_map_create(
         db,
-        body.name,
-        body.description,
-        user.id,
-        notes=body.notes,
-        terrain_config=terrain_config,
-        basemap_config=basemap_config,
-        created_by_api_key_id=map_author_key_id(db),
-    )
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id,
-            action="map.create",
-            resource_type="map",
-            resource_id=map_obj.id,
-            details={"name": body.name, **api_key_audit_details(db)},
-            ip_address=request.client.host if request.client else None,
-        ),
-    )
-    await record_map_history_event(
-        db,
-        map_id=map_obj.id,
-        actor=user,
-        target_type="map",
-        target_id=map_obj.id,
-        target_name=map_obj.name,
-        action="map.create",
-        summary=f"Created map {map_obj.name}",
-        details={"name": map_obj.name},
+        body,
+        user,
+        record_history=True,
+        ip_address=request.client.host if request.client else None,
     )
     await db.commit()
     await db.refresh(map_obj)
@@ -506,180 +466,14 @@ async def update_map_endpoint(
             detail="Map not found",
         )
     await check_map_ownership(map_obj, user, db)
-    refuse_map_author_key(db, user.id, body, map_obj)
-    await _readable_terrain(db, user, body.terrain_config, map_obj.terrain_config)
-
-    # A non-admin may not move a map to public when restrict_public_visibility
-    # is on. None (untouched) passes through.
-    await check_public_visibility_allowed(db, user, body.visibility)
-
-    # RBAC: when replacing layers, verify access to every dataset, or an owner
-    # could insert MapLayer rows at restricted datasets (render-time RBAC hides
-    # them, but the rows would be a leakage hazard).
-    if body.layers is not None and body.layers:
-        user_roles = await get_user_roles(db, user)
-        requested_ids = [layer.dataset_id for layer in body.layers]
-        accessible = await bulk_check_dataset_access(
-            db, requested_ids, user, user_roles
-        )
-        inaccessible = [str(did) for did in requested_ids if did not in accessible]
-        if inaccessible:
-            raise HTTPException(
-                status_code=status.HTTP_403_FORBIDDEN,
-                detail={
-                    "message": "Cannot access one or more layer datasets",
-                    "datasets": inaccessible,
-                },
-            )
-
-    changed_fields = list(body.model_dump(exclude_unset=True).keys())
-    previous_values = {
-        "name": map_obj.name,
-        "visibility": map_obj.visibility,
-        "terrain_config": map_obj.terrain_config,
-        "basemap_config": map_obj.basemap_config,
-    }
-
-    # Build update kwargs from fields the client actually sent. This preserves
-    # explicit plugins=null, which restores client-default plugin behavior.
-    kwargs = body.model_dump(exclude_unset=True)
-    if "terrain_config" in kwargs and body.terrain_config is not None:
-        kwargs["terrain_config"] = body.terrain_config.model_dump(mode="json")
-    if "basemap_config" in kwargs and body.basemap_config is not None:
-        kwargs["basemap_config"] = body.basemap_config.model_dump(mode="json")
-    if "layers" in kwargs and body.layers is not None:
-        kwargs["layers"] = [
-            {
-                **layer.model_dump(),
-                "sort_order": index if layer.sort_order is None else layer.sort_order,
-            }
-            for index, layer in enumerate(body.layers)
-        ]
-    kwargs["expected_updated_at"] = body.expected_updated_at
-
-    try:
-        map_obj, layer_tuples, forked_name, owner_username = await update_map(
-            db, map_id, user=user, **kwargs
-        )
-    except RestrictedWithoutGroupsError as exc:
-        raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, str(exc))
-    except ValueError:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="Map not found",
-        )
-    # Hard block on publishing non-public datasets, asked once update_map holds
-    # the layers' datasets. A layer replacement is checked on what it leaves.
-    if body.visibility == MapVisibility.public and body.layers is None:
-        non_public = await validate_public_visibility(db, map_id, user)
-        if non_public:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail={
-                    "message": "Cannot set visibility to public: map contains non-public datasets",
-                    "datasets": ", ".join(non_public),
-                },
-            )
-
-    layers = _layers_from_tuples(await with_visible_vrt_extents(db, layer_tuples, user))
-    await audit_emit(
+    map_obj, layer_tuples, forked_name, owner_username = await apply_map_update(
         db,
-        AuditEvent(
-            user_id=user.id,
-            action="map.update",
-            resource_type="map",
-            resource_id=map_id,
-            details={"changed_fields": changed_fields, **api_key_audit_details(db)},
-            ip_address=request.client.host if request.client else None,
-        ),
+        map_obj,
+        body,
+        user,
+        record_history=True,
+        ip_address=request.client.host if request.client else None,
     )
-    # One table of (changed, action, summary, details) drives the per-field
-    # history events.
-    new_visibility = map_obj.visibility
-    config_fields = sorted(
-        set(changed_fields)
-        - {"name", "visibility", "terrain_config", "basemap_config", "layers"}
-    )
-    history_events = [
-        (
-            "name" in kwargs
-            and bool(kwargs["name"])
-            and kwargs["name"] != previous_values["name"],
-            "map.rename",
-            f"Renamed map to {map_obj.name}",
-            {
-                "field": "name",
-                "previous": previous_values["name"],
-                "current": map_obj.name,
-            },
-        ),
-        (
-            "visibility" in kwargs
-            and kwargs["visibility"] is not None
-            and new_visibility != previous_values["visibility"],
-            "map.visibility_update",
-            f"Changed visibility to {new_visibility}",
-            {
-                "field": "visibility",
-                "previous": previous_values["visibility"],
-                "current": new_visibility,
-            },
-        ),
-        (
-            "terrain_config" in kwargs
-            and map_obj.terrain_config != previous_values["terrain_config"],
-            "map.terrain_update",
-            "Updated terrain settings",
-            {
-                "field": "terrain_config",
-                "previous": previous_values["terrain_config"],
-                "current": map_obj.terrain_config,
-            },
-        ),
-        (
-            "basemap_config" in kwargs
-            and kwargs["basemap_config"] != previous_values["basemap_config"],
-            "map.basemap_update",
-            "Updated basemap appearance",
-            {
-                "field": "basemap_config",
-                "previous": previous_values["basemap_config"],
-                "current": map_obj.basemap_config,
-            },
-        ),
-        (
-            "layers" in kwargs,
-            "layer.replace",
-            f"Replaced map layers with {len(layers)} layer(s)",
-            {"layer_count": len(layers)},
-        ),
-        (
-            bool(config_fields),
-            "map.config_update",
-            "Updated map settings",
-            {"changed_fields": config_fields},
-        ),
-    ]
-    for changed, action, summary, details in history_events:
-        if not changed:
-            continue
-        await record_map_history_event(
-            db,
-            map_id=map_id,
-            actor=user,
-            target_type="map",
-            target_id=map_id,
-            target_name=map_obj.name,
-            action=action,
-            summary=summary,
-            details=details,
-        )
-
-    if body.layers is not None:
-        await _reject_non_public_datasets(db, map_obj, user)
-        # Replacing the layer set can drop a dataset an embed token is
-        # scoped to; revoke orphaned tokens so they stop serving its tiles.
-        await revoke_embed_tokens_for_dropped_datasets(db, map_id)
     response = await _visible_map_response(
         db,
         map_obj,
@@ -1020,6 +814,9 @@ class _MapImageKind:
     publish_key_target: str
 
 
+# Pillow names a JPEG that carries a multi-picture segment MPO.
+_MAP_IMAGE_EXTENSIONS = {"PNG": "png", "JPEG": "jpg", "MPO": "jpg"}
+
 _MAP_IMAGE_KINDS = {
     "thumbnail": _MapImageKind(
         storage_prefix="maps/thumbnails",
@@ -1042,8 +839,13 @@ async def store_map_image(
     data_uri: str,
     kind: Literal["thumbnail", "og_image"],
     user: Identity,
+    *,
+    expected_updated_at: datetime | None = None,
 ) -> None:
     """Decode, verify and store one map image, then point the map at it.
+
+    With ``expected_updated_at``, a map written since that value, read under
+    the asset lock, is refused with 409 ``stale_write`` and nothing is stored.
 
     Shared by the thumbnail and social-card uploads: data-URI parse, base64,
     image verification, storage write and publication all behave the same;
@@ -1086,11 +888,11 @@ async def store_map_image(
             detail="Invalid data URI or base64 encoding",
         )
 
-    # Image.verify() rejects random bytes, truncated images and mismatched
-    # MIME before anything is stored. It runs on the story decode threads,
+    # Image.verify() rejects random bytes, truncated images and unreadable
+    # headers before anything is stored. It runs on the story decode threads,
     # never on the event loop.
     try:
-        await verify_image_bytes(image_bytes)
+        image_format = await verify_image_bytes(image_bytes)
     except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
         logger.warning(
             f"{kind}_upload_invalid_image",
@@ -1103,7 +905,11 @@ async def store_map_image(
             detail=f"{spec.label} payload is not a valid image",
         )
 
-    ext = "jpg" if "jpeg" in header else "png"
+    # PNG and JPEG are stored under the extension of the format the bytes
+    # carry; any other format keeps the one its declared media type gives.
+    ext = _MAP_IMAGE_EXTENSIONS.get(
+        image_format or "", "jpg" if "jpeg" in header else "png"
+    )
     # A fresh key per write, never one of two names per map.
     storage_key = new_map_asset_key(spec.storage_prefix, map_id, ext)
 
@@ -1130,6 +936,7 @@ async def store_map_image(
         # about to point at. Taken after the storage write: holding it across
         # the PUT would let a stalled backend block every other writer.
         locked = await lock_map_for_asset_write(db, map_id)
+        refuse_stale_write(locked.updated_at, expected_updated_at)
         previous_key = getattr(locked, spec.uri_field)
         if previous_key:
             refuse_publish_key(

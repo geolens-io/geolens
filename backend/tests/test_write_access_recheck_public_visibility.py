@@ -17,7 +17,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 import app.core.db as db_module
 from app.modules.catalog.datasets.api import router as datasets_router
 from app.modules.catalog.datasets.domain.models import Record
-from app.modules.catalog.maps import router as maps_router
+from app.modules.catalog.maps import service_update as map_update
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.write_recheck import PUBLIC_VISIBILITY_DENIED
 from tests.factories import create_dataset, create_map_via_api, create_user
@@ -36,7 +36,7 @@ async def owning_admin(client: AsyncClient, admin_auth_header: dict) -> tuple:
 
 
 def _demote_after_the_gate(monkeypatch, router, user_id: uuid.UUID) -> None:
-    """Demote ``user_id`` to editor straight after the router's public gate."""
+    """Demote ``user_id`` to editor straight after the public gate in ``router``."""
     original = router.check_public_visibility_allowed
 
     async def gate_then_demote(db, user, visibility, **kwargs):
@@ -91,7 +91,7 @@ async def test_a_map_made_public_by_a_demoted_admin_is_refused(
     headers, admin_id = owning_admin
     map_id = uuid.UUID((await create_map_via_api(client, headers))["id"])
 
-    _demote_after_the_gate(monkeypatch, maps_router, admin_id)
+    _demote_after_the_gate(monkeypatch, map_update, admin_id)
     resp = await client.put(
         f"/maps/{map_id}", json={"visibility": "public"}, headers=headers
     )

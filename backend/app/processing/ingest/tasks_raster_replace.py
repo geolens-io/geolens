@@ -54,6 +54,7 @@ from app.processing.raster.vrt_members import cog_readers, retain_cog
 
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
+    apply_manifest_replacement,
     cleanup_step,
     _job_phase_session,
     task_app,
@@ -489,6 +490,13 @@ class _RasterReplace:
         )
         session.add(version)
         await session.flush()
+        await apply_manifest_replacement(
+            session,
+            dataset,
+            job_id=self.job_id,
+            user_id=self.user_id,
+            user_metadata=self.options,
+        )
         # The vector swap's action: one user-visible operation, one vocabulary.
         await audit_emit(
             session,
@@ -606,3 +614,13 @@ async def reupload_raster(
         dataset_id=dataset_id,
         attempt_id=attempt_id,
     )
+
+
+# A manifest's raster replacement, under a name earlier workers lack: their
+# body publishes the data without the manifest's record fields.
+reupload_manifest_raster = task_app.task(
+    reupload_raster.func,
+    queue="raster",
+    retry=0,
+    name="app.ingest.tasks.reupload_manifest_raster",
+)

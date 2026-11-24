@@ -48,6 +48,12 @@ class Map(Base):
             "forked_from",
             postgresql_where=text("forked_from IS NOT NULL"),
         ),
+        Index(
+            "uq_maps_manifest_key",
+            "manifest_key",
+            unique=True,
+            postgresql_where=text("manifest_key IS NOT NULL"),
+        ),
         # No composite Map.visibility + created_by index: EXPLAIN showed no seq
         # scan below ~10k rows, so its write and disk cost isn't worth it yet.
         {"schema": "catalog"},
@@ -98,6 +104,11 @@ class Map(Base):
         JSONB, nullable=True, default=None
     )
 
+    # Named areas in display order, validated by platform/map_bookmarks.py (null = none)
+    bookmarks: Mapped[list[dict] | None] = mapped_column(
+        JSONB, nullable=True, default=None
+    )
+
     # Whether viewers offer the layers' attribute tables; embed tokens may page
     # rows only while it is on.
     show_attribute_table: Mapped[bool] = mapped_column(
@@ -128,6 +139,10 @@ class Map(Base):
         ForeignKey("catalog.maps.id", ondelete="SET NULL"), nullable=True
     )
 
+    # The identity a publish manifest gives the map, unique across the server.
+    # A duplicate starts without one; an ownership transfer keeps it.
+    manifest_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
+
     # Ownership
     created_by: Mapped[uuid.UUID | None] = mapped_column(
         ForeignKey("catalog.users.id", ondelete="SET NULL"), nullable=True, index=True
@@ -156,6 +171,13 @@ class MapLayer(Base):
         CheckConstraint(
             "layer_type IN ('vector_geolens', 'raster_geolens', 'geojson')",
             name="chk_map_layers_layer_type",
+        ),
+        Index(
+            "uq_map_layers_map_manifest_key",
+            "map_id",
+            "manifest_key",
+            unique=True,
+            postgresql_where=text("manifest_key IS NOT NULL"),
         ),
         {"schema": "catalog"},
     )
@@ -187,6 +209,9 @@ class MapLayer(Base):
     show_in_legend: Mapped[bool] = mapped_column(
         Boolean, default=True, server_default="true"
     )
+    # The layer's identity within its map in a publish manifest; null for a
+    # layer added in the builder.
+    manifest_key: Mapped[str | None] = mapped_column(String(128), nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now()
     )

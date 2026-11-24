@@ -72,7 +72,11 @@
       "label": "Selector de categorías",
       "summary": "Filtrar por {{column}}",
       "all": "Todos",
-      "other": "Otros valores: {{value}}"
+      "other": "Otros valores: {{value}}",
+      "showMore_one": "Mostrar {{count}} más",
+      "showMore_many": "Mostrar {{count}} más",
+      "showMore_other": "Mostrar {{count}} más",
+      "showFewer": "Mostrar menos"
     },
     "image": {
       "label": "Imagen",
@@ -147,7 +151,8 @@
     "openWithFilters_many": "Abrir panel, {{count}} filtros aplicados",
     "openWithFilters_other": "Abrir panel, {{count}} filtros aplicados",
     "hide": "Ocultar panel",
-    "followsView": "Sigue la vista del mapa",
+    "followsView": "Las cifras siguen la vista del mapa",
+    "wholeLayer": "Toda la capa",
     "viewScopeUnavailable": "Se muestra toda la capa: este panel oculta su mapa.",
     "filterIgnored": "Muestra todos los elementos: el filtro de la capa no se puede aplicar a estas cifras.",
     "filterIgnoredWithPicks": "Aplica tus filtros, pero no el filtro propio de la capa, que no se puede aplicar a estas cifras.",
