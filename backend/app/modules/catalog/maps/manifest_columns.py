@@ -12,7 +12,8 @@ same walk.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Collection, Generator
+from dataclasses import dataclass
 from typing import Any
 
 from app.modules.catalog.maps.schemas import MapLayerInput
@@ -462,3 +463,54 @@ def emitted_columns(style_layer: dict[str, Any]) -> set[str]:
             _tokens(value, _LAYOUT_TOKEN, collector)
     _filter(style_layer.get("filter"), collector)
     return collector.names
+
+
+@dataclass(frozen=True)
+class ColumnRepair:
+    """What repairing a layer's column references against stored columns did.
+
+    ``repaired`` maps each referenced name that changed to the stored name it
+    now reads. ``unrepaired`` maps each referenced name left as it was to why
+    it stayed: ``"missing"`` when no stored column matches it ignoring case,
+    ``"ambiguous"`` when more than one does.
+    """
+
+    repaired: dict[str, str]
+    unrepaired: dict[str, str]
+
+
+def repair_layer_columns(
+    layer: MapLayerInput, stored_columns: Collection[str]
+) -> tuple[MapLayerInput, ColumnRepair]:
+    """``layer`` with each column reference rewritten to the stored name.
+
+    A reference is rewritten when exactly one stored column matches it
+    ignoring case. A reference with no match or more than one match is kept
+    and reported, so a repair never guesses between two columns. With no
+    stored columns recorded the names cannot be judged, so the layer is left
+    as it was. ``layer`` itself is left as it was.
+    """
+    if not stored_columns:
+        return layer, ColumnRepair(repaired={}, unrepaired={})
+    by_folded: dict[str, set[str]] = {}
+    for stored in stored_columns:
+        by_folded.setdefault(stored.casefold(), set()).add(stored)
+    repaired: dict[str, str] = {}
+    unrepaired: dict[str, str] = {}
+
+    def rename(name: str) -> str:
+        if not name:
+            return name
+        matches = by_folded.get(name.casefold(), set())
+        if len(matches) == 1:
+            stored = next(iter(matches))
+            if stored != name:
+                repaired[name] = stored
+            return stored
+        if name not in unrepaired:
+            unrepaired[name] = "ambiguous" if matches else "missing"
+        return name
+
+    return rename_layer_columns(layer, rename), ColumnRepair(
+        repaired=repaired, unrepaired=unrepaired
+    )
