@@ -164,9 +164,14 @@ class ManifestEntryFields:
     # Whether the gate let the caller name public, for an entry that writes;
     # a skip writes nothing, so it applies no fallback.
     may_set_public: bool = True
-    # Error A056 when the queued or held job this entry matched will be
-    # refused for the groups it leaves the dataset with.
+    # The held-back warning A056 the share planned now gave, if any.
+    held_back_message: ManifestMessage | None = None
+    # For the queued or held job this entry matched: error A056 when it will
+    # be refused for the groups it leaves the dataset with, and, once its own
+    # share was planned, the held-back warnings it gives in place of the one
+    # above.
     job_refusal: ManifestMessage | None = None
+    job_held_back: list[ManifestMessage] | None = None
 
     @classmethod
     def of(
@@ -342,19 +347,46 @@ async def resolve_entry_groups(
             ]
         )
     if plan.held_back:
-        fields.messages.append(
-            ManifestMessage(
-                code=SHARING_KEPT,
-                severity="warning",
-                message=(
-                    f"A publish key can't share {dataset.title!r} with more "
-                    f"people, so {audience_phrase('restricted', plan.held_back)} "
-                    "won't see it unless they already can, and its groups stay "
-                    "as they are."
-                ),
-                fix="Share the dataset in GeoLens, or lower the Sharing level.",
-            )
+        fields.held_back_message = _held_back_message(
+            dataset,
+            plan.held_back,
+            f"A publish key can't share {dataset.title!r} with more people",
+            kept=plan.unchanged,
         )
+        fields.messages.append(fields.held_back_message)
+
+
+def _held_back_message(
+    dataset: ManifestDataset, held_back: list[str], cause: str, *, kept: bool
+) -> ManifestMessage:
+    """Warning A056: the groups ``held_back`` won't see the dataset, because
+    of ``cause``; ``kept`` says the whole share was held back."""
+    audience = audience_phrase("restricted", held_back)
+    kept_groups = ", and its groups stay as they are" if kept else ""
+    return ManifestMessage(
+        code=SHARING_KEPT,
+        severity="warning",
+        message=(
+            f"{cause}, so {audience} won't see it unless they already can{kept_groups}."
+        ),
+        fix="Share the dataset in GeoLens, or lower the Sharing level.",
+    )
+
+
+def _job_held_back_cause(dataset: ManifestDataset, plan: Any, metadata: dict) -> str:
+    """Why a job's planned share held groups back, as ``_share_outcome``
+    reads it: a publish key or a narrowing for a share held back whole, and
+    otherwise groups taken off the dataset since the apply."""
+    if not plan.unchanged:
+        return (
+            f"Groups were taken off {dataset.title!r} after this publish was submitted"
+        )
+    if metadata.get(ADMITTED_PUBLISH_KEY_METADATA_KEY):
+        return f"A publish key can't share {dataset.title!r} with more people"
+    return (
+        f"{dataset.title!r} was made visible to fewer people after this "
+        "publish was submitted"
+    )
 
 
 async def settle_job_groups(
@@ -398,6 +430,16 @@ async def settle_job_groups(
         )
         share = _share_outcome(plan, job_metadata)
         fields.groups_added = plan.added and not plan.unchanged
+        fields.job_held_back = []
+        if plan.held_back:
+            fields.job_held_back.append(
+                _held_back_message(
+                    dataset,
+                    plan.held_back,
+                    _job_held_back_cause(dataset, plan, job_metadata),
+                    kept=plan.unchanged,
+                )
+            )
         if plan.unchanged:
             fields.groups = fields.group_names = None
         else:
@@ -430,13 +472,22 @@ def _job_refused_message(
     )
 
 
-def refuse_what_the_job_refuses(
+def answer_as_the_job_ends(
     fields: ManifestEntryFields | None, *, dry_run: bool
 ) -> None:
-    """Refuse, in a dry run, an entry whose matched job will be refused, as
-    that job's publish is. An apply answers for the job it matched."""
-    if dry_run and fields is not None and fields.job_refusal is not None:
+    """In a dry run, answer an entry that matched a queued or held job as
+    that job's publish ends: refused where it will be, and warning of the
+    groups its own share holds back. An apply answers for the job it matched."""
+    if not dry_run or fields is None:
+        return
+    if fields.job_refusal is not None:
         raise ManifestEntryRefused([fields.job_refusal])
+    if fields.job_held_back is not None:
+        fields.messages = [
+            message
+            for message in fields.messages
+            if message is not fields.held_back_message
+        ] + fields.job_held_back
 
 
 def note_more_visible(

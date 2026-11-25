@@ -2575,17 +2575,18 @@ async def test_a_reused_job_isnt_answered_for_once_edit_metadata_is_revoked(
 # A queued replacement's share, one row per way it can end: the dataset's
 # level and groups when the entry was applied, the groups the entry names,
 # whether a publish key applied it, what changed before the job runs, and the
-# groups the dataset is left with. "refused" rows fail the job with
+# groups the dataset is left with. "held-back" rows publish with group b held
+# back, which the dry run warns of with A056; "refused" rows fail the job with
 # GroupsOutsideEntry and leave the groups as they were.
 _QUEUED_SHARES = {
     "unchanged": ("restricted", "ab", "ab", False, None, "published", "ab"),
-    "revoked-since": ("restricted", "ab", "ab", False, "revoke-b", "published", "a"),
+    "revoked-since": ("restricted", "ab", "ab", False, "revoke-b", "held-back", "a"),
     "granted-since": ("restricted", "a", "a", False, "grant-c", "published", "a"),
     "swap": ("restricted", "a", "b", False, None, "published", "b"),
     "removed": ("restricted", "a", "", False, None, "published", ""),
-    "narrowed-addition": ("internal", "a", "ab", False, "narrow", "published", "a"),
+    "narrowed-addition": ("internal", "a", "ab", False, "narrow", "held-back", "a"),
     "narrowed-swap": ("internal", "a", "b", False, "narrow", "refused", "a"),
-    "key-addition": ("restricted", "a", "ab", True, None, "published", "a"),
+    "key-addition": ("restricted", "a", "ab", True, None, "held-back", "a"),
     "key-addition-granted-since": (
         "restricted",
         "a",
@@ -2596,6 +2597,15 @@ _QUEUED_SHARES = {
         "ac",
     ),
 }
+
+
+def _assert_held_back_b(answer, groups, *, held_back: bool) -> None:
+    """The answer warns A056 that group b is held back, and of nothing else."""
+    assert [(m.code, m.severity) for m in answer.messages] == (
+        [("A056", "warning")] if held_back else []
+    ), answer.messages
+    if held_back:
+        assert groups["b"].name in answer.messages[0].message
 
 
 async def _change_dataset(session, dataset_id, change, groups) -> None:
@@ -2665,11 +2675,19 @@ async def test_a_dry_run_over_a_queued_replacement_answers_as_its_job_ends(
         )
     [answer] = response.results
 
-    if outcome == "published":
+    if outcome != "refused":
         assert (answer.action, answer.job_id) == ("skip", queued.job_id)
         assert sorted(answer.groups) == sorted(groups[g].name for g in left_with)
+        _assert_held_back_b(answer, groups, held_back=outcome == "held-back")
         job = await _run_update(test_db_session, queued, task)
         assert (job.status, job.error_message) == ("complete", None)
+        # A key's share held back at the apply stores none, so its job has
+        # nothing left to hold back.
+        assert await _held_back_warnings(job) == (
+            [{"group_ids": [str(groups["b"].id)], "reason": "held_back"}]
+            if outcome == "held-back" and not by_key
+            else []
+        )
     else:
         assert answer.action == "error", answer
         with pytest.raises(ValueError, match="groups this publish leaves out"):
@@ -2777,7 +2795,7 @@ async def test_a_dry_run_over_a_held_replacement_answers_as_its_accept_ends(
     if accepted:
         assert (answer.action, answer.run_id) == ("blocked", held.run_id)
         assert sorted(answer.groups) == sorted(groups[g].name for g in left_with)
-        assert "A057" not in _codes(answer)
+        _assert_held_back_b(answer, groups, held_back=True)
         job = await _accept(test_db_session, held, publish_key=False)
         assert (job.status, job.error_message) == ("complete", None)
     else:

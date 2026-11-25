@@ -54,7 +54,7 @@ from app.processing.ingest.manifest_dataset_fields import (
     attach_unchanged_entry,
     raster_not_replaced_message,
     note_more_visible,
-    refuse_what_the_job_refuses,
+    answer_as_the_job_ends,
     resolve_entry_groups,
     report_entry,
     resolve_entry_collection,
@@ -1214,7 +1214,7 @@ async def _reserve_or_settle_entry(
             raise DatasetBusyError(
                 "The key's in-flight apply publishes otherwise than this one."
             )
-        refuse_what_the_job_refuses(fields, dry_run=request.dry_run)
+        answer_as_the_job_ends(fields, dry_run=request.dry_run)
         result = _skip_result_for_in_flight(dataset, job)
         # The match above settled the level the queued job publishes.
         result.mark_pending(fields.visibility if fields else None)
@@ -1285,7 +1285,7 @@ async def _reserve_or_settle_entry(
     if request.dry_run:
         note_more_visible(dataset, fields, existing_dataset)
     if held_matches:
-        refuse_what_the_job_refuses(fields, dry_run=request.dry_run)
+        answer_as_the_job_ends(fields, dry_run=request.dry_run)
         # The held replacement publishes what this apply just decided.
         held.mark_pending(fields.visibility)
         await db.commit()
