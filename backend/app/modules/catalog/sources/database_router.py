@@ -14,7 +14,7 @@ from app.core.identity import Identity, IdentitySnapshot
 from app.modules.auth.dependencies import require_permission
 from app.modules.catalog.authorization import check_public_visibility_allowed
 from app.modules.catalog.datasets.domain.schemas import Visibility
-from app.modules.quota.service import check_upload_quota
+from app.modules.quota.service import check_dataset_count_quota, check_upload_quota
 from app.platform.database_sources import (
     LISTING_LIMIT,
     DatabaseSourceError,
@@ -233,6 +233,7 @@ async def import_database_table(
     if srid_refusal:
         raise HTTPException(status.HTTP_422_UNPROCESSABLE_CONTENT, detail=srid_refusal)
     await check_upload_quota(db, user_id, 0, request)
+    await check_dataset_count_quota(db, user_id, request)
     identity = DatabaseSource(connection, body.schema_name, body.table_name)
     existing = await published_copy(db, user_id, identity) or await importing_copy(
         db, user_id, identity

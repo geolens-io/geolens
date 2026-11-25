@@ -3583,7 +3583,8 @@ export interface paths {
          *
          *     Returns HTTP 202 with per-layer outcomes. Partial success is possible:
          *     each layer result carries status='queued' or status='failed' with a
-         *     user-safe error message.
+         *     user-safe error message. An account at its dataset-count cap gets a 422
+         *     and nothing is queued.
          *
          *     Permission: same as POST /ingest/commit/{job_id} — 'upload' capability.
          */
@@ -3610,7 +3611,8 @@ export interface paths {
          *     Stores user metadata on the job and queues the ingest task.
          *     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
          *     size and a point cloud's size are checked against the storage quota again
-         *     here.
+         *     here. The dataset-count cap is checked here, not at upload: an account at
+         *     its cap gets a 422 and the job stays pending.
          */
         post: operations["commit_import_ingest_commit__job_id__post"];
         delete?: never;
@@ -4091,7 +4093,9 @@ export interface paths {
          * @description Retry a failed ingestion job by re-queuing.
          *
          *     Only callable on jobs with status 'failed'. The staging file must
-         *     still exist (preserved on failure for retry).
+         *     still exist (preserved on failure for retry). A retry imports a new
+         *     dataset, so an account at its dataset-count cap gets a 422 and the job
+         *     stays failed.
          */
         post: operations["retry_job_jobs__job_id__retry_post"];
         delete?: never;
@@ -18737,7 +18741,7 @@ export interface components {
             allowed_extensions: string;
             /**
              * Remaining Dataset Quota
-             * @description Datasets the caller may still create before hitting the per-user count cap, or null when no count cap is configured (unlimited). Advisory UX hint only — the cap is enforced server-side at upload.
+             * @description Datasets the caller may still create before hitting the per-user count cap, or null when no count cap is configured (unlimited). Advisory UX hint only — the cap is enforced server-side when a dataset is created.
              */
             remaining_dataset_quota?: number | null;
         };

@@ -5,7 +5,7 @@ task does the download. The tests split along that seam:
 
 - Submission scope, asserted on the HTTP response: auth, the SSRF and scheme
   refusals, filename derivation/override/clamping, the extension allowlist,
-  standalone VRT, control characters, and the dataset-count quota. Success is
+  standalone VRT and control characters. Success is
   201 with status 'running' and a job row that stays 'running' until the task
   runs.
 - Task scope, asserted on the IngestJob row and the staged files: the download

@@ -158,6 +158,7 @@ from app.core.persistent_config import (
 )
 from app.modules.quota.service import check_upload_quota, remaining_dataset_quota
 from app.modules.quota.service import DatasetQuotaExceededError
+from app.modules.quota.service import check_dataset_count_quota
 from app.processing.raster.validation import validate_sources_async
 from app.platform.service_auth import (
     credential_or_422,
@@ -948,7 +949,8 @@ async def commit_import(
     Stores user metadata on the job and queues the ingest task.
     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
     size and a point cloud's size are checked against the storage quota again
-    here.
+    here. The dataset-count cap is checked here, not at upload: an account at
+    its cap gets a 422 and the job stays pending.
     """
     job = await get_job_or_404(db, job_id, user)
 
@@ -1014,6 +1016,8 @@ async def commit_import(
     if Subclass is PointCloudCommitRequest:
         size = await staged_pointcloud_bytes(job.file_path)
         await check_upload_quota(db, user.id, size, None)
+    # Before the commit marker, so a refused job stays committable.
+    await check_dataset_count_quota(db, user.id, None)
 
     # Only ServiceCommitRequest carries a credential; it is never persisted.
     # The structured `auth` object is what the layers below take; the flat
@@ -1099,7 +1103,8 @@ async def commit_fan_out(
 
     Returns HTTP 202 with per-layer outcomes. Partial success is possible:
     each layer result carries status='queued' or status='failed' with a
-    user-safe error message.
+    user-safe error message. An account at its dataset-count cap gets a 422
+    and nothing is queued.
 
     Permission: same as POST /ingest/commit/{job_id} — 'upload' capability.
     """
@@ -1123,6 +1128,9 @@ async def commit_fan_out(
     await check_public_visibility_allowed(
         db, user, (job.user_metadata or {}).get("visibility")
     )
+    # The layers' datasets belong to the job's owner. One free slot admits
+    # the request; each layer's import reserves its own.
+    await check_dataset_count_quota(db, job.created_by, None)
 
     # A retry after an all-failed dispatch replaces the link a first attempt
     # left on the restored parent rather than adding to it.

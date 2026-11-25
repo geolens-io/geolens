@@ -191,18 +191,22 @@ async def check_upload_quota(
     incoming_bytes: int,
     request: Request | None,
 ) -> None:
-    """Enforce per-user byte and dataset-count caps before accepting an upload.
+    """Enforce the per-user byte cap before accepting an upload.
 
     Call this BEFORE creating an ingest job or staging the file.
+
+    There is no dataset-count check: an upload door cannot tell whether the
+    file will become a new dataset, replace one through a publish manifest,
+    or go unused. ``check_dataset_count_quota`` runs at the step that creates
+    the dataset.
 
     ``request`` is optional so a worker re-check charges the same policy the
     door applied. It reaches only ``enforce_limit``, which forwards a
     dimension and a count.
 
-    Raises HTTPException 413 if the byte cap is exceeded, 422 if the
-    dataset-count cap is. Never raises when either cap is 0 (the default
-    unlimited config). After the core checks, calls the EntitlementPort
-    ``enforce_limit`` seam, a no-op in OSS/Enterprise.
+    Raises HTTPException 413 if the byte cap is exceeded. Never raises when
+    the cap is 0 (the default unlimited config). After the core check, calls
+    the EntitlementPort ``enforce_limit`` seam, a no-op in OSS/Enterprise.
     """
     usage = await get_user_quota_usage(db, user_id)
 
@@ -218,17 +222,50 @@ async def check_upload_quota(
             ),
         )
 
-    if usage.count_cap > 0 and usage.dataset_count >= usage.count_cap:
+    await enforce_limit(request, "storage_bytes", usage.bytes_used + incoming_bytes)
+
+
+async def check_dataset_count_quota(
+    db: AsyncSession,
+    user_id: uuid.UUID | None,
+    request: Request | None,
+    *,
+    admitted: int = 0,
+) -> None:
+    """Refuse a request that would create a dataset for a user at the count cap.
+
+    Call this at the door that turns a staged source into a NEW dataset: an
+    import commit, a retry of a failed import, a manifest entry classified as
+    a create, a database import or a derived dataset. A step that replaces,
+    updates or skips an existing dataset creates none and does not call it.
+
+    An early answer for the caller, with no serialization: the dataset is
+    created later, so concurrent requests can all pass. The authoritative
+    check is ``reserve_dataset_slot``, in the transaction that inserts the
+    ``Record``.
+
+    Raises HTTPException 422 at the cap. Never raises when the cap is 0 (the
+    default unlimited config). After the core check, calls the
+    EntitlementPort ``enforce_limit`` seam, a no-op in OSS/Enterprise.
+    ``request`` reaches only that seam and may be None. ``user_id`` is None
+    for an ownerless job, which the module docstring's exemption covers.
+
+    ``admitted`` is the number of datasets this request has already admitted
+    that the catalog does not count yet: the earlier create entries of one
+    manifest.
+    """
+    usage = await get_user_quota_usage(db, user_id)
+    used = usage.dataset_count + admitted
+
+    if usage.count_cap > 0 and used >= usage.count_cap:
         raise HTTPException(
             status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
             detail=(
-                f"Dataset quota exceeded: {usage.dataset_count} of "
-                f"{usage.count_cap} datasets used"
+                f"Dataset quota exceeded: {used} of {usage.count_cap} datasets used"
             ),
         )
 
-    await enforce_limit(request, "storage_bytes", usage.bytes_used + incoming_bytes)
-    await enforce_limit(request, "dataset_count", usage.dataset_count + 1)
+    await enforce_limit(request, "dataset_count", used + 1)
 
 
 async def check_replacement_quota(
@@ -241,13 +278,12 @@ async def check_replacement_quota(
 ) -> None:
     """Admit a REPLACEMENT at the door, where ``check_upload_quota`` cannot.
 
-    ``check_upload_quota`` is creation-shaped: it refuses at
-    ``dataset_count >= count_cap``, which would lock out an owner at their
-    limit though replacing creates no dataset, and charges the incoming file
-    on top of existing usage. So there is no count check, and the byte check
-    credits what the replacement SUPERSEDES: the ``data`` row in
-    ``dataset_assets``, not the raster asset (a STAC-imported dataset has an
-    asset but no counted row, and crediting that would admit an overshoot).
+    ``check_upload_quota`` is creation-shaped: it charges the incoming file
+    on top of existing usage. A replacement creates no dataset, so there is
+    no count check, and the byte check credits what the replacement
+    SUPERSEDES: the ``data`` row in ``dataset_assets``, not the raster asset
+    (a STAC-imported dataset has an asset but no counted row, and crediting
+    that would admit an overshoot).
     Archived originals are NOT credited: a replacement doesn't supersede them.
 
     Nor is a COG a VRT may still read: the publish keeps it, charged, so
@@ -308,12 +344,12 @@ class DatasetQuotaExceededError(Exception):
 async def reserve_dataset_slot(db: AsyncSession, user_id: uuid.UUID | None) -> None:
     """Atomically reserve a dataset-count slot for ``user_id``.
 
-    ``check_upload_quota`` runs at upload time, but the ingest worker
-    creates the ``Record`` row it counts later, so N concurrent uploads could
-    all pass the pre-check and overshoot the cap. This is the authoritative
-    check: call inside the SAME transaction that inserts the new ``Record``
-    row. Takes a per-user transaction-scoped advisory lock and recounts, so
-    concurrent creations for one user serialize.
+    ``check_dataset_count_quota`` answers the request that asks for a new
+    dataset, but the ``Record`` row it counts is created later, so N
+    concurrent requests could all pass it and overshoot the cap. This is the
+    authoritative check: call inside the SAME transaction that inserts the
+    new ``Record`` row. Takes a per-user transaction-scoped advisory lock and
+    recounts, so concurrent creations for one user serialize.
 
     No-op when the cap is 0 (default unlimited).
 

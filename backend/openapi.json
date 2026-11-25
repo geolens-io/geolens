@@ -27558,7 +27558,7 @@
                 "type": "null"
               }
             ],
-            "description": "Datasets the caller may still create before hitting the per-user count cap, or null when no count cap is configured (unlimited). Advisory UX hint only \u2014 the cap is enforced server-side at upload.",
+            "description": "Datasets the caller may still create before hitting the per-user count cap, or null when no count cap is configured (unlimited). Advisory UX hint only \u2014 the cap is enforced server-side when a dataset is created.",
             "title": "Remaining Dataset Quota"
           }
         },
@@ -55849,7 +55849,7 @@
     },
     "/ingest/commit-fan-out/{job_id}": {
       "post": {
-        "description": "Convert a single pending IngestJob into N independent per-layer ingest tasks.\n\nFor multi-layer sources (e.g. GeoPackage with 2+ layers), this endpoint\nfans out the original upload into one Procrastinate task per requested\nlayer, each becoming a separate dataset. The original job is marked\n'fanned_out' (a terminal state).\n\nRequired: original job must be in status='pending'. Each layer_name in\nthe request body must appear in job.user_metadata['all_layers']. Unknown\nlayer names return HTTP 422 with the list of unrecognized names.\n\nReturns HTTP 202 with per-layer outcomes. Partial success is possible:\neach layer result carries status='queued' or status='failed' with a\nuser-safe error message.\n\nPermission: same as POST /ingest/commit/{job_id} \u2014 'upload' capability.",
+        "description": "Convert a single pending IngestJob into N independent per-layer ingest tasks.\n\nFor multi-layer sources (e.g. GeoPackage with 2+ layers), this endpoint\nfans out the original upload into one Procrastinate task per requested\nlayer, each becoming a separate dataset. The original job is marked\n'fanned_out' (a terminal state).\n\nRequired: original job must be in status='pending'. Each layer_name in\nthe request body must appear in job.user_metadata['all_layers']. Unknown\nlayer names return HTTP 422 with the list of unrecognized names.\n\nReturns HTTP 202 with per-layer outcomes. Partial success is possible:\neach layer result carries status='queued' or status='failed' with a\nuser-safe error message. An account at its dataset-count cap gets a 422\nand nothing is queued.\n\nPermission: same as POST /ingest/commit/{job_id} \u2014 'upload' capability.",
         "operationId": "commit_fan_out_ingest_commit_fan_out__job_id__post",
         "parameters": [
           {
@@ -56003,7 +56003,7 @@
     },
     "/ingest/commit/{job_id}": {
       "post": {
-        "description": "Commit a staged file for ingestion with user-supplied metadata.\n\nStores user metadata on the job and queues the ingest task.\nOnly callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked\nsize and a point cloud's size are checked against the storage quota again\nhere.",
+        "description": "Commit a staged file for ingestion with user-supplied metadata.\n\nStores user metadata on the job and queues the ingest task.\nOnly callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked\nsize and a point cloud's size are checked against the storage quota again\nhere. The dataset-count cap is checked here, not at upload: an account at\nits cap gets a 422 and the job stays pending.",
         "operationId": "commit_import_ingest_commit__job_id__post",
         "parameters": [
           {
@@ -58823,7 +58823,7 @@
     },
     "/jobs/{job_id}/retry": {
       "post": {
-        "description": "Retry a failed ingestion job by re-queuing.\n\nOnly callable on jobs with status 'failed'. The staging file must\nstill exist (preserved on failure for retry).",
+        "description": "Retry a failed ingestion job by re-queuing.\n\nOnly callable on jobs with status 'failed'. The staging file must\nstill exist (preserved on failure for retry). A retry imports a new\ndataset, so an account at its dataset-count cap gets a 422 and the job\nstays failed.",
         "operationId": "retry_job_jobs__job_id__retry_post",
         "parameters": [
           {

@@ -29,7 +29,7 @@ from app.modules.catalog.datasets.domain.service import (
     resolve_source_feature_count,
     run_analysis_preview,
 )
-from app.modules.quota.service import check_upload_quota
+from app.modules.quota.service import check_dataset_count_quota, check_upload_quota
 from app.platform.analysis_sql import (
     INTERSECT_OUTPUT_COLUMNS,
     MAX_MASK_LAYER_FEATURES,
@@ -527,6 +527,7 @@ async def analysis_materialize_endpoint(
     # Best-effort dataset-count pre-check; the authoritative atomic
     # reservation happens at registration time in the worker.
     await check_upload_quota(db, user.id, 0, request)
+    await check_dataset_count_quota(db, user.id, request)
 
     # Serialize count-and-create per tenant until commit so concurrent requests
     # cannot bypass tenant or per-user caps. Single-tenant mode uses a shared key.

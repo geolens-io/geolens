@@ -174,8 +174,9 @@ async def verify_completed_presigned_upload(
     """Verify a completed direct-to-object-storage upload before accepting it.
 
     Completion is an admission point: a creation-shaped check here would let
-    an owner at the dataset-count cap pass the replacement-aware request-time
-    door, upload the bytes, and be refused as if creating a new dataset.
+    an owner near the byte cap pass the replacement-aware request-time door,
+    upload the bytes, and be charged for them on top of the data they
+    replace.
 
     ``replacing_dataset_id`` names the dataset a reupload door replaces;
     None means a creation.
