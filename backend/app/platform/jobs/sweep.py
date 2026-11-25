@@ -137,16 +137,32 @@ def unclaimed_upload():
     )
 
 
+def _metadata(job: IngestJob) -> dict:
+    return job.user_metadata if isinstance(job.user_metadata, dict) else {}
+
+
+def _is_dispatched(job: IngestJob) -> bool:
+    """``dispatch_attempted`` for a loaded job."""
+    return _metadata(job).get(COMMIT_ATTEMPTED_METADATA_KEY) not in (None, "")
+
+
 def _is_unclaimed_upload(job: IngestJob) -> bool:
     """``unclaimed_upload`` for a loaded job."""
-    metadata = job.user_metadata if isinstance(job.user_metadata, dict) else {}
+    metadata = _metadata(job)
     return (
         bool(job.file_path)
         and job.source_url is None
         and job.dataset_id is None
         and all(metadata.get(key) is None for key in _HELD_UPLOAD_KEYS)
-        and metadata.get(COMMIT_ATTEMPTED_METADATA_KEY) in (None, "")
+        and not _is_dispatched(job)
     )
+
+
+def _waits_the_longer_cutoff(job: IngestJob) -> bool:
+    """Which cutoff ``stale_pending_clauses`` holds a loaded pending job to."""
+    if _is_dispatched(job):
+        return False
+    return (job.file_path or "").startswith("staging/") or _is_unclaimed_upload(job)
 
 
 def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
@@ -157,13 +173,20 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
     or the live-queue check.
 
     ``completion_bound`` selects the half by the ``staging/`` PREFIX of
-    ``file_path``, not truthiness, which would also catch direct uploads
-    (absolute local paths) and leave a dispatched one pending for a day.
-    False is the 1h abandonment policy; True is the 24h backstop for a bound
-    upload that never committed, which the retention purge would otherwise
-    never reach. An ``unclaimed_upload`` in the unbound half waits the bound
-    half's time before the abandonment policy takes it: a client uploads
-    every file of a publish manifest before the apply claims any of them.
+    ``file_path`` (a bucket upload), not truthiness, which would also catch
+    direct uploads (absolute local paths). A row ages from
+    ``coalesce(staged_at, created_at)`` against one of two cutoffs: the
+    pending timeout, or the longer wait of
+    ``stale_pending_cutoff_seconds(completion_bound=True)``.
+
+    A dispatched row gets the pending timeout in either half. Its queue entry
+    keeps it pending until a worker claims it, and the dispatch stamp
+    restarts ``staged_at``, so only a dispatch that never reached the queue
+    ages out. A row nobody dispatched gets the longer wait in the bound half,
+    a backstop the retention purge would otherwise never reach, and in the
+    unbound half only as an ``unclaimed_upload``: a client uploads every file
+    of a publish manifest before the apply claims any of them. Every other
+    unbound row gets the pending timeout.
     """
     # coalesce, not a bare LIKE: NOT (NULL LIKE ...) is NULL, so a bare negation
     # would drop every NULL file_path row — the case that most needs the 1h policy.
@@ -176,7 +199,16 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
         IngestJob.created_at,
     )
     aged = age_basis < now - timedelta(seconds=cutoff_seconds)
-    if not completion_bound:
+    if completion_bound:
+        pending_seconds = stale_pending_cutoff_seconds(completion_bound=False)
+        aged = or_(
+            aged,
+            and_(
+                dispatch_attempted(),
+                age_basis < now - timedelta(seconds=pending_seconds),
+            ),
+        )
+    else:
         bound_seconds = stale_pending_cutoff_seconds(completion_bound=True)
         aged = and_(
             aged,
@@ -1334,8 +1366,7 @@ def may_be_stale(job: IngestJob, now: datetime) -> bool:
     if job.status == "pending":
         basis = _pending_age_basis(job)
         cutoff = stale_pending_cutoff_seconds(
-            completion_bound=(job.file_path or "").startswith("staging/")
-            or _is_unclaimed_upload(job)
+            completion_bound=_waits_the_longer_cutoff(job)
         )
         return basis is not None and (now - basis).total_seconds() > cutoff
     if job.status == "fanned_out":
@@ -1417,21 +1448,25 @@ async def settle_stale_jobs(
         if ended.outcome is Outcome.LANDED:
             pending.append((job_id, status))
 
-    # The bound half — exempt from the 1h clause, and the purge
-    # only takes terminal rows, so it is immortal without this backstop.
+    # The bound half. The purge only takes terminal rows, so without this
+    # backstop a bucket upload nobody committed would stay pending forever. A
+    # dispatched row here was committed, so it reports that it never queued.
     bound = stale_pending_clauses(now, completion_bound=True)
-    for job_id, attempt_id in await _stale_candidates(
-        db, select(IngestJob.id, IngestJob.attempt_id), bound, scope
+    dispatched = dispatch_attempted()
+    for job_id, attempt_id, was_dispatched in await _stale_candidates(
+        db, select(IngestJob.id, IngestJob.attempt_id, dispatched), bound, scope
     ):
         ended = await end_stale(
             db,
             job_id,
             attempt_id,
             expect="pending",
-            still_stale=bound,
+            still_stale=(*bound, dispatched if was_dispatched else not_(dispatched)),
             status="failed",
             code="never_started",
-            reason=STALE_PENDING_BOUND_MESSAGE,
+            reason=STALE_PENDING_UNBOUND_MESSAGE
+            if was_dispatched
+            else STALE_PENDING_BOUND_MESSAGE,
         )
         if ended.outcome is Outcome.LANDED:
             pending.append((job_id, "failed"))

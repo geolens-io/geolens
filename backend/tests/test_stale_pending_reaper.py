@@ -20,7 +20,7 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
-from sqlalchemy import text, update
+from sqlalchemy import func, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
@@ -1409,3 +1409,78 @@ class TestAFinishedUploadWaitsForItsClaim:
 
         await test_db_session.refresh(job)
         assert job.status in ("cancelled", "failed")
+
+
+class TestADispatchedBucketUploadGetsThePendingTimeout:
+    """A bucket upload nobody committed waits the longer cutoff; once a commit
+    dispatches it, only the pending timeout from that dispatch."""
+
+    _KEY = "staging/x/frozen/roads.geojson"
+
+    async def test_a_commit_whose_enqueue_was_lost_ages_from_its_dispatch(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        from app.platform.jobs.sweep import may_be_stale
+
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=_upload_lifetime() - 3600,
+            file_path=self._KEY,
+        )
+        with patch(
+            "app.processing.ingest.router.queue_ingest_job", new=AsyncMock()
+        ) as queue:
+            response = await client.post(
+                f"/ingest/commit/{job.id}",
+                json={"title": "Roads"},
+                headers=admin_auth_header,
+            )
+        assert response.status_code == 202, response.text
+        assert queue.await_count == 1
+        await test_db_session.refresh(job)
+        assert not may_be_stale(job, datetime.now(timezone.utc))
+
+        dispatched = datetime.now(timezone.utc) - timedelta(
+            seconds=settings.pending_job_timeout_seconds + 600
+        )
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                user_metadata=IngestJob.user_metadata.op("||")(
+                    func.jsonb_build_object(
+                        "staged_at",
+                        dispatched.isoformat(),
+                        "commit_attempted_at",
+                        dispatched.isoformat(),
+                    )
+                )
+            )
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        assert may_be_stale(job, datetime.now(timezone.utc))
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "never queued" in (job.error_message or "")
+
+    @EVERY_SETTLER
+    async def test_an_uncommitted_one_still_waits_the_longer_cutoff(
+        self, test_db_session, settle
+    ) -> None:
+        from app.platform.jobs.sweep import may_be_stale
+
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=settings.pending_job_timeout_seconds + 600,
+            file_path=self._KEY,
+        )
+        assert not may_be_stale(job, datetime.now(timezone.utc))
+
+        await settle(test_db_session, job)
+
+        await test_db_session.refresh(job)
+        assert (job.status, job.error_message) == ("pending", None)

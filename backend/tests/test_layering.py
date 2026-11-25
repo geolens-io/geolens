@@ -1426,7 +1426,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # One settlement pass, its precheck and its reapers serve startup recovery, the
     # lifespan sweep, admin cleanup, the job status poll and manifest expiry. The
     # pass and a manifest's upload claim share its rule for an unclaimed upload.
-    "backend/app/platform/jobs/sweep.py": 1867,
+    "backend/app/platform/jobs/sweep.py": 1902,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1201,
