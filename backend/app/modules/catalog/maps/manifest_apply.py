@@ -751,6 +751,26 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 ),
             )
             messages.extend([*moves.errors, *moves.warnings])
+            if not styling_applied:
+                taking_manifest = {
+                    layer.manifest_key
+                    for layer, _ in stored
+                    if layer.id in moves.layers
+                    and layer.id not in moves.keep_widgets_of
+                }
+                keeping = {
+                    layer.manifest_key for layer, _ in stored if layer.manifest_key
+                } - taking_manifest
+                # These layers keep the styling they have, not the one the
+                # manifest sent, which the two checks read.
+                messages[:] = [
+                    m
+                    for m in messages
+                    if not (
+                        m["code"] in (STYLE_KEY_DROPPED, COLUMN_MISSING)
+                        and m["layer"] in keeping
+                    )
+                ]
             plan.keep_widgets_of = moves.keep_widgets_of
             (
                 plan.layers,

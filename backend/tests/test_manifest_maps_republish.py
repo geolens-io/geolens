@@ -236,6 +236,64 @@ async def test_a_builder_edit_keeps_every_styling_field_and_answers_a070(
     assert [e.details["styling_applied"] for e in publishes] == [True, False]
 
 
+_MISSING = ["==", ["get", "NO_SUCH_COLUMN"], "x"]
+
+
+def _asking_for_a_missing_column(dataset_id, *, mode, extra=()) -> dict:
+    return _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(dataset_id), **{**_PARKS, "filter": _MISSING}),
+        _layer("names", dataset_id=str(dataset_id)),
+        *extra,
+        styling=mode,
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "warned"),
+    [("keep", False), ("replace", True)],
+)
+async def test_a_column_check_reads_the_styling_the_map_ends_with(
+    test_db_session, clean_tables, mode, warned
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    entry = _asking_for_a_missing_column(dataset_id, mode=mode)
+
+    [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
+    [applied] = (await _apply(test_db_session, admin, entry)).maps
+
+    for result in (checked, applied):
+        assert (("A063", "warning", "parks") in _codes(result)) is warned
+
+
+async def test_a_new_layer_on_a_kept_publish_is_still_column_checked(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    entry = _asking_for_a_missing_column(
+        dataset_id,
+        mode="keep",
+        extra=(
+            _layer(
+                "added",
+                dataset_id=str(dataset_id),
+                filter=_MISSING,
+                label_config={"column": "NO_SUCH_COLUMN"},
+            ),
+        ),
+    )
+
+    [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
+
+    assert [c for c in _codes(checked) if c[0] == "A063"] == [
+        ("A063", "warning", "added")
+    ]
+
+
 async def test_a_republish_after_a_kept_one_still_keeps(
     client, test_db_session, admin_auth_header, clean_tables
 ):
