@@ -2859,6 +2859,41 @@ async def test_the_notes_block_is_recognised_whatever_order_the_clocks_give(
     assert notes.split("\n").count("---") == 1
 
 
+async def test_an_older_publishes_block_is_recognised_among_many_recorded_ones(
+    test_db_session, clean_tables
+):
+    from app.modules.catalog.maps.models import MapEditHistoryEvent
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (
+        await _apply(test_db_session, admin, _publish(dataset_id, loss_report=_LOSS))
+    ).maps
+    first_block = (await _map_row(test_db_session, created.map_id)).notes.split(
+        "\n---\n"
+    )[0]
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    test_db_session.add_all(
+        MapEditHistoryEvent(
+            map_id=created.map_id,
+            target_type="map",
+            action="manifest.publish",
+            summary="Published",
+            details={"notes_digest": hashlib.sha256(str(n).encode()).hexdigest()},
+        )
+        for n in range(300)
+    )
+    map_row = await _map_row(test_db_session, created.map_id)
+    map_row.notes = f"{first_block}\n---\nMine"
+    await test_db_session.commit()
+
+    await _apply(test_db_session, admin, _publish(dataset_id))
+
+    notes = (await _map_row(test_db_session, created.map_id)).notes
+    assert notes.count("Published from") == 1
+    assert notes.endswith("\n---\nMine")
+
+
 @pytest.mark.parametrize("case", ["bomb", "parser-raises", "gif"])
 async def test_a_thumbnail_the_upload_route_refuses_or_accepts_never_fails_the_publish(
     test_db_session, clean_tables, case

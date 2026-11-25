@@ -247,38 +247,50 @@ def _digest(block: str) -> str:
     return hashlib.sha256(block.encode()).hexdigest()
 
 
-async def written_notes_digests(
-    session: AsyncSession, map_id: uuid.UUID
-) -> frozenset[str]:
-    """The digests of every notes block a publish of the map wrote.
+def _leading_block(existing: str) -> tuple[str, int] | None:
+    """The notes' leading block, as the notes field stores it, and the index
+    of the row after its divider; None when the notes don't open with one."""
+    rows = existing.splitlines(keepends=True)
+    for index, row in enumerate(rows):
+        if row.rstrip("\r\n") == NOTES_SEPARATOR:
+            block = "".join(rows[:index]).replace("\r\n", "\n").removesuffix("\n")
+            return block, index + 1
+    return None
 
-    A set, not the last one: the notes can hold an older publish's block,
-    such as one the user put back, so the newest publish need not be the
-    one whose block the notes hold.
+
+async def written_notes_digests(
+    session: AsyncSession, map_id: uuid.UUID, existing: str | None
+) -> frozenset[str]:
+    """The digest of the notes' leading block, when a publish of the map
+    wrote that block; empty otherwise.
+
+    Any publish of the map counts, not only the newest: the notes can hold an
+    older publish's block, such as one the user put back.
     """
+    leading = _leading_block(existing or "")
+    if leading is None:
+        return frozenset()
+    digest = _digest(leading[0])
     event = MapEditHistoryEvent
-    digest = event.details["notes_digest"].astext
-    rows = await session.scalars(
-        select(digest).where(
-            event.map_id == map_id,
-            event.action == PUBLISH_ACTION,
-            digest.is_not(None),
+    written = await session.scalar(
+        select(
+            exists().where(
+                event.map_id == map_id,
+                event.action == PUBLISH_ACTION,
+                event.details["notes_digest"].astext == digest,
+            )
         )
     )
-    return frozenset(rows)
+    return frozenset({digest}) if written else frozenset()
 
 
 def _users_notes(existing: str, written: Collection[str]) -> str:
     """``existing`` without its leading block when that block, unchanged, is
     one a publish of the map wrote, followed by its divider. Anything else is
     all the user's."""
-    rows = existing.splitlines(keepends=True)
-    for index, row in enumerate(rows):
-        if row.rstrip("\r\n") == NOTES_SEPARATOR:
-            block = "".join(rows[:index]).replace("\r\n", "\n").removesuffix("\n")
-            if _digest(block) in written:
-                return "".join(rows[index + 1 :])
-            break
+    leading = _leading_block(existing)
+    if leading is not None and _digest(leading[0]) in written:
+        return "".join(existing.splitlines(keepends=True)[leading[1] :])
     return existing
 
 

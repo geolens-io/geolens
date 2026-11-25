@@ -714,7 +714,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             *(loss_lines(entry.loss_report) if styling_applied else ()),
         ],
         (
-            await written_notes_digests(session, map_obj.id)
+            await written_notes_digests(session, map_obj.id, map_obj.notes)
             if map_obj is not None
             else frozenset()
         ),
