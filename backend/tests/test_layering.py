@@ -1347,7 +1347,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # a held or in-flight job is reused, the updates a publish key may not make,
     # the maps section's results beside the datasets', and quota admission that
     # credits a replacement with the bytes it supersedes.
-    "backend/app/processing/ingest/manifest_service.py": 1384,
+    "backend/app/processing/ingest/manifest_service.py": 1389,
     # One map's check, plan and write: the styling decision, layer matching, the
     # history event, the share link and the result's visibility, groups and
     # removed layers share the row lock the apply holds, which is also where its

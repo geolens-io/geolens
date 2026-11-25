@@ -472,7 +472,11 @@ async def _preflight_quota(
     usage = await get_user_quota_usage(db, user.id)
     if usage.storage_cap <= 0:
         return None
-    credited = 0 if replaces is None else await replacement_credit_bytes(db, replaces)
+    credited = (
+        0
+        if replaces is None
+        else await replacement_credit_bytes(db, replaces, owned_by=user.id)
+    )
     return max(
         usage.storage_cap - usage.bytes_used - quota.bytes_admitted + credited,
         0,
@@ -491,9 +495,9 @@ async def _admit_staged_source(
 ) -> _StagedManifestSource:
     """Size a staged manifest source and admit it against live quota.
 
-    A replacement takes the re-upload doors' credit. The caller stands for
-    the owner: an update reaches only the caller's own dataset, rechecked
-    under its row lock before the bind commits.
+    A replacement takes the re-upload doors' credit, while the caller still
+    owns the dataset: ownership is rechecked under the row lock only after
+    this, and a transfer during staging must not lend the caller its bytes.
     """
     # Lazy import preserves the processing -> modules layering boundary.
     from app.modules.quota.service import (
@@ -512,6 +516,7 @@ async def _admit_staged_source(
             request,
             dataset_id=replaces,
             admitted=quota.bytes_admitted,
+            owned_by=user.id,
         )
         # A smaller file frees nothing until its job publishes, so it lends
         # no room to the manifest's later entries.

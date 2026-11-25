@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
+import re
 import uuid
 from contextlib import contextmanager
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from sqlalchemy import delete, select, text
+from sqlalchemy import delete, select, text, update
 
 from app.modules.auth.models import Role, User, UserRole
+from app.modules.catalog.datasets.domain.models import Record
+from app.processing.ingest import manifest_service
 from app.modules.quota.schemas import UserQuotaUsage
 from app.processing.ingest.manifest_service import MANIFEST_KEY_NOT_OWNED
 from tests.test_manifest_raster_replace import (
@@ -279,3 +282,57 @@ async def test_an_http_replacement_streams_against_the_room_it_frees(
         defer.assert_awaited_once()
     finally:
         await _cleanup(test_db_session, published)
+
+
+@pytest.mark.parametrize("old_minus_new", [1, -1000])
+async def test_a_dataset_transferred_while_its_source_stages_earns_no_credit(
+    test_db_session, raster_storage, old_minus_new
+):
+    """Once the caller has lost the dataset, its bytes neither pay for the
+    replacement nor appear in the refusal, whether the old credit would
+    have refused it (1 byte short) or admitted it."""
+    user = await _admin(test_db_session)
+    published = await _published(test_db_session, raster_storage, user)
+    old_size = published.staged.stat().st_size - old_minus_new
+    await _counted(test_db_session, published.dataset_id, old_size)
+    suffix = uuid.uuid4().hex[:8]
+    new_owner = User(
+        username=f"credit_new_owner_{suffix}",
+        email=f"credit_new_owner_{suffix}@example.invalid",
+        password_hash="x",
+    )
+    test_db_session.add(new_owner)
+    await test_db_session.commit()
+    new_owner_id = new_owner.id
+    real_stage = manifest_service._stage_source_if_needed
+
+    async def _stage_then_transfer(*args, **kwargs):
+        staged = await real_stage(*args, **kwargs)
+        await test_db_session.execute(
+            update(Record)
+            .where(Record.id == published.record_id)
+            .values(created_by=new_owner_id)
+        )
+        await test_db_session.commit()
+        return staged
+
+    try:
+        with (
+            _at_the_cap(),
+            patch.object(
+                manifest_service, "_stage_source_if_needed", new=_stage_then_transfer
+            ),
+        ):
+            result, defer = await _apply(
+                test_db_session,
+                _request(_entry(published.key, published.uri, _resurveyed(published))),
+                user,
+            )
+        assert result.action == "error", result
+        assert "replacing 0 bytes" in result.message
+        assert not re.search(rf"\b{old_size}\b", result.model_dump_json())
+        defer.assert_not_awaited()
+    finally:
+        await _cleanup(test_db_session, published)
+        await test_db_session.execute(delete(User).where(User.id == new_owner_id))
+        await test_db_session.commit()

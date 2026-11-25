@@ -268,7 +268,12 @@ async def check_dataset_count_quota(
     await enforce_limit(request, "dataset_count", used + 1)
 
 
-async def replacement_credit_bytes(db: AsyncSession, dataset_id: uuid.UUID) -> int:
+async def replacement_credit_bytes(
+    db: AsyncSession,
+    dataset_id: uuid.UUID,
+    *,
+    owned_by: uuid.UUID | None = None,
+) -> int:
     """Bytes a replacement of ``dataset_id`` supersedes, for a door's byte check.
 
     The ``data`` row in ``dataset_assets``, not the raster asset (a
@@ -280,15 +285,33 @@ async def replacement_credit_bytes(db: AsyncSession, dataset_id: uuid.UUID) -> i
     crediting it here could admit a replacement the publish then refuses.
     The reader test is the publish's own, asked through the catalog port. A
     reader that appears after this check is seen only by the publish.
+
+    With ``owned_by``, the row counts only while the dataset's record is
+    that user's, read in the same statement: a door that checks ownership
+    after admission must not credit, or report, a dataset its caller has
+    lost.
     """
-    counted = await db.scalar(
-        text(
-            "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
-            "FROM catalog.dataset_assets "
-            "WHERE dataset_id = :dataset_id AND key = 'data'"
-        ),
-        {"dataset_id": dataset_id},
-    )
+    if owned_by is None:
+        counted = await db.scalar(
+            text(
+                "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
+                "FROM catalog.dataset_assets "
+                "WHERE dataset_id = :dataset_id AND key = 'data'"
+            ),
+            {"dataset_id": dataset_id},
+        )
+    else:
+        counted = await db.scalar(
+            text(
+                "SELECT COALESCE(SUM(da.size_bytes), 0)::bigint "
+                "FROM catalog.dataset_assets da "
+                "JOIN catalog.datasets d ON d.id = da.dataset_id "
+                "JOIN catalog.records r ON r.id = d.record_id "
+                "WHERE da.dataset_id = :dataset_id AND da.key = 'data' "
+                "AND r.created_by = :owned_by"
+            ),
+            {"dataset_id": dataset_id, "owned_by": owned_by},
+        )
     credited = int(counted or 0)
     if credited and await get_catalog_port().cog_may_be_read(db, dataset_id):
         return 0
@@ -303,6 +326,7 @@ async def check_replacement_quota(
     *,
     dataset_id: uuid.UUID,
     admitted: int = 0,
+    owned_by: uuid.UUID | None = None,
 ) -> int:
     """Admit a REPLACEMENT at the door, where ``check_upload_quota`` cannot.
 
@@ -313,6 +337,7 @@ async def check_replacement_quota(
 
     ``admitted`` is the bytes this request has already admitted that the
     catalog does not count yet: the earlier entries of one manifest.
+    ``owned_by`` is passed through to ``replacement_credit_bytes``.
 
     Deliberately an EARLY, approximate bound: the door sees the uploaded
     file, not the (possibly larger) COG it converts into. The authoritative
@@ -327,7 +352,7 @@ async def check_replacement_quota(
     docstring's exemption policy).
     """
     usage = await get_user_quota_usage(db, owner_id)
-    credited = await replacement_credit_bytes(db, dataset_id)
+    credited = await replacement_credit_bytes(db, dataset_id, owned_by=owned_by)
     used = usage.bytes_used + admitted
     projected = used - credited + incoming_bytes
 
