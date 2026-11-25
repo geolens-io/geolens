@@ -618,7 +618,15 @@ class DefaultProcessingPort:
         )
 
     async def plan_manifest_groups(  # type: ignore[no-untyped-def]
-        self, session, dataset_id, group_ids, user, *, level
+        self,
+        session,
+        dataset_id,
+        group_ids,
+        user,
+        *,
+        level,
+        planned_from=None,
+        granted_at_plan=None,
     ):
         from app.modules.catalog.datasets.domain.service import (
             get_dataset,
@@ -630,7 +638,13 @@ class DefaultProcessingPort:
             dataset = await get_dataset(session, dataset_id)
         return _groups_plan(
             *await plan_manifest_dataset_groups(
-                session, dataset, group_ids, user, level=level
+                session,
+                dataset,
+                group_ids,
+                user,
+                level=level,
+                planned_from=planned_from,
+                granted_at_plan=granted_at_plan,
             )
         )
 

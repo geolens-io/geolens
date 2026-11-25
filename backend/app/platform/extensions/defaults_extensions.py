@@ -225,7 +225,21 @@ class DefaultPermissionExtension:
         elif query.visibility == "restricted" and grant_cls is not None:
             # Creator exemption, then the role and group grants — the same
             # edges `filter_visible` walks (record -> dataset -> grant -> role
-            # or group -> user), traversed from the user end.
+            # or group -> user), traversed from the user end. Stated groups
+            # stand in for the stored group grants.
+            if query.group_ids is None:
+                group_members = (
+                    select(GroupMember.user_id)
+                    .join(
+                        DatasetGroupGrant,
+                        DatasetGroupGrant.group_id == GroupMember.group_id,
+                    )
+                    .where(DatasetGroupGrant.dataset_id == query.dataset_id)
+                )
+            else:
+                group_members = select(GroupMember.user_id).where(
+                    GroupMember.group_id.in_(query.group_ids)
+                )
             reaches = or_(
                 is_owner,
                 user_cls.id.in_(
@@ -233,14 +247,7 @@ class DefaultPermissionExtension:
                     .join(grant_cls, grant_cls.role_id == UserRole.role_id)
                     .where(grant_cls.dataset_id == query.dataset_id)
                 ),
-                user_cls.id.in_(
-                    select(GroupMember.user_id)
-                    .join(
-                        DatasetGroupGrant,
-                        DatasetGroupGrant.group_id == GroupMember.group_id,
-                    )
-                    .where(DatasetGroupGrant.dataset_id == query.dataset_id)
-                ),
+                user_cls.id.in_(group_members),
             )
         else:
             # Restricted without a grant class, or any unnamed value: both

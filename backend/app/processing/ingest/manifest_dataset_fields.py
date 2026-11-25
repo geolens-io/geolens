@@ -263,7 +263,9 @@ def report_entry(
     whatever it did: a held run still carries what the entry decided."""
     if fields is not None and result.action != "error":
         result.messages = [*(result.messages or []), *fields.messages]
-        result.decide(fields.visibility, fields.group_names, fields.role_granted)
+        result.decide(
+            fields.visibility, fields.group_names, fields.role_granted, fields.groups
+        )
     return result
 
 
@@ -350,6 +352,40 @@ async def resolve_entry_groups(
                 fix="Share the dataset in GeoLens, or lower the Sharing level.",
             )
         )
+
+
+async def settle_job_groups(
+    db: AsyncSession,
+    user: Identity,
+    fields: ManifestEntryFields,
+    existing: Any,
+    job_metadata: dict,
+) -> None:
+    """Set ``fields`` to the groups a job still to publish this entry will
+    share its dataset with, where ``fields`` holds the share planned now.
+
+    The job judges its share against the visibility and groups its own
+    apply planned it from: a group taken off the dataset since is not
+    restored, and a share planned for a wider dataset is held back whole. A
+    job that stores neither, as one creating its dataset does, shares what
+    is planned now.
+    """
+    granted = _stored_ids(job_metadata, GROUPS_GRANTED_METADATA_KEY, limit=None)
+    if fields.groups is None or existing is None or not isinstance(granted, list):
+        return
+    plan = await get_processing_port().plan_manifest_groups(
+        db,
+        existing.id,
+        fields.groups,
+        user,
+        level=fields.visibility,
+        planned_from=job_metadata.get(GROUPS_PLANNED_FROM_METADATA_KEY),
+        granted_at_plan=granted,
+    )
+    if plan.unchanged:
+        fields.groups = fields.group_names = None
+    else:
+        fields.groups, fields.group_names = plan.group_ids, plan.names
 
 
 def note_more_visible(

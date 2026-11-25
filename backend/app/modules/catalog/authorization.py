@@ -1050,24 +1050,85 @@ async def groups_lacking_datasets(
     if not answers_audience_questions(permission):
         return {dataset_id: set(groups) for dataset_id in queries}
 
-    from app.modules.auth.models import GroupMember, User
+    from app.modules.auth.models import User
     from app.modules.catalog.datasets.domain.models import DatasetGrant
 
     lacking = {}
     for dataset_id, (query, _) in queries.items():
         audience = await permission.record_audience(query, User, grant_cls=DatasetGrant)
-        lacking[dataset_id] = set(
-            await db.scalars(
-                select(GroupMember.group_id)
-                .distinct()
-                .join(User, User.id == GroupMember.user_id)
-                .where(GroupMember.group_id.in_(groups))
-                .where(User.is_active.is_(True))
-                .where(User.status == "active")
-                .where(audience.users.is_not(True))
-            )
+        lacking[dataset_id] = await _groups_with_a_member_outside(
+            db, groups, audience.users
         )
     return lacking
+
+
+async def _groups_with_a_member_outside(
+    db: AsyncSession, groups: set[uuid.UUID], reads: Any
+) -> set[uuid.UUID]:
+    """The groups with an active member the audience predicate ``reads``
+    doesn't admit. An account it leaves unclassified (NULL) isn't admitted."""
+    from app.modules.auth.models import GroupMember, User
+
+    return set(
+        await db.scalars(
+            select(GroupMember.group_id)
+            .distinct()
+            .join(User, User.id == GroupMember.user_id)
+            .where(GroupMember.group_id.in_(groups))
+            .where(User.is_active.is_(True))
+            .where(User.status == "active")
+            .where(reads.is_not(True))
+        )
+    )
+
+
+async def groups_lacking_planned_dataset(
+    db: AsyncSession,
+    group_ids: Iterable[uuid.UUID],
+    *,
+    dataset_id: uuid.UUID | None,
+    owner_id: uuid.UUID | None,
+    visibility: str,
+    record_status: str,
+    shared_with: Iterable[uuid.UUID] | None,
+) -> set[uuid.UUID]:
+    """The groups of ``group_ids`` with an active member who couldn't read a
+    dataset once a publish leaves it at ``visibility`` and ``record_status``,
+    shared with exactly the groups ``shared_with`` (None keeps its groups).
+
+    ``dataset_id`` None is a dataset the publish creates, owned by
+    ``owner_id``; a stored one keeps its owner and role grants. Asked of the
+    permission authority as :func:`groups_lacking_datasets` asks it, with the
+    plan stated in the question, so the authority alone decides who reads.
+    """
+    groups = set(group_ids)
+    if not groups:
+        return set()
+    permission = get_permission_extension()
+    if not answers_audience_questions(permission):
+        return groups
+
+    from app.modules.auth.models import User
+    from app.modules.catalog.datasets.domain.models import DatasetGrant
+
+    stored = await _record_audience_queries(db, [dataset_id] if dataset_id else [])
+    query = RecordAudienceQuery(
+        dataset_id=None,
+        record_id=None,
+        owner_id=owner_id,
+        visibility=visibility,
+        record_status=record_status,
+    )
+    if dataset_id in stored:
+        query = stored[dataset_id][0]
+    planned = replace(
+        query,
+        visibility=visibility,
+        record_status=record_status,
+        group_ids=None if shared_with is None else frozenset(shared_with),
+    )
+    audience = await permission.record_audience(planned, User, grant_cls=DatasetGrant)
+    return await _groups_with_a_member_outside(db, groups, audience.users)
 
 
 def dataset_audience_query(dataset: Any) -> RecordAudienceQuery:

@@ -9,22 +9,26 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass, replace
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+from app.core.processing_port import PendingManifestDataset
 from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.authorization import (
     RESTRICTED_MAP_VISIBILITY,
     answers_audience_questions,
     groups_lacking_datasets,
+    groups_lacking_planned_dataset,
 )
 from app.modules.catalog.group_sharing import (
     SharePlan,
     active_tenant_id,
     hold_back_widening,
+    level_with_groups,
     lock_groups,
     plan_share_groups,
 )
@@ -173,29 +177,74 @@ def more_visible(
     )
 
 
+@dataclass(frozen=True)
+class ShownDataset:
+    """The dataset behind a layer the planned map shows, as the publish
+    leaves it. ``key`` is the layer's, None for one added in GeoLens.
+
+    ``planned`` marks a dataset the request itself publishes: ``groups`` are
+    then the ones its entry shares it with, None keeping the dataset's, and
+    ``dataset_id`` is None for one the entry creates. Any other dataset
+    keeps the audience it has.
+    """
+
+    key: str | None
+    dataset_id: uuid.UUID | None
+    title: str
+    visibility: str
+    record_status: str
+    planned: bool = False
+    groups: frozenset[uuid.UUID] | None = None
+
+
+def planned_dataset(
+    key: str | None,
+    dataset_id: uuid.UUID | None,
+    dataset: Any,
+    planned: PendingManifestDataset,
+) -> ShownDataset:
+    """A layer's dataset as the request's own entry for it, ``planned``,
+    leaves it. ``dataset`` is the stored one as the caller reads it; without
+    it the dataset is judged as one the entry creates, on the request alone."""
+    level = planned.visibility or (dataset.visibility if dataset else "private")
+    if planned.group_ids is not None:
+        level = level_with_groups(
+            level, bool(planned.group_ids), role_granted=planned.role_granted
+        )
+    return ShownDataset(
+        key,
+        dataset_id if dataset is not None else None,
+        planned.title,
+        level,
+        planned.record_status,
+        planned=True,
+        groups=None if planned.group_ids is None else frozenset(planned.group_ids),
+    )
+
+
 async def layer_sharing_gaps(
     session: AsyncSession,
-    shown: Sequence[tuple[str | None, uuid.UUID, Any]],
+    shown: Sequence[ShownDataset],
     visibility: str,
     groups: Sequence[GroupRef],
+    publisher_id: uuid.UUID,
 ) -> list[dict[str, Any]]:
     """A056 for each layer whose dataset some of the map's readers can't
-    read. ``shown`` holds each planned layer's key (None for one added in
-    GeoLens) and dataset the request doesn't publish, with its
-    ``visibility``, ``record_status`` and ``title``; the publish never
-    widens one, so those
+    read. The publish never widens a dataset it doesn't publish, and one it
+    does publish is judged on the level, status and groups its entry leaves,
+    owned by ``publisher_id`` when the entry creates it; either way those
     readers see the map without the layer. A public map's datasets are
     judged by the public rule instead."""
     messages = []
     if visibility == "internal":
-        for key, _, dataset in shown:
+        for layer in shown:
             # The organization reads only a published, internal or public
             # dataset, as the permission check does.
-            organization_reads = dataset.record_status == "published" and (
-                dataset.visibility in ("internal", "public")
+            organization_reads = layer.record_status == "published" and (
+                layer.visibility in ("internal", "public")
             )
             if not organization_reads:
-                messages.append(_gap(key, dataset, audience_phrase("internal")))
+                messages.append(_gap(layer, audience_phrase("internal")))
     elif visibility == RESTRICTED_MAP_VISIBILITY and groups and shown:
         # An authority that can't answer would have every group lack every
         # layer.
@@ -203,29 +252,52 @@ async def layer_sharing_gaps(
             return []
         names = {group.id: group.name for group in groups}
         lacking = await groups_lacking_datasets(
-            session, {dataset_id for _, dataset_id, _ in shown}, set(names)
+            session,
+            {layer.dataset_id for layer in shown if not layer.planned},
+            set(names),
         )
-        for key, dataset_id, dataset in shown:
-            missing = sorted(
-                names[group_id] for group_id in lacking.get(dataset_id, ())
-            )
+        lacking_planned: dict[ShownDataset, set[uuid.UUID]] = {}
+        for layer in shown:
+            if layer.planned:
+                dataset = replace(layer, key=None)
+                if dataset not in lacking_planned:
+                    lacking_planned[dataset] = await groups_lacking_planned_dataset(
+                        session,
+                        set(names),
+                        dataset_id=layer.dataset_id,
+                        owner_id=publisher_id,
+                        visibility=layer.visibility,
+                        record_status=layer.record_status,
+                        shared_with=layer.groups,
+                    )
+                without = lacking_planned[dataset]
+            else:
+                without = lacking.get(layer.dataset_id, set())
+            missing = sorted(names[group_id] for group_id in without)
             if missing:
-                messages.append(
-                    _gap(key, dataset, audience_phrase("restricted", missing))
-                )
+                messages.append(_gap(layer, audience_phrase("restricted", missing)))
     return messages
 
 
-def _gap(key: str | None, dataset: Any, audience: str) -> dict[str, Any]:
-    layer = f"Layer {short(key)}" if key is not None else "A layer added in GeoLens"
+def _gap(shown: ShownDataset, audience: str) -> dict[str, Any]:
+    layer = (
+        f"Layer {short(shown.key)}"
+        if shown.key is not None
+        else "A layer added in GeoLens"
+    )
     return message(
         SHARING_KEPT,
         "warning",
-        f"{layer}: the dataset {short(dataset.title)!r} isn't "
+        f"{layer}: the dataset {short(shown.title)!r} isn't "
         f"shared with {audience}, so those who can't read it won't see the "
         "layer.",
-        fix="Share the dataset in GeoLens, or lower the Sharing level.",
-        layer=key,
+        fix=(
+            "Share the dataset with them in this publish, or lower the map's "
+            "Sharing level."
+            if shown.planned
+            else "Share the dataset in GeoLens, or lower the Sharing level."
+        ),
+        layer=shown.key,
     )
 
 

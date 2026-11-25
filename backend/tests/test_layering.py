@@ -1271,8 +1271,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 720,
-        "backend/app/platform/extensions/defaults_extensions.py": 436,
+        "backend/app/platform/extensions/defaults_processing_port.py": 734,
+        "backend/app/platform/extensions/defaults_extensions.py": 443,
         "backend/app/modules/catalog/search/service_filters.py": 376,
     }
 
@@ -1355,7 +1355,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/manifest_apply.py": 1191,
     # The publish manifest's request and response models in one place, which
     # the vendored wire schema, the contract snapshot and both SDKs are held to.
-    "backend/app/processing/ingest/manifest_schemas.py": 1036,
+    "backend/app/processing/ingest/manifest_schemas.py": 1046,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,
@@ -1523,11 +1523,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # catalog probes. A streamed page is read in byte-bounded batches.
     "backend/app/modules/catalog/features/service.py": 1811,
     # Dataset visibility, the VRT member counts and extents each requester may
-    # see, which groups can't read a dataset, and whether one dataset's readers
-    # reach past another's, today or by its sharing rules, share the permission
-    # extension's one audience; map reads, and which groups can't read a map,
-    # share the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1507,
+    # see, which groups can't read a dataset, as stored or as a publish plans
+    # it, and whether one dataset's readers reach past another's, today or by
+    # its sharing rules, share the permission extension's one audience; map
+    # reads, and which groups can't read a map, share the one map guard beside
+    # it.
+    "backend/app/modules/catalog/authorization.py": 1568,
 }
 
 

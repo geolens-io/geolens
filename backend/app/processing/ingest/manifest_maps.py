@@ -16,7 +16,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import aliased
 
 from app.core.identity import Identity
-from app.core.processing_port import MINTED_SHARE_KEY, withholding_share_links
+from app.core.processing_port import (
+    MINTED_SHARE_KEY,
+    PendingManifestDataset,
+    withholding_share_links,
+)
 from app.platform.extensions import get_processing_port
 from app.platform.jobs.in_flight import datasets_with_jobs_in_flight
 from app.platform.jobs.models import ACTIVE_STATUSES, IngestJob
@@ -77,13 +81,23 @@ async def ready_manifest_dataset_ids(
 
 def planned_publication(
     dataset: ManifestDataset, result: ManifestApplyEntryResult
-) -> tuple[str | None, str]:
-    """The visibility (None keeps the dataset's) and status an entry that
-    didn't fail publishes: what it decided, which a refused public or a
-    publish key's refused widening changed from what it asked for."""
+) -> PendingManifestDataset:
+    """The visibility (None keeps the dataset's), status and groups (None
+    keeps the dataset's) an entry that didn't fail publishes: what it
+    decided, which a refused public, a publish key's refused widening or a
+    group held back or left off changed from what it asked for."""
     _, record_status = publication_to_catalog_fields(dataset.publication)
-    visibility = result.decided_visibility if result.decided else dataset.visibility
-    return visibility, record_status
+    if not result.decided:
+        return PendingManifestDataset(
+            dataset.visibility, record_status, dataset.title, dataset.groups
+        )
+    return PendingManifestDataset(
+        result.decided_visibility,
+        record_status,
+        dataset.title,
+        result.planned_group_ids,
+        result.role_granted,
+    )
 
 
 def _failed(map_key: str, message: str) -> ManifestMapResult:
@@ -130,12 +144,12 @@ async def run_manifest_maps(
     ``dataset_results`` are this request's dataset outcomes. A dry run
     answers for the whole publish, datasets first and maps once their jobs
     finish: a layer may name, by key or by id, the dataset of an entry that
-    changes it, and the map's visibility is judged on what that entry
-    publishes. An apply writes a layer only on the dataset the publish
-    describes, so a layer on the dataset of an entry this request created,
-    replaced, held or failed, or on a dataset with a job still in flight,
-    answers A052. A completed skip changes nothing, so both runs judge its
-    dataset as it is.
+    changes it, and the map's visibility and its readers' access to the
+    layer are judged on what that entry publishes. An apply writes a layer
+    only on the dataset the publish describes, so a layer on the dataset of
+    an entry this request created, replaced, held or failed, or on a dataset
+    with a job still in flight, answers A052. A completed skip changes
+    nothing, so both runs judge its dataset as it is.
 
     An apply commits each map on its own; whatever is left open, a dry run
     entirely, is rolled back.
@@ -171,7 +185,7 @@ async def run_manifest_maps(
         # the one an earlier publish left under its key, by key or by id.
         failed = [r for r in dataset_results if r.action == "error"]
         not_ready = {r.dataset_key for r in failed}
-        pending: dict[str | uuid.UUID, tuple[str | None, str]] = {}
+        pending: dict[str | uuid.UUID, PendingManifestDataset] = {}
         unsettled = await datasets_with_jobs_in_flight(
             db,
             [

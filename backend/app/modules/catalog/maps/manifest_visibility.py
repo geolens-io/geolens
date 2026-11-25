@@ -5,6 +5,7 @@ from __future__ import annotations
 
 from typing import Any
 
+from app.core.processing_port import PendingManifestDataset
 from app.modules.catalog.maps.manifest_messages import (
     OTHER_REFUSAL,
     PUBLIC_REFUSED,
@@ -37,13 +38,15 @@ _PUBLIC_REFUSALS = {
 }
 
 
-def planned_public(dataset: Any, planned: tuple[str | None, str] | None) -> bool:
+def planned_public(dataset: Any, planned: PendingManifestDataset | None) -> bool:
     """Whether a layer's dataset is public and published once the request's
     own entry for it, ``planned``, has published it."""
     if planned is None:
         return dataset is not None and dataset.public
-    visibility = planned[0] or (dataset.visibility if dataset else None) or "private"
-    return (visibility, planned[1]) == ("public", "published")
+    visibility = (
+        planned.visibility or (dataset.visibility if dataset else None) or "private"
+    )
+    return (visibility, planned.record_status) == ("public", "published")
 
 
 def public_refused(entry: Any, severity: str, reason: str) -> dict[str, Any]:

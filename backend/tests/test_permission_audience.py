@@ -313,3 +313,45 @@ async def test_an_unrecognised_visibility_reaches_only_admins(
     )
     assert set(rows.scalars()) == {principals.admin.id}
     assert audience.includes_anonymous is False
+
+
+@pytest.mark.parametrize("stated_with_the_stranger", [True, False])
+async def test_stated_groups_stand_in_for_the_stored_group_grants(
+    test_db_session,
+    principals: _Principals,
+    granted_dataset,
+    stated_with_the_stranger,
+):
+    """The audience of a share that is planned and not yet written: the
+    stated groups' members in place of the stored group's, with the role
+    grant read as stored."""
+    planned = Group(name=f"aud-planned-{uuid.uuid4().hex[:8]}")
+    test_db_session.add(planned)
+    await test_db_session.flush()
+    test_db_session.add(
+        GroupMember(group_id=planned.id, user_id=principals.stranger.id)
+    )
+    await test_db_session.commit()
+
+    audience = await DefaultPermissionExtension().record_audience(
+        RecordAudienceQuery(
+            dataset_id=granted_dataset.id,
+            record_id=granted_dataset.record_id,
+            owner_id=principals.owner.id,
+            visibility="restricted",
+            record_status="published",
+            group_ids=frozenset({planned.id} if stated_with_the_stranger else ()),
+        ),
+        User,
+        grant_cls=DatasetGrant,
+    )
+    rows = await test_db_session.execute(
+        select(User.id)
+        .where(audience.users)
+        .where(User.id.in_([user.id for user in principals.all]))
+    )
+
+    readers = {principals.owner.id, principals.admin.id, principals.grantee.id}
+    if stated_with_the_stranger:
+        readers.add(principals.stranger.id)
+    assert set(rows.scalars()) == readers

@@ -333,7 +333,15 @@ class FakeProcessingPort:
         return "A033"
 
     async def plan_manifest_groups(
-        self, session, dataset_id, group_ids, user, *, level
+        self,
+        session,
+        dataset_id,
+        group_ids,
+        user,
+        *,
+        level,
+        planned_from=None,
+        granted_at_plan=None,
     ):
         return None
 

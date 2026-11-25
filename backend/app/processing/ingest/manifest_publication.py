@@ -49,6 +49,7 @@ from app.processing.ingest.manifest_dataset_fields import (
     load_submitter,
     public_refused_message,
     resolve_entry_groups,
+    settle_job_groups,
     widening_kept_message,
 )
 from app.processing.ingest.manifest_schemas import ManifestDataset
@@ -220,8 +221,9 @@ async def in_flight_job_matches(
     job: IngestJob,
 ) -> bool:
     """Whether an in-flight job of an unchanged entry publishes what this
-    apply would, by the same policy and to the same groups, which ``fields``
-    then holds. A version 1 apply reuses only a version 1 job."""
+    apply would, by the same policy and to the same groups. ``fields`` then
+    holds the groups that job will share with, judged as its publish judges
+    them. A version 1 apply reuses only a version 1 job."""
     metadata = job.user_metadata or {}
     if fields is None:
         return not is_version_2(metadata)
@@ -252,7 +254,10 @@ async def in_flight_job_matches(
     }
     if fields.groups is not None:
         effective[GROUPS_METADATA_KEY] = [str(group_id) for group_id in fields.groups]
-    return _same_policy(metadata, effective)
+    if not _same_policy(metadata, effective):
+        return False
+    await settle_job_groups(db, user, fields, existing, metadata)
+    return True
 
 
 async def held_job_matches(
