@@ -223,6 +223,24 @@ function isStaleWriteError(error: unknown): boolean {
   return (error.body as { code?: unknown }).code === 'stale_write';
 }
 
+/** True when the server's returned layer set matches `localLayers` (accounting
+ *  for newly created layer IDs remapped during the save). When `serverLayers`
+ *  is omitted (e.g. minimal test mocks), returns true. */
+function layersMatchServer(
+  localLayers: MapLayerResponse[],
+  serverLayers: MapLayerResponse[] | undefined,
+  layerRenames: ReadonlyMap<string, string>,
+): boolean {
+  if (!Array.isArray(serverLayers)) return true;
+  if (localLayers.length !== serverLayers.length) return false;
+  const serverById = new Map(serverLayers.map((l) => [l.id, l]));
+  return localLayers.every((local) => {
+    const serverId = layerRenames.get(local.id) ?? local.id;
+    const server = serverById.get(serverId);
+    return server !== undefined && server.dataset_id === local.dataset_id;
+  });
+}
+
 /** Crop and resize the map canvas to a 400x250 JPEG thumbnail and a 1200x630
  *  OG image, then upload both.
  *
@@ -239,11 +257,38 @@ function doCapture(
   trigger: CaptureTrigger,
   captureIsStale?: (mapId: string) => boolean,
   expectedUpdatedAt?: string,
+  appliedLayers?: MapLayerResponse[],
 ) {
+  // Snapshot the expected updated_at when capture is armed (after any
+  // pendingLayerAdd / source-load waits have settled), and verify that the
+  // cached map detail's layer set (when present) still matches the layers the
+  // canvas drew so a newer timestamp cannot be attached to an older canvas.
+  const cachedMap =
+    trigger === 'auto' && expectedUpdatedAt === undefined
+      ? queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(mapId))
+      : undefined;
+  if (
+    cachedMap?.updated_at !== undefined &&
+    appliedLayers !== undefined &&
+    !layersMatchServer(appliedLayers, cachedMap.layers, new Map())
+  ) {
+    rearmAutoCapture(mapId);
+    return;
+  }
+  const captureExpectedUpdatedAt = expectedUpdatedAt ?? cachedMap?.updated_at;
+
   const onRender = () => {
     // An edit made after the save, or another map now in the builder, must not
     // reach this map's stored images.
     if (captureIsStale?.(mapId)) {
+      rearmAutoCapture(mapId);
+      return;
+    }
+    if (
+      trigger === 'auto' &&
+      captureExpectedUpdatedAt !== undefined &&
+      queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(mapId))?.updated_at !== captureExpectedUpdatedAt
+    ) {
       rearmAutoCapture(mapId);
       return;
     }
@@ -275,12 +320,6 @@ function doCapture(
       const thumb = cropResize(srcCanvas, 400, 250, backdrop);
       const og = cropResize(srcCanvas, 1200, 630, backdrop);
       drawAttributionOverlay(og, credits, OG_ATTRIBUTION);
-
-      const captureExpectedUpdatedAt =
-        expectedUpdatedAt ??
-        (trigger === 'auto'
-          ? queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(mapId))?.updated_at
-          : undefined);
 
       const thumbUri = thumb.toDataURL('image/jpeg', 0.7);
       const thumbUpload = captureExpectedUpdatedAt !== undefined
@@ -453,12 +492,12 @@ function runCaptureNow(
   // The canvas is read when the capture runs, which can be well after the save.
   // An edit made meanwhile, or a switch to another map, skips it and re-arms
   // auto-capture for a later open.
-  const capture = () => {
+  const capture = (appliedLayers: MapLayerResponse[]) => {
     if (captureIsStale?.(mapId)) {
       rearmAutoCapture(mapId);
       return;
     }
-    doCapture(map, mapId, queryClient, trigger, captureIsStale, expectedUpdatedAt);
+    doCapture(map, mapId, queryClient, trigger, captureIsStale, expectedUpdatedAt, appliedLayers);
   };
   // Defer the first capture when a layer-add is pending (layersRef provided)
   // but no layers have synced yet.
@@ -469,7 +508,7 @@ function runCaptureNow(
       const live = layersRef.current ?? [];
       if (live.length > 0) {
         // Layers have arrived.
-        waitForVisibleLayerSources(map, mapId, live, capture, signal);
+        waitForVisibleLayerSources(map, mapId, live, () => capture(live), signal);
         return;
       }
       if (Date.now() >= deadline) {
@@ -477,7 +516,7 @@ function runCaptureNow(
         // Re-check cancellation inside the idle callback, since whenMapIdle can
         // fire ~3s later, possibly after an unmount.
         whenMapIdleAndRasterLoaded(map, mapId, [], () => {
-          if (!signal?.cancelled) capture();
+          if (!signal?.cancelled) capture(layersRef.current ?? []);
         });
         return;
       }
@@ -486,7 +525,7 @@ function runCaptureNow(
     pollForLayers();
     return;
   }
-  waitForVisibleLayerSources(map, mapId, layers, capture, signal);
+  waitForVisibleLayerSources(map, mapId, layers, () => capture(layers), signal);
 }
 
 /** 500ms trailing-edge debounce around captureThumbnail. A single layer-add
@@ -1378,13 +1417,13 @@ export function useBuilderSave(state: SaveState) {
           }
           commitLayerBaseline();
           const saved = await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
-          const expectedUpdatedAt = saved?.updated_at;
           commitSaved(saved?.updated_at);
           toast.warning(t('toasts.mapSavedAfterRemoteChange'));
           if (!editedDuringSave(state, sentPluginSet, camera)) {
             state.setHasUnsavedChanges(false);
           }
-          if (map && id) captureThumbnail(map, id, queryClient, localLayers, undefined, undefined, 'save', captureIsStale, expectedUpdatedAt);
+          // Skip thumbnail capture here: another session changed layers on
+          // the server, so localLayers on the canvas may not match saved.updated_at.
           return;
         }
       }
@@ -1403,7 +1442,14 @@ export function useBuilderSave(state: SaveState) {
 
       // Fire-and-forget thumbnail upload. Use `map` captured before mutate:
       // mapInstanceRef.current may be transiently null during re-render.
-      if (map && id) {
+      // Only capture when the server's layer set (if returned) still matches
+      // localLayers, so an empty-diff metadata save cannot pair an outdated
+      // canvas with the server's new updated_at.
+      if (
+        map &&
+        id &&
+        (expectedUpdatedAt === undefined || layersMatchServer(localLayers, saved?.layers, layerRenames))
+      ) {
         captureThumbnail(map, id, queryClient, localLayers, undefined, undefined, 'save', captureIsStale, expectedUpdatedAt);
       }
     } catch (err) {
