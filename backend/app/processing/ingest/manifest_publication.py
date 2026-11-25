@@ -256,7 +256,7 @@ async def in_flight_job_matches(
         effective[GROUPS_METADATA_KEY] = [str(group_id) for group_id in fields.groups]
     if not _same_policy(metadata, effective):
         return False
-    await settle_job_groups(db, user, fields, existing, metadata)
+    await settle_job_groups(db, user, dataset, fields, existing, metadata)
     return True
 
 
@@ -265,11 +265,17 @@ async def held_job_matches(
     held: Any,
     fields: ManifestEntryFields | None,
     effective: dict,
+    *,
+    user: Identity,
+    dataset: ManifestDataset,
+    existing: Any,
 ) -> bool:
     """Whether the held entry ``held`` answers for this apply: its job is of
     the same version and stores the publication this apply decided,
     ``effective``. Otherwise the entry is queued past the hold, as a changed
-    entry is."""
+    entry is. For a version 2 entry over ``existing``, ``fields`` then holds
+    the groups an Accept of that job leaves, judged as its publish judges
+    them."""
     if held is None:
         return False
     job = await db.get(IngestJob, held.job_id)
@@ -278,7 +284,12 @@ async def held_job_matches(
     stored = job.user_metadata or {}
     if is_version_2(stored) != (fields is not None):
         return False
-    return fields is None or _same_policy(stored, effective, _HELD_KEYS)
+    if fields is None:
+        return True
+    if not _same_policy(stored, effective, _HELD_KEYS):
+        return False
+    await settle_job_groups(db, user, dataset, fields, existing, stored)
+    return True
 
 
 async def settle_stored_publication(

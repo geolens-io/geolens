@@ -54,6 +54,7 @@ from app.processing.ingest.manifest_dataset_fields import (
     attach_unchanged_entry,
     raster_not_replaced_message,
     note_more_visible,
+    refuse_what_the_job_refuses,
     resolve_entry_groups,
     report_entry,
     resolve_entry_collection,
@@ -1213,6 +1214,7 @@ async def _reserve_or_settle_entry(
             raise DatasetBusyError(
                 "The key's in-flight apply publishes otherwise than this one."
             )
+        refuse_what_the_job_refuses(fields, dry_run=request.dry_run)
         result = _skip_result_for_in_flight(dataset, job)
         # The match above settled the level the queued job publishes.
         result.mark_pending(fields.visibility if fields else None)
@@ -1242,7 +1244,9 @@ async def _reserve_or_settle_entry(
         # Before the blocked and dry-run responses, which name the dataset.
         await _admit_key_dataset(db, existing_dataset, user)
         held = await held_entry(db, dataset, fingerprint, job, existing_dataset)
-        if fields is None and await held_job_matches(db, held, None, {}):
+        if fields is None and await held_job_matches(
+            db, held, None, {}, user=user, dataset=dataset, existing=existing_dataset
+        ):
             await db.commit()
             return held
         # Run after authorization (to avoid leaking another user's dataset
@@ -1265,16 +1269,23 @@ async def _reserve_or_settle_entry(
     await decide_publication(db, fields, dataset, existing_dataset)
     await resolve_entry_collection(db, dataset, user, fields, dry_run=request.dry_run)
     await resolve_entry_groups(db, dataset, user, fields, existing_dataset)
-    if request.dry_run:
-        note_more_visible(dataset, fields, existing_dataset)
-    if fields is not None and await held_job_matches(
+    # Matched before the dry run's A057, which then judges the groups an
+    # Accept leaves.
+    held_matches = fields is not None and await held_job_matches(
         db,
         held,
         fields,
         _job_metadata(
             db, dataset, prepared, fingerprint, user, fields, update_dataset_id
         ),
-    ):
+        user=user,
+        dataset=dataset,
+        existing=existing_dataset,
+    )
+    if request.dry_run:
+        note_more_visible(dataset, fields, existing_dataset)
+    if held_matches:
+        refuse_what_the_job_refuses(fields, dry_run=request.dry_run)
         # The held replacement publishes what this apply just decided.
         held.mark_pending(fields.visibility)
         await db.commit()

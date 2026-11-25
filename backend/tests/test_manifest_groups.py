@@ -6,7 +6,10 @@ Requirements: the docker database must be running with migrations applied.
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import re
+import shutil
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -33,10 +36,14 @@ from app.modules.catalog.maps.models import (
 from app.platform.extensions import get_processing_port
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.schemas import ManifestGroupsLeftOffWarning
+from app.processing.ingest.manifest_schemas import ManifestApplyRequest
+from app.processing.ingest.manifest_service import apply_manifest
 from app.processing.ingest.manifest_sources import manifest_dataset_fingerprint
 from tests.factories import create_user
 from tests.test_api_key_scope_875 import _remove_keys_minted_by_the_test  # noqa: F401
 from tests.test_dataset_group_sharing import _mint_key
+from tests.test_manifest_accept_publish_key import _accept
+from tests.test_manifest_blocked_reapply import _KEY as _HELD_KEY, _held_apply
 from tests.test_manifest_dataset_fields import (
     _apply as _apply_entries,
     _editors_without,
@@ -52,6 +59,11 @@ from tests.test_manifest_dataset_fields import (
     _set_record,
     _stage_fixture,
     _uploaded,
+)
+from tests.test_manifest_reapply_publication import (
+    _entry as _held_entry,
+    _http_request as _held_http_request,
+    _reupload_task,
 )
 from tests.test_manifest_maps_apply import (
     _apply,
@@ -2549,3 +2561,223 @@ async def test_a_reused_job_isnt_answered_for_once_edit_metadata_is_revoked(
     assert checked.action == "error"
     assert ("A052", "parks") in [(m.code, m.layer) for m in checked.messages]
     assert _layer_gaps(checked) == []
+
+
+# A queued replacement's share, one row per way it can end: the dataset's
+# level and groups when the entry was applied, the groups the entry names,
+# whether a publish key applied it, what changed before the job runs, and the
+# groups the dataset is left with. "refused" rows fail the job with
+# GroupsOutsideEntry and leave the groups as they were.
+_QUEUED_SHARES = {
+    "unchanged": ("restricted", "ab", "ab", False, None, "published", "ab"),
+    "revoked-since": ("restricted", "ab", "ab", False, "revoke-b", "published", "a"),
+    "granted-since": ("restricted", "a", "a", False, "grant-c", "published", "a"),
+    "swap": ("restricted", "a", "b", False, None, "published", "b"),
+    "removed": ("restricted", "a", "", False, None, "published", ""),
+    "narrowed-addition": ("internal", "a", "ab", False, "narrow", "published", "a"),
+    "narrowed-swap": ("internal", "a", "b", False, "narrow", "refused", "a"),
+    "key-addition": ("restricted", "a", "ab", True, None, "published", "a"),
+    "key-addition-granted-since": (
+        "restricted",
+        "a",
+        "ab",
+        True,
+        "grant-c",
+        "refused",
+        "ac",
+    ),
+}
+
+
+async def _change_dataset(session, dataset_id, change, groups) -> None:
+    if change == "revoke-b":
+        await session.execute(
+            delete(DatasetGroupGrant).where(
+                DatasetGroupGrant.dataset_id == dataset_id,
+                DatasetGroupGrant.group_id == groups["b"].id,
+            )
+        )
+    elif change == "grant-c":
+        session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=groups["c"].id))
+    elif change == "narrow":
+        await _set_record(session, dataset_id, "restricted", "published")
+    await session.commit()
+
+
+@pytest.mark.parametrize(
+    ("level", "granted", "named", "by_key", "change", "outcome", "left_with"),
+    list(_QUEUED_SHARES.values()),
+    ids=list(_QUEUED_SHARES),
+)
+async def test_a_dry_run_over_a_queued_replacement_answers_as_its_job_ends(
+    client,
+    admin_auth_header,
+    test_db_session,
+    clean_tables,
+    level,
+    granted,
+    named,
+    by_key,
+    change,
+    outcome,
+    left_with,
+):
+    """The same manifest sent again as a dry run while its replacement is
+    queued names the groups the job then leaves, and is refused where the
+    job is."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    groups = {letter: await _group(test_db_session, user.id) for letter in "abc"}
+    key = f"groups-queued-{uuid.uuid4().hex[:8]}"
+    dataset_id = await _manifest_dataset(test_db_session, user, key, level, "published")
+    test_db_session.add_all(
+        DatasetGroupGrant(dataset_id=dataset_id, group_id=groups[letter].id)
+        for letter in granted
+    )
+    await test_db_session.commit()
+    entry = await _uploaded(
+        client,
+        admin_auth_header,
+        key,
+        groups=[str(groups[letter].id) for letter in named],
+    )
+
+    def scope():
+        return _publish_key(test_db_session) if by_key else contextlib.nullcontext()
+
+    with scope():
+        queued, task = await _queue_update(test_db_session, user, entry)
+    assert queued.action == "update", queued
+    await _change_dataset(test_db_session, dataset_id, change, groups)
+
+    with scope():
+        response, _ = await _apply_entries(
+            test_db_session, user, _entries_request(entry, dry_run=True)
+        )
+    [answer] = response.results
+
+    if outcome == "published":
+        assert (answer.action, answer.job_id) == ("skip", queued.job_id)
+        assert sorted(answer.groups) == sorted(groups[g].name for g in left_with)
+        job = await _run_update(test_db_session, queued, task)
+        assert (job.status, job.error_message) == ("complete", None)
+    else:
+        assert answer.action == "error", answer
+        with pytest.raises(ValueError, match="groups this publish leaves out"):
+            await _run_update(test_db_session, queued, task)
+        assert (await _failed_job(test_db_session, queued)).status == "failed"
+    assert await _dataset_grants(test_db_session, dataset_id) == {
+        groups[letter].id for letter in left_with
+    }
+
+
+async def test_a_dry_run_refuses_a_queued_replacement_its_job_will_refuse(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """An internal dataset shared with A, a replacement queued for B, then the
+    dataset narrowed: the job holds the swap back and keeps A, which the entry
+    leaves out, so the dry run refuses the entry with A056 and its layer has
+    no dataset to be judged on. The apply still answers for the queued job."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    kept = await _group(test_db_session, user.id)
+    named = await _group(test_db_session, user.id)
+    key = "groups-queued-refused"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "internal", "published"
+    )
+    test_db_session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=kept.id))
+    await test_db_session.commit()
+    entry = await _uploaded(client, admin_auth_header, key, groups=[str(named.id)])
+    queued, _ = await _queue_update(test_db_session, user, entry)
+    assert queued.action == "update", queued
+    await _set_record(test_db_session, dataset_id, "restricted", "published")
+    layer = _layer(dataset_key=key)
+    maps = [_map("groups-queued-refused-map", layer, groups=[str(named.id)])]
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True, maps=maps)
+    )
+
+    [refused] = response.results
+    assert refused.action == "error"
+    assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
+    assert "made visible to fewer people" in refused.messages[0].message
+    [checked] = response.maps
+    assert ("A052", "parks") in [(m.code, m.layer) for m in checked.messages]
+    assert _layer_gaps(checked) == []
+
+    # The refused entry rolled the session back, which expires the user row.
+    user = await _admin_user(test_db_session)
+    response, _ = await _apply_entries(test_db_session, user, _entries_request(entry))
+
+    [reused] = response.results
+    assert (reused.action, reused.job_id) == ("skip", queued.job_id)
+    assert reused.groups == [kept.name]
+
+
+@pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="needs ogr2ogr")
+@pytest.mark.requires_ogr2ogr
+@pytest.mark.parametrize(
+    ("level", "granted", "named", "change", "accepted", "left_with"),
+    [
+        ("restricted", "ab", "ab", "revoke-b", True, "a"),
+        ("internal", "a", "b", "narrow", False, "a"),
+    ],
+    ids=["revoked-since", "narrowed-swap"],
+)
+async def test_a_dry_run_over_a_held_replacement_answers_as_its_accept_ends(
+    test_db_session, clean_tables, level, granted, named, change, accepted, left_with
+):
+    """A dry run of a held replacement's unchanged entry names the groups
+    Accept leaves the dataset with, and is refused where Accept's publish is."""
+    user = await _admin_user(test_db_session)
+    groups = {letter: await _group(test_db_session, user.id) for letter in "ab"}
+    request = ManifestApplyRequest.model_validate(
+        {
+            "manifest_version": "2",
+            "catalog": {"title": "Manifest catalog"},
+            "client": {"id": "geolens-qgis", "version": "0.2.0"},
+            "datasets": [
+                {
+                    **_held_entry(
+                        _HELD_KEY, title="Resurveyed roads", intent="published"
+                    ),
+                    "groups": [str(groups[letter].id) for letter in named],
+                }
+            ],
+        }
+    )
+    held = await _held_apply(
+        test_db_session,
+        request,
+        visibility=level,
+        group_ids=[groups[letter].id for letter in granted],
+    )
+    await _change_dataset(test_db_session, held.dataset_id, change, groups)
+
+    with _reupload_task():
+        response = await apply_manifest(
+            test_db_session,
+            request.model_copy(update={"dry_run": True}),
+            held.user,
+            _held_http_request(),
+        )
+    [answer] = response.results
+
+    if accepted:
+        assert (answer.action, answer.run_id) == ("blocked", held.run_id)
+        assert sorted(answer.groups) == sorted(groups[g].name for g in left_with)
+        assert "A057" not in _codes(answer)
+        job = await _accept(test_db_session, held, publish_key=False)
+        assert (job.status, job.error_message) == ("complete", None)
+    else:
+        assert answer.action == "error", answer
+        assert [(m.code, m.severity) for m in answer.messages] == [("A056", "error")]
+        # The refused entry rolled the session back, which expires the user row.
+        held = dataclasses.replace(held, user=await _admin_user(test_db_session))
+        with pytest.raises(ValueError, match="groups this publish leaves out"):
+            await _accept(test_db_session, held, publish_key=False)
+    assert await _dataset_grants(test_db_session, held.dataset_id) == {
+        groups[letter].id for letter in left_with
+    }

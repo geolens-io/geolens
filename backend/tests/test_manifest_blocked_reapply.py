@@ -13,7 +13,7 @@ from httpx import AsyncClient
 from sqlalchemy import select, text, update
 
 from app.modules.auth.models import User
-from app.modules.catalog.datasets.domain.models import Dataset
+from app.modules.catalog.datasets.domain.models import Dataset, DatasetGroupGrant
 from app.platform.jobs.models import IngestJob
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest.manifest_schemas import ManifestApplyRequest
@@ -56,9 +56,12 @@ class _Held:
     run_id: uuid.UUID
 
 
-async def _held_apply(session, request=None, *, visibility="public") -> _Held:
+async def _held_apply(
+    session, request=None, *, visibility="public", group_ids=()
+) -> _Held:
     """A manifest update that dropped a column and is now held for review;
-    ``request`` is the update, the version 1 resurvey by default."""
+    ``request`` is the update, the version 1 resurvey by default, over a
+    dataset at ``visibility`` shared with ``group_ids``."""
     _stage_fixture()
     user = await _admin(session)
     table = f"manifest_held_{uuid.uuid4().hex[:10]}"
@@ -82,6 +85,10 @@ async def _held_apply(session, request=None, *, visibility="public") -> _Held:
             "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326), "
             "name text, legacy text)"
         )
+    )
+    session.add_all(
+        DatasetGroupGrant(dataset_id=dataset.id, group_id=group_id)
+        for group_id in group_ids
     )
     original = _request(_entry(_KEY, title="Roads", intent="published")).datasets[0]
     prepared = await classify_manifest_source(original.sources[0])
