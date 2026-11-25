@@ -1637,13 +1637,26 @@ async def test_the_sweep_and_a_claim_never_both_take_an_upload(
         assert staged.exists()
 
 
-async def _settle_in_another_session(job_id: uuid.UUID) -> None:
-    """Run the stale pass on ``job_id`` the way a concurrent sweep would."""
+async def _settle_in_another_session(job_id: uuid.UUID) -> bool:
+    """Run the stale pass on ``job_id`` the way a concurrent sweep would.
+
+    First answers whether the previous release's sweep, which ages a pending
+    row from ``coalesce(staged_at, created_at)`` alone, would take the row now.
+    """
     import app.core.db as db_module
 
     async with db_module.async_session() as other:
+        stale_to_the_previous_release = await other.scalar(
+            text(
+                "SELECT coalesce((user_metadata->>'staged_at')::timestamptz,"
+                " created_at) < now() - make_interval(secs => :timeout)"
+                " FROM catalog.ingest_jobs WHERE id = :id"
+            ),
+            {"id": job_id, "timeout": settings.pending_job_timeout_seconds},
+        )
         await settle_stale_jobs(other, datetime.now(timezone.utc), job_ids=[job_id])
         await other.commit()
+    return stale_to_the_previous_release
 
 
 class TestADispatchRestartsThePendingClock:
@@ -1656,8 +1669,12 @@ class TestADispatchRestartsThePendingClock:
         job_id = await _upload(client, editor_auth_header)
         await _wait(test_db_session, job_id, settings.pending_job_timeout_seconds + 600)
 
+        stale_to_the_previous_release: list[bool] = []
+
         async def _swept_then_queued(job, *_args, **_kwargs) -> None:
-            await _settle_in_another_session(job.id)
+            stale_to_the_previous_release.append(
+                await _settle_in_another_session(job.id)
+            )
 
         with patch(
             "app.processing.ingest.router.queue_ingest_job",
@@ -1671,6 +1688,7 @@ class TestADispatchRestartsThePendingClock:
 
         assert response.status_code == 202, response.text
         assert queue.await_count == 1
+        assert stale_to_the_previous_release == [False]
         job = await _row(test_db_session, job_id)
         assert (job.status, job.error_message) == ("pending", None)
 
@@ -1690,11 +1708,14 @@ class TestADispatchRestartsThePendingClock:
         await test_db_session.commit()
         await _wait(test_db_session, job_id, settings.pending_job_timeout_seconds + 600)
         deferred: list[uuid.UUID] = []
+        stale_to_the_previous_release: list[bool] = []
 
         async def _swept_then_deferred(_task, **kwargs) -> None:
             child_id = uuid.UUID(kwargs["job_id"])
             deferred.append(child_id)
-            await _settle_in_another_session(child_id)
+            stale_to_the_previous_release.append(
+                await _settle_in_another_session(child_id)
+            )
 
         with patch(
             "app.processing.ingest.service.defer_async_with_tenant",
@@ -1708,5 +1729,6 @@ class TestADispatchRestartsThePendingClock:
 
         assert response.status_code == 202, response.text
         [child_id] = deferred
+        assert stale_to_the_previous_release == [False]
         child = await _row(test_db_session, child_id)
         assert (child.status, child.error_message) == ("pending", None)
