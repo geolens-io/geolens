@@ -408,7 +408,14 @@ def _upload_manifest_sources(
                     cancelled,
                     failed,
                 )
-            _fail_manifest_apply(state, exc.message, exc.exit_code, cancelled, failed)
+            _fail_manifest_apply(
+                state,
+                exc.message,
+                exc.exit_code,
+                cancelled,
+                failed,
+                printed=exc.printed,
+            )
 
 
 def _fail_manifest_apply(

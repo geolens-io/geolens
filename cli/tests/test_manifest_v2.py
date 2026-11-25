@@ -14,7 +14,7 @@ import yaml
 
 from geolens_cli import publish as publish_module
 from geolens_cli._sdk_helpers import EXIT_USAGE
-from geolens_cli.main import AppState, app
+from geolens_cli.main import AppState, _upload_manifest_sources, app
 from geolens_cli.manifest import (
     load_manifest,
     manifest_schema,
@@ -1079,9 +1079,45 @@ def test_json_reports_an_upload_failure_with_the_cancelled_uploads(
 
     assert result.exit_code == 1
     payload = json.loads(result.stdout)
-    assert payload["ok"] is False and payload["error"]
+    assert payload["ok"] is False
+    assert "rivers.geojson" in payload["error"] and "413" in payload["error"]
     assert payload["cancelled_uploads"] == [str(JOB_ID)]
     assert payload["uncancelled_uploads"] == []
+
+
+def test_an_upload_failure_is_printed_once_in_text_mode(
+    runner, tmp_xdg_home, tmp_path, monkeypatch, cancels
+) -> None:
+    _second_upload_fails(monkeypatch)
+    _install_sdk(monkeypatch, _response())
+    path = _two_dataset_document(tmp_path)
+
+    result = runner.invoke(app, ["apply", str(path)])
+
+    assert result.exit_code == 1
+    assert result.output.count("413") == 1
+
+
+def test_a_source_path_that_cannot_be_resolved_is_a_usage_error(
+    runner, tmp_xdg_home, tmp_path, monkeypatch, uploads
+) -> None:
+    _install_sdk(monkeypatch, _response())
+    path = _write_manifest(tmp_path, _v2_document())
+    resolve = Path.resolve
+
+    def looping(self: Path, strict: bool = False) -> Path:
+        # What Path.resolve() does for a symlink loop before Python 3.13.
+        if self.name == "roads.geojson":
+            raise RuntimeError(f"Symlink loop from {self}")
+        return resolve(self, strict=strict)
+
+    monkeypatch.setattr(Path, "resolve", looping)
+
+    result = runner.invoke(app, ["apply", str(path)])
+
+    assert result.exit_code == EXIT_USAGE
+    assert "Symlink loop" in result.output
+    assert uploads == []
 
 
 def test_json_reports_a_422_refusal_with_the_cancelled_uploads(
@@ -1118,15 +1154,26 @@ def test_an_upload_that_could_not_be_cancelled_is_reported_apart(
 
 
 def test_ctrl_c_during_uploads_cancels_the_ones_made_and_reraises(
-    runner, tmp_xdg_home, tmp_path, monkeypatch, cancels
+    tmp_path, monkeypatch, cancels
 ) -> None:
+    from geolens_cli.manifest_upload import plan_local_uploads
+
     _second_upload_fails(monkeypatch, KeyboardInterrupt())
-    _install_sdk(monkeypatch, _response())
     path = _two_dataset_document(tmp_path)
+    document = yaml.safe_load(path.read_text(encoding="utf-8"))
+    state = SimpleNamespace(json_mode=True, output=SimpleNamespace(is_tty=False))
+    created: list[UUID] = []
 
-    result = runner.invoke(app, ["apply", str(path)])
+    with pytest.raises(KeyboardInterrupt):
+        _upload_manifest_sources(
+            state,
+            SimpleNamespace(client=object()),
+            document,
+            plan_local_uploads(document, tmp_path),
+            created,
+            {},
+        )
 
-    assert isinstance(result.exception, KeyboardInterrupt) or result.exit_code != 0
     assert cancels == [JOB_ID]
 
 

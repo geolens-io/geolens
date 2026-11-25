@@ -12,7 +12,9 @@ from typing import Any
 from uuid import UUID
 from urllib.parse import urlsplit
 
-from ._sdk_helpers import EXIT_USAGE, call_sdk, unwrap
+import typer
+
+from ._sdk_helpers import EXIT_USAGE, call_sdk, detail_text, unwrap
 from .manifest.schema import names_unuploaded_source
 
 _REMOTE_URI_SCHEMES = frozenset({"http", "https", "s3"})
@@ -22,10 +24,14 @@ _READ_CHUNK = 1024 * 1024
 class ManifestUploadError(Exception):
     """A local source can't be uploaded; nothing has been sent yet."""
 
-    def __init__(self, message: str, *, exit_code: int = EXIT_USAGE) -> None:
+    def __init__(
+        self, message: str, *, exit_code: int = EXIT_USAGE, printed: bool = False
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.exit_code = exit_code
+        # True when the message is already on stderr.
+        self.printed = printed
 
 
 @dataclass(frozen=True)
@@ -80,7 +86,13 @@ def plan_local_uploads(
                 ) from exc
             if scheme in _REMOTE_URI_SCHEMES:
                 continue
-            path = (root / uri).resolve()
+            try:
+                path = (root / uri).resolve()
+            except (OSError, RuntimeError) as exc:
+                # Before Python 3.13 a symlink loop raises RuntimeError here.
+                raise ManifestUploadError(
+                    f"{where}: could not resolve {uri!r} ({exc})."
+                ) from exc
             if Path(uri).is_absolute() or not path.is_relative_to(root):
                 raise ManifestUploadError(
                     f"{where}: {uri!r} is outside the manifest folder {root}. "
@@ -142,7 +154,18 @@ def upload_local_sources(
         if on_progress is not None:
             on_progress(number, len(uploads), upload.path)
         response = call_sdk(_publish.upload_file, client=client, path=upload.path)
-        parsed = unwrap(response, expected=_publish.UPLOAD_OK_STATUS)
+        try:
+            parsed = unwrap(response, expected=_publish.UPLOAD_OK_STATUS)
+        except typer.Exit as exc:
+            # unwrap printed the reason; a JSON report needs it too.
+            detail = getattr(response.parsed, "detail", None)
+            reason = f": {detail_text(detail)}" if detail is not None else ""
+            raise ManifestUploadError(
+                f"Upload of {upload.path.name} failed "
+                f"({int(response.status_code)}){reason}",
+                exit_code=exc.exit_code,
+                printed=True,
+            ) from None
         job_id = getattr(parsed, "job_id", None)
         if job_id is None:
             raise ManifestUploadError(
