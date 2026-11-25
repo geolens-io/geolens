@@ -661,6 +661,30 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
 
 
 @pytest.mark.architecture
+def test_maps_reach_the_dataset_domain_through_its_facade() -> None:
+    """Map code reads the dataset domain through the service facade, its
+    models and its helpers, never another of its modules or a private name."""
+    allowed = {
+        f"app.modules.catalog.datasets.domain.{name}"
+        for name in ("service", "models", "helpers")
+    }
+    offenders = []
+    for path in sorted((BACKEND_ROOT / "app/modules/catalog/maps").rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            module = _resolve_relative_import(path, node) or ""
+            if not module.startswith("app.modules.catalog.datasets.domain"):
+                continue
+            offenders += [
+                f"{_repo_style_rel(path)}:{node.lineno} imports {module}.{alias.name}"
+                for alias in node.names
+                if module not in allowed or alias.name.startswith("_")
+            ]
+    assert not offenders, "\n".join(offenders)
+
+
+@pytest.mark.architecture
 def test_no_external_imports_of_maps_private_service_modules() -> None:
     """Map callers use the public service facade; split implementation modules remain private."""
     private_modules = {
@@ -1196,7 +1220,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 132,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 144,
+        "backend/app/modules/catalog/datasets/domain/service.py": 150,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1224,9 +1248,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # A layer write takes the map row, then the datasets it adds layers on, before any layer row.
         "backend/app/modules/catalog/maps/service_layers.py": 379,
         # Map creates and updates hold the route policy a publish manifest
-        # reuses, with its layer keys and the rows it keeps, and record which
-        # view fields a save moved beyond the builder's rounding.
-        "backend/app/modules/catalog/maps/service_update.py": 486,
+        # reuses, with its layer keys, the rows it keeps and the moved layers
+        # whose widgets it keeps, and record which view fields a save moved
+        # beyond the builder's rounding.
+        "backend/app/modules/catalog/maps/service_update.py": 493,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
@@ -1325,11 +1350,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # One map's check, plan and write: the styling decision, layer matching, the
     # history event, the share link and the result's visibility, groups and
     # removed layers share the row lock the apply holds, which is also where its
-    # groups are planned.
-    "backend/app/modules/catalog/maps/manifest_apply.py": 1129,
+    # groups are planned and its moved layers are judged.
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1165,
     # The publish manifest's request and response models in one place, which
     # the vendored wire schema, the contract snapshot and both SDKs are held to.
-    "backend/app/processing/ingest/manifest_schemas.py": 1026,
+    "backend/app/processing/ingest/manifest_schemas.py": 1036,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,
@@ -1495,11 +1520,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # and rules, and the shapes that run user code on insert, with the same
     # catalog probes. A streamed page is read in byte-bounded batches.
     "backend/app/modules/catalog/features/service.py": 1811,
-    # Dataset visibility, and the VRT member counts and extents each requester
-    # may see, and which groups can't read a dataset, share the permission
+    # Dataset visibility, the VRT member counts and extents each requester may
+    # see, which groups can't read a dataset, and whether one dataset's readers
+    # reach past another's, today or by its sharing rules, share the permission
     # extension's one audience; map reads, and which groups can't read a map,
     # share the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1400,
+    "backend/app/modules/catalog/authorization.py": 1507,
 }
 
 

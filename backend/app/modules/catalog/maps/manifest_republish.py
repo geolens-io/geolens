@@ -12,17 +12,18 @@ import unicodedata
 import uuid
 from collections.abc import Collection, Sequence
 from dataclasses import dataclass
-from datetime import date, datetime
+from typing import Any
+from datetime import UTC, date, datetime
 
 import structlog
 from fastapi import HTTPException
-from sqlalchemy import and_, exists, func, literal_column, or_, select
+from sqlalchemy import and_, exists, func, literal_column, or_, select, update
 from sqlalchemy.dialects.postgresql import array
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.text import normalize_nfc
-from app.modules.catalog.maps.models import MapEditHistoryEvent, MapLayer
+from app.modules.catalog.maps.models import Map, MapEditHistoryEvent, MapLayer
 from app.modules.catalog.maps.service_update import CAMERA_FIELDS
 
 log = structlog.get_logger()
@@ -304,6 +305,33 @@ def _fitting(lines: Sequence[str], room: int) -> list[str]:
         if size + 1 + len(note) <= room:
             return [*lines[:shown], note]
     return [lines[0]]
+
+
+async def clear_map_images(
+    session: AsyncSession, map_id: uuid.UUID, locked: Any
+) -> list[str]:
+    """Point the map at no thumbnail or social card image without marking
+    it edited. ``locked`` is the row ``lock_map_for_asset_write`` returned in
+    this transaction. Does not commit.
+
+    A layer moved to another dataset leaves images that may show the dataset
+    it left, while readers are authorized against the one it shows now.
+    Returns the keys the map pointed at, which the caller passes to
+    ``discard_map_asset_objects`` once it has committed.
+    """
+    keys = [key for key in (locked.thumbnail_uri, locked.og_image_uri) if key]
+    if keys:
+        await session.execute(
+            update(Map)
+            .where(Map.id == map_id)
+            .values(
+                thumbnail_uri=None,
+                og_image_uri=None,
+                thumbnail_updated_at=datetime.now(UTC),
+                updated_at=Map.updated_at,
+            )
+        )
+    return keys
 
 
 async def store_manifest_thumbnail(

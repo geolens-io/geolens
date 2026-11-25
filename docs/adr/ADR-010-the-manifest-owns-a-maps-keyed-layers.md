@@ -35,12 +35,14 @@ styling alone.
   `replace_if_unedited` publish keeps it hidden.
 - When styling is kept and the manifest points a layer's key at another
   dataset, the layer moves to that dataset and keeps its styling if the
-  styling still works there: the geometry type matches, and every column its
+  styling still works there: by the two datasets' sharing rules, everyone
+  who can read the new dataset can read the old one (styling can carry the
+  old dataset's values, such as its categories), the geometry type matches,
+  and every column its
   styling, labels, popup, filter and dashboard widgets read exists with a
   type that supports how it is used (a graduated colour or a histogram needs
   a number). Otherwise that layer alone takes the manifest's styling, with a
-  warning that names what didn't fit. Until this lands, the layer stays on
-  its earlier dataset and the publish answers warning `A073`.
+  warning that names what didn't fit (`A073`).
 
 We considered recording a builder removal so that later publishes leave the
 layer out until the project drops it and adds it again. It adds state every
@@ -65,3 +67,9 @@ next publish. Hiding it is the supported way to keep it off the map: the
 layer stays hidden while styling is kept, under `keep` or under
 `replace_if_unedited` once the edit is recorded, and a `replace` publish
 shows it again.
+
+A layer that keeps its styling through a move carries values written for
+the dataset it left. The audience is judged once, at publish time, by the
+two datasets' sharing rules; a later change to either dataset's sharing
+isn't judged again, so widening the new dataset afterwards shows those
+values to its new readers.

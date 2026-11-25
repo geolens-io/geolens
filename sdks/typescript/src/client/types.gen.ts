@@ -8381,13 +8381,13 @@ export type ManifestMap = {
     /**
      * Styling
      *
-     * Whether a republish replaces the map's styling: its view, basemap, bookmarks and its keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless styling it would write was edited in GeoLens since the last publish that replaced it, and answers info A070 when it keeps it. A view or basemap edit counts only when the manifest sends a `view` or `basemap_style` that would overwrite it, and a bookmarks edit only when it sends `bookmarks`. A kept layer keeps its dataset too, with warning A073 when the manifest names another. Name, description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's styling.
+     * Whether a republish replaces the map's styling: its view, basemap, bookmarks and its keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless styling it would write was edited in GeoLens since the last publish that replaced it, and answers info A070 when it keeps it. A view or basemap edit counts only when the manifest sends a `view` or `basemap_style` that would overwrite it, and a bookmarks edit only when it sends `bookmarks`. A kept layer the manifest points at another dataset moves to it and keeps its styling when that fits there: by the datasets' sharing rules, everyone who can read the new dataset can read the old one, the same geometry type (for a raster, the same DEM kind and one band under a colormap), and every column its styling and dashboard widgets read, in the type family it had and of the type each use needs. A move clears the map's thumbnail and social card image. Otherwise it takes the manifest's styling, with warning A073 naming what didn't fit. Name, description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's styling.
      */
     styling?: 'replace_if_unedited' | 'replace' | 'keep';
     /**
      * Thumbnail
      *
-     * A PNG or JPEG data URI, stored as the map's thumbnail once the map is written, with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling leaves the map's thumbnail as it is. One the storage step refuses or can't store is warning A072, and the map stays published.
+     * A PNG or JPEG data URI, stored as the map's thumbnail once the map is written, with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling leaves the map's thumbnail as it is unless it moves a layer to another dataset, which clears it. One the storage step refuses or can't store is warning A072, and the map stays published.
      */
     thumbnail?: string | null;
     /**

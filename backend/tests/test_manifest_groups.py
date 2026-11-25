@@ -974,9 +974,12 @@ async def test_a_role_grant_keeps_a_dataset_restricted_in_the_result(
     assert await _dataset_grants(test_db_session, dataset_id) == set()
 
 
-async def test_a_kept_layer_is_judged_on_the_dataset_it_keeps(
-    client, admin_auth_header, test_db_session, clean_tables
+@pytest.mark.parametrize("listed", [False, True], ids=["dropped", "moved"])
+async def test_a_kept_layer_is_judged_on_the_dataset_it_shows(
+    client, admin_auth_header, test_db_session, clean_tables, listed
 ):
+    """A layer a kept publish no longer lists stays on its dataset; a listed
+    one pointed at another dataset moves there, and is judged there."""
     _, editor = await _editor(client, test_db_session, admin_auth_header)
     private_id = await _dataset(
         test_db_session, editor.id, visibility="private", name="Kept parks"
@@ -994,7 +997,7 @@ async def test_a_kept_layer_is_judged_on_the_dataset_it_keeps(
             editor,
             _map(
                 "groups-kept-layer",
-                _layer(dataset_id=str(public_id)),
+                _layer("parks" if listed else "trails", dataset_id=str(public_id)),
                 styling="keep",
                 visibility="internal",
             ),
@@ -1002,9 +1005,13 @@ async def test_a_kept_layer_is_judged_on_the_dataset_it_keeps(
         )
     ).maps
 
-    [gap] = [message for message in kept.messages if message.code == "A056"]
-    assert gap.layer == "parks"
-    assert "Kept parks" in gap.message
+    gaps = [message for message in kept.messages if message.code == "A056"]
+    if listed:
+        assert gaps == []
+    else:
+        [gap] = gaps
+        assert gap.layer == "parks"
+        assert "Kept parks" in gap.message
 
 
 @pytest.mark.parametrize("stored_mine", [False, True], ids=["left-off", "same"])
