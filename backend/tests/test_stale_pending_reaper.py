@@ -20,13 +20,13 @@ from types import SimpleNamespace
 import pytest
 from unittest.mock import AsyncMock, patch
 from fastapi import HTTPException
-from sqlalchemy import text, update
+from sqlalchemy import func, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import MIN_SIGNABLE_JOB_LIFETIME_SECONDS, settings
 from app.platform.jobs.models import IngestJob
-from tests.factories import get_user_id
-from tests.stale_settlers import STALE_SETTLERS
+from tests.factories import create_dataset, get_user_id
+from tests.stale_settlers import EVERY_SETTLER, STALE_SETTLERS
 from app.platform.jobs.router import (
     fail_stale_jobs,
     get_job_status,
@@ -55,11 +55,12 @@ def _dispatched_metadata() -> dict:
     every defer, so a row that reached the queue at all has this key. Its
     absence is now what makes the sweep read a row as an abandoned upload, so
     a fixture describing "the defer never landed" has to carry it or it
-    describes something else.
+    describes something else. Dated before any age these fixtures give a row,
+    so the row's own age decides when it is stale.
     """
     from app.platform.jobs.models import COMMIT_ATTEMPTED_METADATA_KEY
 
-    return {COMMIT_ATTEMPTED_METADATA_KEY: datetime.now(timezone.utc).isoformat()}
+    return {COMMIT_ATTEMPTED_METADATA_KEY: "2026-01-01T00:00:00+00:00"}
 
 
 async def _stale_pending_job(
@@ -1065,6 +1066,11 @@ class TestThePollPathSkipsUpdatesItCannotMatch:
         assert job.status == "cancelled"
 
 
+def _upload_lifetime() -> int:
+    """How long a finished upload nothing has claimed stays pending."""
+    return stale_pending_cutoff_seconds(completion_bound=True)
+
+
 class TestAbandonedDirectUploadsAreCancelled:
     """Abandoned direct uploads.
 
@@ -1093,7 +1099,7 @@ class TestAbandonedDirectUploadsAreCancelled:
 
         job = await _make_pending_job(
             test_db_session,
-            age_seconds=7200,
+            age_seconds=_upload_lifetime() + 600,
             file_path="/app/staging/abc_uls.csv",
             presigned=False,
         )
@@ -1115,7 +1121,7 @@ class TestAbandonedDirectUploadsAreCancelled:
         frontend polls this route every 2s for any job it is tracking."""
         job = await _make_pending_job(
             test_db_session,
-            age_seconds=7200,
+            age_seconds=_upload_lifetime() + 600,
             file_path="/app/staging/abc_uls.csv",
             presigned=False,
         )
@@ -1132,7 +1138,7 @@ class TestAbandonedDirectUploadsAreCancelled:
         """Both settlers cancel an abandoned direct upload."""
         job = await _make_pending_job(
             test_db_session,
-            age_seconds=7200,
+            age_seconds=_upload_lifetime() + 600,
             file_path="/app/staging/abc_uls.csv",
             presigned=False,
         )
@@ -1277,3 +1283,267 @@ class TestRetryIsNotAStalePending:
         assert control.status == "failed", "the poll did not reap — vacuous"
         await test_db_session.refresh(job)
         assert job.status == "pending"
+
+
+class TestAFinishedUploadWaitsForItsClaim:
+    """A finished upload nothing has claimed waits as long on local storage as
+    one in a bucket. Every other pending row keeps the pending timeout."""
+
+    @staticmethod
+    async def _staged(
+        session, *, age_seconds: int, dataset_bound: bool = False, **columns
+    ) -> IngestJob:
+        owner = await get_user_id(session, "admin")
+        if dataset_bound:
+            dataset = await create_dataset(session, created_by=owner)
+            columns["dataset_id"] = dataset.id
+        job = IngestJob(
+            **{
+                "source_filename": "roads.geojson",
+                "created_by": owner,
+                "status": "pending",
+                "file_path": "/app/staging/abc_roads.geojson",
+                "user_metadata": {},
+                **columns,
+            }
+        )
+        session.add(job)
+        await session.commit()
+        await session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                created_at=datetime.now(timezone.utc) - timedelta(seconds=age_seconds)
+            )
+        )
+        await session.commit()
+        await session.refresh(job)
+        return job
+
+    @EVERY_SETTLER
+    async def test_it_outlives_the_pending_timeout(
+        self, test_db_session, settle
+    ) -> None:
+        from app.platform.jobs.sweep import may_be_stale
+
+        job = await self._staged(
+            test_db_session, age_seconds=settings.pending_job_timeout_seconds + 600
+        )
+        assert not may_be_stale(job, datetime.now(timezone.utc))
+
+        await settle(test_db_session, job)
+
+        await test_db_session.refresh(job)
+        assert (job.status, job.error_message) == ("pending", None)
+
+    @EVERY_SETTLER
+    async def test_it_is_cancelled_once_its_own_lifetime_passes(
+        self, test_db_session, settle
+    ) -> None:
+        from app.platform.jobs.sweep import may_be_stale
+
+        job = await self._staged(test_db_session, age_seconds=_upload_lifetime() + 600)
+        assert may_be_stale(job, datetime.now(timezone.utc))
+
+        await settle(test_db_session, job)
+
+        await test_db_session.refresh(job)
+        assert job.status == "cancelled"
+        assert job.error_message == "Abandoned: upload was never completed"
+
+    async def test_a_downloaded_url_import_waits_as_long(self, test_db_session) -> None:
+        from app.platform.jobs.sweep import may_be_stale
+
+        age = settings.pending_job_timeout_seconds + 600
+        staged_at = datetime.now(timezone.utc) - timedelta(seconds=age)
+        job = await self._staged(
+            test_db_session,
+            age_seconds=age,
+            user_metadata={
+                "url_import": "https://example.com/roads.geojson",
+                "staged_at": staged_at.isoformat(),
+            },
+        )
+        assert not may_be_stale(job, datetime.now(timezone.utc))
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert (job.status, job.error_message) == ("pending", None)
+
+    @pytest.mark.parametrize(
+        "columns",
+        [
+            {"file_path": ""},
+            {"source_url": "https://example.com/roads.geojson"},
+            {"dataset_bound": True},
+            {"user_metadata": {"dataset_id": "6f1f0a3e-5d0b-4c57-9f0e-2f1d6f6f0a11"}},
+            {"user_metadata": {"reupload": True}},
+            {"user_metadata": {"refresh": True}},
+            {"user_metadata": {"manifest_key": "roads"}},
+            {"user_metadata": {"commit_attempted_at": "2026-01-01T00:00:00+00:00"}},
+        ],
+        ids=[
+            "never_finished",
+            "service_import",
+            "dataset_bound",
+            "names_a_dataset",
+            "reupload",
+            "refresh",
+            "manifest_entry",
+            "dispatched",
+        ],
+    )
+    async def test_a_row_that_is_not_one_keeps_the_pending_timeout(
+        self, test_db_session, columns
+    ) -> None:
+        from app.platform.jobs.sweep import may_be_stale
+
+        job = await self._staged(
+            test_db_session,
+            age_seconds=settings.pending_job_timeout_seconds + 600,
+            **columns,
+        )
+        assert may_be_stale(job, datetime.now(timezone.utc))
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status in ("cancelled", "failed")
+
+
+class TestADispatchedBucketUploadGetsThePendingTimeout:
+    """A bucket upload nobody committed waits the longer cutoff; once a commit
+    dispatches it, only the pending timeout from that dispatch."""
+
+    _KEY = "staging/x/frozen/roads.geojson"
+
+    async def test_a_commit_whose_enqueue_was_lost_ages_from_its_dispatch(
+        self, client, admin_auth_header, test_db_session
+    ) -> None:
+        from app.platform.jobs.sweep import may_be_stale
+
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=_upload_lifetime() - 3600,
+            file_path=self._KEY,
+        )
+        with patch(
+            "app.processing.ingest.router.queue_ingest_job", new=AsyncMock()
+        ) as queue:
+            response = await client.post(
+                f"/ingest/commit/{job.id}",
+                json={"title": "Roads"},
+                headers=admin_auth_header,
+            )
+        assert response.status_code == 202, response.text
+        assert queue.await_count == 1
+        await test_db_session.refresh(job)
+        assert not may_be_stale(job, datetime.now(timezone.utc))
+
+        dispatched = datetime.now(timezone.utc) - timedelta(
+            seconds=settings.pending_job_timeout_seconds + 600
+        )
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                user_metadata=IngestJob.user_metadata.op("||")(
+                    func.jsonb_build_object(
+                        "staged_at",
+                        dispatched.isoformat(),
+                        "commit_attempted_at",
+                        dispatched.isoformat(),
+                    )
+                )
+            )
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        assert may_be_stale(job, datetime.now(timezone.utc))
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "never queued" in (job.error_message or "")
+
+    @EVERY_SETTLER
+    async def test_an_uncommitted_one_still_waits_the_longer_cutoff(
+        self, test_db_session, settle
+    ) -> None:
+        from app.platform.jobs.sweep import may_be_stale
+
+        job = await _make_pending_job(
+            test_db_session,
+            age_seconds=settings.pending_job_timeout_seconds + 600,
+            file_path=self._KEY,
+        )
+        assert not may_be_stale(job, datetime.now(timezone.utc))
+
+        await settle(test_db_session, job)
+
+        await test_db_session.refresh(job)
+        assert (job.status, job.error_message) == ("pending", None)
+
+
+class TestAStampWithoutARestartedClock:
+    """A dispatch stamp alone, as an older release wrote it without restarting
+    ``staged_at``, still starts the pending timeout."""
+
+    @pytest.mark.parametrize(
+        "file_path",
+        ["staging/x/frozen/roads.geojson", "/app/staging/abc_roads.geojson"],
+        ids=["bucket", "local"],
+    )
+    async def test_the_row_ages_from_its_stamp(self, test_db_session, file_path):
+        from app.platform.jobs.sweep import may_be_stale
+
+        staged = datetime.now(timezone.utc) - timedelta(
+            seconds=settings.pending_job_timeout_seconds + 3600
+        )
+        job = IngestJob(
+            source_filename="roads.geojson",
+            created_by=await get_user_id(test_db_session, "admin"),
+            status="pending",
+            file_path=file_path,
+            user_metadata={
+                "staged_at": staged.isoformat(),
+                "commit_attempted_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.execute(
+            update(IngestJob).where(IngestJob.id == job.id).values(created_at=staged)
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        assert not may_be_stale(job, datetime.now(timezone.utc))
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert (job.status, job.error_message) == ("pending", None)
+
+        stamped = datetime.now(timezone.utc) - timedelta(
+            seconds=settings.pending_job_timeout_seconds + 600
+        )
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                user_metadata=IngestJob.user_metadata.op("||")(
+                    func.jsonb_build_object("commit_attempted_at", stamped.isoformat())
+                )
+            )
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        assert may_be_stale(job, datetime.now(timezone.utc))
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "never queued" in (job.error_message or "")

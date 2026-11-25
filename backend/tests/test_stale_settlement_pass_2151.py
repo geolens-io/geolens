@@ -168,7 +168,8 @@ async def test_every_caller_settles_the_same_rows(test_db_session, settle) -> No
         ),
         "dispatched pending": await _stale_pending(session, bound=False),
         "abandoned upload": await _stale_pending(session, bound=False, stamped=False),
-        "bound pending": await _stale_pending(session, bound=True),
+        "bound pending": await _stale_pending(session, bound=True, stamped=False),
+        "dispatched bound pending": await _stale_pending(session, bound=True),
         "young pending": await _add(session, status="pending", file_path=""),
         "childless fan-out": await _add(
             session,
@@ -204,6 +205,11 @@ async def test_every_caller_settles_the_same_rows(test_db_session, settle) -> No
             "failed",
             STALE_PENDING_BOUND_MESSAGE,
             "stale_never_committed",
+        ),
+        "dispatched bound pending": (
+            "failed",
+            STALE_PENDING_UNBOUND_MESSAGE,
+            "stale_never_queued",
         ),
         "young pending": ("pending", None, None),
         "childless fan-out": (
@@ -682,7 +688,10 @@ async def test_each_stale_class_ends_through_the_ledger(
         "abandoned upload": await _stale_pending(
             test_db_session, bound=False, stamped=False
         ),
-        "bound pending": await _stale_pending(test_db_session, bound=True),
+        "bound pending": await _stale_pending(
+            test_db_session, bound=True, stamped=False
+        ),
+        "dispatched bound pending": await _stale_pending(test_db_session, bound=True),
         "young pending": await _add(test_db_session, status="pending", file_path=""),
         "childless fan-out": await _add(
             test_db_session,
@@ -714,6 +723,12 @@ async def test_each_stale_class_ends_through_the_ledger(
             "failed",
             "never_started",
             STALE_PENDING_BOUND_MESSAGE,
+        ),
+        "dispatched bound pending": (
+            stale_end,
+            "failed",
+            "never_started",
+            STALE_PENDING_UNBOUND_MESSAGE,
         ),
         "young pending": None,
         "childless fan-out": (

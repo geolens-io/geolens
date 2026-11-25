@@ -37,9 +37,9 @@ from app.modules.admin import backfill_jobs, router as admin_router
 from app.modules.admin.backfill_jobs import run_embedding_backfill
 from app.platform.jobs.models import (
     ACTIVE_BACKFILL_INDEX_NAME,
+    COMMIT_ATTEMPTED_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
     IngestJob,
-    commit_attempted_marker,
 )
 from app.platform.jobs.router import get_retry_capability
 from app.processing.embeddings import backfill as backfill_module
@@ -145,14 +145,14 @@ async def _stale_job(
         # measuring a different pass.
         user_metadata=(
             {
-                **commit_attempted_marker(),
+                COMMIT_ATTEMPTED_METADATA_KEY: old.isoformat(),
                 EMBEDDING_BACKFILL_METADATA_KEY: {
                     "force": True,
                     "operation_id": f"sweep-pin-{uuid.uuid4().hex[:8]}",
                 },
             }
             if backfill
-            else {"file_type": "vector", **commit_attempted_marker()}
+            else {"file_type": "vector", COMMIT_ATTEMPTED_METADATA_KEY: old.isoformat()}
         ),
     )
     session.add(job)
@@ -791,11 +791,23 @@ async def test_a_run_the_worker_never_claims_still_reaches_a_terminal_record(
     job_id = resp.json()["job_id"]
 
     # Age the queued row past the pending-abandonment policy and let the real
-    # reaper take it, before the worker ever picks the delivery up.
+    # reaper take it, before the worker ever picks the delivery up. The
+    # pending clock runs from the dispatch, so that is aged too.
+    old = datetime.now(timezone.utc) - timedelta(hours=3)
     await test_db_session.execute(
         update(IngestJob)
         .where(IngestJob.id == uuid.UUID(job_id))
-        .values(created_at=datetime.now(timezone.utc) - timedelta(hours=3))
+        .values(
+            created_at=old,
+            user_metadata=IngestJob.user_metadata.op("||")(
+                func.jsonb_build_object(
+                    "staged_at",
+                    old.isoformat(),
+                    COMMIT_ATTEMPTED_METADATA_KEY,
+                    old.isoformat(),
+                )
+            ),
+        )
     )
     await test_db_session.commit()
     await fail_stale_jobs(test_db_session)

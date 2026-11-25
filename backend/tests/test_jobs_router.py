@@ -13,7 +13,7 @@ from sqlalchemy import text
 if TYPE_CHECKING:
     from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.platform.jobs.models import IngestJob, commit_attempted_marker
+from app.platform.jobs.models import COMMIT_ATTEMPTED_METADATA_KEY, IngestJob
 
 from tests.factories import create_user, get_user_id
 from tests.test_api_key_publish_scope import _mint
@@ -351,7 +351,12 @@ class TestGetJobStatus:
             # The row this test is about is one whose dispatch was
             # attempted and never landed. An unstamped pending row is an
             # upload nobody committed, which the poll settles `cancelled`.
-            user_metadata=commit_attempted_marker(),
+            # A dispatch restarts the pending clock, so it is dated too.
+            user_metadata={
+                COMMIT_ATTEMPTED_METADATA_KEY: (
+                    datetime.now(timezone.utc) - timedelta(hours=2)
+                ).isoformat()
+            },
         )
         # Backdate created_at to 2 hours ago
         await test_db_session.execute(
