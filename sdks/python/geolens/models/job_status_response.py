@@ -32,7 +32,9 @@ if TYPE_CHECKING:
     from ..models.manifest_collection_refused_warning import (
         ManifestCollectionRefusedWarning,
     )
+    from ..models.manifest_groups_left_off_warning import ManifestGroupsLeftOffWarning
     from ..models.manifest_public_fallback_warning import ManifestPublicFallbackWarning
+    from ..models.manifest_widening_kept_warning import ManifestWideningKeptWarning
     from ..models.mercator_clip_warning import MercatorClipWarning
     from ..models.reserved_rename_warning import ReservedRenameWarning
     from ..models.zm_dropped_warning import ZmDroppedWarning
@@ -59,8 +61,8 @@ class JobStatusResponse:
             language; `error_message` keeps its English text. Null when the reason is free text.
         warning_message (None | str | Unset):
         warnings (list[DbfTruncationCollisionWarning | ManifestAttributeUnmatchedWarning |
-            ManifestCollectionRefusedWarning | ManifestPublicFallbackWarning | MercatorClipWarning | ReservedRenameWarning |
-            ZmDroppedWarning] | Unset):
+            ManifestCollectionRefusedWarning | ManifestGroupsLeftOffWarning | ManifestPublicFallbackWarning |
+            ManifestWideningKeptWarning | MercatorClipWarning | ReservedRenameWarning | ZmDroppedWarning] | Unset):
         progress (float | None | Unset):
         current_step (JobStatusResponseCurrentStepType0 | None | Unset):
         rows_processed (int | None | Unset):
@@ -88,7 +90,9 @@ class JobStatusResponse:
             DbfTruncationCollisionWarning
             | ManifestAttributeUnmatchedWarning
             | ManifestCollectionRefusedWarning
+            | ManifestGroupsLeftOffWarning
             | ManifestPublicFallbackWarning
+            | ManifestWideningKeptWarning
             | MercatorClipWarning
             | ReservedRenameWarning
             | ZmDroppedWarning
@@ -113,6 +117,12 @@ class JobStatusResponse:
         )
         from ..models.manifest_collection_refused_warning import (
             ManifestCollectionRefusedWarning,
+        )
+        from ..models.manifest_groups_left_off_warning import (
+            ManifestGroupsLeftOffWarning,
+        )
+        from ..models.manifest_public_fallback_warning import (
+            ManifestPublicFallbackWarning,
         )
         from ..models.mercator_clip_warning import MercatorClipWarning
         from ..models.reserved_rename_warning import ReservedRenameWarning
@@ -181,6 +191,10 @@ class JobStatusResponse:
                 elif isinstance(warnings_item_data, ManifestCollectionRefusedWarning):
                     warnings_item = warnings_item_data.to_dict()
                 elif isinstance(warnings_item_data, ManifestAttributeUnmatchedWarning):
+                    warnings_item = warnings_item_data.to_dict()
+                elif isinstance(warnings_item_data, ManifestPublicFallbackWarning):
+                    warnings_item = warnings_item_data.to_dict()
+                elif isinstance(warnings_item_data, ManifestGroupsLeftOffWarning):
                     warnings_item = warnings_item_data.to_dict()
                 else:
                     warnings_item = warnings_item_data.to_dict()
@@ -274,9 +288,13 @@ class JobStatusResponse:
         from ..models.manifest_collection_refused_warning import (
             ManifestCollectionRefusedWarning,
         )
+        from ..models.manifest_groups_left_off_warning import (
+            ManifestGroupsLeftOffWarning,
+        )
         from ..models.manifest_public_fallback_warning import (
             ManifestPublicFallbackWarning,
         )
+        from ..models.manifest_widening_kept_warning import ManifestWideningKeptWarning
         from ..models.mercator_clip_warning import MercatorClipWarning
         from ..models.reserved_rename_warning import ReservedRenameWarning
         from ..models.zm_dropped_warning import ZmDroppedWarning
@@ -380,7 +398,9 @@ class JobStatusResponse:
                 DbfTruncationCollisionWarning
                 | ManifestAttributeUnmatchedWarning
                 | ManifestCollectionRefusedWarning
+                | ManifestGroupsLeftOffWarning
                 | ManifestPublicFallbackWarning
+                | ManifestWideningKeptWarning
                 | MercatorClipWarning
                 | ReservedRenameWarning
                 | ZmDroppedWarning
@@ -397,7 +417,9 @@ class JobStatusResponse:
                     DbfTruncationCollisionWarning
                     | ManifestAttributeUnmatchedWarning
                     | ManifestCollectionRefusedWarning
+                    | ManifestGroupsLeftOffWarning
                     | ManifestPublicFallbackWarning
+                    | ManifestWideningKeptWarning
                     | MercatorClipWarning
                     | ReservedRenameWarning
                     | ZmDroppedWarning
@@ -456,11 +478,31 @@ class JobStatusResponse:
                         return warnings_item_type_5
                     except (TypeError, ValueError, AttributeError, KeyError):
                         pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        warnings_item_type_6 = ManifestPublicFallbackWarning.from_dict(
+                            data
+                        )
+
+                        return warnings_item_type_6
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
+                    try:
+                        if not isinstance(data, dict):
+                            raise TypeError()
+                        warnings_item_type_7 = ManifestGroupsLeftOffWarning.from_dict(
+                            data
+                        )
+
+                        return warnings_item_type_7
+                    except (TypeError, ValueError, AttributeError, KeyError):
+                        pass
                     if not isinstance(data, dict):
                         raise TypeError()
-                    warnings_item_type_6 = ManifestPublicFallbackWarning.from_dict(data)
+                    warnings_item_type_8 = ManifestWideningKeptWarning.from_dict(data)
 
-                    return warnings_item_type_6
+                    return warnings_item_type_8
 
                 warnings_item = _parse_warnings_item(warnings_item_data)
 

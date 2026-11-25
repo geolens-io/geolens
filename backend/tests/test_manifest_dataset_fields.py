@@ -1246,7 +1246,7 @@ async def test_a_publish_key_narrows_a_public_draft_as_it_publishes_it(
     assert await _record(test_db_session, dataset_id) == ("private", "published")
 
 
-async def test_a_publish_key_cannot_widen_through_a_manifest(
+async def test_a_publish_keys_widening_keeps_the_level_with_a056(
     client, test_db_session, admin_auth_header, clean_tables
 ):
     _stage_fixture()
@@ -1266,10 +1266,12 @@ async def test_a_publish_key_cannot_widen_through_a_manifest(
                 publication={"intent": "draft"},
             ),
         )
+    assert result.action == "update", result
+    assert [(m.code, m.severity) for m in result.messages] == [("A056", "warning")]
+    assert "everyone in your organization" in result.messages[0].message
+    job = await _run_update(test_db_session, result, task)
 
-    assert result.action == "error", result
-    assert result.errors == ["A publish key can't widen a dataset's visibility"]
-    task.defer_async.assert_not_awaited()
+    assert (job.status, job.error_message) == ("complete", None)
     assert await _record(test_db_session, dataset_id) == ("private", "draft")
 
 
@@ -1356,10 +1358,12 @@ async def test_public_fallback_never_widens_a_publish_keys_private_dataset(
             public_fallback="internal",
         )
 
-    assert result.action == "error", result
-    assert result.errors == ["A publish key can't widen a dataset's visibility"]
-    task.defer_async.assert_not_awaited()
-    assert await _record(test_db_session, dataset_id) == ("private", "draft")
+    assert result.action == "update", result
+    assert [(m.code, m.severity) for m in result.messages] == [("A056", "warning")]
+    job = await _run_update(test_db_session, result, task)
+
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("private", "published")
 
 
 @pytest.mark.usefixtures("_restricted_public")

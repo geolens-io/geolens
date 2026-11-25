@@ -1196,7 +1196,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 132,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 138,
+        "backend/app/modules/catalog/datasets/domain/service.py": 144,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1246,7 +1246,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 639,
+        "backend/app/platform/extensions/defaults_processing_port.py": 720,
         "backend/app/platform/extensions/defaults_extensions.py": 436,
         "backend/app/modules/catalog/search/service_filters.py": 376,
     }
@@ -1318,14 +1318,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow, including the settlement of a contended or refused admission,
     # the records of an admin's raw seed source, restricted public intent and a
-    # publish key, where a version 2 entry's publication is decided and a held or
-    # in-flight job is reused, the updates a publish key may not make, and the
-    # maps section's results beside the datasets'.
-    "backend/app/processing/ingest/manifest_service.py": 1367,
+    # publish key, where a version 2 entry's publication and groups are decided and
+    # a held or in-flight job is reused, the updates a publish key may not make,
+    # and the maps section's results beside the datasets'.
+    "backend/app/processing/ingest/manifest_service.py": 1372,
     # One map's check, plan and write: the styling decision, layer matching, the
     # history event, the share link and the result's visibility, groups and
-    # removed layers share the row lock the apply holds.
-    "backend/app/modules/catalog/maps/manifest_apply.py": 1036,
+    # removed layers share the row lock the apply holds, which is also where its
+    # groups are planned.
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1129,
+    # The publish manifest's request and response models in one place, which
+    # the vendored wire schema, the contract snapshot and both SDKs are held to.
+    "backend/app/processing/ingest/manifest_schemas.py": 1026,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,
@@ -1378,7 +1382,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # What every ingest strategy shares: the task app, job lifecycle and phase
     # sessions, finalization, the reupload table swap and catalog write, and
     # the manifest fields every replacement applies.
-    "backend/app/processing/ingest/tasks_common.py": 1488,
+    "backend/app/processing/ingest/tasks_common.py": 1524,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
@@ -1452,7 +1456,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/analysis/tasks.py": 1427,
     # Every credential lane resolves here, with each key scope's route rule at
     # the one chokepoint that refuses it.
-    "backend/app/modules/auth/dependencies.py": 1008,
+    "backend/app/modules/auth/dependencies.py": 1012,
     # Map endpoints share response assembly, visibility and ownership checks,
     # and the map_author key's limits on the routes it may write.
     "backend/app/modules/catalog/maps/router.py": 1326,

@@ -55,6 +55,8 @@ from app.platform.jobs.schemas import (
     ManifestAttributeUnmatchedWarning,
     ManifestPublicFallbackWarning,
     ManifestCollectionRefusedWarning,
+    ManifestGroupsLeftOffWarning,
+    ManifestWideningKeptWarning,
     ZmDroppedWarning,
 )
 from app.platform.refresh.job_runs import latest_runs_for_jobs, stored_review_reasons
@@ -669,6 +671,8 @@ _WARNING_MODELS: dict[str, Any] = {
     "manifest_collection_refused": ManifestCollectionRefusedWarning,
     "manifest_attribute_unmatched": ManifestAttributeUnmatchedWarning,
     "manifest_public_fallback": ManifestPublicFallbackWarning,
+    "manifest_groups_left_off": ManifestGroupsLeftOffWarning,
+    "manifest_widening_kept": ManifestWideningKeptWarning,
 }
 
 
@@ -705,6 +709,8 @@ async def _job_to_status_response(
         | ManifestCollectionRefusedWarning
         | ManifestAttributeUnmatchedWarning
         | ManifestPublicFallbackWarning
+        | ManifestGroupsLeftOffWarning
+        | ManifestWideningKeptWarning
     ] = []
     archive_failed = False
     temporal_parse_errors: dict[TemporalParseKey, str] = {}

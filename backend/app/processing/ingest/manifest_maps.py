@@ -35,7 +35,6 @@ from app.processing.ingest.manifest_share_links import (
 )
 
 OTHER_REFUSAL = "A099"
-PUBLIC_RESTRICTED = "A020"
 
 MAPS_CHECK_FAILED = "The maps could not be checked. Try again."
 # The entries that change their dataset: a queued or held job whose dataset
@@ -80,12 +79,11 @@ def planned_publication(
     dataset: ManifestDataset, result: ManifestApplyEntryResult
 ) -> tuple[str | None, str]:
     """The visibility (None keeps the dataset's) and status an entry that
-    didn't fail publishes: internal when its public fell back."""
+    didn't fail publishes: what it decided, which a refused public or a
+    publish key's refused widening changed from what it asked for."""
     _, record_status = publication_to_catalog_fields(dataset.publication)
-    fell_back = any(
-        message.code == PUBLIC_RESTRICTED for message in result.messages or ()
-    )
-    return ("internal" if fell_back else dataset.visibility), record_status
+    visibility = result.decided_visibility if result.decided else dataset.visibility
+    return visibility, record_status
 
 
 def _failed(map_key: str, message: str) -> ManifestMapResult:

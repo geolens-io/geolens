@@ -13,6 +13,7 @@ from typing import cast
 if TYPE_CHECKING:
     from ..models.capabilities_database_connection import CapabilitiesDatabaseConnection
     from ..models.capabilities_key import CapabilitiesKey
+    from ..models.group_ref import GroupRef
 
 
 T = TypeVar("T", bound="CapabilitiesMe")
@@ -28,6 +29,9 @@ class CapabilitiesMe:
         remaining_dataset_quota (int | None): Datasets the account can still create, or null when uncapped.
         database_connections (list[CapabilitiesDatabaseConnection] | Unset): Database connections the deployment
             configures, listed only for an account that can create datasets.
+        groups (list[GroupRef] | Unset): The sharing groups the account may share with, by name: the ones it belongs to,
+            or every group for an admin. A publish key shares as its owner without the admin role. The ids go in a publish
+            manifest's `groups`.
     """
 
     username: str
@@ -35,6 +39,7 @@ class CapabilitiesMe:
     key: CapabilitiesKey | None
     remaining_dataset_quota: int | None
     database_connections: list[CapabilitiesDatabaseConnection] | Unset = UNSET
+    groups: list[GroupRef] | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -60,6 +65,13 @@ class CapabilitiesMe:
                 database_connections_item = database_connections_item_data.to_dict()
                 database_connections.append(database_connections_item)
 
+        groups: list[dict[str, Any]] | Unset = UNSET
+        if not isinstance(self.groups, Unset):
+            groups = []
+            for groups_item_data in self.groups:
+                groups_item = groups_item_data.to_dict()
+                groups.append(groups_item)
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -72,6 +84,8 @@ class CapabilitiesMe:
         )
         if database_connections is not UNSET:
             field_dict["database_connections"] = database_connections
+        if groups is not UNSET:
+            field_dict["groups"] = groups
 
         return field_dict
 
@@ -81,6 +95,7 @@ class CapabilitiesMe:
             CapabilitiesDatabaseConnection,
         )
         from ..models.capabilities_key import CapabilitiesKey
+        from ..models.group_ref import GroupRef
 
         d = dict(src_dict)
         username = d.pop("username")
@@ -122,12 +137,22 @@ class CapabilitiesMe:
 
                 database_connections.append(database_connections_item)
 
+        _groups = d.pop("groups", UNSET)
+        groups: list[GroupRef] | Unset = UNSET
+        if _groups is not UNSET:
+            groups = []
+            for groups_item_data in _groups:
+                groups_item = GroupRef.from_dict(groups_item_data)
+
+                groups.append(groups_item)
+
         capabilities_me = cls(
             username=username,
             permissions=permissions,
             key=key,
             remaining_dataset_quota=remaining_dataset_quota,
             database_connections=database_connections,
+            groups=groups,
         )
 
         capabilities_me.additional_properties = d

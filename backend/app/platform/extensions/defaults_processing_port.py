@@ -7,6 +7,25 @@ this sub-module.
 
 from __future__ import annotations
 
+from typing import Any
+
+from app.core.processing_port import ManifestGroupsPlan
+
+
+def _groups_plan(plan: Any, role_granted: bool = False) -> ManifestGroupsPlan:
+    """A catalog ``SharePlan`` as the port answers it."""
+    return ManifestGroupsPlan(
+        group_ids=plan.group_ids,
+        names=[group.name for group in plan.groups],
+        left_off=list(plan.left_off),
+        held_back=[group.name for group in plan.held_back],
+        held_back_ids=[group.id for group in plan.held_back],
+        granted=sorted(plan.granted, key=str),
+        added=bool(plan.added),
+        unchanged=plan.unchanged,
+        role_granted=role_granted,
+    )
+
 
 class DefaultProcessingPort:
     """Community-edition default: delegates every call to app.modules.catalog.*
@@ -597,6 +616,68 @@ class DefaultProcessingPort:
         return await add_dataset_to_manifest_collection(
             session, collection_id, dataset_id, user
         )
+
+    async def plan_manifest_groups(  # type: ignore[no-untyped-def]
+        self, session, dataset_id, group_ids, user, *, level
+    ):
+        from app.modules.catalog.datasets.domain.service import (
+            get_dataset,
+            plan_manifest_dataset_groups,
+        )
+
+        dataset = None
+        if dataset_id is not None:
+            dataset = await get_dataset(session, dataset_id)
+        return _groups_plan(
+            *await plan_manifest_dataset_groups(
+                session, dataset, group_ids, user, level=level
+            )
+        )
+
+    async def apply_manifest_groups(  # type: ignore[no-untyped-def]
+        self,
+        session,
+        dataset_id,
+        group_ids,
+        user,
+        *,
+        audience_before,
+        planned_from,
+        granted_at_plan,
+    ):
+        from app.modules.catalog.datasets.domain.service import (
+            apply_manifest_dataset_groups,
+            get_dataset,
+        )
+
+        dataset = await get_dataset(session, dataset_id)
+        if dataset is None:
+            return ManifestGroupsPlan([], [], [], [], False), "The dataset is gone"
+        plan, refused = await apply_manifest_dataset_groups(
+            session,
+            dataset,
+            group_ids,
+            user,
+            audience_before=audience_before,
+            planned_from=planned_from,
+            granted_at_plan=granted_at_plan,
+        )
+        if plan is None:
+            return ManifestGroupsPlan([], [], [], [], False), refused
+        return _groups_plan(plan), refused
+
+    async def manifest_dataset_group_names(  # type: ignore[no-untyped-def]
+        self, session, dataset_id, user
+    ):
+        from app.modules.catalog.datasets.domain.service import (
+            get_dataset,
+            manifest_dataset_group_names,
+        )
+
+        dataset = await get_dataset(session, dataset_id)
+        if dataset is None:
+            return None
+        return await manifest_dataset_group_names(session, dataset, user)
 
     async def apply_manifest_attributes(  # type: ignore[no-untyped-def]
         self, session, dataset_id, attributes, *, actor_id

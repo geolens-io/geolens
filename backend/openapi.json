@@ -3963,6 +3963,14 @@
             },
             "title": "Database Connections",
             "type": "array"
+          },
+          "groups": {
+            "description": "The sharing groups the account may share with, by name: the ones it belongs to, or every group for an admin. A publish key shares as its owner without the admin role. The ids go in a publish manifest's `groups`.",
+            "items": {
+              "$ref": "#/components/schemas/GroupRef"
+            },
+            "title": "Groups",
+            "type": "array"
           }
         },
         "required": [
@@ -12706,7 +12714,9 @@
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
                   "manifest_attribute_unmatched": "#/components/schemas/ManifestAttributeUnmatchedWarning",
                   "manifest_collection_refused": "#/components/schemas/ManifestCollectionRefusedWarning",
+                  "manifest_groups_left_off": "#/components/schemas/ManifestGroupsLeftOffWarning",
                   "manifest_public_fallback": "#/components/schemas/ManifestPublicFallbackWarning",
+                  "manifest_widening_kept": "#/components/schemas/ManifestWideningKeptWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
                   "reserved_rename": "#/components/schemas/ReservedRenameWarning",
                   "zm_dropped": "#/components/schemas/ZmDroppedWarning"
@@ -12734,6 +12744,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/ManifestPublicFallbackWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestGroupsLeftOffWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestWideningKeptWarning"
                 }
               ]
             },
@@ -12898,7 +12914,9 @@
                   "dbf_truncation_collision": "#/components/schemas/DbfTruncationCollisionWarning",
                   "manifest_attribute_unmatched": "#/components/schemas/ManifestAttributeUnmatchedWarning",
                   "manifest_collection_refused": "#/components/schemas/ManifestCollectionRefusedWarning",
+                  "manifest_groups_left_off": "#/components/schemas/ManifestGroupsLeftOffWarning",
                   "manifest_public_fallback": "#/components/schemas/ManifestPublicFallbackWarning",
+                  "manifest_widening_kept": "#/components/schemas/ManifestWideningKeptWarning",
                   "mercator_clip": "#/components/schemas/MercatorClipWarning",
                   "reserved_rename": "#/components/schemas/ReservedRenameWarning",
                   "zm_dropped": "#/components/schemas/ZmDroppedWarning"
@@ -12926,6 +12944,12 @@
                 },
                 {
                   "$ref": "#/components/schemas/ManifestPublicFallbackWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestGroupsLeftOffWarning"
+                },
+                {
+                  "$ref": "#/components/schemas/ManifestWideningKeptWarning"
                 }
               ]
             },
@@ -13679,6 +13703,21 @@
               }
             ],
             "description": "Links to the dataset. Null when there is no dataset yet or the caller can't read it. Left out in manifest version 1."
+          },
+          "groups": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Names of the groups the dataset is shared with once the entry's job finishes. Empty for a private dataset, whose earlier grants admit nobody until it is shared again. Null when the entry failed or the caller can't see the dataset's groups. Left out in manifest version 1.",
+            "title": "Groups"
           }
         },
         "required": [
@@ -14217,6 +14256,23 @@
             ],
             "description": "Per-column title, description and units, by column name in the uploaded file. Version 2 only. A null field keeps the stored text; a name matching no column is warning A092.",
             "title": "Attributes"
+          },
+          "groups": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version 2 only. Share with exactly these groups, by id from `capabilities.me.groups`; omitted keeps the current groups, and an empty list removes them all. A dataset's new data is never published while a group outside the list still has it shared: if such a group can't be removed, the entry or its job fails and the dataset keeps its data and groups. A private item with groups is restricted: its owner, admins and the groups' members read it. A group that doesn't exist, or that the caller isn't a member of (an admin may use any), is left off with warning A058 and the publish goes ahead. A publish key can't add groups to an existing private or restricted item, which is warning A056 and keeps the item's groups; an item that would then keep a group the list leaves out is refused with error A056.",
+            "title": "Groups"
           }
         },
         "required": [
@@ -14265,6 +14321,55 @@
           "page"
         ],
         "title": "ManifestDatasetLinks",
+        "type": "object"
+      },
+      "ManifestGroupsLeftOffDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "group_ids": {
+            "description": "The groups the dataset wasn't shared with.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Group Ids",
+            "type": "array"
+          },
+          "reason": {
+            "description": "left_off: the groups no longer exist, or the submitter may not share with them. held_back: sharing with them would let more people read the dataset than before this publish, by a publish key or after the dataset was narrowed since the apply, so it kept the groups it had. refused: the share was refused or held up, and the dataset kept the groups it had.",
+            "enum": [
+              "left_off",
+              "held_back",
+              "refused"
+            ],
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_ids",
+          "reason"
+        ],
+        "title": "ManifestGroupsLeftOffDetail",
+        "type": "object"
+      },
+      "ManifestGroupsLeftOffWarning": {
+        "additionalProperties": false,
+        "description": "Publish manifest code A058: the dataset wasn't shared with some groups.",
+        "properties": {
+          "kind": {
+            "const": "manifest_groups_left_off",
+            "title": "Kind",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ManifestGroupsLeftOffDetail"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "ManifestGroupsLeftOffWarning",
         "type": "object"
       },
       "ManifestLossItem": {
@@ -14452,6 +14557,23 @@
             ],
             "description": "Named areas, in display order (max 100). Part of the map's styling: a republish that applies styling replaces the map's bookmarks with these, and an empty list removes them. Left out, the map's bookmarks are kept.",
             "title": "Bookmarks"
+          },
+          "groups": {
+            "anyOf": [
+              {
+                "items": {
+                  "format": "uuid",
+                  "type": "string"
+                },
+                "maxItems": 100,
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Version 2 only. Share with exactly these groups, by id from `capabilities.me.groups`; omitted keeps the current groups, and an empty list removes them all. A dataset's new data is never published while a group outside the list still has it shared: if such a group can't be removed, the entry or its job fails and the dataset keeps its data and groups. A private item with groups is restricted: its owner, admins and the groups' members read it. A group that doesn't exist, or that the caller isn't a member of (an admin may use any), is left off with warning A058 and the publish goes ahead. A publish key can't add groups to an existing private or restricted item, which is warning A056 and keeps the item's groups; an item that would then keep a group the list leaves out is refused with error A056.",
+            "title": "Groups"
           }
         },
         "required": [
@@ -15168,6 +15290,41 @@
           "uri"
         ],
         "title": "ManifestSource",
+        "type": "object"
+      },
+      "ManifestWideningKeptDetail": {
+        "additionalProperties": false,
+        "properties": {
+          "visibility": {
+            "description": "The wider level the entry asked for.",
+            "title": "Visibility",
+            "type": "string"
+          }
+        },
+        "required": [
+          "visibility"
+        ],
+        "title": "ManifestWideningKeptDetail",
+        "type": "object"
+      },
+      "ManifestWideningKeptWarning": {
+        "additionalProperties": false,
+        "description": "Publish manifest code A056: a publish key can't widen the dataset, so\nit kept its level.",
+        "properties": {
+          "kind": {
+            "const": "manifest_widening_kept",
+            "title": "Kind",
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ManifestWideningKeptDetail"
+          }
+        },
+        "required": [
+          "kind",
+          "details"
+        ],
+        "title": "ManifestWideningKeptWarning",
         "type": "object"
       },
       "MapAccessResponse": {

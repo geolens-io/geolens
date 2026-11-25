@@ -82,20 +82,6 @@ _REFUSED_ROUTES: dict[tuple[str, str], str] = {
     ),
     **dict.fromkeys(
         [
-            ("PUT", "/datasets/{dataset_id}/groups"),
-            ("PUT", "/datasets/{dataset_id}/groups/"),
-        ],
-        "widens who reads a dataset, which a publish key may not",
-    ),
-    **dict.fromkeys(
-        [
-            ("PUT", "/maps/{map_id}/groups"),
-            ("PUT", "/maps/{map_id}/groups/"),
-        ],
-        "widens who reads a map, which a publish key may not",
-    ),
-    **dict.fromkeys(
-        [
             ("PUT", "/stories/{story_id}/groups"),
             ("PUT", "/stories/{story_id}/groups/"),
         ],
@@ -1042,6 +1028,8 @@ _DATA_KEEPING_ROUTES = {
     ("PATCH", "/datasets/{dataset_id}/attributes/{attribute_id}"),
     ("PATCH", "/datasets/{dataset_id}/attributes/{attribute_id}/"),
     ("POST", "/datasets/{dataset_id}/reupload/{job_id}/preview"),
+    ("PUT", "/datasets/{dataset_id}/groups"),
+    ("PUT", "/datasets/{dataset_id}/groups/"),
 }
 
 

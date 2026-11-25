@@ -8529,6 +8529,11 @@ export interface components {
              * @description Database connections the deployment configures, listed only for an account that can create datasets.
              */
             database_connections?: components["schemas"]["CapabilitiesDatabaseConnection"][];
+            /**
+             * Groups
+             * @description The sharing groups the account may share with, by name: the ones it belongs to, or every group for an admin. A publish key shares as its owner without the admin role. The ids go in a publish manifest's `groups`.
+             */
+            groups?: components["schemas"]["GroupRef"][];
         };
         /** CapabilitiesRateLimits */
         CapabilitiesRateLimits: {
@@ -12369,7 +12374,7 @@ export interface components {
             /** Error Code */
             error_code?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"] | components["schemas"]["ManifestPublicFallbackWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"] | components["schemas"]["ManifestPublicFallbackWarning"] | components["schemas"]["ManifestGroupsLeftOffWarning"] | components["schemas"]["ManifestWideningKeptWarning"])[];
             /**
              * Can Retry
              * @default false
@@ -12421,7 +12426,7 @@ export interface components {
             /** Warning Message */
             warning_message?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"] | components["schemas"]["ManifestPublicFallbackWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"] | components["schemas"]["ManifestPublicFallbackWarning"] | components["schemas"]["ManifestGroupsLeftOffWarning"] | components["schemas"]["ManifestWideningKeptWarning"])[];
             /** Progress */
             progress?: number | null;
             /** Current Step */
@@ -12747,6 +12752,11 @@ export interface components {
             visibility?: string | null;
             /** @description Links to the dataset. Null when there is no dataset yet or the caller can't read it. Left out in manifest version 1. */
             links?: components["schemas"]["ManifestDatasetLinks"] | null;
+            /**
+             * Groups
+             * @description Names of the groups the dataset is shared with once the entry's job finishes. Empty for a private dataset, whose earlier grants admit nobody until it is shared again. Null when the entry failed or the caller can't see the dataset's groups. Left out in manifest version 1.
+             */
+            groups?: string[] | null;
         };
         /** ManifestApplyRequest */
         ManifestApplyRequest: {
@@ -12922,6 +12932,11 @@ export interface components {
              * @description Per-column title, description and units, by column name in the uploaded file. Version 2 only. A null field keeps the stored text; a name matching no column is warning A092.
              */
             attributes?: components["schemas"]["ManifestAttribute"][] | null;
+            /**
+             * Groups
+             * @description Version 2 only. Share with exactly these groups, by id from `capabilities.me.groups`; omitted keeps the current groups, and an empty list removes them all. A dataset's new data is never published while a group outside the list still has it shared: if such a group can't be removed, the entry or its job fails and the dataset keeps its data and groups. A private item with groups is restricted: its owner, admins and the groups' members read it. A group that doesn't exist, or that the caller isn't a member of (an admin may use any), is left off with warning A058 and the publish goes ahead. A publish key can't add groups to an existing private or restricted item, which is warning A056 and keeps the item's groups; an item that would then keep a group the list leaves out is refused with error A056.
+             */
+            groups?: string[] | null;
         };
         /**
          * ManifestDatasetLinks
@@ -12943,6 +12958,32 @@ export interface components {
              * @description The vector tile URL template, with {z}, {x} and {y}. Null for a dataset with no vector tiles, and while a job is still writing the dataset (queued, running or held): read the template again once it completes. A private dataset's tiles need the caller's API key header.
              */
             tiles?: string | null;
+        };
+        /** ManifestGroupsLeftOffDetail */
+        ManifestGroupsLeftOffDetail: {
+            /**
+             * Group Ids
+             * @description The groups the dataset wasn't shared with.
+             */
+            group_ids: string[];
+            /**
+             * Reason
+             * @description left_off: the groups no longer exist, or the submitter may not share with them. held_back: sharing with them would let more people read the dataset than before this publish, by a publish key or after the dataset was narrowed since the apply, so it kept the groups it had. refused: the share was refused or held up, and the dataset kept the groups it had.
+             * @enum {string}
+             */
+            reason: "left_off" | "held_back" | "refused";
+        };
+        /**
+         * ManifestGroupsLeftOffWarning
+         * @description Publish manifest code A058: the dataset wasn't shared with some groups.
+         */
+        ManifestGroupsLeftOffWarning: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "manifest_groups_left_off";
+            details: components["schemas"]["ManifestGroupsLeftOffDetail"];
         };
         /** ManifestLossItem */
         ManifestLossItem: {
@@ -13005,6 +13046,11 @@ export interface components {
              * @description Named areas, in display order (max 100). Part of the map's styling: a republish that applies styling replaces the map's bookmarks with these, and an empty list removes them. Left out, the map's bookmarks are kept.
              */
             bookmarks?: components["schemas"]["MapBookmark"][] | null;
+            /**
+             * Groups
+             * @description Version 2 only. Share with exactly these groups, by id from `capabilities.me.groups`; omitted keeps the current groups, and an empty list removes them all. A dataset's new data is never published while a group outside the list still has it shared: if such a group can't be removed, the entry or its job fails and the dataset keeps its data and groups. A private item with groups is restricted: its owner, admins and the groups' members read it. A group that doesn't exist, or that the caller isn't a member of (an admin may use any), is left off with warning A058 and the publish goes ahead. A publish key can't add groups to an existing private or restricted item, which is warning A056 and keeps the item's groups; an item that would then keep a group the list leaves out is refused with error A056.
+             */
+            groups?: string[] | null;
         };
         /**
          * ManifestMapLayer
@@ -13274,6 +13320,27 @@ export interface components {
             layer?: string | null;
             /** Checksum */
             checksum?: string | null;
+        };
+        /** ManifestWideningKeptDetail */
+        ManifestWideningKeptDetail: {
+            /**
+             * Visibility
+             * @description The wider level the entry asked for.
+             */
+            visibility: string;
+        };
+        /**
+         * ManifestWideningKeptWarning
+         * @description Publish manifest code A056: a publish key can't widen the dataset, so
+         *     it kept its level.
+         */
+        ManifestWideningKeptWarning: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "manifest_widening_kept";
+            details: components["schemas"]["ManifestWideningKeptDetail"];
         };
         /** MapAccessResponse */
         MapAccessResponse: {

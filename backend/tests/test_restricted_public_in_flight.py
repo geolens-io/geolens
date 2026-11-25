@@ -37,6 +37,7 @@ from tests.test_manifest_dataset_fields import (
     _stage_fixture,
     _uploaded,
 )
+from tests.test_manifest_groups import _dataset_grants, _group
 from tests.test_raster_replace_1221 import raster_storage as raster_storage
 from tests.write_recheck_races import _commit, _move_to_role
 from tests.test_regenerate_vrt_integration import (  # noqa: F401 -- fixtures
@@ -205,6 +206,59 @@ async def test_a_manifest_create_is_judged_by_the_restriction_when_it_runs(
     assert (dataset.record.visibility, dataset.record.record_status) == ending
     expected = _A020 if extra else None
     assert job.user_metadata.get("warnings") == expected
+
+
+@pytest.mark.parametrize("fallback", ["internal", None], ids=["fallback", "no"])
+async def test_a_create_shared_with_a_group_is_judged_again_before_it_commits(
+    client,
+    test_db_session,
+    admin_auth_header,
+    clean_tables,
+    restriction,
+    monkeypatch,
+    fallback,
+):
+    """The restriction turns on after the create wrote public and shared the
+    dataset with its group, and before the last check narrows the record."""
+    from app.processing.ingest import manifest_dataset_fields as fields_module
+
+    headers, user = await _submitter(
+        client, test_db_session, admin_auth_header, "editor"
+    )
+    mine = await _group(test_db_session, user.id)
+    key = f"in-flight-shared-{fallback or 'none'}"
+    entry = await _uploaded(
+        client, headers, key, visibility="public", groups=[str(mine.id)]
+    )
+    extra = {"public_fallback": fallback} if fallback else {}
+    response, _ = await _apply(test_db_session, user, _request(entry, **extra))
+    result = response.results[0]
+    assert (result.action, result.messages) == ("create", []), result
+    job = await test_db_session.get(IngestJob, result.job_id)
+    applied = fields_module.apply_dataset_fields
+    shared_at = []
+
+    async def share_then_restrict(session, job_, dataset, *args, **kwargs):
+        await applied(session, job_, dataset, *args, **kwargs)
+        shared_at.append(dataset.record.visibility)
+        restriction.on = True
+
+    monkeypatch.setattr(fields_module, "apply_dataset_fields", share_then_restrict)
+
+    if fallback is None:
+        with pytest.raises(WriteAccessRevoked) as refused:
+            await _finalize(test_db_session, user, job)
+        assert str(refused.value) == PUBLIC_VISIBILITY_DENIED
+        assert shared_at == ["public"]
+        return
+    dataset = await _finalize(test_db_session, user, job)
+    assert shared_at == ["public"]
+    assert (dataset.record.visibility, dataset.record.record_status) == (
+        "internal",
+        "published",
+    )
+    assert await _dataset_grants(test_db_session, dataset.id) == {mine.id}
+    assert job.user_metadata.get("warnings") == _A020
 
 
 @pytest.mark.parametrize(

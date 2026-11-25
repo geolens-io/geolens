@@ -12,6 +12,7 @@ from ..models.manifest_dataset_visibility_type_0 import (
 )
 from ..models.manifest_dataset_visibility_type_0 import ManifestDatasetVisibilityType0
 from typing import cast
+from uuid import UUID
 
 if TYPE_CHECKING:
     from ..models.manifest_attribute import ManifestAttribute
@@ -42,6 +43,14 @@ class ManifestDataset:
         attributes (list[ManifestAttribute] | None | Unset): Per-column title, description and units, by column name in
             the uploaded file. Version 2 only. A null field keeps the stored text; a name matching no column is warning
             A092.
+        groups (list[UUID] | None | Unset): Version 2 only. Share with exactly these groups, by id from
+            `capabilities.me.groups`; omitted keeps the current groups, and an empty list removes them all. A dataset's new
+            data is never published while a group outside the list still has it shared: if such a group can't be removed,
+            the entry or its job fails and the dataset keeps its data and groups. A private item with groups is restricted:
+            its owner, admins and the groups' members read it. A group that doesn't exist, or that the caller isn't a member
+            of (an admin may use any), is left off with warning A058 and the publish goes ahead. A publish key can't add
+            groups to an existing private or restricted item, which is warning A056 and keeps the item's groups; an item
+            that would then keep a group the list leaves out is refused with error A056.
     """
 
     key: str
@@ -53,6 +62,7 @@ class ManifestDataset:
     visibility: ManifestDatasetVisibilityType0 | None | Unset = UNSET
     collection: ManifestCollectionRef | None | Unset = UNSET
     attributes: list[ManifestAttribute] | None | Unset = UNSET
+    groups: list[UUID] | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.manifest_collection_ref import ManifestCollectionRef
@@ -111,6 +121,18 @@ class ManifestDataset:
         else:
             attributes = self.attributes
 
+        groups: list[str] | None | Unset
+        if isinstance(self.groups, Unset):
+            groups = UNSET
+        elif isinstance(self.groups, list):
+            groups = []
+            for groups_type_0_item_data in self.groups:
+                groups_type_0_item = str(groups_type_0_item_data)
+                groups.append(groups_type_0_item)
+
+        else:
+            groups = self.groups
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -131,6 +153,8 @@ class ManifestDataset:
             field_dict["collection"] = collection
         if attributes is not UNSET:
             field_dict["attributes"] = attributes
+        if groups is not UNSET:
+            field_dict["groups"] = groups
 
         return field_dict
 
@@ -242,6 +266,28 @@ class ManifestDataset:
 
         attributes = _parse_attributes(d.pop("attributes", UNSET))
 
+        def _parse_groups(data: object) -> list[UUID] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                groups_type_0 = []
+                _groups_type_0 = data
+                for groups_type_0_item_data in _groups_type_0:
+                    groups_type_0_item = UUID(groups_type_0_item_data)
+
+                    groups_type_0.append(groups_type_0_item)
+
+                return groups_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[UUID] | None | Unset, data)
+
+        groups = _parse_groups(d.pop("groups", UNSET))
+
         manifest_dataset = cls(
             key=key,
             title=title,
@@ -252,6 +298,7 @@ class ManifestDataset:
             visibility=visibility,
             collection=collection,
             attributes=attributes,
+            groups=groups,
         )
 
         return manifest_dataset

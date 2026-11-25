@@ -11,10 +11,11 @@ from app.platform.record_audience import (
     effective_publication,
     may_set_public,
     settled_visibility,
+    widens_audience,
 )
 
-# (requested, status, fallback, may_set_public, is_key, now) -> Publication or
-# the refusal's reason.
+# (requested, status, fallback, may_set_public, is_key, now) -> (visibility,
+# fell_back_for[, widening_refused]) or the refusal's reason.
 CASES = [
     # A create: omitted is private, a named level is kept.
     ("create-omitted", (None, "published", None, True, False, None), ("private", None)),
@@ -87,16 +88,17 @@ CASES = [
         (None, "published", None, False, True, ("internal", "draft")),
         (None, None),
     ),
-    # ...and never widens, a fallback included; it may narrow.
+    # ...and never widens, a fallback included: the level is kept. It may
+    # narrow.
     (
         "update-key-widens",
         ("internal", "draft", None, False, True, ("private", "draft")),
-        "widening",
+        (None, None, True),
     ),
     (
         "update-key-fallback-widens",
         ("public", "draft", "internal", False, True, ("private", "draft")),
-        "widening",
+        (None, None, True),
     ),
     (
         "update-key-narrows",
@@ -107,6 +109,13 @@ CASES = [
         "update-key-fallback-narrows",
         ("public", "published", "internal", False, True, ("public", "draft")),
         ("internal", "key"),
+    ),
+    # A key naming public without a fallback is a refused public, not a
+    # widening that keeps the level.
+    (
+        "update-key-public-no-fallback",
+        ("public", "published", None, False, True, ("private", "published")),
+        "key",
     ),
     # The may-set flag never lets a key name public.
     (
@@ -135,8 +144,8 @@ def test_effective_publication(arguments, expected):
             run()
         assert refused.value.reason == expected
         return
-    visibility, fell_back_for = expected
-    assert run() == Publication(visibility, status, fell_back_for)
+    visibility, fell_back_for, *refused = expected
+    assert run() == Publication(visibility, status, fell_back_for, *refused)
 
 
 @pytest.mark.parametrize(
@@ -226,3 +235,19 @@ def test_settled_visibility(stored, recomputed, now, written):
 )
 def test_accepted_visibility(stored, recomputed, now, kept):
     assert accepted_visibility(stored, recomputed, now) == kept
+
+
+@pytest.mark.parametrize(
+    "before,after,added,widens",
+    [
+        (None, "public", False, False),
+        ("private", "restricted", False, True),
+        ("restricted", "internal", False, True),
+        ("restricted", "restricted", True, True),
+        ("restricted", "restricted", False, False),
+        ("internal", "restricted", True, False),
+        ("public", "internal", False, False),
+    ],
+)
+def test_widens_audience(before, after, added, widens):
+    assert widens_audience(before, after, added_groups=added) is widens
