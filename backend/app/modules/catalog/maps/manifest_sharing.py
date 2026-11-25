@@ -184,8 +184,10 @@ class ShownDataset:
 
     ``planned`` marks a dataset the request itself publishes: ``groups`` are
     then the ones its entry shares it with, None keeping the dataset's, and
-    ``dataset_id`` is None for one the entry creates. Any other dataset
-    keeps the audience it has.
+    ``dataset_id`` is None for one the entry creates, or a stored one the
+    caller can't read, which is judged on the request alone so that its
+    owner and grants never shape the answer. Any other dataset keeps the
+    audience it has.
     """
 
     key: str | None

@@ -2070,7 +2070,14 @@ async def _dry_run_maps(session, user, entry: dict, *maps: dict) -> list:
     )
     [dataset] = response.results
     assert dataset.action in ("create", "update"), dataset
+    _assert_maps_written(response.maps)
     return response.maps
+
+
+def _assert_maps_written(maps) -> None:
+    """Every map checks clean apart from its warnings, so a missing A056 is
+    the layer judged readable, not a map that failed before its layers."""
+    assert all(result.action in ("create", "update") for result in maps), maps
 
 
 def _layer_gaps(result) -> list[tuple[str | None, str]]:
@@ -2461,6 +2468,7 @@ async def test_a_dry_run_judges_a_reused_job_on_the_groups_it_will_publish(
 
     [reused] = response.results
     assert (reused.action, reused.job_id) == ("skip", queued.job_id)
+    _assert_maps_written(response.maps)
     reads, without = response.maps
     assert _layer_gaps(reads) == []
     [(gap_layer, gap)] = _layer_gaps(without)
@@ -2514,6 +2522,7 @@ async def test_a_dry_run_over_a_reused_job_follows_a_renamed_group(
     [reused] = response.results
     assert (reused.action, reused.job_id) == ("skip", job_id)
     assert reused.groups == [renamed]
+    _assert_maps_written(response.maps)
     reads, without = response.maps
     assert (reads.groups, _layer_gaps(reads)) == ([renamed], [])
     [(gap_layer, gap)] = _layer_gaps(without)
