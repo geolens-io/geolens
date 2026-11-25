@@ -8,7 +8,7 @@ import math
 import re
 from collections.abc import Iterable
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 from app.modules.catalog.maps.manifest_columns import emitted_columns
 from app.modules.catalog.maps.models import Map
@@ -88,6 +88,9 @@ _BUILDER_KEY_ALIASES = BUILDER_SNAKE_TO_CAMEL_KEYS
 # it. Not `Exception`: `_tile_url_for_layer`'s RuntimeError (no tenant
 # context) must stay fail-closed, not degrade.
 _MALFORMED_STYLE_ERRORS = (AttributeError, IndexError, KeyError, TypeError, ValueError)
+# The bundled proxy answers 414 to a request line over 16 KiB; the margin
+# covers a path prefix that a proxy in front of it adds.
+_TILE_REQUEST_LINE_BUDGET = 16 * 1024 - 256
 logger = logging.getLogger(__name__)
 
 
@@ -276,6 +279,15 @@ def _absolute(base_url: str | None, path: str) -> str:
     return join_public_url(base_url, path) if base_url else path
 
 
+def _tile_request_line_bytes(tile_url: str) -> int:
+    """Return the size of the longest request line a tile URL template yields."""
+    parts = urlsplit(tile_url)
+    target = f"{parts.path}?{parts.query}"
+    for token, longest in (("{z}", "22"), ("{x}", "4194303"), ("{y}", "4194303")):
+        target = target.replace(token, longest)
+    return len(f"GET {target} HTTP/1.1\r\n".encode())
+
+
 def _tile_url_for_layer(
     layer: MapLayerResponse,
     api_url: str | None = None,
@@ -305,14 +317,23 @@ def _tile_url_for_layer(
         "scope": scope,
         **tile_template_params(None, layer.publication_version),
     }
-    # Stable attribute projection that data-driven styles need at z<10.
+    path = f"/tiles/data.{layer.dataset_table_name}/{{z}}/{{x}}/{{y}}.pbf"
     if cols:
-        params["cols"] = ",".join(sorted(cols))
-    query = urlencode(params)
-    return _absolute(
-        api_url,
-        f"/tiles/data.{layer.dataset_table_name}/{{z}}/{{x}}/{{y}}.pbf?{query}",
-    )
+        # Stable attribute projection that data-driven styles need at z<10.
+        url = _absolute(
+            api_url, f"{path}?{urlencode({**params, 'cols': ','.join(sorted(cols))})}"
+        )
+        if _tile_request_line_bytes(url) <= _TILE_REQUEST_LINE_BUDGET:
+            return url
+        # A proxy would refuse every tile of this source. Without `cols` the
+        # tiles still carry each column the caller may read from zoom 10 up.
+        logger.warning(
+            "Exported tile URL for dataset %s leaves out its column list, which "
+            "would not fit a request line; its layers lose data-driven styling "
+            "below zoom 10",
+            layer.dataset_id,
+        )
+    return _absolute(api_url, f"{path}?{urlencode(params)}")
 
 
 def _raster_dem_source(

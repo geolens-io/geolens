@@ -160,6 +160,13 @@ again after that, upload the file again and apply with the new
 `upload:<job_id>`, because the first upload is used up. Version 1 manifests
 are not affected. Overlay authors: `EXTENSION_API_VERSION` is 26.
 
+If a reverse proxy of your own sits in front of GeoLens, such as an ingress
+controller or a load balancer, let it accept a request line of 16 KiB
+(`large_client_header_buffers 4 16k;` in nginx). The bundled frontend proxy
+now does. A map whose layers read many columns of one dataset asks for vector
+tiles with a URL longer than the usual 8 KiB default, and a proxy that refuses
+it leaves those layers blank.
+
 ## Change the published default database password
 
 Earlier `.env.example` files set `POSTGRES_PASSWORD=geolens`. An install whose
