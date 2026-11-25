@@ -1551,6 +1551,14 @@ class ThumbnailUploadRequest(BaseModel):
     """
 
     data_uri: str = Field(min_length=22, max_length=100_000)
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description=(
+            "The map's `updated_at` the caller read. When set and the map has "
+            "changed since, nothing is written and the answer is 409 with "
+            "`detail.code` `stale_write`. Omit it to write unconditionally."
+        ),
+    )
 
 
 class OgImageUploadRequest(BaseModel):
@@ -1568,6 +1576,14 @@ class OgImageUploadRequest(BaseModel):
     """
 
     data_uri: str = Field(min_length=22, max_length=750_000)
+    expected_updated_at: datetime | None = Field(
+        default=None,
+        description=(
+            "The map's `updated_at` the caller read. When set and the map has "
+            "changed since, nothing is written and the answer is 409 with "
+            "`detail.code` `stale_write`. Omit it to write unconditionally."
+        ),
+    )
 
 
 class VisibilityCheckResponse(BaseModel):

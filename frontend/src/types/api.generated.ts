@@ -8214,18 +8214,12 @@ export interface components {
         };
         /** Body_reupload_dataset_datasets__dataset_id__reupload_post */
         Body_reupload_dataset_datasets__dataset_id__reupload_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /** Body_upload_file_ingest_upload_post */
         Body_upload_file_ingest_upload_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
             /**
              * Kind
@@ -8235,10 +8229,7 @@ export interface components {
         };
         /** Body_upload_map_icon_endpoint_maps_icons_post */
         Body_upload_map_icon_endpoint_maps_icons_post: {
-            /**
-             * File
-             * Format: binary
-             */
+            /** File */
             file: string;
         };
         /**
@@ -15122,6 +15113,11 @@ export interface components {
         OgImageUploadRequest: {
             /** Data Uri */
             data_uri: string;
+            /**
+             * Expected Updated At
+             * @description The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             */
+            expected_updated_at?: string | null;
         };
         /** PermissionsResponse */
         PermissionsResponse: {
@@ -18575,6 +18571,11 @@ export interface components {
         ThumbnailUploadRequest: {
             /** Data Uri */
             data_uri: string;
+            /**
+             * Expected Updated At
+             * @description The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             */
+            expected_updated_at?: string | null;
         };
         /** TileConfigResponse */
         TileConfigResponse: {

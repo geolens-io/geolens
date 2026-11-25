@@ -2512,6 +2512,72 @@ describe('useBuilderSave', () => {
       vi.useRealTimers();
     });
 
+    it('sends saved updated_at with thumbnail and OG uploads and skips 409 stale_write until next save', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: true });
+      const savedUpdatedAt1 = '2026-11-25T08:00:00Z';
+      const savedUpdatedAt2 = '2026-11-25T08:01:00Z';
+
+      mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1', updated_at: savedUpdatedAt1 });
+      mockUploadThumbnail.mockRejectedValueOnce(
+        new ApiError('Conflict', 409, { code: 'stale_write', message: 'Map was modified' }),
+      );
+      mockUploadOgImage.mockRejectedValueOnce(
+        new ApiError('Conflict', 409, { code: 'stale_write', message: 'Map was modified' }),
+      );
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      const invalidateSpy = vi.spyOn(queryClient, 'invalidateQueries');
+      const state = makeSaveState({
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHookWithQueryClient(state, queryClient);
+
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); await Promise.resolve(); });
+
+      expect(mockUploadThumbnail).toHaveBeenCalledWith(
+        'map-1',
+        expect.stringContaining('data:image/jpeg'),
+        savedUpdatedAt1,
+      );
+      expect(mockUploadOgImage).toHaveBeenCalledWith(
+        'map-1',
+        expect.stringContaining('data:image/jpeg'),
+        savedUpdatedAt1,
+      );
+      // 409 stale_write skips this capture without invalidating maps.all
+      expect(invalidateSpy).not.toHaveBeenCalledWith({ queryKey: ['maps'] });
+
+      // Next save captures again with the newer updated_at
+      mockMap.once.mockClear();
+      mockUpdateMapMutateAsync.mockResolvedValueOnce({ id: 'map-1', updated_at: savedUpdatedAt2 });
+      mockUploadThumbnail.mockResolvedValueOnce(undefined);
+      mockUploadOgImage.mockResolvedValueOnce(undefined);
+
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); await Promise.resolve(); });
+
+      expect(mockUploadThumbnail).toHaveBeenLastCalledWith(
+        'map-1',
+        expect.stringContaining('data:image/jpeg'),
+        savedUpdatedAt2,
+      );
+      expect(mockUploadOgImage).toHaveBeenLastCalledWith(
+        'map-1',
+        expect.stringContaining('data:image/jpeg'),
+        savedUpdatedAt2,
+      );
+      expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ['maps'] });
+
+      invalidateSpy.mockRestore();
+      vi.useRealTimers();
+    });
+
     it('backs thumbnail and OG crops with the globe space color', async () => {
       // The WebGL canvas is transparent where a ray missed the planet, so a
       // crop with nothing under it hands the encoder alpha and the sphere
