@@ -224,6 +224,7 @@ async def test_a_builder_edit_keeps_every_styling_field_and_answers_a070(
         assert (result.action, result.styling) == ("update", "kept")
         assert _codes(result) == [("A070", "info", None)]
         assert "since the last publish that replaced it" in result.messages[0].message
+        assert f"Updated layer style by {admin.username}," in result.messages[0].message
     assert await _state(test_db_session, created.map_id) == before
     map_obj = await _map_row(test_db_session, created.map_id)
     assert (map_obj.name, map_obj.description) == ("New name", "New description")

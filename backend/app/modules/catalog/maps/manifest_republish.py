@@ -72,6 +72,15 @@ NOTES_SEPARATOR = "---"
 NOTES_LIMIT = 50_000
 
 
+@dataclass(frozen=True)
+class StylingEdit:
+    """The newest history event that made a publish keep the map's styling."""
+
+    summary: str
+    actor: str | None
+    at: datetime
+
+
 async def styling_edited_since_publish(
     session: AsyncSession,
     map_id: uuid.UUID,
@@ -79,9 +88,10 @@ async def styling_edited_since_publish(
     view: bool,
     basemap: bool,
     bookmarks: bool = False,
-) -> bool:
-    """Whether the map's styling that a publish would write was edited after
-    the last publish that wrote it, or ever when none did.
+) -> StylingEdit | None:
+    """The newest edit of the map's styling that a publish would write made
+    after the last publish that wrote it, or ever when none did; None when
+    there is none.
 
     Layer styling counts after the last publish that applied styling, and
     an edit aimed at one layer only while that layer is still on the map
@@ -164,24 +174,39 @@ async def styling_edited_since_publish(
                 event.created_at > baselines[-1],
             )
         )
-    return bool(
-        await session.scalar(
-            select(
-                exists().where(
-                    event.map_id == map_id,
-                    # Implied by each edit's own test; on its own it lets the
-                    # (map_id, created_at) index skip the older history.
-                    event.created_at > func.least(*baselines),
-                    or_(*edits),
-                )
+    row = (
+        await session.execute(
+            select(event.summary, event.actor_username, event.created_at)
+            .where(
+                event.map_id == map_id,
+                # Implied by each edit's own test; on its own it lets the
+                # (map_id, created_at) index skip the older history.
+                event.created_at > func.least(*baselines),
+                or_(*edits),
             )
+            .order_by(event.created_at.desc(), event.id.desc())
+            .limit(1)
         )
-    )
+    ).first()
+    return StylingEdit(*row) if row is not None else None
 
 
 def styling_applies(mode: str, *, edited: bool) -> bool:
     """Whether a republish in ``mode`` replaces the map's styling."""
     return mode == "replace" or (mode == "replace_if_unedited" and not edited)
+
+
+def styling_kept_message(edit: StylingEdit | None, *, show_actor: bool) -> str:
+    """The A070 text. The editor is named only to a caller who can read the
+    map's history, which shows the same name."""
+    text = (
+        "The map's styling was edited in GeoLens since the last publish "
+        "that replaced it, so its styling was kept."
+    )
+    if edit is None:
+        return text
+    by = f" by {edit.actor}" if show_actor and edit.actor else ""
+    return f"{text} The latest edit: {edit.summary}{by}, {edit.at:%Y-%m-%d %H:%M} UTC."
 
 
 def _one_line(text: str) -> str:

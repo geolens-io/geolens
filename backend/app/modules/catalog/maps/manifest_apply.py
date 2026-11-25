@@ -52,6 +52,7 @@ from app.modules.catalog.maps.manifest_republish import (
     store_manifest_thumbnail,
     styling_applies,
     styling_edited_since_publish,
+    styling_kept_message,
     written_notes_digests,
 )
 from app.modules.catalog.maps.manifest_messages import (
@@ -643,14 +644,13 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             basemap=entry.basemap_style is not None,
             bookmarks=entry.bookmarks is not None,
         )
-        styling_applied = styling_applies(entry.styling, edited=edited)
+        styling_applied = styling_applies(entry.styling, edited=edited is not None)
         if not styling_applied and entry.styling == "replace_if_unedited":
             messages.append(
                 _message(
                     STYLING_KEPT,
                     "info",
-                    "The map's styling was edited in GeoLens since the last "
-                    "publish that replaced it, so its styling was kept.",
+                    styling_kept_message(edited, show_actor=request.may_edit_maps),
                     fix='Send styling "replace" to replace it.',
                 )
             )
