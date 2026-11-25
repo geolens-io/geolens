@@ -70,7 +70,7 @@ describe('LoginPage sign-up and support hint', () => {
     const { Wrapper } = makeWrapper();
     render(<LoginPage />, { wrapper: Wrapper });
 
-    expect(await screen.findByText(/contact a geolens administrator/i)).toBeInTheDocument();
+    expect(await screen.findByText(/ask a geolens administrator/i)).toBeInTheDocument();
     expect(screen.queryByRole('link', { name: /create one/i })).not.toBeInTheDocument();
   });
 
@@ -81,6 +81,6 @@ describe('LoginPage sign-up and support hint', () => {
     render(<LoginPage />, { wrapper: Wrapper });
 
     expect(await screen.findByRole('link', { name: /create one/i })).toBeInTheDocument();
-    expect(screen.queryByText(/contact a geolens administrator/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ask a geolens administrator/i)).not.toBeInTheDocument();
   });
 });

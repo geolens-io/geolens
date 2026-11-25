@@ -1,4 +1,4 @@
-import { useEffect, useCallback, useRef, useState } from 'react';
+import { memo, useEffect, useCallback, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router';
 import { useQuery } from '@tanstack/react-query';
 import { useTranslation } from 'react-i18next';
@@ -19,6 +19,13 @@ import { useEdition } from '@/hooks/use-edition';
 import { isSafeHttpUrl } from '@/lib/safe-http-url';
 import { postSignInPath } from '@/lib/post-sign-in-path';
 import { writeSessionStorage } from '@/lib/storage';
+import {
+  GLOBE_VIEW,
+  landDotsPath,
+  meridianPath,
+  parallelPath,
+  restLongitude,
+} from '@/lib/login-globe';
 import type { Translator } from '@/i18n/translator';
 
 function getOAuthErrorMessage(error: string, t: Translator): string {
@@ -49,135 +56,88 @@ function getOAuthErrorMessage(error: string, t: Translator): string {
  *  Written by the "Browse Catalog" button; cleared when the tab closes. */
 const GUEST_BROWSE_KEY = 'gl-guest-browse';
 
-const GLOBE = { W: 1600, H: 800, cx: 1050, cy: 400, R: 340 } as const;
-const GLOBE_TILT = (23.4 * Math.PI) / 180; // Earth's axial tilt
+const GLOBE_MERIDIANS = Array.from({ length: 12 }, (_, i) => i * 30);
+const GLOBE_PARALLELS = [-60, -30, 0, 30, 60];
+const PARALLEL_PATHS = GLOBE_PARALLELS.map(parallelPath);
 
-/** Lat/long lattice on the unit sphere (denser near the equator) that the
- *  rotating dot-globe is drawn from. Static, so build it once at module load. */
-const GLOBE_DOTS: { lat: number; lon: number }[] = [];
-for (let lat = -72; lat <= 72; lat += 18) {
-  const ringR = Math.cos((lat * Math.PI) / 180);
-  const count = Math.max(6, Math.round(20 * ringR));
-  for (let j = 0; j < count; j++) GLOBE_DOTS.push({ lat, lon: (360 / count) * j });
-}
+// The globe turns this far, eastward like the Earth, before it comes to rest.
+const SETTLE_DEGREES = 40;
+// Motion that starts by itself has to end within five seconds (WCAG 2.2.2).
+const SETTLE_MS = 2400;
 
-const GLOBE_MERIDIANS = Array.from({ length: 12 }, (_, i) => i * 30); // longitudes (deg)
-const GLOBE_PARALLELS = [-60, -30, 0, 30, 60]; // latitudes (deg)
-
-/** Orthographic projection of a sphere point (lat/lon, radians) onto the panel,
- *  with the polar axis tilted by GLOBE_TILT in the screen plane (Earth-like).
- *  `near` = the point is on the hemisphere facing the viewer. */
-function projectGlobePoint(lat: number, lon: number, cosT: number, sinT: number) {
-  const cosLat = Math.cos(lat);
-  const ox = cosLat * Math.cos(lon); // screen-x before tilt
-  const oz = Math.sin(lat); // pole (screen-y before tilt)
-  const depth = cosLat * Math.sin(lon); // + = near hemisphere
-  return {
-    x: GLOBE.cx + (ox * cosT - oz * sinT) * GLOBE.R,
-    y: GLOBE.cy - (ox * sinT + oz * cosT) * GLOBE.R,
-    near: depth >= 0,
-  };
-}
-
-/** Build an SVG path for the near-hemisphere portion of a sampled great/small
- *  circle — pen lifts whenever the line passes behind the globe. */
-function nearArcPath(samples: [number, number][], cosT: number, sinT: number) {
-  let d = '';
-  let penDown = false;
-  for (const [lat, lon] of samples) {
-    const p = projectGlobePoint(lat, lon, cosT, sinT);
-    if (p.near) {
-      d += `${penDown ? 'L' : 'M'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
-      penDown = true;
-    } else {
-      penDown = false;
-    }
-  }
-  return d;
-}
-
-/** Decorative orthographic SVG globe in a fixed pose. */
-function BrandMapBackdrop() {
-  const { W, H, cx, cy, R } = GLOBE;
-  const cosT = Math.cos(GLOBE_TILT);
-  const sinT = Math.sin(GLOBE_TILT);
-  const dotsRef = useRef<SVGGElement>(null);
+/** Decorative globe behind the brand panel. It faces the visitor's part of the
+ *  world, worked out from the browser's UTC offset, turns once into that pose,
+ *  and stays still for anyone who asked their system for less motion or whose
+ *  screen hides the panel. */
+const BrandMapBackdrop = memo(function BrandMapBackdrop() {
+  const { size, cx, cy, r } = GLOBE_VIEW;
+  const landRef = useRef<SVGPathElement>(null);
   const meridiansRef = useRef<SVGGElement>(null);
-
-  // Parallels are invariant under polar-axis spin, so their arcs are built once.
-  const parallelPaths = GLOBE_PARALLELS.map((latDeg) => {
-    const lat = (latDeg * Math.PI) / 180;
-    const samples: [number, number][] = [];
-    for (let lon = 0; lon <= 360; lon += 6) samples.push([lat, (lon * Math.PI) / 180]);
-    return nearArcPath(samples, cosT, sinT);
-  });
+  const [restLon] = useState(() => restLongitude(new Date().getTimezoneOffset()));
+  const [settles] = useState(
+    () =>
+      typeof requestAnimationFrame === 'function' &&
+      (globalThis.matchMedia?.('(min-width: 880px)')?.matches ?? true) &&
+      !(globalThis.matchMedia?.('(prefers-reduced-motion: reduce)')?.matches ?? false),
+  );
+  const firstLon = restLon + (settles ? SETTLE_DEGREES : 0);
 
   useEffect(() => {
-    const dots = dotsRef.current?.querySelectorAll('circle');
+    if (!settles) return;
     const meridians = meridiansRef.current?.querySelectorAll('path');
-    const render = (spin: number) => {
-      dots?.forEach((el, idx) => {
-        const { lat, lon } = GLOBE_DOTS[idx];
-        const p = projectGlobePoint((lat * Math.PI) / 180, (lon * Math.PI) / 180 + spin, cosT, sinT);
-        el.setAttribute('cx', p.x.toFixed(1));
-        el.setAttribute('cy', p.y.toFixed(1));
-        el.setAttribute('r', p.near ? '2.4' : '1.4');
-        el.setAttribute('opacity', p.near ? '0.34' : '0.1');
-      });
-      meridians?.forEach((el, idx) => {
-        const lon0 = (GLOBE_MERIDIANS[idx] * Math.PI) / 180 + spin;
-        const samples: [number, number][] = [];
-        for (let lat = -90; lat <= 90; lat += 6) samples.push([(lat * Math.PI) / 180, lon0]);
-        el.setAttribute('d', nearArcPath(samples, cosT, sinT));
-      });
-    };
-    // Fixed earth-like pose: a decorative animation that never stops fails WCAG 2.2.2.
-    render(0.7);
-  }, [cosT, sinT]);
+    const start = performance.now();
+    let frame = requestAnimationFrame(function draw(now) {
+      // The first frame's timestamp can be a little earlier than `start`.
+      const t = Math.min(1, Math.max(0, now - start) / SETTLE_MS);
+      const centerLon = restLon + SETTLE_DEGREES * (1 - t) ** 3;
+      landRef.current?.setAttribute('d', landDotsPath(centerLon));
+      meridians?.forEach((el, i) => el.setAttribute('d', meridianPath(GLOBE_MERIDIANS[i], centerLon)));
+      if (t < 1) frame = requestAnimationFrame(draw);
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [settles, restLon]);
 
-  // Faint full-bleed graticule for texture behind the globe.
-  const vGrat: number[] = [];
-  for (let x = 130; x < W; x += 130) vGrat.push(x);
-  const hGrat: number[] = [];
-  for (let y = 90; y < H; y += 110) hGrat.push(y);
+  const grid: number[] = [];
+  for (let v = 80; v < size; v += 80) grid.push(v);
 
   return (
     <svg
       className="absolute inset-0 size-full"
-      viewBox={`0 0 ${W} ${H}`}
-      preserveAspectRatio="xMidYMid slice"
+      viewBox={`0 0 ${size} ${size}`}
+      preserveAspectRatio="xMaxYMid slice"
       aria-hidden="true"
     >
-      <rect width={W} height={H} className="fill-map-paper" />
+      <rect width={size} height={size} className="fill-map-paper" />
       <g className="fill-none stroke-map-street" strokeOpacity={0.16} strokeWidth={0.6}>
-        {vGrat.map((x) => (
-          <line key={`v${x}`} x1={x} y1={0} x2={x} y2={H} />
+        {grid.map((v) => (
+          <line key={`v${v}`} x1={v} y1={0} x2={v} y2={size} />
         ))}
-        {hGrat.map((y) => (
-          <line key={`h${y}`} x1={0} y1={y} x2={W} y2={y} />
-        ))}
-      </g>
-      {/* Sphere silhouette — a circle under any rotation/tilt (orthographic). */}
-      <circle cx={cx} cy={cy} r={R} className="fill-none stroke-foreground" strokeOpacity={0.18} strokeWidth={1.2} />
-      {/* Graticule: spin-invariant parallels + per-frame meridians (near side). */}
-      <g className="fill-none stroke-foreground" strokeOpacity={0.15} strokeWidth={1}>
-        {parallelPaths.map((d, i) => (
-          <path key={`par${i}`} d={d} />
+        {grid.map((v) => (
+          <line key={`h${v}`} x1={0} y1={v} x2={size} y2={v} />
         ))}
       </g>
-      <g ref={meridiansRef} className="fill-none stroke-foreground" strokeOpacity={0.15} strokeWidth={1}>
-        {GLOBE_MERIDIANS.map((_, i) => (
-          <path key={`mer${i}`} />
+      <circle cx={cx} cy={cy} r={r} className="fill-none stroke-foreground" strokeOpacity={0.18} strokeWidth={1.2} />
+      <g className="fill-none stroke-foreground" strokeOpacity={0.1} strokeWidth={0.8}>
+        {PARALLEL_PATHS.map((d, i) => (
+          <path key={i} d={d} />
         ))}
       </g>
-      <g ref={dotsRef} className="fill-foreground">
-        {GLOBE_DOTS.map((_, i) => (
-          <circle key={i} r={2} cx={cx} cy={cy} />
+      <g ref={meridiansRef} className="fill-none stroke-foreground" strokeOpacity={0.1} strokeWidth={0.8}>
+        {GLOBE_MERIDIANS.map((lon) => (
+          <path key={lon} d={meridianPath(lon, firstLon)} />
         ))}
       </g>
+      <path
+        ref={landRef}
+        d={landDotsPath(firstLon)}
+        className="fill-none stroke-foreground"
+        strokeOpacity={0.34}
+        strokeWidth={4.2}
+        strokeLinecap="round"
+      />
     </svg>
   );
-}
+});
 
 export function LoginPage() {
   const { t } = useTranslation('auth');
@@ -223,15 +183,6 @@ export function LoginPage() {
     return <Navigate to={postSignInPath(from)} replace />;
   }
 
-  if (configLoading) {
-    return (
-      <div className="flex min-h-screen items-center justify-center">
-        {/* LoadingState announces progress through role="status" and aria-live. */}
-        <LoadingState />
-      </div>
-    );
-  }
-
   // In SSO-only mode, treat absent password_login_enabled (older
   // servers) and a config fetch error (fail-open) as "password login allowed".
   const passwordLoginEnabled = config?.password_login_enabled !== false;
@@ -251,10 +202,10 @@ export function LoginPage() {
     <div className="flex min-h-screen flex-col">
     <main className="grid flex-1 grid-cols-1 min-[880px]:grid-cols-[1.05fr_0.95fr]">
       {/* ───────── LEFT — brand / map panel (hidden ≤880px) ───────── */}
-      <section className="relative hidden overflow-hidden border-e border-border bg-map-paper px-14 py-12 min-[880px]:flex min-[880px]:flex-col min-[880px]:justify-between">
+      <section className="relative hidden overflow-hidden border-e border-border bg-map-paper px-14 py-8 lg:py-12 min-[880px]:flex min-[880px]:flex-col min-[880px]:justify-between">
         <BrandMapBackdrop />
         {/* Paper scrim keeps the left-aligned text legible over the map. */}
-        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-map-paper/90 via-map-paper/70 to-map-paper/30" />
+        <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-map-paper/95 via-map-paper/85 to-map-paper/70 xl:from-map-paper/90 xl:via-map-paper/70 xl:to-map-paper/30" />
 
         <div className="relative z-10 flex h-full flex-col">
           {/* Top — logo lockup + eyebrow */}
@@ -273,15 +224,15 @@ export function LoginPage() {
           </div>
 
           {/* Middle — hero (optically centered) */}
-          <div className="my-auto max-w-[460px] py-8">
-            <h1 className="text-pretty text-4xl font-semibold leading-[1.08] tracking-[-0.025em] text-foreground">
+          <div className="my-auto max-w-[460px] py-4 lg:py-6">
+            <h1 className="text-pretty text-[1.75rem] font-semibold leading-[1.1] lg:text-4xl lg:leading-[1.08] tracking-[-0.025em] text-foreground">
               {t('loginHero')}
             </h1>
-            <p className="mt-4 max-w-[400px] text-base leading-[1.55] text-muted-foreground">
+            <p className="mt-3 max-w-[400px] text-sm leading-[1.5] lg:mt-4 lg:text-base lg:leading-[1.55] text-muted-foreground">
               {t('loginHeroSub')}
             </p>
 
-            <div className="mt-8 flex flex-col gap-3.5">
+            <div className="mt-5 flex flex-col gap-3 lg:mt-8 lg:gap-3.5">
               {features.map(({ Icon, title, desc }) => (
                 <div key={title} className="flex items-start gap-3">
                   <span className="flex size-[30px] shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
@@ -297,9 +248,8 @@ export function LoginPage() {
           </div>
 
           {/* Bottom — instance footer */}
-          <div className="flex items-center justify-between font-mono text-2xs tracking-[0.04em] text-muted-foreground">
+          <div className="flex items-center font-mono text-2xs tracking-[0.04em] text-muted-foreground">
             <span>{instanceHost}</span>
-            <span>40.7128°N · 74.0060°W</span>
           </div>
         </div>
       </section>
@@ -330,73 +280,84 @@ export function LoginPage() {
             <h2 className="text-xl font-semibold tracking-[-0.01em] text-foreground">
               {t('signIn')}
             </h2>
-            <p className="mt-1 text-sm text-muted-foreground">{t('welcomeBack')}</p>
+            {!configLoading && showPasswordForm && (
+              <p className="mt-1 text-sm text-muted-foreground">{t('signInHint')}</p>
+            )}
           </div>
 
-          {configError && (
-            <p role="alert" className="mb-4 text-sm text-destructive">{t('authConfig.loadFailed')}</p>
-          )}
-
-          {/* Config is resolved here, so the SSO-only password form hides
-              without a flash when password_login_enabled is explicitly false. */}
-          {showPasswordForm ? (
-            <>
-              <LoginForm signupOpen={showSignup} />
-              {!passwordLoginEnabled && (
-                <Button
-                  variant="link"
-                  className="mt-2 h-auto p-0 text-xs text-muted-foreground"
-                  onClick={() => setShowBreakGlass(false)}
-                >
-                  {t('ssoOnly.hidePasswordSignIn')}
-                </Button>
-              )}
-            </>
+          {/* Only the form waits for the sign-in settings. The rest of the page
+              is the same either way, so it shows at once. */}
+          {configLoading ? (
+            <LoadingState className="py-10" message={t('common:loading')} />
           ) : (
-            <div className="flex flex-col items-center gap-1 text-center">
-              <p className="text-sm text-muted-foreground">{t('ssoOnly.signInWithProvider')}</p>
-              {/* Admin break-glass: reveal the password form so a manage_settings
-                  admin can sign in if SSO is unavailable (server enforces the gate). */}
-              <Button
-                variant="link"
-                className="h-auto p-0 text-xs text-muted-foreground"
-                onClick={() => setShowBreakGlass(true)}
-              >
-                {t('ssoOnly.adminPasswordSignIn')}
-              </Button>
-            </div>
-          )}
+            <>
+              {configError && (
+                <p role="alert" className="mb-4 text-sm text-destructive">{t('authConfig.loadFailed')}</p>
+              )}
 
-          {/* Adaptive OAuth: 0 → nothing; 1 → labeled; 2-3 → icon row. The
-              divider shows only when a password form sits above. */}
-          <div className="mt-5">
-            <OAuthButtons showDivider={showPasswordForm} />
-          </div>
+              {/* Config is resolved here, so the SSO-only password form hides
+                  without a flash when password_login_enabled is explicitly false. */}
+              {showPasswordForm ? (
+                <>
+                  <LoginForm signupOpen={showSignup} />
+                  {!passwordLoginEnabled && (
+                    <Button
+                      variant="link"
+                      className="mt-2 h-auto p-0 text-xs text-muted-foreground"
+                      onClick={() => setShowBreakGlass(false)}
+                    >
+                      {t('ssoOnly.hidePasswordSignIn')}
+                    </Button>
+                  )}
+                </>
+              ) : (
+                <div className="flex flex-col items-center gap-1 text-center">
+                  <p className="text-sm text-muted-foreground">{t('ssoOnly.signInWithProvider')}</p>
+                  {/* Admin break-glass: reveal the password form so a manage_settings
+                      admin can sign in if SSO is unavailable (server enforces the gate). */}
+                  <Button
+                    variant="link"
+                    className="h-auto p-0 text-xs text-muted-foreground"
+                    onClick={() => setShowBreakGlass(true)}
+                  >
+                    {t('ssoOnly.adminPasswordSignIn')}
+                  </Button>
+                </div>
+              )}
 
-          {/* Legal */}
-          {isSafeHttpUrl(privacyUrl) && (
-            <p className="mt-5 text-center text-mini leading-relaxed text-muted-foreground">
-              {t('consentNote')}{' '}
-              <a
-                href={privacyUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="underline decoration-border underline-offset-2 hover:text-foreground"
-              >
-                {t('privacyPolicy')}
-              </a>
-              {t('consentNoteSuffix')}
-            </p>
-          )}
+              {/* Adaptive OAuth: 0 → nothing; 1 → labeled; 2-3 → icon row. The
+                  divider shows only when a password form sits above. */}
+              <div className="mt-5">
+                <OAuthButtons showDivider={showPasswordForm} />
+              </div>
 
-          {/* showSignup falls back to registration_enabled on older servers. */}
-          {showSignup && (
-            <p className="mt-3 text-center text-sm text-muted-foreground">
-              {t('needAccount')}{' '}
-              <Link to="/register" className="text-primary underline hover:text-primary/80">
-                {t('createOne')}
-              </Link>
-            </p>
+              {/* Legal */}
+              {isSafeHttpUrl(privacyUrl) && (
+                <p className="mt-5 text-center text-mini leading-relaxed text-muted-foreground">
+                  {t('consentNote')}{' '}
+                  <a
+                    href={privacyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline decoration-border underline-offset-2 hover:text-foreground"
+                  >
+                    {t('privacyPolicy')}
+                  </a>
+                  {t('consentNoteSuffix')}
+                </p>
+              )}
+
+              {/* showSignup falls back to registration_enabled on older servers. */}
+              {showSignup && (
+                <p className="mt-3 text-center text-sm text-muted-foreground">
+                  {t('needAccount')}{' '}
+                  <Link to="/register" className="text-primary underline hover:text-primary/80">
+                    {t('createOne')}
+                  </Link>
+                </p>
+              )}
+
+            </>
           )}
 
           {/* Browse block — second, deliberate browse path at the end of the form. */}
