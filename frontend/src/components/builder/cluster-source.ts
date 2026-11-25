@@ -14,10 +14,9 @@ export const TILE_FEATURE_LIMIT = 50_000;
 // The cluster tile route caps its `filter` query parameter (max_length in
 // processing/tiles/router.py).
 const MAX_CLUSTER_FILTER_CHARS = 4096;
-// nginx reads a request line into one `large_client_header_buffers` buffer, 8k
-// by its default of `4 8k`, which frontend/nginx.conf leaves unset. The margin
-// holds the method, the HTTP version and the tile numbers for {z}/{x}/{y}.
-const MAX_TILE_URL_CHARS = 8 * 1024 - 128;
+// The bundled proxy answers 414 to a request line over its `large_client_header_buffers`
+// size, 16k in frontend/nginx.conf. The margin covers a path prefix that a proxy in front of it adds.
+export const TILE_REQUEST_LINE_BUDGET = 16 * 1024 - 256;
 // Every route that compiles a filter: MAX_FEATURE_FILTER_LENGTH and
 // MAX_FEATURE_FILTER_BINDS (one bind per value) in standards/ogc/filtering.py.
 const MAX_FEATURE_FILTER_CHARS = 10_000;
@@ -44,9 +43,15 @@ function fitsClusterFilterLimits(cql2: Cql2Expression): boolean {
   return jsonChars(cql2) <= MAX_CLUSTER_FILTER_CHARS && countValues(cql2) <= MAX_FILTER_VALUES;
 }
 
-/** Whether a tile URL fits the request line nginx accepts. */
+/**
+ * Whether a tile URL template fits the bundled proxy's request line: the path
+ * and query as the browser serializes them (an apostrophe becomes `%27`) with
+ * {z}/{x}/{y} at their longest. The origin is not part of the request line.
+ */
 export function fitsTileRequestLine(url: string): boolean {
-  return url.length <= MAX_TILE_URL_CHARS;
+  const target = url.replace('{z}', '22').replace('{x}', '4194303').replace('{y}', '4194303');
+  const { pathname, search } = new URL(target, 'http://localhost');
+  return `GET ${pathname}${search} HTTP/1.1\r\n`.length <= TILE_REQUEST_LINE_BUDGET;
 }
 
 /**

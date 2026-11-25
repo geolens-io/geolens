@@ -24,7 +24,7 @@ describe('a pick on a server-clustered layer', () => {
   });
 
   it('is refused when the columns the map layers read push the URL past the limit', () => {
-    const longColumns = Array.from({ length: 40 }, (_, index) => `${'c'.repeat(150)}_${index}`);
+    const longColumns = Array.from({ length: 120 }, (_, index) => `${'c'.repeat(150)}_${index}`);
     expect(choose({ 'text-field': ['concat', ...longColumns.map((name) => ['get', name])] })).not.toHaveBeenCalled();
   });
 });

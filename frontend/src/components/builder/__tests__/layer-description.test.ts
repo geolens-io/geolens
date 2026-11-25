@@ -211,7 +211,7 @@ describe('clusterTileFilter', () => {
   });
 
   it('leaves a filter off when the columns the URL also carries push it past a request line', () => {
-    const cols = Array.from({ length: 100 }, (_, i) => `a_rather_long_attribute_column_name_${i}`);
+    const cols = Array.from({ length: 350 }, (_, i) => `a_rather_long_attribute_column_name_${i}`);
     expect(clusterTileFilter(layer, base, cols)).toEqual({ omitted: 'too-large' });
   });
 });

@@ -461,10 +461,21 @@ function vectorSource(
     return fitsTileRequestLine(tileUrl(probe, tileCols, only))
       && !(routed && 'omitted' in routed && routed.omitted === 'too-large');
   };
-  // Past the request line the tile falls back to the default projection, with only the columns the map reads.
-  const fallback = !fits(cols, leanAllowed);
-  const colsOnly = leanAllowed && !fallback;
-  const tileCols = fallback ? required : cols;
+  // Past the request line the tile falls back to the default projection with only the columns the
+  // map reads, and past that again to the default projection alone.
+  let tileCols = cols;
+  let colsOnly = leanAllowed;
+  if (!fits(cols, leanAllowed)) {
+    colsOnly = false;
+    if (fitsTileRequestLine(tileUrl(probe, required, false))) {
+      tileCols = required;
+    } else {
+      tileCols = [];
+      console.warn(
+        `Tile URL for table ${layer.dataset_table_name} leaves out its column list, which would not fit a request line; its layers lose data-driven styling below zoom 10`,
+      );
+    }
+  }
   const bounds = normalizeRasterBounds(layer.bounds);
   return {
     type: 'vector',
