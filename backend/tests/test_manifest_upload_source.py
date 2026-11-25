@@ -1635,3 +1635,78 @@ async def test_the_sweep_and_a_claim_never_both_take_an_upload(
         assert job.status == "running"
         assert job.user_metadata["manifest_key"] == "web-raced"
         assert staged.exists()
+
+
+async def _settle_in_another_session(job_id: uuid.UUID) -> None:
+    """Run the stale pass on ``job_id`` the way a concurrent sweep would."""
+    import app.core.db as db_module
+
+    async with db_module.async_session() as other:
+        await settle_stale_jobs(other, datetime.now(timezone.utc), job_ids=[job_id])
+        await other.commit()
+
+
+class TestADispatchRestartsThePendingClock:
+    """A commit of an upload older than the pending timeout is not stale while
+    its queue entry is still being written."""
+
+    async def test_a_commit_survives_a_sweep_before_its_enqueue(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        job_id = await _upload(client, editor_auth_header)
+        await _wait(test_db_session, job_id, settings.pending_job_timeout_seconds + 600)
+
+        async def _swept_then_queued(job, *_args, **_kwargs) -> None:
+            await _settle_in_another_session(job.id)
+
+        with patch(
+            "app.processing.ingest.router.queue_ingest_job",
+            new=AsyncMock(side_effect=_swept_then_queued),
+        ) as queue:
+            response = await client.post(
+                f"/ingest/commit/{job_id}",
+                json={"title": "Capitals"},
+                headers=editor_auth_header,
+            )
+
+        assert response.status_code == 202, response.text
+        assert queue.await_count == 1
+        job = await _row(test_db_session, job_id)
+        assert (job.status, job.error_message) == ("pending", None)
+
+    async def test_a_fan_out_layer_survives_a_sweep_before_its_enqueue(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        job_id = await _upload(client, editor_auth_header)
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job_id)
+            .values(
+                user_metadata=IngestJob.user_metadata.op("||")(
+                    text("""'{"all_layers": ["capitals", "rivers"]}'::jsonb""")
+                )
+            )
+        )
+        await test_db_session.commit()
+        await _wait(test_db_session, job_id, settings.pending_job_timeout_seconds + 600)
+        deferred: list[uuid.UUID] = []
+
+        async def _swept_then_deferred(_task, **kwargs) -> None:
+            child_id = uuid.UUID(kwargs["job_id"])
+            deferred.append(child_id)
+            await _settle_in_another_session(child_id)
+
+        with patch(
+            "app.processing.ingest.service.defer_async_with_tenant",
+            new=_swept_then_deferred,
+        ):
+            response = await client.post(
+                f"/ingest/commit-fan-out/{job_id}",
+                json={"layers": [{"layer_name": "capitals"}]},
+                headers=editor_auth_header,
+            )
+
+        assert response.status_code == 202, response.text
+        [child_id] = deferred
+        child = await _row(test_db_session, child_id)
+        assert (child.status, child.error_message) == ("pending", None)

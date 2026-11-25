@@ -18,9 +18,17 @@ from httpx import AsyncClient
 from sqlalchemy import select, text
 
 from app.modules.auth.models import User
-from app.platform.jobs.models import IngestJob, commit_attempted_marker
+from app.platform.jobs.models import COMMIT_ATTEMPTED_METADATA_KEY, IngestJob
 from tests.conftest import get_auth_header
 from tests.test_service_refresh_1220 import credential_backend  # noqa: F401
+
+
+def _dispatched_two_hours_ago() -> dict[str, str]:
+    """The dispatch stamp of a commit made two hours ago; it restarts the pending clock."""
+    from datetime import datetime, timedelta, timezone
+
+    at = datetime.now(timezone.utc) - timedelta(hours=2)
+    return {COMMIT_ATTEMPTED_METADATA_KEY: at.isoformat()}
 
 
 # ---------------------------------------------------------------------------
@@ -431,7 +439,7 @@ class TestJobStatus:
             # landed, which is the class that keeps reporting `failed` so
             # /jobs/{id}/retry stays reachable. Without the stamp the row is
             # an upload nobody committed, and the poll cancels it.
-            user_metadata=commit_attempted_marker(),
+            user_metadata=_dispatched_two_hours_ago(),
         )
         test_db_session.add(job)
         await test_db_session.commit()
@@ -475,7 +483,7 @@ class TestJobCleanup:
             # See the poll test above. `pending_failed` is the
             # count this asserts, and an unstamped row lands in
             # `pending_cancelled` instead.
-            user_metadata=commit_attempted_marker(),
+            user_metadata=_dispatched_two_hours_ago(),
         )
         test_db_session.add(stale_job)
         await test_db_session.commit()
