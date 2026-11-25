@@ -1424,8 +1424,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rebuild an applied width needs share one import workflow.
     "backend/app/platform/config_ops/service.py": 1465,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
-    # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
-    "backend/app/platform/jobs/sweep.py": 1818,
+    # lifespan sweep, admin cleanup, the job status poll and manifest expiry. The
+    # pass and a manifest's upload claim share its rule for an unclaimed upload.
+    "backend/app/platform/jobs/sweep.py": 1867,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1201,

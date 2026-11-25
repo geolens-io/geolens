@@ -45,6 +45,7 @@ from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     ANALYSIS_OUTPUT_TABLE_FIELD,
+    COMMIT_ATTEMPTED_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     PUBLISH_FOLLOWUPS_FIELD,
@@ -64,6 +65,7 @@ from app.platform.jobs.ledger import Outcome, end_stale, run_stale_passes
 from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
 from app.platform.jobs.quicklook_reconcile import reconcile_orphaned_quicklooks
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
+from app.platform.source_copies import EXISTING_DATASET_MARKERS
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
 log = structlog.get_logger()
@@ -113,6 +115,40 @@ STALE_PENDING_BOUND_MESSAGE = FixedReason(
 )
 
 
+# Any of these on a row means a dataset or a manifest entry already holds it.
+_HELD_UPLOAD_KEYS = (*EXISTING_DATASET_MARKERS, "manifest_key")
+
+
+def unclaimed_upload():
+    """Predicate: a finished upload for a new dataset that nothing has taken.
+
+    Its file is staged, and no import commit, manifest entry or dataset holds
+    the row, so nothing waits on it while it stays pending. A row with no
+    file, a service import (a row with a source URL), a replacement of an
+    existing dataset and a dispatched job are all excluded. A URL import that
+    finished downloading carries no source URL, so it counts.
+    """
+    return and_(
+        func.coalesce(IngestJob.file_path, "") != "",
+        IngestJob.source_url.is_(None),
+        IngestJob.dataset_id.is_(None),
+        *(IngestJob.user_metadata[key].astext.is_(None) for key in _HELD_UPLOAD_KEYS),
+        ~dispatch_attempted(),
+    )
+
+
+def _is_unclaimed_upload(job: IngestJob) -> bool:
+    """``unclaimed_upload`` for a loaded job."""
+    metadata = job.user_metadata if isinstance(job.user_metadata, dict) else {}
+    return (
+        bool(job.file_path)
+        and job.source_url is None
+        and job.dataset_id is None
+        and all(metadata.get(key) is None for key in _HELD_UPLOAD_KEYS)
+        and metadata.get(COMMIT_ATTEMPTED_METADATA_KEY) in (None, "")
+    )
+
+
 def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
     """Every predicate required to fail a timed-out pending job.
 
@@ -122,10 +158,12 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
 
     ``completion_bound`` selects the half by the ``staging/`` PREFIX of
     ``file_path``, not truthiness, which would also catch direct uploads
-    (absolute local paths) and leave them pending for a day.
+    (absolute local paths) and leave a dispatched one pending for a day.
     False is the 1h abandonment policy; True is the 24h backstop for a bound
     upload that never committed, which the retention purge would otherwise
-    never reach.
+    never reach. An ``unclaimed_upload`` in the unbound half waits the bound
+    half's time before the abandonment policy takes it: a client uploads
+    every file of a publish manifest before the apply claims any of them.
     """
     # coalesce, not a bare LIKE: NOT (NULL LIKE ...) is NULL, so a bare negation
     # would drop every NULL file_path row — the case that most needs the 1h policy.
@@ -137,9 +175,19 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
         IngestJob.user_metadata.op("->>")("staged_at").cast(DateTime(timezone=True)),
         IngestJob.created_at,
     )
+    aged = age_basis < now - timedelta(seconds=cutoff_seconds)
+    if not completion_bound:
+        bound_seconds = stale_pending_cutoff_seconds(completion_bound=True)
+        aged = and_(
+            aged,
+            or_(
+                not_(unclaimed_upload()),
+                age_basis < now - timedelta(seconds=bound_seconds),
+            ),
+        )
     return (
         IngestJob.status == "pending",
-        age_basis < now - timedelta(seconds=cutoff_seconds),
+        aged,
         completion_key if completion_bound else not_(completion_key),
         no_live_procrastinate_job(),
     )
@@ -1287,6 +1335,7 @@ def may_be_stale(job: IngestJob, now: datetime) -> bool:
         basis = _pending_age_basis(job)
         cutoff = stale_pending_cutoff_seconds(
             completion_bound=(job.file_path or "").startswith("staging/")
+            or _is_unclaimed_upload(job)
         )
         return basis is not None and (now - basis).total_seconds() > cutoff
     if job.status == "fanned_out":
