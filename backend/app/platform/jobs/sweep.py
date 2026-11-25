@@ -192,11 +192,21 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
     # would drop every NULL file_path row — the case that most needs the 1h policy.
     completion_key = func.coalesce(IngestJob.file_path, "").like("staging/%")
     cutoff_seconds = stale_pending_cutoff_seconds(completion_bound=completion_bound)
-    # Age from `staged_at`, falling back to created_at. Every
-    # writer of that key restarts the pending window where the row re-entered it.
-    age_basis = func.coalesce(
-        IngestJob.user_metadata.op("->>")("staged_at").cast(DateTime(timezone=True)),
-        IngestJob.created_at,
+    # Age from `staged_at`, falling back to created_at; every writer of that
+    # key restarts the pending window where the row re-entered it. A dispatch
+    # stamp counts too: a release before the dispatch restarted `staged_at`
+    # wrote only the stamp, and GREATEST skips its NULL on an undispatched row.
+    # Only `commit_attempted_marker` writes the stamp, always an ISO timestamp.
+    age_basis = func.greatest(
+        func.coalesce(
+            IngestJob.user_metadata.op("->>")("staged_at").cast(
+                DateTime(timezone=True)
+            ),
+            IngestJob.created_at,
+        ),
+        func.nullif(
+            IngestJob.user_metadata.op("->>")(COMMIT_ATTEMPTED_METADATA_KEY), ""
+        ).cast(DateTime(timezone=True)),
     )
     aged = age_basis < now - timedelta(seconds=cutoff_seconds)
     if completion_bound:
@@ -1335,17 +1345,27 @@ def _childless_fan_out_parent():
     )
 
 
-def _pending_age_basis(job: IngestJob) -> datetime | None:
-    """What the pass ages a pending job from: ``staged_at``, else ``created_at``.
-
-    An unreadable or naive stamp falls back to ``created_at``, which is never
-    later, so the fallback can only make a job look older.
-    """
+def _aware_stamp(job: IngestJob, key: str) -> datetime | None:
+    """The timezone-aware ISO timestamp ``user_metadata[key]``, else None."""
     try:
-        staged_at = datetime.fromisoformat((job.user_metadata or {})["staged_at"])
+        stamp = datetime.fromisoformat(_metadata(job)[key])
     except (KeyError, TypeError, ValueError):
-        return job.created_at
-    return staged_at if staged_at.tzinfo is not None else job.created_at
+        return None
+    return stamp if stamp.tzinfo is not None else None
+
+
+def _pending_age_basis(job: IngestJob) -> datetime | None:
+    """What the pass ages a pending job from.
+
+    ``staged_at``, else ``created_at``, or the dispatch stamp when that is
+    later. An unreadable or naive stamp is skipped, which can only make a job
+    look older.
+    """
+    basis = _aware_stamp(job, "staged_at") or job.created_at
+    dispatched_at = _aware_stamp(job, COMMIT_ATTEMPTED_METADATA_KEY)
+    if basis is None or dispatched_at is None:
+        return basis or dispatched_at
+    return max(basis, dispatched_at)
 
 
 def may_be_stale(job: IngestJob, now: datetime) -> bool:

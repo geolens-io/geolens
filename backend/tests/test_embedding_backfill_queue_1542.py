@@ -792,7 +792,7 @@ async def test_a_run_the_worker_never_claims_still_reaches_a_terminal_record(
 
     # Age the queued row past the pending-abandonment policy and let the real
     # reaper take it, before the worker ever picks the delivery up. The
-    # dispatch restarted the pending clock, so that is aged too.
+    # pending clock runs from the dispatch, so that is aged too.
     old = datetime.now(timezone.utc) - timedelta(hours=3)
     await test_db_session.execute(
         update(IngestJob)
@@ -800,7 +800,12 @@ async def test_a_run_the_worker_never_claims_still_reaches_a_terminal_record(
         .values(
             created_at=old,
             user_metadata=IngestJob.user_metadata.op("||")(
-                func.jsonb_build_object("staged_at", old.isoformat())
+                func.jsonb_build_object(
+                    "staged_at",
+                    old.isoformat(),
+                    COMMIT_ATTEMPTED_METADATA_KEY,
+                    old.isoformat(),
+                )
             ),
         )
     )

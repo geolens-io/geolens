@@ -55,11 +55,12 @@ def _dispatched_metadata() -> dict:
     every defer, so a row that reached the queue at all has this key. Its
     absence is now what makes the sweep read a row as an abandoned upload, so
     a fixture describing "the defer never landed" has to carry it or it
-    describes something else.
+    describes something else. Dated before any age these fixtures give a row,
+    so the row's own age decides when it is stale.
     """
     from app.platform.jobs.models import COMMIT_ATTEMPTED_METADATA_KEY
 
-    return {COMMIT_ATTEMPTED_METADATA_KEY: datetime.now(timezone.utc).isoformat()}
+    return {COMMIT_ATTEMPTED_METADATA_KEY: "2026-01-01T00:00:00+00:00"}
 
 
 async def _stale_pending_job(
@@ -1484,3 +1485,65 @@ class TestADispatchedBucketUploadGetsThePendingTimeout:
 
         await test_db_session.refresh(job)
         assert (job.status, job.error_message) == ("pending", None)
+
+
+class TestAStampWithoutARestartedClock:
+    """A dispatch stamp alone, as an older release wrote it without restarting
+    ``staged_at``, still starts the pending timeout."""
+
+    @pytest.mark.parametrize(
+        "file_path",
+        ["staging/x/frozen/roads.geojson", "/app/staging/abc_roads.geojson"],
+        ids=["bucket", "local"],
+    )
+    async def test_the_row_ages_from_its_stamp(self, test_db_session, file_path):
+        from app.platform.jobs.sweep import may_be_stale
+
+        staged = datetime.now(timezone.utc) - timedelta(
+            seconds=settings.pending_job_timeout_seconds + 3600
+        )
+        job = IngestJob(
+            source_filename="roads.geojson",
+            created_by=await get_user_id(test_db_session, "admin"),
+            status="pending",
+            file_path=file_path,
+            user_metadata={
+                "staged_at": staged.isoformat(),
+                "commit_attempted_at": datetime.now(timezone.utc).isoformat(),
+            },
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        await test_db_session.execute(
+            update(IngestJob).where(IngestJob.id == job.id).values(created_at=staged)
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        assert not may_be_stale(job, datetime.now(timezone.utc))
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert (job.status, job.error_message) == ("pending", None)
+
+        stamped = datetime.now(timezone.utc) - timedelta(
+            seconds=settings.pending_job_timeout_seconds + 600
+        )
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job.id)
+            .values(
+                user_metadata=IngestJob.user_metadata.op("||")(
+                    func.jsonb_build_object("commit_attempted_at", stamped.isoformat())
+                )
+            )
+        )
+        await test_db_session.commit()
+        await test_db_session.refresh(job)
+        assert may_be_stale(job, datetime.now(timezone.utc))
+
+        await fail_stale_jobs(test_db_session)
+
+        await test_db_session.refresh(job)
+        assert job.status == "failed"
+        assert "never queued" in (job.error_message or "")
