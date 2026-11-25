@@ -120,7 +120,7 @@ def test_required_field_errors_are_path_specific() -> None:
 
 def test_version_and_enum_errors_are_stable() -> None:
     document = _minimal_manifest()
-    document["manifest_version"] = "2"
+    document["manifest_version"] = "3"
     document["datasets"][0]["sources"][0]["type"] = "database"
 
     assert {
@@ -153,7 +153,7 @@ def test_manifest_v1_version_compatibility_is_locked() -> None:
     assert validate_manifest(_minimal_manifest()) == []
 
     future_version = _minimal_manifest()
-    future_version["manifest_version"] = "2"
+    future_version["manifest_version"] = "3"
     numeric_version = _minimal_manifest()
     numeric_version["manifest_version"] = 1
 
