@@ -2599,6 +2599,15 @@ _QUEUED_SHARES = {
 }
 
 
+def _job_refusals(answer) -> list[tuple[str, str]]:
+    """The A056 an entry carries for a matched job that will be refused."""
+    return [
+        (m.code, m.severity)
+        for m in answer.messages
+        if "will not replace its data" in m.message
+    ]
+
+
 def _assert_held_back_b(answer, groups, *, held_back: bool) -> None:
     """The answer warns A056 that group b is held back, and of nothing else."""
     assert [(m.code, m.severity) for m in answer.messages] == (
@@ -2674,6 +2683,21 @@ async def test_a_dry_run_over_a_queued_replacement_answers_as_its_job_ends(
             test_db_session, user, _entries_request(entry, dry_run=True)
         )
     [answer] = response.results
+    # A refused dry run rolled the session back, which expires the user row.
+    user = await _admin_user(test_db_session)
+    with scope():
+        applied, _ = await _apply_entries(
+            test_db_session, user, _entries_request(entry)
+        )
+    [again] = applied.results
+    if outcome == "refused" and by_key:
+        # The share planned now is refused too, so the job isn't this entry's.
+        assert again.errors == ["dataset_busy"], again
+    else:
+        assert (again.action, again.job_id) == ("skip", queued.job_id)
+        assert _job_refusals(again) == (
+            [("A056", "warning")] if outcome == "refused" else []
+        )
 
     if outcome != "refused":
         assert (answer.action, answer.job_id) == ("skip", queued.job_id)
@@ -2704,7 +2728,8 @@ async def test_a_dry_run_refuses_a_queued_replacement_its_job_will_refuse(
     """An internal dataset shared with A, a replacement queued for B, then the
     dataset narrowed: the job holds the swap back and keeps A, which the entry
     leaves out, so the dry run refuses the entry with A056 and its layer has
-    no dataset to be judged on. The apply still answers for the queued job."""
+    no dataset to be judged on. The apply still answers for the queued job,
+    with the refusal as a warning."""
     _stage_fixture()
     user = await _admin_user(test_db_session)
     kept = await _group(test_db_session, user.id)
@@ -2741,6 +2766,8 @@ async def test_a_dry_run_refuses_a_queued_replacement_its_job_will_refuse(
     [reused] = response.results
     assert (reused.action, reused.job_id) == ("skip", queued.job_id)
     assert reused.groups == [kept.name]
+    assert [(m.code, m.severity) for m in reused.messages] == [("A056", "warning")]
+    assert reused.messages[0].message == refused.messages[0].message
 
 
 @pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="needs ogr2ogr")
@@ -2791,6 +2818,16 @@ async def test_a_dry_run_over_a_held_replacement_answers_as_its_accept_ends(
             _held_http_request(),
         )
     [answer] = response.results
+    # A refused dry run rolled the session back, which expires the user row.
+    held = dataclasses.replace(held, user=await _admin_user(test_db_session))
+    with _reupload_task():
+        applied = await apply_manifest(
+            test_db_session, request, held.user, _held_http_request()
+        )
+    [again] = applied.results
+    assert (again.action, again.run_id) == ("blocked", held.run_id)
+    assert _job_refusals(again) == ([] if accepted else [("A056", "warning")])
+    held = dataclasses.replace(held, user=await _admin_user(test_db_session))
 
     if accepted:
         assert (answer.action, answer.run_id) == ("blocked", held.run_id)
@@ -2801,8 +2838,6 @@ async def test_a_dry_run_over_a_held_replacement_answers_as_its_accept_ends(
     else:
         assert answer.action == "error", answer
         assert [(m.code, m.severity) for m in answer.messages] == [("A056", "error")]
-        # The refused entry rolled the session back, which expires the user row.
-        held = dataclasses.replace(held, user=await _admin_user(test_db_session))
         with pytest.raises(ValueError, match="groups this publish leaves out"):
             await _accept(test_db_session, held, publish_key=False)
     assert await _dataset_grants(test_db_session, held.dataset_id) == {

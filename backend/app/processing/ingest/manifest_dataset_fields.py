@@ -475,14 +475,20 @@ def _job_refused_message(
 def answer_as_the_job_ends(
     fields: ManifestEntryFields | None, *, dry_run: bool
 ) -> None:
-    """In a dry run, answer an entry that matched a queued or held job as
-    that job's publish ends: refused where it will be, and warning of the
-    groups its own share holds back. An apply answers for the job it matched."""
-    if not dry_run or fields is None:
+    """Answer an entry that matched a queued or held job as that job's
+    publish ends. A dry run is refused where the job will be, and warns of
+    the groups the job's own share holds back. An apply answers for the job
+    it matched, with that refusal as a warning: the job is already queued."""
+    if fields is None:
         return
     if fields.job_refusal is not None:
-        raise ManifestEntryRefused([fields.job_refusal])
-    if fields.job_held_back is not None:
+        if dry_run:
+            raise ManifestEntryRefused([fields.job_refusal])
+        fields.messages.append(
+            fields.job_refusal.model_copy(update={"severity": "warning"})
+        )
+        return
+    if dry_run and fields.job_held_back is not None:
         fields.messages = [
             message
             for message in fields.messages
