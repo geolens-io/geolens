@@ -15,10 +15,13 @@ import uuid
 from collections.abc import Awaitable, Callable
 from typing import TypeVar
 
+import structlog
 from fastapi import HTTPException, status
 from sqlalchemy import func, select
+from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.sqlstate import is_deadlock
 from app.modules.auth.models import Group, GroupMember, User
 from app.modules.catalog.authorization import (
     VRT_AUDIENCE_EXCEEDS_SOURCES,
@@ -30,6 +33,11 @@ from app.platform.catalog_locks import bump_publication_versions
 from app.platform.extensions import get_permission_extension
 
 T = TypeVar("T")
+
+logger = structlog.stdlib.get_logger(__name__)
+
+# Tries a group membership change gets before a deadlock answers 503.
+_CHANGE_ATTEMPTS = 2
 
 
 async def change_group_access(
@@ -44,7 +52,34 @@ async def change_group_access(
 
     Raises 422 when a widening change makes a VRT reach past one of its
     members. Does not commit.
+
+    A publish that shares a dataset with the group takes the dataset's rows
+    before the group, the reverse of this order, so PostgreSQL can pick this
+    change as a deadlock victim. Each attempt runs in a savepoint: rolling it
+    back releases the group, the publish finishes, and the next attempt runs
+    after it. The last attempt's deadlock propagates.
     """
+    attempt = 1
+    while True:
+        try:
+            async with db.begin_nested():
+                return await _change_group_access(
+                    db, group_id, change, narrowing=narrowing
+                )
+        except DBAPIError as exc:
+            if attempt == _CHANGE_ATTEMPTS or not is_deadlock(exc):
+                raise
+            logger.warning("group_access_deadlock_retry", attempt=attempt)
+            attempt += 1
+
+
+async def _change_group_access(
+    db: AsyncSession,
+    group_id: uuid.UUID,
+    change: Callable[[], Awaitable[T]],
+    *,
+    narrowing: bool,
+) -> T:
     await db.execute(select(Group.id).where(Group.id == group_id).with_for_update())
     granted = list(
         await db.scalars(
