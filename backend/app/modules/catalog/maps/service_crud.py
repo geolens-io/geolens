@@ -160,6 +160,9 @@ async def discard_map_asset_objects(
         logger.warning(
             "map_asset_liveness_read_failed", map_id=str(map_id), exc_info=True
         )
+        # A failed statement leaves the transaction aborted for whatever the
+        # caller runs next on this session; this read is all it holds.
+        await session.rollback()
         return
 
     await delete_objects_best_effort(

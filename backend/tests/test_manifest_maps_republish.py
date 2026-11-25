@@ -1843,6 +1843,40 @@ async def test_a_layer_hidden_in_geolens_stays_hidden_when_its_move_doesnt_fit(
     assert (parks.dataset_id, parks.opacity, parks.visible) == (points, 0.5, False)
 
 
+async def test_a_failed_image_check_leaves_the_next_map_free_to_apply(
+    client, test_db_session, admin_auth_header, clean_tables, monkeypatch
+):
+    """The post-commit check of the cleared images runs on the session the
+    next map of the request uses, so a failed statement there can't leave
+    that session's transaction aborted."""
+    from sqlalchemy import text
+
+    from app.modules.catalog.maps import service_crud
+
+    async def aborts(session, _map_id):
+        await session.execute(text("SELECT 1 / 0"))
+
+    admin = await _admin(test_db_session)
+    first = await _dataset(test_db_session, admin.id)
+    second = await _dataset_of(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(first))).maps
+    response = await client.put(
+        f"/maps/{created.map_id}/thumbnail/",
+        json={"data_uri": _PNG},
+        headers=admin_auth_header,
+    )
+    assert response.status_code == 204, response.text
+    monkeypatch.setattr(service_crud, "_live_map_asset_keys", aborts)
+    trails = _entry("qgis-map-trails", _layer("trails", dataset_id=str(first)))
+
+    [moved, added] = (
+        await _apply(test_db_session, admin, _moving(second, first, "keep"), trails)
+    ).maps
+
+    assert (moved.action, added.action) == ("update", "create")
+    assert added.messages == []
+
+
 async def test_a_failed_image_cleanup_after_the_commit_still_reports_the_publish(
     client, test_db_session, admin_auth_header, clean_tables, monkeypatch
 ):
@@ -1906,6 +1940,12 @@ async def test_a_layer_filter_that_stops_running_where_it_moves_doesnt_fit(
         assert (parks.filter, parks.opacity) == (None, 0.5)
 
 
+# A symbol that picks its icon by a column's value.
+_CATEGORY_ICONS = {
+    "iconImage": "marker",
+    "categoryColumn": "ACRES",
+    "categories": [{"value": "10", "icon": "star"}],
+}
 _CIRCLE_ACRES = {"circle-color": ["step", ["get", "ACRES"], "#eeeeee", 10, "#111111"]}
 
 
@@ -1957,6 +1997,33 @@ _CIRCLE_ACRES = {"circle-color": ["step", ["get", "ACRES"], "#eeeeee", 10, "#111
             },
             "it has no column acres",
         ),
+        (
+            {
+                "style_config": {
+                    "render_mode": "heatmap",
+                    "symbol": _CATEGORY_ICONS,
+                },
+            },
+            None,
+        ),
+        (
+            {
+                "style_config": {
+                    "render_mode": "cluster",
+                    "builder": {"symbol": _CATEGORY_ICONS},
+                },
+            },
+            None,
+        ),
+        (
+            {
+                "style_config": {
+                    "render_mode": "symbol",
+                    "symbol": _CATEGORY_ICONS,
+                },
+            },
+            "it has no column acres",
+        ),
         ({"paint": _CIRCLE_ACRES}, "it has no column acres"),
         ({"popup_config": {"enabled": False, "visible_fields": ["acres"]}}, None),
         (
@@ -1970,6 +2037,9 @@ _CIRCLE_ACRES = {"circle-color": ["step", ["get", "ACRES"], "#eeeeee", 10, "#111
         "heatmap-labels",
         "heatmap-classification",
         "heatmap-paint",
+        "heatmap-symbol-settings",
+        "cluster-symbol-stash",
+        "symbol-category",
         "circle",
         "popup-off",
         "popup-on",
@@ -1979,8 +2049,9 @@ async def test_styling_nothing_draws_with_isnt_judged_where_the_layer_moves(
     test_db_session, clean_tables, fields, misfit
 ):
     """A symbol layer keeps its circle paint and classification, a heatmap
-    its classification and labels, and a disabled popup its fields, only to
-    restore them later; none of them reads the dataset."""
+    its classification and labels, any other mode its symbol settings, and a
+    disabled popup its fields, only to restore them later; none of them reads
+    the dataset."""
     admin = await _admin(test_db_session)
     first = await _dataset_of(
         test_db_session, admin.id, columns=[*_COLUMNS, _ACRES], geometry_type="Point"

@@ -450,29 +450,37 @@ def named_columns(layer: MapLayerInput) -> set[str]:
 
 
 # A symbol draws one icon and a heatmap its density; the classification of
-# the circles either replaced stays for switching back.
+# the circles either replaced stays for switching back. Only a symbol draws
+# with the symbol settings, which other modes keep for the same reason.
 _CLASSIFICATION = ("mode", "column")
+_SYMBOL_SETTINGS = "symbol"
 
 
 def live_styling(layer: MapLayerInput) -> MapLayerInput:
     """``layer`` as the viewer draws it, for judging what it reads: without
     the styling the builder keeps only to restore later (the saved heatmap and
     circle paints, the heatmap weight outside heatmap mode, the circle paint
-    and classification under a symbol, and the classification and labels
-    under a heatmap, which neither the viewer nor the style export draws),
-    and without a disabled popup's fields. Never stored or used to rename."""
+    and classification under a symbol, the classification and labels under
+    a heatmap, and the symbol settings under any mode but a symbol, which
+    neither the viewer nor the style export draws), and without a disabled
+    popup's fields. Never stored or used to rename."""
     style = layer.style_config if isinstance(layer.style_config, dict) else None
     mode = (style or {}).get("render_mode")
     live = None
     if style is not None:
         classified = mode not in ("symbol", "heatmap")
-        unread = {*_SAVED_PAINT_KEYS, *(() if classified else _CLASSIFICATION)}
+        unread = {
+            *_SAVED_PAINT_KEYS,
+            *(() if classified else _CLASSIFICATION),
+            *(() if mode == "symbol" else (_SYMBOL_SETTINGS,)),
+        }
         live = {key: value for key, value in style.items() if key not in unread}
-        if mode != "heatmap" and isinstance(live.get("builder"), dict):
+        if isinstance(live.get("builder"), dict):
             live["builder"] = {
                 key: value
                 for key, value in live["builder"].items()
-                if key != "heatmap_weight_column"
+                if not (key == "heatmap_weight_column" and mode != "heatmap")
+                and not (key == _SYMBOL_SETTINGS and mode != "symbol")
             }
     paint = {
         key: value
