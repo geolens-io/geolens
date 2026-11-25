@@ -907,6 +907,9 @@
     "zoomOut": "缩小",
     "terrainEnable": "启用 3D 地形",
     "terrainDisable": "停用 3D 地形",
+    "cooperativeGesturesWindows": "按住 Ctrl 并滚动以缩放地图",
+    "cooperativeGesturesMac": "按住 ⌘ 并滚动以缩放地图",
+    "cooperativeGesturesMobile": "用两根手指移动地图",
     "title": "地图"
   }
 }

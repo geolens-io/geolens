@@ -907,6 +907,9 @@
     "zoomOut": "Zoom out",
     "terrainEnable": "Enable 3D terrain",
     "terrainDisable": "Disable 3D terrain",
+    "cooperativeGesturesWindows": "Use Ctrl + scroll to zoom the map",
+    "cooperativeGesturesMac": "Use ⌘ + scroll to zoom the map",
+    "cooperativeGesturesMobile": "Use two fingers to move the map",
     "title": "Map"
   }
 }

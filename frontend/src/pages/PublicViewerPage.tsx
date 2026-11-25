@@ -19,6 +19,7 @@ import { LoadingState } from '@/components/layout/LoadingState';
 import { SiteBanner } from '@/components/layout/SiteBanner';
 import { NewVersionBanner } from '@/components/layout/NewVersionBanner';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { isFramed } from '@/lib/embed-context';
 import { MapErrorBoundary } from '@/components/error';
 import { Button } from '@/components/ui/button';
 
@@ -216,6 +217,7 @@ function PublicViewer() {
                   fitLayers={fitLayers}
                   visibleLayers={visibleLayers}
                   embedToken={embedToken}
+                  cooperativeGestures={isEmbed && isFramed()}
                   onMapReady={onMapReady}
                   onDrawnChange={setDrawnLayers}
                   datasetLinksAllowed={!data.has_non_public_layers}

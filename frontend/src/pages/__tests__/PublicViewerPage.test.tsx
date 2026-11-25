@@ -18,6 +18,13 @@ const legendMock = vi.hoisted(() => ({
   props: null as React.ComponentProps<typeof LayerLegend> | null,
 }));
 
+const framedMock = vi.hoisted(() => ({ framed: false }));
+
+vi.mock('@/lib/embed-context', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('@/lib/embed-context')>()),
+  isFramed: () => framedMock.framed,
+}));
+
 vi.mock('@/hooks/use-maps', () => ({
   useSharedMap: vi.fn(),
 }));
@@ -132,6 +139,7 @@ describe('PublicViewerPage', () => {
   beforeEach(() => {
     viewerMapMock.props = null;
     legendMock.props = null;
+    framedMock.framed = false;
 
     mockedUseSharedMap.mockReturnValue({
       data: SHARED_MAP,
@@ -237,6 +245,18 @@ describe('PublicViewerPage', () => {
     renderPage('/m/share-token?embed=true');
 
     expect(screen.queryByRole('contentinfo')).not.toBeInTheDocument();
+  });
+
+  describe('cooperative gestures', () => {
+    it.each([
+      ['an embed inside a frame', '/m/share-token?embed=true', true, true],
+      ['an embed opened directly', '/m/share-token?embed=true', false, false],
+      ['a share link inside a frame', '/m/share-token', true, false],
+    ])('%s', (_name, route, framed, expected) => {
+      framedMock.framed = framed;
+      renderPage(route);
+      expect(viewerMapMock.props?.cooperativeGestures).toBe(expected);
+    });
   });
 
   describe('embed legend default', () => {

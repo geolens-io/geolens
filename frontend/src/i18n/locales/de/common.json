@@ -907,6 +907,9 @@
     "zoomOut": "Verkleinern",
     "terrainEnable": "3D-Gelände aktivieren",
     "terrainDisable": "3D-Gelände deaktivieren",
+    "cooperativeGesturesWindows": "Mit Strg + Scrollen zoomen Sie die Karte",
+    "cooperativeGesturesMac": "Mit ⌘ + Scrollen zoomen Sie die Karte",
+    "cooperativeGesturesMobile": "Mit zwei Fingern verschieben Sie die Karte",
     "title": "Karte"
   }
 }
