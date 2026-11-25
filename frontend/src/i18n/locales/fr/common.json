@@ -907,6 +907,9 @@
     "zoomOut": "Zoom arrière",
     "terrainEnable": "Activer le terrain 3D",
     "terrainDisable": "Désactiver le terrain 3D",
+    "cooperativeGesturesWindows": "Utilisez Ctrl + molette pour zoomer sur la carte",
+    "cooperativeGesturesMac": "Utilisez ⌘ + molette pour zoomer sur la carte",
+    "cooperativeGesturesMobile": "Utilisez deux doigts pour déplacer la carte",
     "title": "Carte"
   }
 }

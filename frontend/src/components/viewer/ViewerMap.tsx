@@ -102,6 +102,8 @@ interface ViewerMapProps {
   visibleLayers: Set<string>;
   onMapReady?: (map: MaplibreMap) => void;
   embedToken?: string;
+  /** Ask for Ctrl/Cmd + scroll or two fingers to move the map, so it doesn't trap a host page's scrolling. Read once, at mount. */
+  cooperativeGestures?: boolean;
   basemapConfig?: MapBasemapConfig | null;
   showBasemapLabels?: boolean;
   terrainConfig?: MapTerrainConfig | null;
@@ -193,6 +195,7 @@ export const ViewerMap = memo(function ViewerMap({
   visibleLayers,
   onMapReady,
   embedToken,
+  cooperativeGestures = false,
   basemapConfig = null,
   showBasemapLabels = true,
   terrainConfig = null,
@@ -1222,6 +1225,7 @@ export const ViewerMap = memo(function ViewerMap({
           mapStyle={mapStyle}
           styleDiffing={false}
           locale={mapLocale}
+          cooperativeGestures={cooperativeGestures}
           // Covers the cold-mount window: react-maplibre applies it on the initial
           // style.load, before our onLoad-captured appearance sync can run. Frozen
           // at mount because a CHANGED projection prop goes through

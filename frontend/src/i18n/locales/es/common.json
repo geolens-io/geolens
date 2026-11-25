@@ -907,6 +907,9 @@
     "zoomOut": "Alejar",
     "terrainEnable": "Activar el terreno 3D",
     "terrainDisable": "Desactivar el terreno 3D",
+    "cooperativeGesturesWindows": "Usa Ctrl + desplazamiento para hacer zoom en el mapa",
+    "cooperativeGesturesMac": "Usa ⌘ + desplazamiento para hacer zoom en el mapa",
+    "cooperativeGesturesMobile": "Usa dos dedos para mover el mapa",
     "title": "Mapa"
   }
 }
