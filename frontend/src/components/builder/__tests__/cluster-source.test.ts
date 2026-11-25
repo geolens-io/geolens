@@ -1,5 +1,7 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { fitsAggregateFilterLimits, getClusterSourceKey, getClusterSourceStrategy, shouldFetchClusterGeoJson } from '../cluster-source';
+import { TILE_REQUEST_LINE_BUDGET, fitsAggregateFilterLimits, fitsTileRequestLine, getClusterSourceKey, getClusterSourceStrategy, shouldFetchClusterGeoJson } from '../cluster-source';
 import type { Cql2Expression } from '@/lib/maplibre-filter-utils';
 
 const baseLayer = {
@@ -87,5 +89,43 @@ describe('fitsAggregateFilterLimits', () => {
     expect(fitsAggregateFilterLimits(list(1001))).toBe(false);
     expect(fitsAggregateFilterLimits(list(4, 2400))).toBe(true);
     expect(fitsAggregateFilterLimits(list(4, 2500))).toBe(false);
+  });
+});
+
+describe('the tile request line', () => {
+  const proxyLimit = () => {
+    const conf = readFileSync(resolve(__dirname, '../../../../nginx.conf'), 'utf-8');
+    const match = /^large_client_header_buffers\s+\d+\s+(\d+)k;/m.exec(conf);
+    expect(match).not.toBeNull();
+    return Number(match![1]) * 1024;
+  };
+  // A template whose longest request line is exactly `bytes` long.
+  const templateOf = (bytes: number, origin = 'https://tiles.example.org') => {
+    const head = 'GET /tiles/data.t/22/4194303/4194303.pbf?pad= HTTP/1.1\r\n';
+    return `${origin}/tiles/data.t/{z}/{x}/{y}.pbf?pad=${'x'.repeat(bytes - head.length)}`;
+  };
+
+  it('has a budget just under the limit in nginx.conf', () => {
+    expect(TILE_REQUEST_LINE_BUDGET).toBeLessThan(proxyLimit());
+    expect(TILE_REQUEST_LINE_BUDGET).toBeGreaterThan(proxyLimit() - 1024);
+  });
+
+  it('measures the longest request line, in bytes, against the budget', () => {
+    expect(fitsTileRequestLine(templateOf(TILE_REQUEST_LINE_BUDGET))).toBe(true);
+    expect(fitsTileRequestLine(templateOf(TILE_REQUEST_LINE_BUDGET + 1))).toBe(false);
+    expect(fitsTileRequestLine(templateOf(TILE_REQUEST_LINE_BUDGET).replace('pad=x', 'pad=\u00e9'))).toBe(false);
+  });
+
+  it('measures the query as the browser serializes it', () => {
+    // `'` is left alone by encodeURIComponent but sent as %27.
+    const raw = templateOf(TILE_REQUEST_LINE_BUDGET - 100);
+    expect(fitsTileRequestLine(raw)).toBe(true);
+    expect(fitsTileRequestLine(raw.replace(/x{100}$/, "'".repeat(100)))).toBe(false);
+  });
+
+  it('does not count the origin', () => {
+    const origin = `https://${'a'.repeat(63)}.${'b'.repeat(63)}.example.org`;
+    expect(fitsTileRequestLine(templateOf(TILE_REQUEST_LINE_BUDGET, origin))).toBe(true);
+    expect(fitsTileRequestLine(templateOf(TILE_REQUEST_LINE_BUDGET, '//cdn.example.org'))).toBe(true);
   });
 });
