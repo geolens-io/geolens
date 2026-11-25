@@ -1321,7 +1321,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # publish key, where a version 2 entry's publication is decided and a held or
     # in-flight job is reused, the updates a publish key may not make, and the
     # maps section's results beside the datasets'.
-    "backend/app/processing/ingest/manifest_service.py": 1379,
+    "backend/app/processing/ingest/manifest_service.py": 1367,
     # One map's check, plan and write: the styling decision, layer matching, the
     # history event, the share link and the result's visibility, groups and
     # removed layers share the row lock the apply holds.
@@ -1363,10 +1363,11 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
-    # Ingest API router debt, including the commit door's token scheme check; split
-    # upload, import and registration endpoints before raising further. Each upload
-    # door branches once per 3D upload kind: a 3D Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1690,
+    # Ingest API router debt, including the commit door's token scheme check and the
+    # commit doors' dataset-count check; split upload, import and registration
+    # endpoints before raising further. Each upload door branches once per 3D upload
+    # kind: a 3D Tiles tileset and a COPC point cloud.
+    "backend/app/processing/ingest/router.py": 1698,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
@@ -1411,7 +1412,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1759,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1758,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup; regeneration's claim, build and store phases are functions here.

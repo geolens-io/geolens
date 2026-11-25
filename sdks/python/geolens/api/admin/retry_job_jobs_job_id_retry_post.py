@@ -107,7 +107,9 @@ def sync_detailed(
      Retry a failed ingestion job by re-queuing.
 
     Only callable on jobs with status 'failed'. The staging file must
-    still exist (preserved on failure for retry).
+    still exist (preserved on failure for retry). A retry imports a new
+    dataset, so an account at its dataset-count cap gets a 422 and the job
+    stays failed.
 
     Args:
         job_id (UUID):
@@ -141,7 +143,9 @@ def sync(
      Retry a failed ingestion job by re-queuing.
 
     Only callable on jobs with status 'failed'. The staging file must
-    still exist (preserved on failure for retry).
+    still exist (preserved on failure for retry). A retry imports a new
+    dataset, so an account at its dataset-count cap gets a 422 and the job
+    stays failed.
 
     Args:
         job_id (UUID):
@@ -170,7 +174,9 @@ async def asyncio_detailed(
      Retry a failed ingestion job by re-queuing.
 
     Only callable on jobs with status 'failed'. The staging file must
-    still exist (preserved on failure for retry).
+    still exist (preserved on failure for retry). A retry imports a new
+    dataset, so an account at its dataset-count cap gets a 422 and the job
+    stays failed.
 
     Args:
         job_id (UUID):
@@ -202,7 +208,9 @@ async def asyncio(
      Retry a failed ingestion job by re-queuing.
 
     Only callable on jobs with status 'failed'. The staging file must
-    still exist (preserved on failure for retry).
+    still exist (preserved on failure for retry). A retry imports a new
+    dataset, so an account at its dataset-count cap gets a 422 and the job
+    stays failed.
 
     Args:
         job_id (UUID):

@@ -840,7 +840,7 @@ async def _dataset_quota_handler(
 ) -> JSONResponse:
     # reserve_dataset_slot raises a plain exception so the worker
     # can use it too; API-side callers (e.g. empty-layer creation) get a 422
-    # matching the check_upload_quota contract.
+    # matching the check_dataset_count_quota contract.
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_CONTENT,
         content=ProblemDetail(

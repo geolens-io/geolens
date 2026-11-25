@@ -127,7 +127,8 @@ def sync_detailed(
 
     Returns HTTP 202 with per-layer outcomes. Partial success is possible:
     each layer result carries status='queued' or status='failed' with a
-    user-safe error message.
+    user-safe error message. An account at its dataset-count cap gets a 422
+    and nothing is queued.
 
     Permission: same as POST /ingest/commit/{job_id} — 'upload' capability.
 
@@ -179,7 +180,8 @@ def sync(
 
     Returns HTTP 202 with per-layer outcomes. Partial success is possible:
     each layer result carries status='queued' or status='failed' with a
-    user-safe error message.
+    user-safe error message. An account at its dataset-count cap gets a 422
+    and nothing is queued.
 
     Permission: same as POST /ingest/commit/{job_id} — 'upload' capability.
 
@@ -226,7 +228,8 @@ async def asyncio_detailed(
 
     Returns HTTP 202 with per-layer outcomes. Partial success is possible:
     each layer result carries status='queued' or status='failed' with a
-    user-safe error message.
+    user-safe error message. An account at its dataset-count cap gets a 422
+    and nothing is queued.
 
     Permission: same as POST /ingest/commit/{job_id} — 'upload' capability.
 
@@ -276,7 +279,8 @@ async def asyncio(
 
     Returns HTTP 202 with per-layer outcomes. Partial success is possible:
     each layer result carries status='queued' or status='failed' with a
-    user-safe error message.
+    user-safe error message. An account at its dataset-count cap gets a 422
+    and nothing is queued.
 
     Permission: same as POST /ingest/commit/{job_id} — 'upload' capability.
 

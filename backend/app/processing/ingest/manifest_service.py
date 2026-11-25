@@ -451,26 +451,21 @@ async def _preflight_quota(
     """Refuse an over-quota caller, and derive the streaming byte budget.
 
     Runs before the reservation is inserted, so a refused entry leaves no
-    row behind. The same snapshot supplies a hard byte budget for
+    row behind and its upload unclaimed, for the same apply to use once the
+    account has room. The same snapshot supplies a hard byte budget for
     streaming, so a caller near quota can't force a full download just to
     discover it can't be admitted. Returns None when uncapped.
     """
-    from app.modules.quota.service import get_user_quota_usage
+    from app.modules.quota.service import (
+        check_dataset_count_quota,
+        get_user_quota_usage,
+    )
 
-    usage = await get_user_quota_usage(db, user.id)
-    if (
-        creates_dataset
-        and usage.count_cap > 0
-        and usage.dataset_count + quota.datasets_admitted >= usage.count_cap
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Dataset quota exceeded: "
-                f"{usage.dataset_count + quota.datasets_admitted} of "
-                f"{usage.count_cap} datasets used"
-            ),
+    if creates_dataset:
+        await check_dataset_count_quota(
+            db, user.id, None, admitted=quota.datasets_admitted
         )
+    usage = await get_user_quota_usage(db, user.id)
 
     return (
         max(
@@ -498,11 +493,6 @@ async def _admit_staged_source(
     incoming_bytes = await _manifest_source_size_bytes(prepared, file_path)
     fresh_usage = await get_user_quota_usage(db, user.id)
     projected_bytes = fresh_usage.bytes_used + quota.bytes_admitted + incoming_bytes
-    projected_count = (
-        fresh_usage.dataset_count
-        + quota.datasets_admitted
-        + (1 if creates_dataset else 0)
-    )
     if fresh_usage.storage_cap > 0 and projected_bytes > fresh_usage.storage_cap:
         raise HTTPException(
             status_code=413,
@@ -512,28 +502,21 @@ async def _admit_staged_source(
                 f"{fresh_usage.storage_cap} bytes (adding {incoming_bytes} bytes)"
             ),
         )
-    if (
-        creates_dataset
-        and fresh_usage.count_cap > 0
-        and projected_count > fresh_usage.count_cap
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Dataset quota exceeded: "
-                f"{fresh_usage.dataset_count + quota.datasets_admitted} of "
-                f"{fresh_usage.count_cap} datasets used"
-            ),
-        )
 
     # Lazy import preserves the processing -> modules layering boundary.
     if creates_dataset:
-        from app.modules.quota.service import check_upload_quota
+        from app.modules.quota.service import (
+            check_dataset_count_quota,
+            check_upload_quota,
+        )
 
         await check_upload_quota(db, user.id, incoming_bytes, request)
+        # Asked again: staging can take as long as a download, and the
+        # preflight's answer is that old.
+        await check_dataset_count_quota(
+            db, user.id, request, admitted=quota.datasets_admitted
+        )
     await enforce_limit(request, "storage_bytes", projected_bytes)
-    if creates_dataset:
-        await enforce_limit(request, "dataset_count", projected_count)
 
     quota.reserve(
         incoming_bytes=incoming_bytes,
@@ -1280,6 +1263,11 @@ async def _reserve_or_settle_entry(
         # found it.
         result = None
         if classification == "create":
+            # The apply's own check, so a preview never promises a dataset
+            # the apply would refuse. The ledger counts this manifest's
+            # earlier creates.
+            await _preflight_quota(db, user, creates_dataset=True, quota=quota)
+            quota.reserve(incoming_bytes=0, creates_dataset=True)
             result = ManifestApplyEntryResult(
                 dataset_key=dataset.key,
                 action="create",

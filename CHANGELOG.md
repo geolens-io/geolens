@@ -42,6 +42,7 @@ and releases use semantic versioning.
 - A collection in the catalog search results is dated by when it was last edited. Its card used to say "Updated" with the time the collection was created, because the search result carried no update time; it now does, as `updated`.
 - Counts on the catalog search page, such as "32,186 features", the result total and the filter counts, are grouped for the reader's language instead of printed as "32186".
 - Keyboard focus is visible in Windows high contrast mode. Most controls drew focus as a ring, which high contrast mode removes, so a focused button, field, tab, link or map control showed nothing; each now gets a 2 px outline there, in a colour from the high contrast theme.
+- An account at its dataset cap can republish and replace its datasets through a publish manifest. The upload step used to refuse the file with 422 before the apply could tell an update from a new dataset. The dataset cap is now checked when a dataset is created, so a plain upload or URL import at the cap is accepted and refused with the same 422 at commit, after the file has been transferred. A service import at the cap is refused with that 422 at commit too, and `POST /jobs/{id}/retry` answers it for a failed import; both used to be accepted and to fail later in the job. A manifest dry run reports the cap for each entry it would create, as the apply does. The storage cap is still checked at upload.
 
 ## [1.34.0] - 2026-11-22
 

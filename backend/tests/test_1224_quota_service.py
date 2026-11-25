@@ -162,8 +162,8 @@ class TestCheckUploadQuota:
         assert exc_info.value.status_code == 413
         assert "Storage quota exceeded" in exc_info.value.detail
 
-    async def test_count_cap_exceeded_raises_422(self) -> None:
-        """count_cap_exceeded: count=5, cap=5 → HTTP 422."""
+    async def test_count_cap_is_not_an_upload_refusal(self) -> None:
+        """count=5, cap=5 → the upload check passes and charges bytes only."""
         db = _make_mock_db(bytes_used=1_000, dataset_count=5)
         user_id = uuid.uuid4()
         request = _make_request()
@@ -182,15 +182,13 @@ class TestCheckUploadQuota:
             patch(
                 "app.modules.quota.service.enforce_limit",
                 new_callable=AsyncMock,
-            ),
+            ) as enforce,
         ):
             from app.modules.quota.service import check_upload_quota
 
-            with pytest.raises(HTTPException) as exc_info:
-                await check_upload_quota(db, user_id, 100, request)
+            await check_upload_quota(db, user_id, 100, request)
 
-        assert exc_info.value.status_code == 422
-        assert "Dataset quota exceeded" in exc_info.value.detail
+        enforce.assert_awaited_once_with(request, "storage_bytes", 1_100)
 
     async def test_default_unlimited_never_raises(self) -> None:
         """default_unlimited: cap=0 for both → never raises even with large values.
@@ -257,3 +255,65 @@ class TestCheckUploadQuota:
 
         assert exc_info.value.status_code == 413
         assert "Storage quota exceeded" in exc_info.value.detail
+
+
+# ---------------------------------------------------------------------------
+# Tests for check_dataset_count_quota
+# ---------------------------------------------------------------------------
+
+
+class TestCheckDatasetCountQuota:
+    async def _check(
+        self, *, dataset_count: int, cap: int, admitted: int = 0
+    ) -> AsyncMock:
+        db = _make_mock_db(bytes_used=9_000_000, dataset_count=dataset_count)
+        request = _make_request()
+        with (
+            patch(
+                "app.modules.quota.service.MAX_STORAGE_BYTES_PER_USER.get",
+                new_callable=AsyncMock,
+                return_value=1,  # over the byte cap, which this check ignores
+            ),
+            patch(
+                "app.modules.quota.service.MAX_DATASETS_PER_USER.get",
+                new_callable=AsyncMock,
+                return_value=cap,
+            ),
+            patch(
+                "app.modules.quota.service.enforce_limit",
+                new_callable=AsyncMock,
+            ) as enforce,
+        ):
+            from app.modules.quota.service import check_dataset_count_quota
+
+            await check_dataset_count_quota(
+                db, uuid.uuid4(), request, admitted=admitted
+            )
+        assert enforce.await_args.args[0] is request
+        return enforce
+
+    async def test_at_the_cap_raises_422(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            await self._check(dataset_count=5, cap=5)
+
+        assert exc_info.value.status_code == 422
+        assert exc_info.value.detail == "Dataset quota exceeded: 5 of 5 datasets used"
+
+    async def test_below_the_cap_charges_one_more_dataset(self) -> None:
+        enforce = await self._check(dataset_count=4, cap=5)
+
+        assert enforce.await_args.args[1:] == ("dataset_count", 5)
+        enforce.assert_awaited_once()
+
+    async def test_unlimited_never_raises(self) -> None:
+        enforce = await self._check(dataset_count=99_999, cap=0)
+
+        assert enforce.await_args.args[1:] == ("dataset_count", 100_000)
+
+    async def test_datasets_admitted_earlier_in_the_request_count(self) -> None:
+        with pytest.raises(HTTPException) as exc_info:
+            await self._check(dataset_count=3, cap=5, admitted=2)
+
+        assert exc_info.value.detail == "Dataset quota exceeded: 5 of 5 datasets used"
+        enforce = await self._check(dataset_count=3, cap=5, admitted=1)
+        assert enforce.await_args.args[1:] == ("dataset_count", 5)

@@ -452,10 +452,8 @@ async def reupload_dataset(
         )
 
     # Per-user quota check before any staging or job creation.
-    # The REPLACEMENT variant: the creation-shaped check would refuse at the
-    # dataset-count cap, locking an owner at their limit out of replacing
-    # datasets they already own, and would charge the incoming file on top of
-    # the bytes this dataset already contributes.
+    # The REPLACEMENT variant: the creation-shaped check would charge the
+    # incoming file on top of the bytes this dataset already contributes.
     incoming_bytes = file.size if file.size is not None else 0
     await check_replacement_quota(
         db,
@@ -1723,8 +1721,9 @@ async def complete_presigned_reupload(
             user_id=dataset.record.created_by,
             request=http_request,
             # Completion is the THIRD admission point. A creation-shaped check
-            # would refuse an owner at the dataset-count cap here after they
-            # passed the request-time door and uploaded.
+            # would charge the upload on top of the bytes it replaces, and
+            # refuse an owner near the byte cap here after they passed the
+            # request-time door and uploaded.
             # Naming the dataset makes the finalizer admit this as a
             # replacement, against the owner, like the other two.
             replacing_dataset_id=dataset_id,
