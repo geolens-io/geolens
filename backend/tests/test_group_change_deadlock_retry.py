@@ -11,7 +11,8 @@ from sqlalchemy import select, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
-from app.modules.auth.models import GroupMember
+from app.modules.audit.models import AuditLog
+from app.modules.auth.models import Group, GroupMember
 from app.modules.catalog import group_access
 from app.modules.catalog.datasets.domain.models import (
     Dataset,
@@ -19,6 +20,8 @@ from app.modules.catalog.datasets.domain.models import (
     Record,
 )
 from app.modules.catalog.group_sharing import lock_share_groups
+from app.modules.catalog.maps.models import Map
+from app.modules.catalog.stories.models import Story
 from app.platform.catalog_locks import lock_catalog_rows
 from tests.factories import create_user, get_user_id
 from tests.test_admin_groups import _wait_until_blocking
@@ -54,6 +57,7 @@ async def shared(client: AsyncClient, admin_auth_header: dict, test_db_session):
     table = dataset.table_name
     yield {
         "dataset": dataset,
+        "dataset_id": dataset.id,
         "group": uuid.UUID(group_id),
         "user": uuid.UUID(user_id),
     }
@@ -180,3 +184,138 @@ async def test_one_deadlock_is_retried_and_a_second_answers_503(
     assert calls == 2
     test_db_session.expire_all()
     assert len(await _members(test_db_session, shared["group"])) == members
+
+
+def _deadlock_after_first_bump(monkeypatch) -> list[int]:
+    """Make the first version bump land and then lose a deadlock, so the
+    retry has to undo the first attempt's writes; return the call counter."""
+    real = group_access.bump_publication_versions
+    calls = [0]
+
+    async def bump(session, dataset_ids):
+        calls[0] += 1
+        await real(session, dataset_ids)
+        if calls[0] == 1:
+            raise DBAPIError("UPDATE catalog.datasets", {}, _Orig("40P01"))
+
+    monkeypatch.setattr(group_access, "bump_publication_versions", bump)
+    return calls
+
+
+async def _version(session: AsyncSession, dataset_id: uuid.UUID) -> int:
+    session.expire_all()
+    return (
+        await session.scalar(
+            select(Dataset.publication_version).where(Dataset.id == dataset_id)
+        )
+        or 0
+    )
+
+
+async def _add_member(client: AsyncClient, headers: dict, shared) -> None:
+    added = await client.post(
+        f"/admin/groups/{shared['group']}/members/",
+        json={"user_ids": [str(shared["user"])]},
+        headers=headers,
+    )
+    assert added.status_code == 200, added.text
+
+
+async def test_a_member_removal_that_loses_a_deadlock_runs_again(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, shared, monkeypatch
+):
+    await _add_member(client, admin_auth_header, shared)
+    before = await _version(test_db_session, shared["dataset_id"])
+    calls = _deadlock_after_first_bump(monkeypatch)
+
+    resp = await client.delete(
+        f"/admin/groups/{shared['group']}/members/{shared['user']}",
+        headers=admin_auth_header,
+    )
+
+    assert resp.status_code == 204, resp.text
+    assert calls[0] == 2
+    assert await _members(test_db_session, shared["group"]) == []
+    assert await _version(test_db_session, shared["dataset_id"]) == before + 1
+
+
+async def test_a_group_delete_that_loses_a_deadlock_runs_again(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, shared, monkeypatch
+):
+    group_id = shared["group"]
+    await _add_member(client, admin_auth_header, shared)
+    made = await client.post(
+        "/maps/",
+        json={"name": f"retry-{uuid.uuid4().hex[:8]}"},
+        headers=admin_auth_header,
+    )
+    assert made.status_code == 201, made.text
+    map_id = uuid.UUID(made.json()["id"])
+    shared_map = await client.put(
+        f"/maps/{map_id}/groups/",
+        json={"group_ids": [str(group_id)]},
+        headers={**admin_auth_header, "X-GeoLens-Map-Visibility": "restricted"},
+    )
+    assert shared_map.status_code == 200, shared_map.text
+    made = await client.post(
+        "/stories/", json={"title": "Retry", "summary": ""}, headers=admin_auth_header
+    )
+    assert made.status_code == 201, made.text
+    story_id = uuid.UUID(made.json()["id"])
+    shared_story = await client.put(
+        f"/stories/{story_id}/groups/",
+        json={"group_ids": [str(group_id)]},
+        headers=admin_auth_header,
+    )
+    assert shared_story.status_code == 200, shared_story.text
+    test_db_session.expire_all()
+    assert (
+        await test_db_session.scalar(select(Map.visibility).where(Map.id == map_id))
+        == "restricted"
+    )
+    assert (
+        await test_db_session.scalar(
+            select(Story.visibility).where(Story.id == story_id)
+        )
+        == "restricted"
+    )
+    name = await test_db_session.scalar(select(Group.name).where(Group.id == group_id))
+    before = await _version(test_db_session, shared["dataset_id"])
+    calls = _deadlock_after_first_bump(monkeypatch)
+
+    resp = await client.delete(f"/admin/groups/{group_id}", headers=admin_auth_header)
+
+    assert resp.status_code == 204, resp.text
+    assert calls[0] == 2
+    test_db_session.expire_all()
+    assert (
+        await test_db_session.scalar(select(Group.id).where(Group.id == group_id))
+        is None
+    )
+    assert await _members(test_db_session, group_id) == []
+    assert (
+        await test_db_session.scalar(select(Map.visibility).where(Map.id == map_id))
+        == "private"
+    )
+    assert (
+        await test_db_session.scalar(
+            select(Story.visibility).where(Story.id == story_id)
+        )
+        == "private"
+    )
+    assert await _version(test_db_session, shared["dataset_id"]) == before + 1
+    details = list(
+        await test_db_session.scalars(
+            select(AuditLog.details).where(
+                AuditLog.action == "group.delete", AuditLog.resource_id == group_id
+            )
+        )
+    )
+    assert details == [
+        {
+            "name": name,
+            "member_count": 1,
+            "member_ids": [str(shared["user"])],
+            "member_ids_truncated": False,
+        }
+    ]
