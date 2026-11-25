@@ -12,10 +12,11 @@ same walk.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Collection, Generator
+from collections.abc import Callable, Generator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from app.modules.catalog.maps.arcgis_webmap.fields import FieldNames
 from app.modules.catalog.maps.schemas import MapLayerInput
 
 Rename = Callable[[str], str]
@@ -471,8 +472,8 @@ class ColumnRepair:
 
     ``repaired`` maps each referenced name that changed to the stored name it
     now reads. ``unrepaired`` maps each referenced name left as it was to why
-    it stayed: ``"missing"`` when no stored column matches it ignoring case,
-    ``"ambiguous"`` when more than one does.
+    it stayed: ``"missing"`` when no stored column resolves it, ``"ambiguous"``
+    when more than one stored column matches it ignoring case.
     """
 
     repaired: dict[str, str]
@@ -480,35 +481,60 @@ class ColumnRepair:
 
 
 def repair_layer_columns(
-    layer: MapLayerInput, stored_columns: Collection[str]
+    layer: MapLayerInput,
+    columns: Sequence[Mapping[str, Any]] | None,
 ) -> tuple[MapLayerInput, ColumnRepair]:
     """``layer`` with each column reference rewritten to the stored name.
 
-    A reference is rewritten when exactly one stored column matches it
-    ignoring case. A reference with no match or more than one match is kept
-    and reported, so a repair never guesses between two columns. With no
-    stored columns recorded the names cannot be judged, so the layer is left
-    as it was. ``layer`` itself is left as it was.
+    A reference is rewritten to the stored column ``FieldNames`` resolves it
+    to from the dataset's ``column_info``: the column whose recorded
+    ``source_name`` it is first, then the exact name, then the laundered
+    name, then the one column equal to it ignoring case. A reference that
+    already names a stored column stays, unless it exactly names a source
+    field, which names that field's column instead: without that guard a
+    layer reading ``name`` would be rewritten to the column whose source is
+    ``Name``, and a second repair would rewrite what the first one wrote.
+    A reference that resolves to nothing is kept and reported ``"missing"``,
+    unless more than one stored column matches it ignoring case, when it is
+    ``"ambiguous"``, so a repair never guesses between two columns. With no
+    columns recorded the names cannot be judged, so the layer is left as it
+    was. ``layer`` itself is left as it was.
     """
-    if not stored_columns:
+    if not columns:
         return layer, ColumnRepair(repaired={}, unrepaired={})
+    stored = FieldNames(columns)
     by_folded: dict[str, set[str]] = {}
-    for stored in stored_columns:
-        by_folded.setdefault(stored.casefold(), set()).add(stored)
+    stored_names: set[str] = set()
+    source_names: set[str] = set()
+    for column in columns:
+        if not isinstance(column, Mapping):
+            continue
+        name = column.get("name")
+        if isinstance(name, str):
+            by_folded.setdefault(name.casefold(), set()).add(name)
+            stored_names.add(name)
+        source = column.get("source_name")
+        if isinstance(source, str):
+            source_names.add(source)
     repaired: dict[str, str] = {}
     unrepaired: dict[str, str] = {}
 
     def rename(name: str) -> str:
         if not name:
             return name
-        matches = by_folded.get(name.casefold(), set())
-        if len(matches) == 1:
-            stored = next(iter(matches))
-            if stored != name:
-                repaired[name] = stored
-            return stored
+        if name in stored_names and name not in source_names:
+            return name
+        resolved = stored.stored(name)
+        if resolved is not None:
+            if resolved != name:
+                repaired[name] = resolved
+            return resolved
         if name not in unrepaired:
-            unrepaired[name] = "ambiguous" if matches else "missing"
+            unrepaired[name] = (
+                "ambiguous"
+                if len(by_folded.get(name.casefold(), set())) > 1
+                else "missing"
+            )
         return name
 
     return rename_layer_columns(layer, rename), ColumnRepair(
