@@ -217,6 +217,12 @@ function isCanvasFrameBlank(src: HTMLCanvasElement): boolean {
   }
 }
 
+function isStaleWriteError(error: unknown): boolean {
+  if (!(error instanceof ApiError) || error.status !== 409) return false;
+  if (!error.body || typeof error.body !== 'object') return false;
+  return (error.body as { code?: unknown }).code === 'stale_write';
+}
+
 /** Crop and resize the map canvas to a 400x250 JPEG thumbnail and a 1200x630
  *  OG image, then upload both.
  *
@@ -226,12 +232,6 @@ function isCanvasFrameBlank(src: HTMLCanvasElement): boolean {
  *  the repaint to the next animation frame. Both crops come from the same
  *  srcCanvas. The OG upload is fire-and-forget with its own catch, so an OG
  *  failure doesn't block the thumbnail save. */
-function isStaleWriteError(error: unknown): boolean {
-  if (!(error instanceof ApiError) || error.status !== 409) return false;
-  if (!error.body || typeof error.body !== 'object') return false;
-  return (error.body as { code?: unknown }).code === 'stale_write';
-}
-
 function doCapture(
   map: MaplibreMap,
   mapId: string,
@@ -276,9 +276,15 @@ function doCapture(
       const og = cropResize(srcCanvas, 1200, 630, backdrop);
       drawAttributionOverlay(og, credits, OG_ATTRIBUTION);
 
+      const captureExpectedUpdatedAt =
+        expectedUpdatedAt ??
+        (trigger === 'auto'
+          ? queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(mapId))?.updated_at
+          : undefined);
+
       const thumbUri = thumb.toDataURL('image/jpeg', 0.7);
-      const thumbUpload = expectedUpdatedAt !== undefined
-        ? uploadThumbnail(mapId, thumbUri, expectedUpdatedAt)
+      const thumbUpload = captureExpectedUpdatedAt !== undefined
+        ? uploadThumbnail(mapId, thumbUri, captureExpectedUpdatedAt)
         : uploadThumbnail(mapId, thumbUri);
       thumbUpload.then(() => {
         // Refetches nothing on the builder route, by design: maps.all is
@@ -290,17 +296,23 @@ function doCapture(
         // which shouldAutoCapture's LRU has already settled.
         queryClient.invalidateQueries({ queryKey: queryKeys.maps.all });
       }).catch((err) => {
-        if (isStaleWriteError(err)) return;
+        if (isStaleWriteError(err)) {
+          if (trigger === 'auto') rearmAutoCapture(mapId);
+          return;
+        }
         // Silent failure for thumbnails
       });
 
       // 1200×630 OG image — fire-and-forget, isolated failure
       const ogUri = og.toDataURL('image/jpeg', 0.85);
-      const ogUpload = expectedUpdatedAt !== undefined
-        ? uploadOgImage(mapId, ogUri, expectedUpdatedAt)
+      const ogUpload = captureExpectedUpdatedAt !== undefined
+        ? uploadOgImage(mapId, ogUri, captureExpectedUpdatedAt)
         : uploadOgImage(mapId, ogUri);
       ogUpload.catch((err) => {
-        if (isStaleWriteError(err)) return;
+        if (isStaleWriteError(err)) {
+          if (trigger === 'auto') rearmAutoCapture(mapId);
+          return;
+        }
         if (import.meta.env.DEV) console.warn('[og-image] capture upload failed');
       });
     } catch (err) {
@@ -1366,9 +1378,7 @@ export function useBuilderSave(state: SaveState) {
           }
           commitLayerBaseline();
           const saved = await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
-          const expectedUpdatedAt =
-            saved?.updated_at ??
-            queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(id))?.updated_at;
+          const expectedUpdatedAt = saved?.updated_at;
           commitSaved(saved?.updated_at);
           toast.warning(t('toasts.mapSavedAfterRemoteChange'));
           if (!editedDuringSave(state, sentPluginSet, camera)) {
@@ -1379,9 +1389,7 @@ export function useBuilderSave(state: SaveState) {
         }
       }
       const saved = await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
-      const expectedUpdatedAt =
-        saved?.updated_at ??
-        queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(id))?.updated_at;
+      const expectedUpdatedAt = saved?.updated_at;
 
       commitSaved(saved?.updated_at);
       toast.success(t('toasts.mapSaved'));
@@ -1722,9 +1730,7 @@ export function useBuilderSave(state: SaveState) {
     // When a layer-add is pending (new-map + ?add_dataset), pass the live
     // localLayersRef so runCaptureNow defers until layers arrive.
     const layersRef = state.pendingLayerAdd ? localLayersRef : undefined;
-    const expectedUpdatedAt =
-      queryClient.getQueryData<MapResponse>(queryKeys.maps.detail(state.mapId))?.updated_at;
-    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current, layersRef, 'auto', captureIsStale, expectedUpdatedAt);
+    captureThumbnail(map, state.mapId, queryClient, localLayersRef.current, captureSignalRef.current, layersRef, 'auto', captureIsStale);
   }, [state.hasThumbnail, state.mapId, state.pendingLayerAdd, queryClient, captureIsStale]);
 
   // Cancel in-flight polling on unmount

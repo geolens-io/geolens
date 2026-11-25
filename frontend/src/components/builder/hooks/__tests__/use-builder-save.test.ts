@@ -3401,6 +3401,142 @@ describe('useBuilderSave', () => {
         await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
         expect(mockUploadThumbnail).toHaveBeenCalledTimes(1);
       });
+
+      it('reads cached map updated_at at capture time after pendingLayerAdd settles', async () => {
+        vi.useFakeTimers();
+
+        const sources = new Map<string, object>();
+        const mockMap = createMockMap({ loaded: true });
+        mockMap.getSource.mockImplementation((sourceId: string) => sources.get(sourceId));
+
+        const queryClient = new QueryClient({
+          defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+        });
+        queryClient.setQueryData(queryKeys.maps.detail('map-1'), {
+          id: 'map-1',
+          updated_at: '2026-11-25T08:00:00Z',
+        });
+
+        const initialState = makeSaveState({
+          hasThumbnail: false,
+          localLayers: [],
+          pendingLayerAdd: true,
+          mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+        });
+
+        const Wrapper = ({ children }: { children: ReactNode }) =>
+          createElement(
+            QueryClientProvider,
+            { client: queryClient },
+            createElement(
+              TooltipProvider,
+              null,
+              createElement(MemoryRouter, null, children),
+            ),
+          );
+
+        const { result, rerender } = baseRenderHook(
+          (s: SaveState) => useBuilderSave(s),
+          { initialProps: initialState, wrapper: Wrapper },
+        );
+
+        act(() => {
+          result.current.maybeAutoCaptureThumbnail(mockMap as never);
+        });
+        act(() => { vi.advanceTimersByTime(500); });
+
+        // Layer POST lands and invalidates/updates the map detail cache before
+        // the deferred capture renders.
+        queryClient.setQueryData(queryKeys.maps.detail('map-1'), {
+          id: 'map-1',
+          updated_at: '2026-11-25T08:00:05Z',
+        });
+        rerender(
+          makeSaveState({
+            hasThumbnail: false,
+            localLayers: [makeLayer()],
+            pendingLayerAdd: true,
+            mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+          }),
+        );
+
+        act(() => {
+          sources.set('source-data-layer_1', { type: 'vector' });
+          vi.advanceTimersByTime(100);
+        });
+
+        vi.useRealTimers();
+        await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+        expect(mockUploadThumbnail).toHaveBeenCalledWith(
+          'map-1',
+          expect.stringContaining('data:image/jpeg'),
+          '2026-11-25T08:00:05Z',
+        );
+        expect(mockUploadOgImage).toHaveBeenCalledWith(
+          'map-1',
+          expect.stringContaining('data:image/jpeg'),
+          '2026-11-25T08:00:05Z',
+        );
+      });
+
+      it('re-arms auto-capture on 409 stale_write from thumbnail or OG upload, not on other errors', async () => {
+        vi.useFakeTimers();
+
+        const queryClient = new QueryClient({
+          defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+        });
+        queryClient.setQueryData(queryKeys.maps.detail('map-1'), {
+          id: 'map-1',
+          updated_at: '2026-11-25T08:00:00Z',
+        });
+
+        // 1. Thumbnail 409 stale_write re-arms auto-capture
+        const mockMap1 = createMockMap({ loaded: true });
+        mockUploadThumbnail.mockRejectedValueOnce(
+          new ApiError('Conflict', 409, { code: 'stale_write', message: 'stale' }),
+        );
+        const state1 = makeSaveState({
+          hasThumbnail: false,
+          localLayers: [],
+          mapInstanceRef: { current: mockMap1 } as unknown as SaveState['mapInstanceRef'],
+        });
+        const hook1 = renderHookWithQueryClient(state1, queryClient);
+        act(() => { hook1.result.current.maybeAutoCaptureThumbnail(mockMap1 as never); });
+        act(() => { vi.advanceTimersByTime(500); });
+        await act(async () => { fireRenderCallback(mockMap1); await Promise.resolve(); await Promise.resolve(); });
+        expect(shouldAutoCapture('map-1', null)).toBe(true);
+
+        // 2. OG 409 stale_write also re-arms auto-capture
+        __resetThumbnailDebounceForTests();
+        const mockMap2 = createMockMap({ loaded: true });
+        mockUploadThumbnail.mockResolvedValueOnce(undefined);
+        mockUploadOgImage.mockRejectedValueOnce(
+          new ApiError('Conflict', 409, { code: 'stale_write', message: 'stale' }),
+        );
+        const hook2 = renderHookWithQueryClient(state1, queryClient);
+        act(() => { hook2.result.current.maybeAutoCaptureThumbnail(mockMap2 as never); });
+        act(() => { vi.advanceTimersByTime(500); });
+        await act(async () => { fireRenderCallback(mockMap2); await Promise.resolve(); await Promise.resolve(); });
+        expect(shouldAutoCapture('map-1', null)).toBe(true);
+
+        // 3. Non-stale_write 500 error does not re-arm auto-capture
+        __resetThumbnailDebounceForTests();
+        const mockMap3 = createMockMap({ loaded: true });
+        mockUploadThumbnail.mockRejectedValueOnce(
+          new ApiError('Server Error', 500, { message: 'boom' }),
+        );
+        mockUploadOgImage.mockRejectedValueOnce(
+          new ApiError('Server Error', 500, { message: 'boom' }),
+        );
+        const hook3 = renderHookWithQueryClient(state1, queryClient);
+        act(() => { hook3.result.current.maybeAutoCaptureThumbnail(mockMap3 as never); });
+        act(() => { vi.advanceTimersByTime(500); });
+        await act(async () => { fireRenderCallback(mockMap3); await Promise.resolve(); await Promise.resolve(); });
+        expect(shouldAutoCapture('map-1', null)).toBe(false);
+
+        vi.useRealTimers();
+      });
     });
   });
 });
