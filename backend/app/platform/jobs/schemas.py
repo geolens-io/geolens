@@ -152,6 +152,49 @@ class ManifestPublicFallbackWarning(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+class ManifestGroupsLeftOffDetail(BaseModel):
+    group_ids: list[str] = Field(
+        description="The groups the dataset wasn't shared with."
+    )
+    reason: Literal["left_off", "held_back", "refused"] = Field(
+        description=(
+            "left_off: the groups no longer exist, or the submitter may not "
+            "share with them. held_back: sharing with them would let more "
+            "people read the dataset than before this publish, by a publish "
+            "key or after the dataset was narrowed since the apply, so it "
+            "kept the groups it had. refused: the share was refused or held "
+            "up, and the dataset kept the groups it had."
+        )
+    )
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestGroupsLeftOffWarning(BaseModel):
+    """Publish manifest code A058: the dataset wasn't shared with some groups."""
+
+    kind: Literal["manifest_groups_left_off"]
+    details: ManifestGroupsLeftOffDetail
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestWideningKeptDetail(BaseModel):
+    visibility: str = Field(description="The wider level the entry asked for.")
+
+    model_config = ConfigDict(extra="forbid")
+
+
+class ManifestWideningKeptWarning(BaseModel):
+    """Publish manifest code A056: a publish key can't widen the dataset, so
+    it kept its level."""
+
+    kind: Literal["manifest_widening_kept"]
+    details: ManifestWideningKeptDetail
+
+    model_config = ConfigDict(extra="forbid")
+
+
 IngestJobWarning = Annotated[
     ReservedRenameWarning
     | DbfTruncationCollisionWarning
@@ -159,7 +202,9 @@ IngestJobWarning = Annotated[
     | ZmDroppedWarning
     | ManifestCollectionRefusedWarning
     | ManifestAttributeUnmatchedWarning
-    | ManifestPublicFallbackWarning,
+    | ManifestPublicFallbackWarning
+    | ManifestGroupsLeftOffWarning
+    | ManifestWideningKeptWarning,
     Field(discriminator="kind"),
 ]
 

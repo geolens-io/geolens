@@ -53,6 +53,8 @@ from app.processing.ingest.manifest_dataset_fields import (
     ManifestEntryRefused,
     attach_unchanged_entry,
     raster_not_replaced_message,
+    note_more_visible,
+    resolve_entry_groups,
     report_entry,
     resolve_entry_collection,
 )
@@ -1190,7 +1192,7 @@ async def _reserve_or_settle_entry(
         raise ManifestSourceError("Manifest source could not be prepared")
 
     if classification == "skip_in_flight" and job is not None:
-        if not await in_flight_job_matches(db, fields, dataset, job):
+        if not await in_flight_job_matches(db, user, fields, dataset, job):
             raise DatasetBusyError(
                 "The key's in-flight apply publishes otherwise than this one."
             )
@@ -1245,6 +1247,9 @@ async def _reserve_or_settle_entry(
 
     await decide_publication(db, fields, dataset, existing_dataset)
     await resolve_entry_collection(db, dataset, user, fields, dry_run=request.dry_run)
+    await resolve_entry_groups(db, dataset, user, fields, existing_dataset)
+    if request.dry_run:
+        note_more_visible(dataset, fields, existing_dataset)
     if fields is not None and await held_job_matches(
         db,
         held,

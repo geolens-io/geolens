@@ -21,6 +21,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import Collection, Iterator, Mapping, Sequence
 from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Protocol, runtime_checkable
 
@@ -53,6 +54,32 @@ def withholding_share_links(session: AsyncSession, withheld: bool) -> Iterator[N
 def share_links_withheld(session: AsyncSession) -> bool:
     """Whether a share link minted on ``session`` now could not be returned."""
     return bool(session.info.get(_SHARE_LINKS_WITHHELD))
+
+
+@dataclass(frozen=True)
+class ManifestGroupsPlan:
+    """The groups a manifest entry shares its dataset with.
+
+    ``group_ids`` and ``names`` are the groups it ends with. ``left_off`` are
+    wanted groups that don't exist or that the caller may not add, by id
+    only, since their names aren't the caller's to see. ``held_back`` names
+    the groups the dataset may not gain without reaching more people, and
+    ``held_back_ids`` holds their ids. ``added`` says whether it gains any
+    group. ``unchanged`` means the dataset keeps its groups as they are,
+    since the share was held back, and ``role_granted`` that a role grant
+    keeps it restricted without groups.
+    """
+
+    group_ids: list[uuid.UUID]
+    names: list[str]
+    left_off: list[uuid.UUID]
+    held_back: list[str]
+    added: bool
+    unchanged: bool = False
+    role_granted: bool = False
+    held_back_ids: list[uuid.UUID] = field(default_factory=list)
+    # The dataset's groups when planned.
+    granted: list[uuid.UUID] = field(default_factory=list)
 
 
 @runtime_checkable
@@ -517,6 +544,43 @@ class ProcessingPort(Protocol):
         dataset_id: uuid.UUID,
         user: Identity,
     ) -> str | None: ...
+
+    # The groups a manifest entry would share its dataset with, None for one
+    # it creates, once the entry writes ``level`` (None keeps the dataset's),
+    # as the caller's roles and a publish key allow. Writes nothing.
+    async def plan_manifest_groups(
+        self,
+        session: AsyncSession,
+        dataset_id: uuid.UUID | None,
+        group_ids: Sequence[uuid.UUID],
+        user: Identity,
+        *,
+        level: str | None,
+    ) -> ManifestGroupsPlan: ...
+
+    # Shares a dataset a manifest job publishes with the groups it may, in the
+    # publish transaction. ``audience_before`` is its visibility before the
+    # publish, None when the job created it, ``planned_from`` its visibility
+    # and ``granted_at_plan`` its groups when the apply planned the share.
+    # Returns the plan and, when the share was refused, the refusal as a
+    # sentence to show, else None. A refused share leaves the groups as they
+    # were, as a held-back one does, and fails nothing here.
+    async def apply_manifest_groups(
+        self,
+        session: AsyncSession,
+        dataset_id: uuid.UUID,
+        group_ids: Sequence[uuid.UUID],
+        user: Identity,
+        *,
+        audience_before: str | None,
+        planned_from: str | None,
+        granted_at_plan: Sequence[uuid.UUID] | None,
+    ) -> tuple[ManifestGroupsPlan, str | None]: ...
+
+    # The names of a dataset's groups, None when ``user`` may not see them.
+    async def manifest_dataset_group_names(
+        self, session: AsyncSession, dataset_id: uuid.UUID, user: Identity
+    ) -> list[str] | None: ...
 
     # Returns the ``source_name`` of every entry that matched no column.
     async def apply_manifest_attributes(

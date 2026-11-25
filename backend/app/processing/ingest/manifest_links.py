@@ -97,6 +97,24 @@ def _dataset_links(facts: _DatasetFacts, app_url: str, api_url: str, *, settled:
     )
 
 
+def _with_groups(visibility: str, groups: list[str] | None, role_granted: bool) -> str:
+    """The level a dataset at ``visibility`` ends at once shared with exactly
+    ``groups``, None keeping its groups: grants make a private dataset
+    restricted, and losing them all makes a restricted one private unless a
+    role grant keeps it restricted."""
+    if groups is None or visibility not in ("private", "restricted"):
+        return visibility
+    if groups or (visibility == "restricted" and role_granted):
+        return "restricted"
+    return "private"
+
+
+def _writes(result: ManifestApplyEntryResult) -> bool:
+    """Whether the entry's job, queued, running or held, publishes the
+    dataset, rather than leaving it as it is."""
+    return result.pending or result.action in ("create", "update")
+
+
 def _pending_visibility(
     entries: dict[str, ManifestDataset], result: ManifestApplyEntryResult
 ) -> str | None:
@@ -121,11 +139,14 @@ async def describe_results(
     results: Sequence[ManifestApplyEntryResult],
     maps: Sequence[ManifestMapResult] | None,
 ) -> None:
-    """Set visibility and links on version 2 dataset results, and links on
-    map results.
+    """Set visibility, groups and links on version 2 dataset results, and
+    links on map results.
 
     A dataset result's visibility is what its entry publishes, else the
-    stored level. It never depends on the URLs: each lookup runs in its own
+    stored level, and its groups likewise, by name: the stored ones only for
+    the dataset's owner or an admin, who see them on the dataset itself, and
+    none for a dataset that ends private.
+    Neither depends on the URLs: each lookup runs in its own
     savepoint, so one that fails leaves the session usable and costs only that
     result its stored level. Links are built after, in a savepoint of their
     own, and a failure there nulls the links alone. An entry with no dataset
@@ -135,26 +156,42 @@ async def describe_results(
     """
     entries = {dataset.key: dataset for dataset in request.datasets}
     facts: dict[uuid.UUID, _DatasetFacts] = {}
+    port = get_processing_port()
     for result in results:
-        result.visibility = result.links = None
+        result.visibility = result.links = result.groups = None
         if result.action == "error":
             continue
         planned = _pending_visibility(entries, result)
+        planned_groups = result.planned_groups if _writes(result) else None
         if result.dataset_id is None:
-            result.visibility = planned or "private"
+            result.visibility = _with_groups(
+                planned or "private", planned_groups, False
+            )
+            result.groups = planned_groups or []
             continue
         try:
             async with db.begin_nested():
                 dataset = await _readable_dataset(db, result.dataset_id, user)
                 found = _facts(dataset) if dataset is not None else None
+                names = (
+                    await port.manifest_dataset_group_names(db, result.dataset_id, user)
+                    if found is not None
+                    else None
+                )
         except Exception:  # broad: a lookup failure must not fail the apply
             log.exception("manifest_visibility_failed")
             result.visibility = planned
+            result.groups = planned_groups
             continue
         if found is None:
             continue
         facts[result.dataset_id] = found
-        result.visibility = planned or found.stored_visibility
+        result.visibility = _with_groups(
+            planned or found.stored_visibility, planned_groups, result.role_granted
+        )
+        groups = planned_groups if planned_groups is not None else names
+        # Grants a private dataset keeps from before admit nobody.
+        result.groups = [] if groups and result.visibility == "private" else groups
     try:
         async with db.begin_nested():
             await _link(db, http_request, facts, results, maps)

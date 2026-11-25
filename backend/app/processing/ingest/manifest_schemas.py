@@ -7,6 +7,7 @@ from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
 from pydantic import (
+    AfterValidator,
     PrivateAttr,
     BaseModel,
     ConfigDict,
@@ -315,6 +316,35 @@ class ManifestAttribute(_ManifestBaseModel):
         return value
 
 
+MAX_MANIFEST_GROUPS = 100
+
+
+def _distinct_groups(groups: list[uuid.UUID] | None) -> list[uuid.UUID] | None:
+    # In one order, so the same groups give an entry the same fingerprint.
+    return None if groups is None else sorted(set(groups), key=str)
+
+
+ManifestGroups = Annotated[
+    list[uuid.UUID] | None,
+    Field(max_length=MAX_MANIFEST_GROUPS),
+    AfterValidator(_distinct_groups),
+]
+_GROUPS_DESCRIPTION = (
+    "Version 2 only. Share with exactly these groups, by id from "
+    "`capabilities.me.groups`; omitted keeps the current groups, and an "
+    "empty list removes them all. A dataset's new data is never published "
+    "while a group outside the list still has it shared: if such a group "
+    "can't be removed, the entry or its job fails and the dataset keeps its "
+    "data and groups. A private item with groups is restricted: "
+    "its owner, admins and the groups' members read it. A group that "
+    "doesn't exist, or that the caller isn't a member of (an admin may use "
+    "any), is left off with warning A058 and the publish goes ahead. A "
+    "publish key can't add groups to an existing private or restricted item, "
+    "which is warning A056 and keeps the item's groups; an item that "
+    "would then keep a group the list leaves out is refused with error A056."
+)
+
+
 class ManifestDataset(_ManifestBaseModel):
     key: ManifestDatasetKey
     title: NonEmptyString500
@@ -350,6 +380,7 @@ class ManifestDataset(_ManifestBaseModel):
             "text; a name matching no column is warning A092."
         ),
     )
+    groups: ManifestGroups = Field(default=None, description=_GROUPS_DESCRIPTION)
 
 
 class ManifestClient(_ManifestBaseModel):
@@ -537,6 +568,7 @@ class ManifestMap(_ManifestBaseModel):
             "out, the map's bookmarks are kept."
         ),
     )
+    groups: ManifestGroups = Field(default=None, description=_GROUPS_DESCRIPTION)
 
     _storable = field_validator("name", "description")(_storable_text)
 
@@ -711,11 +743,12 @@ class ManifestApplyRequest(_ManifestBaseModel):
         if "maps" in self.model_fields_set:
             raise ValueError("maps require manifest_version '2'")
         if "public_fallback" in self.model_fields_set or any(
-            {"visibility", "collection", "attributes"} & dataset.model_fields_set
+            {"visibility", "collection", "attributes", "groups"}
+            & dataset.model_fields_set
             for dataset in self.datasets
         ):
             raise ValueError(
-                "visibility, collection, attributes and public_fallback "
+                "visibility, collection, attributes, groups and public_fallback "
                 "require manifest_version '2'"
             )
         if any(
@@ -808,12 +841,30 @@ class ManifestApplyEntryResult(BaseModel):
             "caller can't read it. Left out in manifest version 1."
         ),
     )
+    groups: list[str] | None = Field(
+        default=None,
+        description=(
+            "Names of the groups the dataset is shared with once the entry's "
+            "job finishes. Empty for a private dataset, whose earlier grants "
+            "admit nobody until it is shared again. Null when the entry "
+            "failed or the caller can't see the dataset's groups. Left out "
+            "in manifest version 1."
+        ),
+    )
 
     # Set when the entry matched a job still queued or running, or a held
     # replacement, whose publication this entry answers for. Not part of the
     # response.
     _pending: bool = PrivateAttr(default=False)
     _pending_visibility: str | None = PrivateAttr(default=None)
+    # What a version 2 entry decided, once it has: the visibility its job
+    # writes (None keeps the dataset's), the group names it shares with (None
+    # keeps the dataset's groups), and whether a role grant keeps the dataset
+    # restricted without groups. Not part of the response.
+    _decided: bool = PrivateAttr(default=False)
+    _decided_visibility: str | None = PrivateAttr(default=None)
+    _planned_groups: list[str] | None = PrivateAttr(default=None)
+    _role_granted: bool = PrivateAttr(default=False)
 
     def mark_pending(self, visibility: str | None) -> None:
         """Record the visibility the matched job publishes."""
@@ -828,6 +879,31 @@ class ManifestApplyEntryResult(BaseModel):
     def pending_visibility(self) -> str | None:
         return self._pending_visibility
 
+    def decide(
+        self, visibility: str | None, groups: list[str] | None, role_granted: bool
+    ) -> None:
+        """Record what the entry decided its job publishes."""
+        self._decided = True
+        self._decided_visibility = visibility
+        self._planned_groups = groups
+        self._role_granted = role_granted
+
+    @property
+    def decided(self) -> bool:
+        return self._decided
+
+    @property
+    def decided_visibility(self) -> str | None:
+        return self._decided_visibility
+
+    @property
+    def planned_groups(self) -> list[str] | None:
+        return self._planned_groups
+
+    @property
+    def role_granted(self) -> bool:
+        return self._role_granted
+
     @model_serializer(mode="wrap")
     def _leave_out_absent_version_2_fields(
         self, handler: SerializerFunctionWrapHandler
@@ -837,7 +913,7 @@ class ManifestApplyEntryResult(BaseModel):
         data = handler(self)
         if self.messages is None:
             data.pop("messages", None)
-        for name in ("visibility", "links"):
+        for name in ("visibility", "links", "groups"):
             if name not in self.model_fields_set:
                 data.pop(name, None)
         return data

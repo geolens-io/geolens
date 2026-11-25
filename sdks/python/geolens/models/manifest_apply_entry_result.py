@@ -43,6 +43,9 @@ class ManifestApplyEntryResult:
             in manifest version 1.
         links (ManifestDatasetLinks | None | Unset): Links to the dataset. Null when there is no dataset yet or the
             caller can't read it. Left out in manifest version 1.
+        groups (list[str] | None | Unset): Names of the groups the dataset is shared with once the entry's job finishes.
+            Empty for a private dataset, whose earlier grants admit nobody until it is shared again. Null when the entry
+            failed or the caller can't see the dataset's groups. Left out in manifest version 1.
     """
 
     dataset_key: str
@@ -56,6 +59,7 @@ class ManifestApplyEntryResult:
     messages: list[ManifestMessage] | None | Unset = UNSET
     visibility: None | str | Unset = UNSET
     links: ManifestDatasetLinks | None | Unset = UNSET
+    groups: list[str] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
@@ -125,6 +129,15 @@ class ManifestApplyEntryResult:
         else:
             links = self.links
 
+        groups: list[str] | None | Unset
+        if isinstance(self.groups, Unset):
+            groups = UNSET
+        elif isinstance(self.groups, list):
+            groups = self.groups
+
+        else:
+            groups = self.groups
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -150,6 +163,8 @@ class ManifestApplyEntryResult:
             field_dict["visibility"] = visibility
         if links is not UNSET:
             field_dict["links"] = links
+        if groups is not UNSET:
+            field_dict["groups"] = groups
 
         return field_dict
 
@@ -270,6 +285,23 @@ class ManifestApplyEntryResult:
 
         links = _parse_links(d.pop("links", UNSET))
 
+        def _parse_groups(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                groups_type_0 = cast(list[str], data)
+
+                return groups_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        groups = _parse_groups(d.pop("groups", UNSET))
+
         manifest_apply_entry_result = cls(
             dataset_key=dataset_key,
             action=action,
@@ -282,6 +314,7 @@ class ManifestApplyEntryResult:
             messages=messages,
             visibility=visibility,
             links=links,
+            groups=groups,
         )
 
         manifest_apply_entry_result.additional_properties = d

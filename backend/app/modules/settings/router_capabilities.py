@@ -19,13 +19,15 @@ from app.core.persistent_config import (
 )
 from app.modules.auth.dependencies import get_optional_user
 from app.modules.auth.oauth.sign_in_methods import list_sign_in_methods
-from app.modules.auth.permissions import get_user_effective_permissions
+from app.modules.auth.groups import list_groups
+from app.modules.auth.permissions import get_user_effective_permissions, get_user_roles
+from app.modules.auth.schemas import GroupRef
 from app.modules.quota.service import remaining_dataset_quota
 from app.modules.settings.basemaps import list_public_basemaps
 from app.modules.settings.router_public import get_feature_flags
 from app.modules.settings.schemas import FeatureFlagsResponse
 from app.platform.extensions import get_workflow_extension
-from app.platform.request_credential import api_key_credential
+from app.platform.request_credential import api_key_credential, is_publish_key
 from app.processing.ingest.schemas import UploadConfigResponse
 from app.processing.ingest.upload_limits import (
     build_upload_config,
@@ -97,6 +99,15 @@ class CapabilitiesMe(BaseModel):
             "account that can create datasets."
         ),
     )
+    groups: list[GroupRef] = Field(
+        default_factory=list,
+        description=(
+            "The sharing groups the account may share with, by name: the ones "
+            "it belongs to, or every group for an admin. A publish key shares "
+            "as its owner without the admin role. The ids go in a publish "
+            "manifest's `groups`."
+        ),
+    )
 
 
 class CapabilitiesResponse(BaseModel):
@@ -149,6 +160,11 @@ async def _me(
 ) -> CapabilitiesMe:
     credential = api_key_credential(db)
     permissions = await get_user_effective_permissions(db, user)
+    # A publish key acts only on its owner's own objects, so it isn't admin.
+    is_admin = not is_publish_key(db) and "admin" in await get_user_roles(db, user)
+    groups, _ = await list_groups(
+        db, skip=0, limit=None, member_id=None if is_admin else user.id
+    )
     return CapabilitiesMe(
         username=user.username,
         permissions=sorted(cap for cap, granted in permissions.items() if granted),
@@ -166,6 +182,7 @@ async def _me(
             if permissions.get("create_layers")
             else []
         ),
+        groups=[GroupRef(id=group.id, name=group.name) for group in groups],
     )
 
 

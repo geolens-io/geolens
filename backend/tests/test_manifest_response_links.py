@@ -254,6 +254,8 @@ async def test_a_public_that_fell_back_reports_internal(test_db_session, clean_t
     entry.messages = [
         ManifestMessage(code="A020", severity="warning", message="fell back")
     ]
+    # What the entry decided, as reporting the entry records it.
+    entry.decide("internal", None, False)
 
     await manifest_links.describe_results(
         test_db_session, _request("public"), admin, _http_request(), [entry], None

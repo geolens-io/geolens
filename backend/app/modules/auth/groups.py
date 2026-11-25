@@ -57,10 +57,11 @@ async def list_groups(
     db: AsyncSession,
     *,
     skip: int,
-    limit: int,
+    limit: int | None,
     member_id: uuid.UUID | None = None,
 ) -> tuple[list[Group], int]:
-    """Groups by name and their total; only ``member_id``'s groups when given."""
+    """Groups by name and their total; only ``member_id``'s groups when
+    given. ``limit`` None lists them all."""
     stmt = select(Group)
     if member_id is not None:
         stmt = stmt.where(

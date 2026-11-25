@@ -8,10 +8,15 @@ from typing import Any
 from app.modules.catalog.maps.manifest_messages import (
     OTHER_REFUSAL,
     PUBLIC_REFUSED,
+    SHARING_KEPT,
     message,
     short,
 )
-from app.platform.record_audience import PublicationRefused, effective_publication
+from app.platform.record_audience import (
+    PublicationRefused,
+    audience_phrase,
+    effective_publication,
+)
 
 # A map has no record status: a public map is open to anonymous readers, as
 # a public and published dataset is.
@@ -69,7 +74,8 @@ def judge_visibility(
     messages, by the rules a manifest dataset's visibility follows.
 
     A public map that would show a dataset that isn't public and published is
-    refused as public is, and so falls back like it.
+    refused as public is, and so falls back like it. A publish key asking
+    for a wider level keeps the map's, with warning A056.
     """
     try:
         publication = effective_publication(
@@ -91,6 +97,19 @@ def judge_visibility(
                 )
             ]
         return None, [public_refused(entry, "error", refused.reason)]
+    if publication.widening_refused:
+        level = "internal" if entry.visibility == "public" else entry.visibility
+        return None, [
+            message(
+                SHARING_KEPT,
+                "warning",
+                f"A publish key can't share the map {short(entry.name)!r} with "
+                f"more people, so it keeps its current Sharing level: "
+                f"{audience_phrase(str(level))} won't see it unless they "
+                "already can.",
+                fix="Share the map in GeoLens, or sign in.",
+            )
+        ]
     visibility, fell_back_for = publication.visibility, publication.fell_back_for
     if (visibility or now or "private") == "public" and shows_non_public:
         if public_fallback != "internal":

@@ -28,7 +28,9 @@ from app.modules.catalog.authorization import (
 )
 from app.modules.catalog.group_sharing import (
     group_refs,
+    CURRENT_LEVEL,
     lock_share_groups,
+    refuse_publish_key_widening_share,
     refuse_unjoined_groups,
     unshare_sole_group_items,
     write_group_grants,
@@ -256,6 +258,7 @@ async def set_map_groups(
     confirm: Literal["share_datasets", "map_only"] | None = None,
     keep_current: bool = False,
     expected_updated_at: datetime | None = None,
+    audience_before: str | None = CURRENT_LEVEL,
 ) -> MapShareResult:
     """Share ``map_obj`` with exactly ``group_ids``, or with them besides its
     current groups when ``keep_current``.
@@ -271,7 +274,11 @@ async def set_map_groups(
     ``check_map_ownership``. Raises
     ``UnknownGroupsError`` for a group that doesn't exist or belongs to
     another tenant, ``GroupNotJoinedError`` when a non-admin adds a group
-    they aren't in, and ``LayersHiddenFromGroupsError`` for an unconfirmed
+    they aren't in, 403 ``api_key_scope`` when a publish key's change lets
+    more people read the map than at ``audience_before`` (its stored
+    visibility, the level before a publish that just wrote one, or None for
+    a map this transaction created), and ``LayersHiddenFromGroupsError`` for
+    an unconfirmed
     gap. Dataset shares raise as ``set_dataset_groups`` does. Does not commit.
     """
     wanted = set(group_ids)
@@ -292,6 +299,12 @@ async def set_map_groups(
         visibility = RESTRICTED_MAP_VISIBILITY
     elif visibility == RESTRICTED_MAP_VISIBILITY and not wanted:
         visibility = "private"
+    refuse_publish_key_widening_share(
+        session,
+        previous if audience_before == CURRENT_LEVEL else audience_before,
+        visibility,
+        added,
+    )
     if not (added or removed) and visibility == previous:
         return MapShareResult(previous=None, group_ids=sorted(wanted))
 
