@@ -19,6 +19,7 @@ and releases use semantic versioning.
 - `geolens apply` accepts manifest version 2 (preview). It uploads local files first, and reports maps, links and visibility. `geolens init --manifest-version 2` writes a version 2 template, and `geolens schema --manifest-version 2` prints its schema.
 
 ### Changed
+- The catalog's Type filter shows each type's icon, so the Compact view's icons have a key.
 - The reload prompt shown after an upgrade now says the site was updated, instead of announcing a new version of GeoLens.
 - `PUT /maps/{id}` with a view field or `basemap_style` waits at most two seconds for a map another change holds, then answers 409, as layer saves already do; it used to wait for the other change to finish.
 - A collection's update time, shown on its search card and used by the Collections page's "Last updated" sort, now moves when datasets are added to or removed from it, and just after a member dataset is deleted.
