@@ -571,6 +571,11 @@ async def _plan_sharing(
     )
     messages.extend(group_messages(entry, plan.share))
     visibility = with_groups(plan.write_visibility or now or "private", groups)
+    shares = plan.share is not None and not plan.share.unchanged
+    if now is not None and plan.write_visibility in (None, now) and not shares:
+        # Nothing writes the level or the grants, so a private map stays
+        # private whatever grants it kept from before.
+        visibility = now
     if request.dry_run and widens_audience(
         now, visibility, added_groups=bool(plan.share and plan.share.added)
     ):

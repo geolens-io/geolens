@@ -286,7 +286,11 @@ async def apply_manifest_dataset_groups(
                     audience_before=audience_before,
                 )
     except Exception as exc:  # broad: a refused or raced share leaves the groups as they were and must not fail the publish here
-        log.warning("manifest_dataset_groups_refused", dataset_id=str(dataset.id))
+        log.warning(
+            "manifest_dataset_groups_refused",
+            dataset_id=str(dataset.id),
+            error=type(exc).__name__,
+        )
         return plan, _refusal_sentence(exc)
     return plan, None
 

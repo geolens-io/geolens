@@ -11,6 +11,7 @@ import uuid
 from unittest.mock import AsyncMock, patch
 
 import pytest
+import structlog
 from httpx import AsyncClient
 from pydantic import ValidationError
 from sqlalchemy import delete, func, select, update
@@ -402,6 +403,42 @@ async def test_a_publish_keys_map_reaches_no_group_its_entry_leaves_out(
     assert stored.visibility == "restricted"
 
 
+@pytest.mark.parametrize("held_back", [False, True], ids=["omitted", "held-back"])
+async def test_a_private_map_that_kept_a_grant_is_reported_private(
+    client, admin_auth_header, test_db_session, clean_tables, held_back
+):
+    """The map was made private in GeoLens and kept its grant. An entry that
+    omits ``groups``, or a publish key's that may not wake the grant, writes
+    neither the level nor the grants, so the dry run says private as the
+    apply does."""
+    _, editor = await _editor(client, test_db_session, admin_auth_header)
+    dataset_id = await _dataset(test_db_session, editor.id)
+    kept = await _group(test_db_session, editor.id)
+    layer = _layer(dataset_id=str(dataset_id))
+    key = "groups-map-kept-grant"
+    [created] = (
+        await _apply(test_db_session, editor, _map(key, layer, groups=[str(kept.id)]))
+    ).maps
+    await _commit(
+        update(Map).where(Map.id == created.map_id).values(visibility="private")
+    )
+    entry = _map(key, layer, **({"groups": [str(kept.id)]} if held_back else {}))
+
+    results = []
+    for dry_run in (True, False):
+        if held_back:
+            with _publish_key(test_db_session):
+                response = await _apply(test_db_session, editor, entry, dry_run=dry_run)
+        else:
+            response = await _apply(test_db_session, editor, entry, dry_run=dry_run)
+        [result] = response.maps
+        results.append((result.action, result.visibility, _codes(result)))
+
+    assert results == [("update", "private", ["A056"] if held_back else [])] * 2
+    assert (await _map_row(test_db_session, created.map_id)).visibility == "private"
+    assert await _map_grants(test_db_session, created.map_id) == {kept.id}
+
+
 # ---------------------------------------------------------------------------
 # Datasets
 # ---------------------------------------------------------------------------
@@ -447,12 +484,20 @@ async def test_a_refused_share_publishes_the_dataset_with_a_job_warning(
     [result] = (await _apply_entries(test_db_session, editor, request))[0].results
     job = await test_db_session.get(IngestJob, result.job_id)
 
-    with patch(
-        "app.modules.catalog.datasets.domain.service_sharing.write_group_grants",
-        new=AsyncMock(side_effect=RuntimeError("raced")),
+    with (
+        patch(
+            "app.modules.catalog.datasets.domain.service_sharing.write_group_grants",
+            new=AsyncMock(side_effect=RuntimeError("raced")),
+        ),
+        structlog.testing.capture_logs() as logs,
     ):
         dataset = await _finalize(test_db_session, editor, job)
 
+    assert [
+        entry["error"]
+        for entry in logs
+        if entry["event"] == "manifest_dataset_groups_refused"
+    ] == ["RuntimeError"]
     assert (dataset.record.visibility, dataset.tile_cache_version) == ("private", 1)
     assert await _dataset_grants(test_db_session, dataset.id) == set()
     assert job.user_metadata["warnings"] == [
@@ -594,6 +639,31 @@ async def test_a_dry_run_warns_a057_only_when_more_people_will_read_the_dataset(
         cause = "marks it published" if visibility is None else "level changed"
         assert cause in preview.messages[0].message
     assert await _record(test_db_session, dataset_id) == (level, "draft")
+
+
+async def test_a_dry_run_names_added_groups_as_what_widens_a_restricted_dataset(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    key = "groups-dry-added"
+    dataset_id, kept = await _restricted_to(test_db_session, user, key)
+    added = await _group(test_db_session, user.id)
+    entry = await _uploaded(
+        client, admin_auth_header, key, groups=[str(kept.id), str(added.id)]
+    )
+
+    [preview] = (
+        await _apply_entries(
+            test_db_session, user, _entries_request(entry, dry_run=True)
+        )
+    )[0].results
+
+    assert (preview.action, _codes(preview)) == ("update", ["A057"])
+    [warning] = preview.messages
+    assert "because this publish adds groups to it" in warning.message
+    assert warning.fix == "Continue, or keep its current groups."
+    assert await _dataset_grants(test_db_session, dataset_id) == {kept.id}
 
 
 async def test_a_dataset_made_private_reports_no_groups(

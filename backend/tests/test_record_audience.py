@@ -110,6 +110,13 @@ CASES = [
         ("public", "published", "internal", False, True, ("public", "draft")),
         ("internal", "key"),
     ),
+    # A key naming public without a fallback is a refused public, not a
+    # widening that keeps the level.
+    (
+        "update-key-public-no-fallback",
+        ("public", "published", None, False, True, ("private", "published")),
+        "key",
+    ),
     # The may-set flag never lets a key name public.
     (
         "update-key-public-allowed-flag",

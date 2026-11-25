@@ -1326,7 +1326,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # history event, the share link and the result's visibility, groups and
     # removed layers share the row lock the apply holds, which is also where its
     # groups are planned.
-    "backend/app/modules/catalog/maps/manifest_apply.py": 1124,
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1129,
     # The publish manifest's request and response models in one place, which
     # the vendored wire schema, the contract snapshot and both SDKs are held to.
     "backend/app/processing/ingest/manifest_schemas.py": 1026,

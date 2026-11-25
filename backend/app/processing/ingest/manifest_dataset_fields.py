@@ -375,12 +375,15 @@ def note_more_visible(
         added_groups=fields.groups_added,
     ):
         return
-    if widens_audience(before, after, added_groups=fields.groups_added):
+    if widens_audience(before, after):
         cause = "its Sharing level changed in this publish"
         fix = "Continue, or keep the current level."
-    else:
+    elif record.record_status != "published":
         cause = "this publish marks it published"
         fix = "Continue, or keep its current status."
+    else:
+        cause = "this publish adds groups to it"
+        fix = "Continue, or keep its current groups."
     audience = audience_phrase(after, fields.group_names or [])
     if after == "restricted" and not fields.group_names:
         audience = "the groups and roles it is shared with"

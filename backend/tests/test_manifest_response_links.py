@@ -369,6 +369,26 @@ async def test_a_failed_lookup_keeps_the_levels_of_the_other_results(
     assert readable.links is not None
 
 
+async def test_a_failed_lookup_reports_the_level_the_planned_groups_make(
+    test_db_session, clean_tables, monkeypatch
+):
+    admin = await _admin(test_db_session)
+    entry = _entry(uuid.uuid4())
+    entry.mark_pending("private")
+    entry.decide("private", ["Team"], False)
+
+    async def broken(_self, db, _dataset_id):
+        await db.execute(text("SELECT * FROM catalog.no_such_table"))
+
+    monkeypatch.setattr(type(get_processing_port()), "get_dataset", broken)
+
+    await manifest_links.describe_results(
+        test_db_session, _request(), admin, _http_request(), [entry], None
+    )
+
+    assert (entry.visibility, entry.groups) == ("restricted", ["Team"])
+
+
 @pytest.mark.parametrize(
     "action,pending,has_tiles",
     [

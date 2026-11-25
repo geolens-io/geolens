@@ -180,7 +180,9 @@ async def describe_results(
                 )
         except Exception:  # broad: a lookup failure must not fail the apply
             log.exception("manifest_visibility_failed")
-            result.visibility = planned
+            result.visibility = planned and _with_groups(
+                planned, planned_groups, result.role_granted
+            )
             result.groups = planned_groups
             continue
         if found is None:
