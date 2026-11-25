@@ -252,9 +252,10 @@ describe('PublicViewerPage', () => {
       ['an embed inside a frame', '/m/share-token?embed=true', true, true],
       ['an embed opened directly', '/m/share-token?embed=true', false, false],
       ['a share link inside a frame', '/m/share-token', true, false],
-    ])('%s', (_name, route, framed, expected) => {
+    ])('%s', async (_name, route, framed, expected) => {
       framedMock.framed = framed;
       renderPage(route);
+      await screen.findByTestId('viewer-map');
       expect(viewerMapMock.props?.cooperativeGestures).toBe(expected);
     });
   });
