@@ -1345,8 +1345,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the records of an admin's raw seed source, restricted public intent and a
     # publish key, where a version 2 entry's publication and groups are decided and
     # a held or in-flight job is reused, the updates a publish key may not make,
-    # and the maps section's results beside the datasets'.
-    "backend/app/processing/ingest/manifest_service.py": 1372,
+    # the maps section's results beside the datasets', and quota admission that
+    # credits a replacement with the bytes it supersedes.
+    "backend/app/processing/ingest/manifest_service.py": 1384,
     # One map's check, plan and write: the styling decision, layer matching, the
     # history event, the share link and the result's visibility, groups and
     # removed layers share the row lock the apply holds, which is also where its

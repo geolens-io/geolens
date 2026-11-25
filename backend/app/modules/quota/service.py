@@ -268,6 +268,33 @@ async def check_dataset_count_quota(
     await enforce_limit(request, "dataset_count", used + 1)
 
 
+async def replacement_credit_bytes(db: AsyncSession, dataset_id: uuid.UUID) -> int:
+    """Bytes a replacement of ``dataset_id`` supersedes, for a door's byte check.
+
+    The ``data`` row in ``dataset_assets``, not the raster asset (a
+    STAC-imported dataset has an asset but no counted row, and crediting
+    that would admit an overshoot). Archived originals are NOT credited: a
+    replacement doesn't supersede them.
+
+    Nor is a COG a VRT may still read: the publish keeps it, charged, so
+    crediting it here could admit a replacement the publish then refuses.
+    The reader test is the publish's own, asked through the catalog port. A
+    reader that appears after this check is seen only by the publish.
+    """
+    counted = await db.scalar(
+        text(
+            "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
+            "FROM catalog.dataset_assets "
+            "WHERE dataset_id = :dataset_id AND key = 'data'"
+        ),
+        {"dataset_id": dataset_id},
+    )
+    credited = int(counted or 0)
+    if credited and await get_catalog_port().cog_may_be_read(db, dataset_id):
+        return 0
+    return credited
+
+
 async def check_replacement_quota(
     db: AsyncSession,
     owner_id: uuid.UUID | None,
@@ -275,21 +302,17 @@ async def check_replacement_quota(
     request: Request,
     *,
     dataset_id: uuid.UUID,
-) -> None:
+    admitted: int = 0,
+) -> int:
     """Admit a REPLACEMENT at the door, where ``check_upload_quota`` cannot.
 
     ``check_upload_quota`` is creation-shaped: it charges the incoming file
     on top of existing usage. A replacement creates no dataset, so there is
     no count check, and the byte check credits what the replacement
-    SUPERSEDES: the ``data`` row in ``dataset_assets``, not the raster asset
-    (a STAC-imported dataset has an asset but no counted row, and crediting
-    that would admit an overshoot).
-    Archived originals are NOT credited: a replacement doesn't supersede them.
+    supersedes (``replacement_credit_bytes``). Returns that credit.
 
-    Nor is a COG a VRT may still read: the publish keeps it, charged, so
-    crediting it here could admit a replacement the publish then refuses.
-    The reader test is the publish's own, asked through the catalog port. A
-    reader that appears after this check is seen only by the publish.
+    ``admitted`` is the bytes this request has already admitted that the
+    catalog does not count yet: the earlier entries of one manifest.
 
     Deliberately an EARLY, approximate bound: the door sees the uploaded
     file, not the (possibly larger) COG it converts into. The authoritative
@@ -304,24 +327,15 @@ async def check_replacement_quota(
     docstring's exemption policy).
     """
     usage = await get_user_quota_usage(db, owner_id)
-    counted = await db.scalar(
-        text(
-            "SELECT COALESCE(SUM(size_bytes), 0)::bigint "
-            "FROM catalog.dataset_assets "
-            "WHERE dataset_id = :dataset_id AND key = 'data'"
-        ),
-        {"dataset_id": dataset_id},
-    )
-    credited = int(counted or 0)
-    if credited and await get_catalog_port().cog_may_be_read(db, dataset_id):
-        credited = 0
-    projected = usage.bytes_used - credited + incoming_bytes
+    credited = await replacement_credit_bytes(db, dataset_id)
+    used = usage.bytes_used + admitted
+    projected = used - credited + incoming_bytes
 
     if usage.storage_cap > 0 and projected > usage.storage_cap:
         raise HTTPException(
             status_code=status.HTTP_413_CONTENT_TOO_LARGE,
             detail=(
-                f"Storage quota exceeded: used {usage.bytes_used} of "
+                f"Storage quota exceeded: used {used} of "
                 f"{usage.storage_cap} bytes (replacing {credited} "
                 f"bytes with {incoming_bytes} bytes)"
             ),
@@ -329,6 +343,7 @@ async def check_replacement_quota(
 
     # No dataset_count seam call: a replacement does not create one.
     await enforce_limit(request, "storage_bytes", projected)
+    return credited
 
 
 class DatasetQuotaExceededError(Exception):

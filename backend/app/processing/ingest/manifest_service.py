@@ -447,7 +447,7 @@ async def _preflight_quota(
     db: AsyncSession,
     user: Identity,
     *,
-    creates_dataset: bool,
+    replaces: uuid.UUID | None,
     quota: _ManifestQuotaReservation,
 ) -> int | None:
     """Refuse an over-quota caller, and derive the streaming byte budget.
@@ -456,26 +456,26 @@ async def _preflight_quota(
     row behind and its upload unclaimed, for the same apply to use once the
     account has room. The same snapshot supplies a hard byte budget for
     streaming, so a caller near quota can't force a full download just to
-    discover it can't be admitted. Returns None when uncapped.
+    discover it can't be admitted. A replacement's budget counts the credit
+    its admission takes. Returns None when uncapped.
     """
     from app.modules.quota.service import (
         check_dataset_count_quota,
         get_user_quota_usage,
+        replacement_credit_bytes,
     )
 
-    if creates_dataset:
+    if replaces is None:
         await check_dataset_count_quota(
             db, user.id, None, admitted=quota.datasets_admitted
         )
     usage = await get_user_quota_usage(db, user.id)
-
-    return (
-        max(
-            usage.storage_cap - usage.bytes_used - quota.bytes_admitted,
-            0,
-        )
-        if usage.storage_cap > 0
-        else None
+    if usage.storage_cap <= 0:
+        return None
+    credited = 0 if replaces is None else await replacement_credit_bytes(db, replaces)
+    return max(
+        usage.storage_cap - usage.bytes_used - quota.bytes_admitted + credited,
+        0,
     )
 
 
@@ -486,13 +486,39 @@ async def _admit_staged_source(
     request: Request,
     *,
     file_path: str,
-    creates_dataset: bool,
+    replaces: uuid.UUID | None,
     quota: _ManifestQuotaReservation,
 ) -> _StagedManifestSource:
-    """Size a staged manifest source and admit it against live quota."""
-    from app.modules.quota.service import get_user_quota_usage
+    """Size a staged manifest source and admit it against live quota.
+
+    A replacement takes the re-upload doors' credit. The caller stands for
+    the owner: an update reaches only the caller's own dataset, rechecked
+    under its row lock before the bind commits.
+    """
+    # Lazy import preserves the processing -> modules layering boundary.
+    from app.modules.quota.service import (
+        check_dataset_count_quota,
+        check_replacement_quota,
+        check_upload_quota,
+        get_user_quota_usage,
+    )
 
     incoming_bytes = await _manifest_source_size_bytes(prepared, file_path)
+    if replaces is not None:
+        credited = await check_replacement_quota(
+            db,
+            user.id,
+            incoming_bytes,
+            request,
+            dataset_id=replaces,
+            admitted=quota.bytes_admitted,
+        )
+        # A smaller file frees nothing until its job publishes, so it lends
+        # no room to the manifest's later entries.
+        charged = max(0, incoming_bytes - credited)
+        quota.reserve(incoming_bytes=charged, creates_dataset=False)
+        return _StagedManifestSource(file_path=file_path, incoming_bytes=charged)
+
     fresh_usage = await get_user_quota_usage(db, user.id)
     projected_bytes = fresh_usage.bytes_used + quota.bytes_admitted + incoming_bytes
     if fresh_usage.storage_cap > 0 and projected_bytes > fresh_usage.storage_cap:
@@ -505,29 +531,16 @@ async def _admit_staged_source(
             ),
         )
 
-    # Lazy import preserves the processing -> modules layering boundary.
-    if creates_dataset:
-        from app.modules.quota.service import (
-            check_dataset_count_quota,
-            check_upload_quota,
-        )
-
-        await check_upload_quota(db, user.id, incoming_bytes, request)
-        # Asked again: staging can take as long as a download, and the
-        # preflight's answer is that old.
-        await check_dataset_count_quota(
-            db, user.id, request, admitted=quota.datasets_admitted
-        )
+    await check_upload_quota(db, user.id, incoming_bytes, request)
+    # Asked again: staging can take as long as a download, and the
+    # preflight's answer is that old.
+    await check_dataset_count_quota(
+        db, user.id, request, admitted=quota.datasets_admitted
+    )
     await enforce_limit(request, "storage_bytes", projected_bytes)
 
-    quota.reserve(
-        incoming_bytes=incoming_bytes,
-        creates_dataset=creates_dataset,
-    )
-    return _StagedManifestSource(
-        file_path=file_path,
-        incoming_bytes=incoming_bytes,
-    )
+    quota.reserve(incoming_bytes=incoming_bytes, creates_dataset=True)
+    return _StagedManifestSource(file_path=file_path, incoming_bytes=incoming_bytes)
 
 
 # One wording for every refusal of a key the caller doesn't own, so the answer
@@ -838,11 +851,10 @@ async def _reserve_entry(
     The row goes in before the fetch, so a retry during the download
     sees `skip_in_flight`. The commit releases the key lock and the connection.
     """
-    creates_dataset = dataset_id is None
     quota_byte_limit = await _preflight_quota(
         db,
         user,
-        creates_dataset=creates_dataset,
+        replaces=dataset_id,
         quota=quota,
     )
     max_size_bytes = await _upload_max_size_bytes(db)
@@ -1082,7 +1094,7 @@ async def _finalize_reserved_entry(
                     user,
                     request,
                     file_path=file_path,
-                    creates_dataset=reserved.creates_dataset,
+                    replaces=reserved.dataset_id,
                     quota=quota,
                 )
                 admitted = True
@@ -1271,7 +1283,7 @@ async def _reserve_or_settle_entry(
             # The apply's own check, so a preview never promises a dataset
             # the apply would refuse. The ledger counts this manifest's
             # earlier creates.
-            await _preflight_quota(db, user, creates_dataset=True, quota=quota)
+            await _preflight_quota(db, user, replaces=None, quota=quota)
             quota.reserve(incoming_bytes=0, creates_dataset=True)
             result = ManifestApplyEntryResult(
                 dataset_key=dataset.key,
