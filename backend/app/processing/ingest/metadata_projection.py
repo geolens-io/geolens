@@ -47,6 +47,7 @@ async def add_4326_column(
     *,
     schema: str = "data",
     generated: bool = False,
+    fill: bool = True,
 ) -> None:
     """Add a geom_4326 column with WGS84 geometry and spatial index.
 
@@ -80,7 +81,9 @@ async def add_4326_column(
     values are the same, but later out-of-band writes to ``geom`` need a
     refresh to show, as they did before this change. Registration passes
     this flag; ingest staging and analysis outputs keep the plain column
-    their feature-edit writes expect to update directly.
+    their feature-edit writes expect to update directly. ``fill=False``
+    makes the plain path add the column without the full-table UPDATE, for
+    a caller that fills it conditionally itself.
     """
     tref = _qtable(table_name, schema=schema)
 
@@ -130,8 +133,9 @@ async def add_4326_column(
             )
         )
 
-        # codeql[py/sql-injection] table via _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
-        await session.execute(text(f"UPDATE {tref} SET geom_4326 = {rewrite_expr}"))
+        if fill:
+            # codeql[py/sql-injection] table via _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
+            await session.execute(text(f"UPDATE {tref} SET geom_4326 = {rewrite_expr}"))
 
     await ensure_geom_4326_gist_index(session, table_name, schema=schema)
 
@@ -283,7 +287,12 @@ async def rederive_geom_4326(
         # every refresh. Registration's helper decides generated or plain, so
         # a repaired table ends up shaped like a registered one.
         await add_4326_column(
-            session, table_name, source_srid, schema=schema, generated=True
+            session,
+            table_name,
+            source_srid,
+            schema=schema,
+            generated=True,
+            fill=False,
         )
         added = await probe_geom_4326(session, table_name, schema=schema)
         if added.render_generated:
@@ -298,7 +307,12 @@ async def rederive_geom_4326(
             f"      ST_AsBinary({rewrite_expr})"
         )
     )
-    index_added = await ensure_geom_4326_gist_index(session, table_name, schema=schema)
+    # A column restored above took its index with it when it was dropped, and
+    # add_4326_column has just created it.
+    index_added = (
+        await ensure_geom_4326_gist_index(session, table_name, schema=schema)
+        or not state.has_render
+    )
     return Geom4326Repair(
         REPAIR_APPLIED,
         not state.has_render,
