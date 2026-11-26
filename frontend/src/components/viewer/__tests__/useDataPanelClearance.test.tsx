@@ -52,4 +52,12 @@ describe('useDataPanelClearance', () => {
     rerender(<div id="map-viewport" />);
     expect(viewport(container).style.getPropertyValue('--viewer-data-panel-height')).toBe('0px');
   });
+
+  it('keeps a retained map\'s table clearance when the map shown after it closes', () => {
+    const { container, rerender } = render(
+      <div id="map-viewport"><Slot key="a" height={240} /><Slot key="b" height={280} /></div>,
+    );
+    rerender(<div id="map-viewport"><Slot key="a" height={240} /></div>);
+    expect(viewport(container).style.getPropertyValue('--viewer-data-panel-height')).toBe('240px');
+  });
 });
