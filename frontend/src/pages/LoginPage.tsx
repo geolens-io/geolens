@@ -161,7 +161,8 @@ export function LoginPage() {
   useEffect(() => {
     if (oauthError) {
       toast.error(getOAuthErrorMessage(oauthError, t));
-      window.history.replaceState(window.history.state, '', '/login');
+      // Drop the consumed error from the entry, keeping the router's idx and key.
+      window.history.replaceState({ ...window.history.state, usr: null }, '', '/login');
     }
   }, [oauthError, t]);
 
