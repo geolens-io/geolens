@@ -477,6 +477,25 @@ leave it out only when migrations run as the provider admin. `psql` itself reads
 `PGSSLMODE` and `PGSSLROOTCERT`; drop them and the certificate mount for a
 database that doesn't require TLS.
 
+When `GEOLENS_MIGRATION_DB_ROLE` names a login other than the admin, that login
+needs `USAGE, CREATE` on the `catalog` schema before the first run: the role
+reconciler creates `catalog.alembic_version` as that login, and `init-db.sh`
+creates `catalog` as the admin without granting it. Without the grant the run
+stops with `permission denied for schema catalog`. Grant it as the admin, from
+the same image if you have no other `psql` (the first statement covers a
+database that has no `catalog` schema yet), with the same TLS options as the
+bootstrap, then run the bootstrap; the `data` schema needs no grant:
+
+```bash
+docker run --rm --entrypoint psql -e PGPASSWORD \
+  ghcr.io/geolens-io/geolens-backup:<version> \
+  -X -v ON_ERROR_STOP=1 -h <host> -U <admin> -d geolens \
+  -c 'CREATE SCHEMA IF NOT EXISTS catalog' \
+  -c 'GRANT USAGE, CREATE ON SCHEMA catalog TO "<migration-login>"'
+```
+
+The grant is idempotent, and re-running the bootstrap after it changes nothing.
+
 `postgis` and `vector` are not PostgreSQL "trusted" extensions, so the
 connecting identity needs superuser-equivalent authority (`rds_superuser`,
 `cloudsqlsuperuser`); `pg_trgm` and `unaccent` are trusted and need only CREATE
