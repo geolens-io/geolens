@@ -37,6 +37,7 @@ from app.modules.catalog.datasets.domain.service_lifecycle import (
 )
 from app.modules.catalog.datasets.domain.service_metadata import (
     compute_schema_diff,
+    dataset_publication_refusal,
     defer_metadata_embedding,
     get_attribute,
     list_attributes,
@@ -140,6 +141,7 @@ __all__ = [
     "set_dataset_groups",
     "manifest_dataset_group_names",
     "apply_manifest_dataset_groups",
+    "dataset_publication_refusal",
     "dataset_share_refusal",
     "plan_manifest_dataset_groups",
     "resolve_source_feature_count",

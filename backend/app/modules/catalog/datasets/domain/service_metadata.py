@@ -225,11 +225,13 @@ async def refuse_stranding_shared_maps(
     record_status: str | None = None,
     regrant: Callable[[], Awaitable[object]] | None = None,
     group_ids: Collection[uuid.UUID] | None = None,
+    group_ids_before: Collection[uuid.UUID] | None = None,
 ) -> None:
     """Raise ValueError when moving the record to ``visibility`` and
     ``record_status`` (None keeps the current one) strands one of the owner's
     shared maps. ``regrant`` changes the grants between the two audience reads;
-    ``group_ids`` states the group grants the change leaves instead.
+    ``group_ids`` and ``group_ids_before`` state the group grants after and
+    before instead (None reads the stored ones).
     """
     from app.modules.catalog.maps.service import (
         find_maps_broken_by_dataset_visibility,
@@ -247,11 +249,39 @@ async def refuse_stranding_shared_maps(
         owner_id=record.created_by,
         regrant=regrant,
         group_ids=group_ids,
+        group_ids_before=group_ids_before,
     )
     if broken_maps:
         unpublishes = record.record_status == "published" and new_status != "published"
         action = "unpublish" if unpublishes else "restrict_visibility"
         raise DatasetInSharedMapsError(action=action, shared_maps=broken_maps)
+
+
+async def dataset_publication_refusal(
+    session: AsyncSession,
+    dataset: Dataset,
+    *,
+    visibility: str | None,
+    record_status: str | None,
+    group_ids: Collection[uuid.UUID] | None,
+) -> str | None:
+    """The sentence a metadata edit moving ``dataset`` to ``visibility`` and
+    ``record_status`` (None keeps its own) is refused with for stranding one
+    of its owner's shared maps, while its group grants are ``group_ids``
+    (None keeps the stored ones); None when it isn't. Writes nothing."""
+    try:
+        await refuse_stranding_shared_maps(
+            session,
+            dataset.record,
+            dataset.id,
+            visibility=visibility,
+            record_status=record_status,
+            group_ids=group_ids,
+            group_ids_before=group_ids,
+        )
+    except DatasetInSharedMapsError as exc:
+        return str(exc)
+    return None
 
 
 async def _apply_visibility_change(

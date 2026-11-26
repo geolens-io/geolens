@@ -198,6 +198,9 @@ logger = logging.getLogger(__name__)
 # optional keyword-only ``record_status``, and ``ManifestGroupsPlan`` gained
 # ``refused``, default None, which a job's plan sets when its write would
 # strand one of the owner's shared maps at that ``level`` and status.
+# ProcessingPort gained the required ``manifest_publication_refusal``, which
+# judges a manifest job's publication by the same guard on the group grants
+# its share leaves.
 EXTENSION_API_VERSION: int = 29
 
 

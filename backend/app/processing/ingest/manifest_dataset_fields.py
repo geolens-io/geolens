@@ -172,6 +172,7 @@ class ManifestEntryFields:
     # above.
     job_refusal: ManifestMessage | None = None
     job_refused_because: str | None = None
+    job_refused_publishing: bool = False
     job_held_back: list[ManifestMessage] | None = None
 
     @classmethod
@@ -409,13 +410,16 @@ async def settle_job_groups(
     dataset is held back whole. Both are judged at the visibility and status
     the dataset has when the job shares it (``level_at_share``), and a write
     the shared-map guard would refuse there keeps the dataset's groups, as
-    the worker's refused share does. Its
-    replacement is then held to the entry's groups as
-    ``hold_to_entry_groups`` holds it. A job creating its dataset shares
+    the worker's refused share does. The job's publication is judged by
+    the same guard, in the order the job writes the two
+    (``shares_first``), on the grants the earlier write leaves; a refusal
+    there fails the job. Its replacement is then held to the entry's groups
+    as ``hold_to_entry_groups`` holds it. A job creating its dataset shares
     what is planned now.
     """
     if existing is None:
         return
+    shared_groups = None
     stored = _stored_share(job_metadata)
     if isinstance(stored, GroupShare):
         share = stored
@@ -452,6 +456,7 @@ async def settle_job_groups(
             else:
                 fields.groups, fields.group_names = plan.group_ids, plan.names
             left_with = _left_with(plan)
+            shared_groups = plan.group_ids
             if plan.held_back:
                 fields.job_held_back.append(
                     _held_back_message(
@@ -461,10 +466,31 @@ async def settle_job_groups(
                         kept=plan.unchanged,
                     )
                 )
+    # The job's other write, its publication, comes before the share or,
+    # for a share written first, after it and on the grants it left.
+    publication, grants = job_metadata, None
+    if shares_first(job_metadata, job_metadata):
+        publication = publication_after_share(job_metadata, share)
+        if share.shared:
+            grants = shared_groups
+    refusal = await get_processing_port().manifest_publication_refusal(
+        db,
+        existing.id,
+        visibility=publication.get("visibility"),
+        record_status=publication.get("record_status"),
+        group_ids=grants,
+    )
     held_to = _groups_held_to(job_metadata)
-    if held_to is not None and left_with - held_to[0]:
+    if refusal is not None:
+        fields.job_refused_publishing = True
+        fields.job_refused_because = refusal
+    elif held_to is not None and left_with - held_to[0]:
         fields.job_refused_because = held_to[1] or share.kept_because
-        fields.job_refusal = _job_refused_message(dataset, fields.job_refused_because)
+    else:
+        return
+    fields.job_refusal = _job_refused_message(
+        dataset, fields.job_refused_because, publishing=refusal is not None
+    )
 
 
 async def refuse_a_share_its_job_refuses(
@@ -476,10 +502,11 @@ async def refuse_a_share_its_job_refuses(
     job_metadata: dict,
 ) -> None:
     """Refuse, with error A056, a replacement about to be queued whose job,
-    storing ``job_metadata``, would be refused for keeping a group the entry
-    leaves out, judged by ``settle_job_groups`` as a queued job is. Nothing
-    of ``fields`` changes: the job plans its own share when it runs."""
-    if fields is None or existing is None or fields.groups is None:
+    storing ``job_metadata``, would be refused, by the guard on its
+    publication or for keeping a group the entry leaves out, judged by
+    ``settle_job_groups`` as a queued job is. Nothing of ``fields`` changes:
+    the job plans its own share when it runs."""
+    if fields is None or existing is None:
         return
     trial = replace(fields, messages=[])
     await settle_job_groups(db, user, dataset, trial, existing, job_metadata)
@@ -487,43 +514,52 @@ async def refuse_a_share_its_job_refuses(
         return
     raise ManifestEntryRefused(
         [
-            ManifestMessage(
-                code=SHARING_KEPT,
-                severity="error",
-                message=" ".join(
-                    part
-                    for part in (
-                        f"{dataset.title!r} was not updated: its dataset is "
-                        "shared with groups this publish leaves out, which "
-                        "would read the new data.",
-                        trial.job_refused_because,
-                    )
-                    if part
-                ),
-                fix="Change the dataset's groups in GeoLens, or publish with "
-                "the groups it has now.",
+            _job_refused_message(
+                dataset,
+                trial.job_refused_because,
+                publishing=trial.job_refused_publishing,
+                queued=False,
             )
         ]
     )
 
 
 def _job_refused_message(
-    dataset: ManifestDataset, because: str | None
+    dataset: ManifestDataset,
+    because: str | None,
+    *,
+    publishing: bool,
+    queued: bool = True,
 ) -> ManifestMessage:
+    """Error A056 for an entry whose job will be refused: by the guard on its
+    publication (``publishing``, ``because`` being the guard's sentence), or
+    for keeping a group the entry leaves out. ``queued`` says the job is
+    already queued or held, rather than about to be."""
+    if queued:
+        lead = (
+            f"The publish of {dataset.title!r} already queued or held will "
+            "not replace its data:"
+        )
+        fix = "before that publish runs."
+    else:
+        lead = f"{dataset.title!r} was not updated:"
+        fix = "or publish with what it has now."
+    if publishing:
+        parts = (lead, because)
+        fix = f"Change the dataset's level or the maps that show it in GeoLens, {fix}"
+    else:
+        parts = (
+            lead,
+            "the dataset is shared with groups this entry leaves out, which "
+            "would read the new data.",
+            because,
+        )
+        fix = f"Change the dataset's groups in GeoLens, {fix}"
     return ManifestMessage(
         code=SHARING_KEPT,
         severity="error",
-        message=" ".join(
-            part
-            for part in (
-                f"The publish of {dataset.title!r} already queued or held "
-                "will not replace its data: the dataset is shared with groups "
-                "this entry leaves out, which would read the new data.",
-                because,
-            )
-            if part
-        ),
-        fix="Change the dataset's groups in GeoLens before that publish runs.",
+        message=" ".join(part for part in parts if part),
+        fix=fix,
     )
 
 
@@ -870,6 +906,14 @@ def shares_first(publication: dict, user_metadata: dict) -> bool:
     first, so the shared-map checks judge the audience the publish leaves,
     not a private moment between the two writes."""
     return publication.get("visibility") == "private" and shares_groups(user_metadata)
+
+
+def publication_after_share(publication: dict, share: GroupShare) -> dict:
+    """What a replacement whose share ran first publishes: restricted once
+    that share left the dataset groups, since private with groups is."""
+    if share.shared:
+        return {**publication, "visibility": "restricted"}
+    return publication
 
 
 def level_at_share(

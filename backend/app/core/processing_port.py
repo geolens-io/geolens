@@ -605,6 +605,21 @@ class ProcessingPort(Protocol):
         granted_at_plan: Sequence[uuid.UUID] | None,
     ) -> tuple[ManifestGroupsPlan, str | None]: ...
 
+    # The sentence a manifest job's publication of ``visibility`` and
+    # ``record_status`` (None keeps the dataset's) is refused with for
+    # stranding one of the owner's shared maps while the dataset's group
+    # grants are ``group_ids`` (None keeps the stored ones), as the metadata
+    # edit the job makes judges it; None when it isn't. Writes nothing.
+    async def manifest_publication_refusal(
+        self,
+        session: AsyncSession,
+        dataset_id: uuid.UUID,
+        *,
+        visibility: str | None,
+        record_status: str | None,
+        group_ids: Sequence[uuid.UUID] | None,
+    ) -> str | None: ...
+
     # The names of a dataset's groups, None when ``user`` may not see them.
     async def manifest_dataset_group_names(
         self, session: AsyncSession, dataset_id: uuid.UUID, user: Identity

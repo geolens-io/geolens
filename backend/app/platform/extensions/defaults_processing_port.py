@@ -693,6 +693,25 @@ class DefaultProcessingPort:
             return ManifestGroupsPlan([], [], [], [], False), refused
         return _groups_plan(plan), refused
 
+    async def manifest_publication_refusal(  # type: ignore[no-untyped-def]
+        self, session, dataset_id, *, visibility, record_status, group_ids
+    ):
+        from app.modules.catalog.datasets.domain.service import (
+            dataset_publication_refusal,
+            get_dataset,
+        )
+
+        dataset = await get_dataset(session, dataset_id)
+        if dataset is None:
+            return None
+        return await dataset_publication_refusal(
+            session,
+            dataset,
+            visibility=visibility,
+            record_status=record_status,
+            group_ids=group_ids,
+        )
+
     async def manifest_dataset_group_names(  # type: ignore[no-untyped-def]
         self, session, dataset_id, user
     ):

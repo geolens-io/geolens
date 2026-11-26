@@ -186,7 +186,9 @@ class TestExtensionApiVersionConstant:
         adds the optional ``group_ids`` to ``RecordAudienceQuery``: an
         overlay ``record_audience`` that reads group grants itself must
         answer for the stated groups. ``plan_manifest_groups`` takes the
-        optional ``planned_from`` and ``granted_at_plan``.
+        optional ``planned_from``, ``granted_at_plan`` and ``record_status``,
+        and ``ProcessingPort`` gains the required
+        ``manifest_publication_refusal``.
 
         Update this pin, and the note above it, whenever the constant moves.
         """

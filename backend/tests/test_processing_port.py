@@ -359,6 +359,11 @@ class FakeProcessingPort:
     ):
         return None, False
 
+    async def manifest_publication_refusal(
+        self, session, dataset_id, *, visibility, record_status, group_ids
+    ):
+        return None
+
     async def manifest_dataset_group_names(self, session, dataset_id, user):
         return None
 

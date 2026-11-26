@@ -2063,6 +2063,104 @@ async def test_a_replacement_swapping_a_maps_group_is_refused_before_it_is_queue
     assert await _dataset_grants(test_db_session, dataset_id) == {needed.id}
 
 
+async def _internal_shared_through(client, admin_auth_header, session, key):
+    """An internal dataset of the admin's granted to group A, whose member
+    reads it only as the organization, and group B, which only the admin is
+    in; the dataset, A, B and the admin."""
+    user = await _admin_user(session)
+    _, member = await _editor(client, session, admin_auth_header)
+    dataset_id = await _manifest_dataset(session, user, key, "internal", "published")
+    needed = await _group(session, user.id, member.id)
+    session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=needed.id))
+    await session.commit()
+    swapped = await _group(session, user.id)
+    return dataset_id, needed, swapped, user
+
+
+async def test_a_private_replacement_its_publication_would_refuse_is_not_queued(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """Private with group B makes the internal dataset restricted to B after
+    its share, which strands the owner's map shared with A: the job's
+    publication would be refused, so the entry is refused with A056 before
+    anything is queued, and a map in the same request isn't judged on B."""
+    _stage_fixture()
+    key = "groups-private-narrowing-refused"
+    dataset_id, needed, swapped, user = await _internal_shared_through(
+        client, admin_auth_header, test_db_session, key
+    )
+    await _map_needing(test_db_session, user, needed, dataset_id)
+    entry = await _uploaded(
+        client,
+        admin_auth_header,
+        key,
+        visibility="private",
+        groups=[str(swapped.id)],
+    )
+    maps = [_map(f"{key}-map", _layer(dataset_key=key), groups=[str(swapped.id)])]
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True, maps=maps)
+    )
+    [refused] = response.results
+    assert refused.action == "error", refused
+    assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
+    assert "used in shared maps: Shared" in refused.messages[0].message
+    [checked] = response.maps
+    assert ("A052", "parks") in [(m.code, m.layer) for m in checked.messages]
+    assert _layer_gaps(checked) == []
+
+    user = await _admin_user(test_db_session)
+    applied, _ = await _apply_entries(test_db_session, user, _entries_request(entry))
+    [refused] = applied.results
+    assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
+    assert await _record(test_db_session, dataset_id) == ("internal", "published")
+    assert await _dataset_grants(test_db_session, dataset_id) == {needed.id}
+
+
+async def test_a_queued_private_replacement_its_publication_will_refuse_says_so(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """The map shared with A arrives after the apply, so the job's
+    publication will be refused once its share leaves only B: the same
+    manifest sent again is refused with A056 in a dry run and warned of in
+    an apply, and the job fails and leaves the dataset as it was."""
+    _stage_fixture()
+    key = "groups-private-narrowing-queued"
+    dataset_id, needed, swapped, user = await _internal_shared_through(
+        client, admin_auth_header, test_db_session, key
+    )
+    entry = await _uploaded(
+        client,
+        admin_auth_header,
+        key,
+        visibility="private",
+        groups=[str(swapped.id)],
+    )
+    queued, task = await _queue_update(test_db_session, user, entry)
+    assert queued.action == "update", queued
+    await _map_needing(test_db_session, user, needed, dataset_id)
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True)
+    )
+    [previewed] = response.results
+    assert previewed.action == "error", previewed
+    assert [(m.code, m.severity) for m in previewed.messages] == [("A056", "error")]
+    assert "used in shared maps: Shared" in previewed.messages[0].message
+    user = await _admin_user(test_db_session)
+    response, _ = await _apply_entries(test_db_session, user, _entries_request(entry))
+    [applied] = response.results
+    assert (applied.action, applied.job_id) == ("skip", queued.job_id)
+    assert _job_refusals(applied) == [("A056", "warning")]
+
+    with pytest.raises(ValueError, match="used in shared maps"):
+        await _run_update(test_db_session, queued, task)
+    assert (await _failed_job(test_db_session, queued)).status == "failed"
+    assert await _record(test_db_session, dataset_id) == ("internal", "published")
+    assert await _dataset_grants(test_db_session, dataset_id) == {needed.id}
+
+
 async def test_a_queued_widening_that_removes_a_maps_group_is_answered_as_a_publish(
     client, admin_auth_header, test_db_session, clean_tables
 ):

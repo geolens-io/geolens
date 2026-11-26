@@ -530,6 +530,7 @@ async def apply_manifest_replacement(
     from app.processing.ingest.manifest_dataset_fields import (
         apply_fields_for_job,
         hold_to_entry_groups,
+        publication_after_share,
         share_groups_for_job,
         shares_first,
     )
@@ -548,8 +549,7 @@ async def apply_manifest_replacement(
         first = await share_groups_for_job(
             session, uuid.UUID(job_id), dataset, user_metadata, audience_before=before
         )
-        if first.shared:
-            publication = {**publication, "visibility": "restricted"}
+        publication = publication_after_share(publication, first)
     await apply_manifest_publication(
         session, dataset, publication, actor_id=uuid.UUID(user_id)
     )
