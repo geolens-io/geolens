@@ -392,7 +392,11 @@ export function ChatPanel({
   layersRef.current = layers;
   // Single-level undo for chat-initiated map mutations. The ordering gate is
   // messages.indexOf(msg) === length - 1.
-  const lastSnapshotRef = useRef<{ layers: MapLayerResponse[]; supportsUndo: boolean } | null>(null);
+  const lastSnapshotRef = useRef<{
+    layers: MapLayerResponse[];
+    supportsUndo: boolean;
+    touchedLayerIds: Set<string>;
+  } | null>(null);
 
   // Persist chat history to sessionStorage, stripping action geojson first. A
   // show_query_result action from query_data or run_analysis carries its whole
@@ -556,33 +560,28 @@ export function ChatPanel({
     }
   }
 
-  // Restore layers from the last snapshot.
+  // Restore the layers this turn edited from the last snapshot.
   const handleUndo = useCallback(() => {
     const snapshot = lastSnapshotRef.current;
     if (!snapshot?.supportsUndo) return;
-    const snapshotIds = new Set(snapshot.layers.map((l) => l.id));
-    const currentIds = new Set(layersRef.current.map((l) => l.id));
+    // Undo is offered only for a turn that added and removed no layers, so a
+    // layer added, deleted or moved since was the user's own edit and stays.
+    const current = new Map(layersRef.current.map((l) => [l.id, l]));
+    const restored = snapshot.layers.flatMap((layer) => {
+      const now = current.get(layer.id);
+      if (!now || !snapshot.touchedLayerIds.has(layer.id)) return [];
+      return [{ ...layer, sort_order: now.sort_order }];
+    });
 
-    // Remove layers that were added after the snapshot.
-    for (const id of currentIds) {
-      if (!snapshotIds.has(id)) onRemove(id);
-    }
-    // Re-add layers that were removed after the snapshot.
-    for (const layer of snapshot.layers) {
-      if (!currentIds.has(layer.id)) {
-        onAddDataset(layer.dataset_id);
-      }
-    }
-
-    // Restore every snapshotted layer's full state in one atomic update.
+    // Restore each layer's full state in one atomic update.
     // Field-by-field restores clobber earlier reverts: each handler rebuilds
     // the layer from a ref that refreshes only between renders, so a later
     // partial spread (e.g. the unconditional style_config restore on a
     // data-driven layer) re-stamps stale label_config / paint.
-    onRestoreLayers(snapshot.layers);
+    onRestoreLayers(restored);
     lastSnapshotRef.current = null;
     toast.success(t('chat.undoApplied'));
-  }, [onRestoreLayers, onRemove, onAddDataset, t]);
+  }, [onRestoreLayers, t]);
 
   // Prefer the builder's live layer so each action sees this turn's earlier edits.
   function findLayer(layerId: string): MapLayerResponse | undefined {
@@ -781,6 +780,7 @@ export function ChatPanel({
       lastSnapshotRef.current = {
         layers: [...layersRef.current],
         supportsUndo: mutatingActions.every(isUndoSafeAction),
+        touchedLayerIds: new Set(),
       };
     }
     // The inline card renders the last show_query_result, so the flyover
@@ -814,6 +814,8 @@ export function ChatPanel({
       const applied = handleChatAction(action);
       if (applied) {
         pendingActions.push(action);
+        const layerId = getActionLayerId(action);
+        if (layerId) lastSnapshotRef.current?.touchedLayerIds.add(layerId);
         if (!isUndoSafeAction(action) && lastSnapshotRef.current) {
           lastSnapshotRef.current.supportsUndo = false;
         }
