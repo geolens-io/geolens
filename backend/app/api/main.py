@@ -734,7 +734,7 @@ _is_production = settings.is_production
 # `make version-check` can enforce that all version sites agree. The fallback
 # below covers a source checkout with no `uv pip install -e .`; `make bump`
 # rewrites it.
-_FALLBACK_APP_VERSION = "1.34.0"
+_FALLBACK_APP_VERSION = "1.35.0"
 
 
 def _resolve_app_version() -> str:

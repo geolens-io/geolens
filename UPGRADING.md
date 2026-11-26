@@ -167,12 +167,48 @@ again after that, upload the file again and apply with the new
 `upload:<job_id>`, because the first upload is used up. Version 1 manifests
 are not affected. Overlay authors: `EXTENSION_API_VERSION` is 26.
 
+1.35 runs one migration, 0108, which replaces the worker's job-fetch function
+in place with the body procrastinate 3.11 ships. Its signature and result are
+unchanged, so workers still on 1.34 keep fetching jobs while it runs.
+Finish upgrading every worker before you republish a raster through a publish
+manifest, version 1 or 2, or send a version 2 publish that names `groups`. A
+1.34 worker doesn't know the raster replacement job, so the job is left to
+fail at the stale-job sweep and the dataset's publish run stays held until
+then. A 1.34 worker that takes a version 2 job ignores its groups: the dataset
+publishes without being shared, and a replacement whose entry drops a group
+(`groups: []`) still reaches the groups the dataset has. A manifest raster
+republish replaces the raster, and the old one can't be restored.
+
+Upgrade the Python SDK and CLI to 1.35 before you read the status of a version
+2 job with them: the job can now report a `manifest_groups_left_off` or
+`manifest_widening_kept` warning, and the 1.34 SDK raises on a warning kind it
+doesn't know.
+
+A finished upload that nothing has imported yet now waits 24 hours on local
+storage before the stale sweep cancels it, as it already does on S3 and Azure
+storage, so the staging directory can hold such files for a day. An API
+instance or worker still on 1.34 keeps the one-hour wait and cancels a
+finished upload after `PENDING_JOB_TIMEOUT_SECONDS`, so finish upgrading every
+instance, API and worker, before you upload a large version 2 batch.
+
+A plain upload or URL import at the account's dataset cap is now accepted and
+refused at commit, with the same 422, where it used to be refused at upload.
+
+A table registered on 1.35 gets `geom_4326` as a stored generated column, and
+1.34 can't edit its features. Finish upgrading every instance before you
+register tables, and expect feature edits on them to fail after a rollback to
+1.34.
+
 If a reverse proxy of your own sits in front of GeoLens, such as an ingress
 controller or a load balancer, let it accept a request line of 16 KiB
 (`large_client_header_buffers 4 16k;` in nginx). The bundled frontend proxy
 now does. A map whose layers read many columns of one dataset asks for vector
 tiles with a URL longer than the usual 8 KiB default, and a proxy that refuses
 it leaves those layers blank.
+
+Overlay authors: `EXTENSION_API_VERSION` is 28. `ProcessingPort` gains
+required methods, and `apply_manifest_maps` takes new arguments and can return
+a minted share link under `MINTED_SHARE_KEY`; see the changelog.
 
 ## Change the published default database password
 
