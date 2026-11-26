@@ -100,6 +100,18 @@ def test_release_checks_out_the_tag_and_requires_the_smoked_commit():
     assert '"${HEAD_SHA}" != "${SMOKED_SHA}"' in steps[guard]["run"]
 
 
+def test_release_image_builds_read_no_actions_cache():
+    steps = _load(WORKFLOWS / "publish.yml")["jobs"]["publish"]["steps"]
+    builds = [
+        s
+        for s in steps
+        if str(s.get("uses", "")).startswith("docker/build-push-action")
+    ]
+    assert builds
+    for step in builds:
+        assert not {"cache-from", "cache-to"} & set(step["with"]), step["name"]
+
+
 def test_installer_attestation_is_a_pinned_tag_push_job_that_cannot_fail_publish():
     job = _load(WORKFLOWS / "publish.yml")["jobs"]["attest-installer"]
 
