@@ -191,3 +191,14 @@ class TestSchemaFetchesStayOffByValue:
         ), assignments
         for rel, values in assignments.items():
             assert all(value == "NO" for _key, value in values), (rel, values)
+
+
+def test_both_envs_switch_off_proj_grid_downloads(monkeypatch) -> None:
+    """PROJ fetches grids with its own HTTP client, which ignores GDAL's proxy."""
+    from app.platform.egress_proxy import ServiceEgress
+    from app.platform.gdal_env import gdal_service_safe_env, gdal_vector_safe_env
+
+    monkeypatch.setenv("PROJ_NETWORK", "ON")
+    egress = ServiceEgress("http://127.0.0.1:9")
+    for env in (gdal_vector_safe_env(), gdal_service_safe_env(egress)):
+        assert env["PROJ_NETWORK"] == "OFF"
