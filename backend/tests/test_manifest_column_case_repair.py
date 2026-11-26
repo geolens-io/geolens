@@ -18,7 +18,11 @@ from app.modules.catalog.maps.manifest_columns import (
     repair_layer_columns,
 )
 from app.modules.catalog.maps.models import Map
-from app.modules.catalog.maps.schemas import MapLayerInput, MapLayerResponse
+from app.modules.catalog.maps.schemas import (
+    MapLayerInput,
+    MapLayerResponse,
+    PopupConfig,
+)
 from app.modules.catalog.maps.style_json import build_maplibre_style
 
 
@@ -286,6 +290,18 @@ def test_repair_rewrites_references_in_filter_labels_popup_and_layout():
     assert repaired.label_config == {"column": "some_field"}
     assert repaired.popup_config.visible_fields == ["some_field"]
     assert repaired.popup_config.expression == "{some_field}"
+
+
+def test_repair_keeps_one_popup_field_when_two_references_resolve_to_it():
+    layer = _layer(
+        popup_config={"enabled": True, "visible_fields": ["NAME", "kind", "name"]},
+    )
+
+    repaired, report = repair_layer_columns(layer, [{"name": "name"}, {"name": "kind"}])
+
+    assert report.repaired == {"NAME": "name"}
+    assert repaired.popup_config.visible_fields == ["name", "kind"]
+    PopupConfig.model_validate(repaired.popup_config.model_dump())
 
 
 def test_repair_leaves_a_layer_with_no_recorded_columns_alone():

@@ -424,8 +424,15 @@ def rename_layer_columns(layer: MapLayerInput, rename: Rename) -> MapLayerInput:
     if popup is not None:
         popup = popup.model_copy(
             update={
+                # Two references can resolve to one column; the popup takes
+                # each field once.
                 "visible_fields": (
-                    [rename(name) if name else name for name in popup.visible_fields]
+                    list(
+                        dict.fromkeys(
+                            rename(name) if name else name
+                            for name in popup.visible_fields
+                        )
+                    )
                     if popup.visible_fields is not None
                     else None
                 ),
