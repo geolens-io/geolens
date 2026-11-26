@@ -48,7 +48,6 @@ from app.modules.catalog.maps.manifest_messages import (
 )
 from app.modules.catalog.maps.models import MapLayer
 from app.modules.catalog.maps.schemas import MapLayerInput
-from app.platform.jobs.in_flight import datasets_with_jobs_in_flight
 
 # A graduated style, a heatmap weight or an extrusion height reads the column
 # as a number in the tiles, which carry no money type as a number.
@@ -333,26 +332,18 @@ async def widening_moves(
     return await stranding_moves(session, dashboard, pairs)
 
 
-async def unsettled_sources(
-    session: AsyncSession,
+def unsettled_sources(
     stored: Sequence[tuple[MapLayer, Any]],
     targets: Mapping[str, Target],
     unsettled: Collection[uuid.UUID],
     pending: Mapping[str | uuid.UUID, tuple[str | None, str]],
 ) -> list[dict[str, Any]]:
-    """A052 for each layer the publish would move off a dataset a job is
-    still writing, one in ``unsettled`` or with a job in flight now, that
-    the request doesn't plan. The move waits for that job, as a layer onto
-    such a dataset does: judged on the dataset's sharing before the job, it
-    could replace the layer's styling and remove its widgets for good. Only
-    moves between datasets the caller can read are named, and the job query
-    runs whatever moves."""
-    busy = {
-        *unsettled,
-        *await datasets_with_jobs_in_flight(
-            session, {layer.dataset_id for layer, _, _ in _moving(stored, targets)}
-        ),
-    }
+    """A052 for each layer the publish would move off a dataset in
+    ``unsettled``, one a job is still writing, that the request doesn't plan.
+    The move waits for that job, as a layer onto such a dataset does: judged
+    on the dataset as it was before the job, it could replace the layer's
+    styling and remove its widgets for good. Only moves between datasets the
+    caller can read are named."""
     return [
         message(
             DATASET_NOT_READY,
@@ -364,7 +355,7 @@ async def unsettled_sources(
             layer=layer.manifest_key,
         )
         for layer, _, _ in _moving(stored, targets)
-        if layer.dataset_id in busy and layer.dataset_id not in pending
+        if layer.dataset_id in unsettled and layer.dataset_id not in pending
     ]
 
 

@@ -2650,6 +2650,90 @@ async def test_a_move_off_a_dataset_still_publishing_waits_for_its_job(
     assert [w["layer_id"] for w in map_row.dashboard_config["widgets"]] == [parks_id]
 
 
+async def test_a_source_job_finishing_mid_check_is_judged_on_what_it_published(
+    test_db_session, clean_tables
+):
+    """A source whose job finishes while the map is checked is judged on the columns it published."""
+    from sqlalchemy import update
+
+    import app.core.db as db_module
+    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.platform.jobs.in_flight import datasets_with_jobs_in_flight
+    from app.platform.jobs.models import IngestJob
+
+    admin = await _admin(test_db_session)
+
+    async def made(kind):
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin.id,
+            visibility="public",
+            geometry_type="MultiPolygon",
+            column_info=[*_COLUMNS, _ACRES, _value(kind)],
+        )
+        await test_db_session.commit()
+        return dataset.id
+
+    source, target = await made("integer"), await made("text")
+    styled = _entry(
+        "qgis-map-parks", _layer("parks", dataset_id=str(source), paint=_MATCH)
+    )
+    [created] = (await _apply(test_db_session, admin, styled)).maps
+    [parks] = await _layers(test_db_session, created.map_id)
+    parks_id = str(parks.id)
+    widget = {**_HISTOGRAM, "id": _WIDGET_ID, "layer_id": parks_id}
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(dashboard_config={"version": 1, "widgets": [widget]})
+    )
+    job = IngestJob(
+        dataset_id=source,
+        source_filename="parks.fgb",
+        created_by=admin.id,
+        status="pending",
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    job_id = job.id
+    published = []
+
+    async def finishing_first(session, dataset_ids):
+        ids = set(dataset_ids)
+        if source in ids and not published:
+            # The job replaces the source's value column with text and
+            # commits, in between the apply's own reads.
+            async with db_module.async_session() as other:
+                await other.execute(
+                    update(Dataset)
+                    .where(Dataset.id == source)
+                    .values(column_info=[*_COLUMNS, _ACRES, _value("text")])
+                )
+                await other.execute(
+                    update(IngestJob)
+                    .where(IngestJob.id == job_id)
+                    .values(status="complete", completed_at=datetime.now(UTC))
+                )
+                await other.commit()
+            published.append(source)
+        return await datasets_with_jobs_in_flight(session, ids)
+
+    moving = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(target), opacity=0.5),
+        styling="keep",
+    )
+    with patch.object(manifest_apply, "datasets_with_jobs_in_flight", finishing_first):
+        [moved] = (await _apply(test_db_session, admin, moving)).maps
+
+    assert published == [source]
+    assert (moved.action, _warnings(moved)) == ("update", [])
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert (parks.dataset_id, parks.opacity) == (target, 1.0)
+    map_row = await _map_row(test_db_session, created.map_id)
+    assert [w["layer_id"] for w in map_row.dashboard_config["widgets"]] == [parks_id]
+
+
 async def test_a_map_another_change_holds_answers_busy(test_db_session, clean_tables):
     """Losing the wait for the map row is routine; the map says to retry."""
     from sqlalchemy import text

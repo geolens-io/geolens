@@ -337,9 +337,10 @@ async def _writable_map(
 
 async def _stored_layers(
     session: AsyncSession, map_id: uuid.UUID, user: Identity
-) -> list[tuple[MapLayer, _Dataset | None]]:
+) -> tuple[list[tuple[MapLayer, _Dataset | None]], set[uuid.UUID]]:
     """The map's layers in draw order, each with its dataset when the caller
-    can read it, as stored now rather than as the session last loaded them."""
+    can read it, as stored now rather than as the session last loaded them,
+    and which of those datasets a pending or running job still writes."""
     layers = (
         (
             await session.execute(
@@ -352,10 +353,15 @@ async def _stored_layers(
         .scalars()
         .all()
     )
+    # Asked before the datasets are read: a job commits its dataset before it
+    # is marked finished, so one finished by now left the dataset read below.
+    busy = await datasets_with_jobs_in_flight(
+        session, {layer.dataset_id for layer in layers}
+    )
     datasets = await _readable_datasets(
         session, (layer.dataset_id for layer in layers), user
     )
-    return [(layer, datasets.get(layer.dataset_id)) for layer in layers]
+    return [(layer, datasets.get(layer.dataset_id)) for layer in layers], busy
 
 
 async def _lock_map_key(session: AsyncSession, key: str) -> None:
@@ -731,7 +737,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
     stored: list[tuple[MapLayer, _Dataset | None]] = []
     retained_non_public = False
     if map_obj is not None:
-        stored = await _stored_layers(session, map_obj.id, user)
+        stored, busy = await _stored_layers(session, map_obj.id, user)
         listed = {layer.key for layer in entry.layers}
         # The stored layers the map goes on showing with their own dataset; a
         # listed one shows the manifest's, counted below.
@@ -744,8 +750,8 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 or (layer.manifest_key not in listed and entry.styling == "keep")
             )
         )
-        waiting = await unsettled_sources(
-            session, stored, targets, unsettled, request.pending_datasets
+        waiting = unsettled_sources(
+            stored, targets, {*unsettled, *busy}, request.pending_datasets
         )
         messages.extend(waiting)
         # A move that waits for its source's job is judged once it can be made.

@@ -1353,7 +1353,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # removed layers share the row lock the apply holds, which is also where its
     # groups are planned and its moved layers are judged or wait for their
     # source's job.
-    "backend/app/modules/catalog/maps/manifest_apply.py": 1205,
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1211,
     # The publish manifest's request and response models in one place, which
     # the vendored wire schema, the contract snapshot and both SDKs are held to.
     "backend/app/processing/ingest/manifest_schemas.py": 1036,
