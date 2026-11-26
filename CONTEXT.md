@@ -88,6 +88,9 @@ _Avoid_: Manifest key.
 **Role**: A user's permission tier (admin, editor or viewer). It decides what a user may do; it is not an audience that content is shared with.
 _Avoid_: Group, when meaning an audience.
 
+**Pending account**: A self-registered account waiting for its email to be verified or for an admin to approve it. Until then it holds its username and email only provisionally.
+_Avoid_: Unverified user, pending row.
+
 **Group**: A named set of users that datasets, maps and stories can be shared with. Admins manage groups and their members.
 _Avoid_: Team, role, layer group (layers grouped inside a map).
 
@@ -98,6 +101,9 @@ _Avoid_: Group (a set of users); the OGC API collection the whole catalog is ser
 
 **Record status**: Whether a dataset's catalog record is a draft or published. Anonymous readers get a dataset only when it is public and its record is published, and an internal dataset reaches signed-in users other than its owner and admins only when it is published.
 _Avoid_: Draft or publish on their own (a story's), status (a job's).
+
+**Open-ended temporal extent**: A record's time span that has a start and no end, meaning it is still ongoing. It covers every time from its start onward.
+_Avoid_: Start-only date.
 
 **Story**: An ordered list of chapters told over saved maps. It has its own owner and visibility, and it can't be published more widely than any map it uses can be read.
 
