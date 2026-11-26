@@ -400,7 +400,7 @@ test('S06 — admin user with known-public password "demodemo" cannot log in', a
 test('S08 — embed frame-policy endpoint reflects the actual embed-token state', async ({ request }) => {
   // The edge reads the embed token from the `et`
   // query param, not the share token in the path (frontend/nginx.conf's
-  // `location ~ ^/m/` forwards $arg_et to /embed/frame-policy). Without
+  // `location ~ ^/m/` forwards the query to /embed/frame-policy). Without
   // `et`, embed_frame_policy (public_router.py) always emits NO
   // frame-ancestors directive at all -- so the old assertion passed only
   // because X-Frame-Options is intentionally omitted on this route (see the
