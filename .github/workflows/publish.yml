@@ -202,7 +202,6 @@ jobs:
           platforms: linux/amd64
           load: true
           tags: ${{ matrix.image }}:scan-amd64
-          cache-from: type=gha,scope=${{ matrix.image }}
 
       - name: Trivy vulnerability scan (amd64)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
@@ -223,7 +222,6 @@ jobs:
           platforms: linux/arm64
           load: true
           tags: ${{ matrix.image }}:scan-arm64
-          cache-from: type=gha,scope=${{ matrix.image }}
 
       - name: Trivy vulnerability scan (arm64)
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25  # v0.36.0
@@ -257,8 +255,6 @@ jobs:
             GEOLENS_BUILD_SHA=${{ github.sha }}
           provenance: false
           sbom: false
-          cache-from: type=gha,scope=${{ matrix.image }}
-          cache-to: type=gha,mode=max,scope=${{ matrix.image }}
 
       # Generate SBOM from pushed image (only when we actually pushed)
       - name: Generate SBOM
