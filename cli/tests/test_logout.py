@@ -7,11 +7,19 @@ the global config.toml that points at the default instance.
 """
 from __future__ import annotations
 
+import pytest
+
 from geolens_cli import config as _config
 from geolens_cli.main import app
 
 
 class TestLogoutConfigPreservation:
+    @pytest.fixture(autouse=True)
+    def _no_server_call(self, monkeypatch) -> None:
+        monkeypatch.setattr(
+            "geolens_cli.main._revoke_server_session", lambda _instance: True
+        )
+
     def test_logout_default_instance_clears_config(
         self, runner, tmp_xdg_home, mock_keyring
     ) -> None:
