@@ -1418,7 +1418,7 @@ async def raster_tile_proxy(
         render_params = _apply_stretch_rescale(render_params, [])
     elif stretch and stretch != "minmax" and not render_params.startswith("algorithm="):
         bands = await _fetch_band_statistics(open_path, eff_pmin, eff_pmax)
-        n_bands = 3 if (band_count or 1) >= 3 else 1
+        n_bands = render_params.count("bidx=") or min(band_count or 1, 3)
         rescale_parts = (
             _compute_stretch_rescale(
                 bands, stretch, n_bands, pmin=eff_pmin, pmax=eff_pmax, sigma=eff_sigma
@@ -1426,6 +1426,8 @@ async def raster_tile_proxy(
             if bands
             else []
         )
+        if not rescale_parts and auth_resp.headers.get(_DATA_RANGE_HEADER):
+            rescale_parts = _data_range_rescale(bands or [], n_bands)
         if rescale_parts:
             render_params = _apply_stretch_rescale(render_params, rescale_parts)
         else:
