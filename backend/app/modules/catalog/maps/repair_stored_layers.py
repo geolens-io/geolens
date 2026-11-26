@@ -229,12 +229,13 @@ async def _repair_map(
             .order_by(MapLayer.sort_order, MapLayer.id)
         )
     ).all()
+    # Only this map's entries are appended below, so the audit reads the
+    # slice instead of rescanning every map processed so far.
+    repaired_start = len(report.layers)
     for layer, column_info in rows:
         _repair_layer(layer, column_info, report, dry_run=dry_run)
     repaired = [
-        entry
-        for entry in report.layers
-        if entry.map_id == map_id and entry.status == "repaired"
+        entry for entry in report.layers[repaired_start:] if entry.status == "repaired"
     ]
     if repaired and not dry_run:
         await audit_emit(
