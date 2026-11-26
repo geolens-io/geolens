@@ -213,6 +213,7 @@ async def test_export_of_a_very_long_title_still_writes_and_keeps_the_download_n
     assert len(os.path.basename(path).encode()) <= 255
     assert os.path.getsize(path) > 0
     assert filename.startswith("東京都")
+    assert len(export_service.safe_content_disposition(filename)) < 1024
 
 
 @pytest.mark.anyio
@@ -235,3 +236,17 @@ async def test_pmtiles_export_names_the_tileset_after_the_dataset(
         ["ogrinfo", "-so", "-al", path], check=True, capture_output=True, text=True
     ).stdout
     assert "name=Seeds" in info
+
+
+@pytest.mark.parametrize("fmt", ["geojson", "shp", "parquet", "pmtiles"])
+def test_download_header_stays_small_for_a_500_character_cjk_title(fmt):
+    from app.processing.export.service import (
+        export_descriptor,
+        safe_content_disposition,
+    )
+
+    filename, _media = export_descriptor("東" * 500, fmt)
+
+    assert len(safe_content_disposition(filename)) < 1024
+    assert filename.startswith("東")
+    assert filename.endswith((".geojson", ".zip", ".parquet", ".pmtiles"))

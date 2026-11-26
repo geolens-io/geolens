@@ -347,6 +347,9 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     return where
 
 
+_DOWNLOAD_STEM_MAX_BYTES = 150
+
+
 def export_descriptor(dataset_name: str, format_key: str) -> tuple[str, str]:
     """The download's ``(filename, media_type)``, derived without exporting.
 
@@ -357,6 +360,9 @@ def export_descriptor(dataset_name: str, format_key: str) -> tuple[str, str]:
         ValueError: If format_key is not a supported export format.
     """
     safe_name = re.sub(r"[^\w\-.]", "_", dataset_name)
+    # A long title would otherwise grow the percent-encoded Content-Disposition
+    # past the proxy's response-header buffer. Cut on a character boundary.
+    safe_name = safe_name.encode()[:_DOWNLOAD_STEM_MAX_BYTES].decode(errors="ignore")
 
     if format_key == "parquet":
         return f"{safe_name}.parquet", PARQUET_MEDIA_TYPE

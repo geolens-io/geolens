@@ -542,6 +542,16 @@ class TestRasterColormapProxy:
         assert "rescale=512.66,1304.31" in tile_url, tile_url
         assert "rescale=0,65535" not in tile_url, tile_url
 
+    async def test_remote_grayscale_alpha_raster_stretches_from_band_one(self, client):
+        """A two-band raster with no bidx selection has band 1 statistics only."""
+        self._auth_band_count = 2
+        self._auth_render_params = "rescale=0,65535"
+        self._stats_payload = {"b1": _BAND_STATS["b1"]}
+        resp = await client.get(_TILE_PATH, params={"stretch": "percentile"})
+        assert resp.status_code in (200, 204)
+        tile_url = self._tile_titiler_calls[0]
+        assert "rescale=512.66,1304.31" in tile_url, tile_url
+
     async def test_a_collapsed_percentile_band_falls_back_to_the_data_range(
         self, client
     ):
