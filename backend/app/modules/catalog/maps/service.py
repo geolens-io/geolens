@@ -32,6 +32,12 @@ from app.modules.catalog.maps.service_groups import (
     set_map_groups,
     unshare_group_maps,
 )
+from app.modules.catalog.maps.service_images import (
+    clear_images_after_dataset_delete,
+    clear_map_images,
+    map_ids_drawing_dataset,
+)
+from app.modules.catalog.maps.service_links import links_retired_last
 from app.modules.catalog.maps.service_history import (
     list_map_history,
     record_map_history_event,
@@ -79,12 +85,15 @@ __all__ = [
     "DatasetMeta",
     "LayerRow",
     "check_map_ownership",
+    "clear_images_after_dataset_delete",
+    "clear_map_images",
     "map_groups",
     "map_group_layer_gaps",
     "DatasetGroupNotJoinedError",
     "LayersHiddenFromGroupsError",
     "RestrictedWithoutGroupsError",
     "record_map_groups_change",
+    "links_retired_last",
     "set_map_groups",
     "unshare_group_maps",
     "get_dataset_meta",
@@ -98,6 +107,7 @@ __all__ = [
     "discard_map_asset_objects",
     "lock_map_for_asset_write",
     "map_asset_publication",
+    "map_ids_drawing_dataset",
     "new_map_asset_key",
     "record_map_history_event",
     "list_map_history",

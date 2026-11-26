@@ -23,11 +23,13 @@ from app.platform.jobs.models import (
     MANIFEST_STAGE_METADATA_KEY,
     IngestJob,
     commit_attempted_marker,
-    dispatch_attempted,
 )
-from app.platform.jobs.sweep import settle_stale_jobs, stale_pending_clauses
+from app.platform.jobs.sweep import (
+    settle_stale_jobs,
+    stale_pending_clauses,
+    unclaimed_upload,
+)
 from app.platform.refresh.job_runs import stored_review_reasons
-from app.platform.source_copies import EXISTING_DATASET_MARKERS
 from app.platform.refresh.models import DatasetRefreshRun
 from app.platform.refresh.verification import held_live_version
 from app.processing.ingest.manifest_schemas import (
@@ -64,25 +66,6 @@ async def lock_manifest_key(db: AsyncSession, key: str) -> None:
     )
 
 
-def plain_upload():
-    """Predicate: an upload made to create a dataset, not to write into one."""
-    return and_(
-        IngestJob.dataset_id.is_(None),
-        *(
-            IngestJob.user_metadata[marker].astext.is_(None)
-            for marker in EXISTING_DATASET_MARKERS
-        ),
-    )
-
-
-def unclaimed_upload():
-    """Predicate: no manifest entry and no import commit has taken this upload."""
-    return and_(
-        IngestJob.user_metadata["manifest_key"].astext.is_(None),
-        ~dispatch_attempted(),
-    )
-
-
 async def claim_upload(
     db: AsyncSession,
     *,
@@ -97,8 +80,8 @@ async def claim_upload(
     """Make the caller's pending upload this entry's reservation. Does not commit.
 
     One fenced pending -> running write: the row must still be the owner's
-    plain upload, unclaimed, at the attempt and file the caller checked. None
-    on a miss, which never says which condition failed.
+    unclaimed upload, at the attempt and file the caller checked. None on a
+    miss, which never says which condition failed.
 
     The claim also writes the dispatch stamp, which shuts the import commit
     door on this upload for good, and starts a fresh attempt: the upload keeps
@@ -125,7 +108,6 @@ async def claim_upload(
         require=(
             IngestJob.created_by == owner,
             IngestJob.file_path == file_path,
-            plain_upload(),
             unclaimed_upload(),
             # Not one the stale sweep could settle now, which the read checked
             # before the hash and the key-lock wait.

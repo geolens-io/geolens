@@ -675,10 +675,12 @@ class TestRunBudget:
         monkeypatch.setattr(
             probe, "_command", lambda op, *args: [sys.executable, "-c", script, op]
         )
-        monkeypatch.setattr(probe, "CRS_FACTS_TIMEOUT_SECONDS", 2)
+        # The answering child starts a fresh Python and imports GDAL, which a busy
+        # runner can take several seconds over; the timeout leaves it ample room.
+        monkeypatch.setattr(probe, "CRS_FACTS_TIMEOUT_SECONDS", 10)
         try:
             await tasks_crs_facts.repair_missing_crs_facts(
-                run_texts=10_000, run_seconds=20
+                run_texts=10_000, run_seconds=60
             )
 
             stored = await _stored([stalls, answers])

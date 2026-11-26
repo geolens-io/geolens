@@ -10,6 +10,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import AsyncMock, patch
 
+import anyio
 import pytest
 from httpx import AsyncClient
 from pydantic import ValidationError
@@ -21,6 +22,7 @@ from app.platform.jobs.models import (
     MANIFEST_FINGERPRINT_METADATA_KEY,
     IngestJob,
 )
+from app.platform.jobs.sweep import settle_stale_jobs, stale_pending_cutoff_seconds
 from app.platform.refresh.models import DatasetRefreshRun
 from app.processing.ingest import manifest_sources
 from app.processing.ingest.manifest_reservation import (
@@ -34,6 +36,7 @@ from app.processing.ingest.manifest_sources import (
     manifest_dataset_fingerprint,
 )
 from tests.factories import create_dataset, get_user_id
+from tests.lock_wait import await_lock_wait_query
 from tests.test_manifest_reapply_publication import (
     _admin,
     _http_request,
@@ -188,6 +191,27 @@ async def _staged_row(
     await session.commit()
     await session.refresh(job)
     return job
+
+
+def _upload_lifetime() -> int:
+    """How long a finished upload waits for its claim."""
+    return stale_pending_cutoff_seconds(completion_bound=True)
+
+
+async def _wait(session, job_id: uuid.UUID, seconds: int) -> None:
+    """Leave the upload pending for ``seconds``, by moving its clock back."""
+    old = datetime.now(timezone.utc) - timedelta(seconds=seconds)
+    await session.execute(
+        update(IngestJob)
+        .where(IngestJob.id == job_id)
+        .values(
+            created_at=old,
+            user_metadata=IngestJob.user_metadata.op("||")(
+                text(f"""'{{"staged_at": "{old.isoformat()}"}}'::jsonb""")
+            ),
+        )
+    )
+    await session.commit()
 
 
 async def _user_id(client: AsyncClient, headers: dict) -> uuid.UUID:
@@ -410,20 +434,7 @@ class TestRefusals:
         self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
     ):
         job_id = await _upload(client, editor_auth_header)
-        old = datetime.now(timezone.utc) - timedelta(
-            seconds=settings.pending_job_timeout_seconds + 60
-        )
-        await test_db_session.execute(
-            update(IngestJob)
-            .where(IngestJob.id == job_id)
-            .values(
-                created_at=old,
-                user_metadata=IngestJob.user_metadata.op("||")(
-                    text(f"""'{{"staged_at": "{old.isoformat()}"}}'::jsonb""")
-                ),
-            )
-        )
-        await test_db_session.commit()
+        await _wait(test_db_session, job_id, _upload_lifetime() + 60)
 
         answers = await _answers(
             client, editor_auth_header, "web-expired", job_id, _checksum(_ORIGINAL)
@@ -433,6 +444,9 @@ class TestRefusals:
             client, editor_auth_header, "web-expired"
         )
         assert (await _row(test_db_session, job_id)).status == "pending"
+        [message] = {a["message"] for a in answers}
+        assert "Upload the file again" in message
+        assert "apply the manifest again" in message
 
     async def test_an_upload_is_claimed_once(
         self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
@@ -1075,24 +1089,11 @@ class TestDuringTheCheck:
 
         job_id = await _upload(client, editor_auth_header)
         real_hash = manifest_sources._staged_upload_sha256
-        old = datetime.now(timezone.utc) - timedelta(
-            seconds=settings.pending_job_timeout_seconds + 60
-        )
 
         async def _hash_then_expire(file_path: str):
             result = await real_hash(file_path)
             async with db_module.async_session() as other:
-                await other.execute(
-                    update(IngestJob)
-                    .where(IngestJob.id == job_id)
-                    .values(
-                        created_at=old,
-                        user_metadata=IngestJob.user_metadata.op("||")(
-                            text(f"""'{{"staged_at": "{old.isoformat()}"}}'::jsonb""")
-                        ),
-                    )
-                )
-                await other.commit()
+                await _wait(other, job_id, _upload_lifetime() + 60)
             return result
 
         with patch.object(manifest_sources, "_staged_upload_sha256", _hash_then_expire):
@@ -1472,3 +1473,262 @@ class TestJsonNullMetadata:
         row = await _row(test_db_session, job_id)
         assert isinstance(row.user_metadata, dict)
         assert row.user_metadata["manifest_key"] == "null-claim"
+
+
+async def _reap_local_uploads(session) -> None:
+    """Run the staged-file reaper as it runs once every ended job is a day older."""
+    import app.platform.jobs.local_staging_reconcile as reconcile
+
+    reconcile._resume_after = None
+    later = datetime.now(timezone.utc) + timedelta(
+        seconds=settings.staging_orphan_min_age_seconds + 3600
+    )
+    outcome = await reconcile.reconcile_orphaned_local_uploads(session, now=later)
+    await session.commit()
+    assert outcome.ran
+
+
+class TestAnUploadWaitsForItsApply:
+    """A client uploads every file of a manifest before it applies, so the
+    first uploads of a large batch are old by the time the apply claims them."""
+
+    async def test_an_upload_older_than_the_pending_timeout_is_still_claimed(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        from app.platform.jobs.sweep import fail_stale_jobs
+
+        job_id = await _upload(client, editor_auth_header)
+        await _wait(test_db_session, job_id, settings.pending_job_timeout_seconds + 60)
+
+        await fail_stale_jobs(test_db_session)
+        await _reap_local_uploads(test_db_session)
+        result = await _apply(
+            client,
+            editor_auth_header,
+            _manifest(_entry("web-early", job_id, _checksum(_ORIGINAL))),
+        )
+
+        assert (result["action"], result["job_id"], result["queued"]) == (
+            "create",
+            str(job_id),
+            1,
+        )
+        job = await _row(test_db_session, job_id)
+        assert job.user_metadata["manifest_key"] == "web-early"
+        assert Path(job.file_path).exists()
+
+    async def test_an_upload_the_sweep_cancelled_is_refused_and_its_file_reaped(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        from app.platform.jobs.sweep import fail_stale_jobs
+
+        job_id = await _upload(client, editor_auth_header)
+        staged = Path((await _row(test_db_session, job_id)).file_path)
+        await _wait(test_db_session, job_id, _upload_lifetime() + 60)
+
+        await fail_stale_jobs(test_db_session)
+        await _reap_local_uploads(test_db_session)
+        answers = await _answers(
+            client, editor_auth_header, "web-swept", job_id, _checksum(_ORIGINAL)
+        )
+
+        assert not staged.exists()
+        assert answers == await _unknown_answers(
+            client, editor_auth_header, "web-swept"
+        )
+        assert {a["message"] for a in answers} == {UPLOAD_SOURCE_UNAVAILABLE}
+        job = await _row(test_db_session, job_id)
+        assert (job.status, job.error_code) == ("cancelled", "upload_abandoned")
+
+    async def test_an_upload_that_never_finished_expires_at_the_pending_timeout(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        from app.platform.jobs.sweep import fail_stale_jobs
+
+        editor = await _user_id(client, editor_auth_header)
+        # The row the upload door commits before it stages the file.
+        job = IngestJob(
+            status="pending",
+            created_by=editor,
+            source_filename="capitals.geojson",
+            file_path="",
+            user_metadata={},
+        )
+        test_db_session.add(job)
+        await test_db_session.commit()
+        job_id = job.id
+        await _wait(test_db_session, job_id, settings.pending_job_timeout_seconds + 60)
+
+        await fail_stale_jobs(test_db_session)
+
+        job = await _row(test_db_session, job_id)
+        assert (job.status, job.error_code) == ("cancelled", "upload_abandoned")
+
+
+@pytest.mark.parametrize("first", ["sweep", "claim"])
+async def test_the_sweep_and_a_claim_never_both_take_an_upload(
+    test_db_session, clean_tables, monkeypatch, tmp_path, first
+):
+    """Each writes the row in one statement fenced on ``pending``, so the row
+    lock orders them and the second finds the row taken."""
+    import app.core.db as db_module
+    import app.processing.ingest.manifest_reservation as reservation
+    from app.platform.jobs.sweep import fail_stale_jobs
+
+    monkeypatch.setattr(settings, "upload_staging_dir", str(tmp_path))
+    user = await _admin(test_db_session)
+    upload = await _staged_row(test_db_session, user.id)
+    upload_id, staged = upload.id, Path(upload.file_path)
+    claim = {
+        "job_id": upload_id,
+        "attempt_id": upload.attempt_id,
+        "file_path": upload.file_path,
+        "owner": user.id,
+        "metadata": {"manifest_key": "web-raced", "manifest_stage": "downloading"},
+        "dataset_id": None,
+        "source_layer": None,
+    }
+    # The upload has expired, but the claim reads a clock on which it is still
+    # fresh, so only the row's status can refuse whichever writes second.
+    await _wait(test_db_session, upload_id, _upload_lifetime() + 60)
+
+    class _SlowClock(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return datetime.now(tz) - timedelta(seconds=_upload_lifetime())
+
+    monkeypatch.setattr(reservation, "datetime", _SlowClock)
+    took: dict[str, bool] = {}
+
+    async def _sweeps(session) -> None:
+        outcome = await settle_stale_jobs(
+            session, datetime.now(timezone.utc), job_ids=[upload_id]
+        )
+        took["sweep"] = bool(outcome.pending_cancelled + outcome.pending_failed)
+
+    async def _claims(session) -> None:
+        took["claim"] = await claim_upload(session, **claim) is not None
+
+    async def _second(write) -> None:
+        async with db_module.async_session() as session:
+            await write(session)
+            await session.commit()
+
+    writes = [_sweeps, _claims] if first == "sweep" else [_claims, _sweeps]
+    async with db_module.async_session() as holder:
+        holder_pid = await holder.scalar(text("SELECT pg_backend_pid()"))
+        await writes[0](holder)
+        async with anyio.create_task_group() as tg:
+            tg.start_soon(_second, writes[1])
+            await await_lock_wait_query(blocked_by=holder_pid)
+            await holder.commit()
+
+    assert took == {"sweep": first == "sweep", "claim": first == "claim"}
+    await fail_stale_jobs(test_db_session)
+    await _reap_local_uploads(test_db_session)
+    job = await _row(test_db_session, upload_id)
+    if first == "sweep":
+        assert (job.status, job.error_code) == ("cancelled", "upload_abandoned")
+        assert "manifest_key" not in job.user_metadata
+        assert not staged.exists()
+    else:
+        assert job.status == "running"
+        assert job.user_metadata["manifest_key"] == "web-raced"
+        assert staged.exists()
+
+
+async def _settle_in_another_session(job_id: uuid.UUID) -> bool:
+    """Run the stale pass on ``job_id`` the way a concurrent sweep would.
+
+    First answers whether the previous release's sweep, which ages a pending
+    row from ``coalesce(staged_at, created_at)`` alone, would take the row now.
+    """
+    import app.core.db as db_module
+
+    async with db_module.async_session() as other:
+        stale_to_the_previous_release = await other.scalar(
+            text(
+                "SELECT coalesce((user_metadata->>'staged_at')::timestamptz,"
+                " created_at) < now() - make_interval(secs => :timeout)"
+                " FROM catalog.ingest_jobs WHERE id = :id"
+            ),
+            {"id": job_id, "timeout": settings.pending_job_timeout_seconds},
+        )
+        await settle_stale_jobs(other, datetime.now(timezone.utc), job_ids=[job_id])
+        await other.commit()
+    return stale_to_the_previous_release
+
+
+class TestADispatchRestartsThePendingClock:
+    """A commit of an upload older than the pending timeout is not stale while
+    its queue entry is still being written."""
+
+    async def test_a_commit_survives_a_sweep_before_its_enqueue(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        job_id = await _upload(client, editor_auth_header)
+        await _wait(test_db_session, job_id, settings.pending_job_timeout_seconds + 600)
+
+        stale_to_the_previous_release: list[bool] = []
+
+        async def _swept_then_queued(job, *_args, **_kwargs) -> None:
+            stale_to_the_previous_release.append(
+                await _settle_in_another_session(job.id)
+            )
+
+        with patch(
+            "app.processing.ingest.router.queue_ingest_job",
+            new=AsyncMock(side_effect=_swept_then_queued),
+        ) as queue:
+            response = await client.post(
+                f"/ingest/commit/{job_id}",
+                json={"title": "Capitals"},
+                headers=editor_auth_header,
+            )
+
+        assert response.status_code == 202, response.text
+        assert queue.await_count == 1
+        assert stale_to_the_previous_release == [False]
+        job = await _row(test_db_session, job_id)
+        assert (job.status, job.error_message) == ("pending", None)
+
+    async def test_a_fan_out_layer_survives_a_sweep_before_its_enqueue(
+        self, client: AsyncClient, editor_auth_header, test_db_session, clean_tables
+    ):
+        job_id = await _upload(client, editor_auth_header)
+        await test_db_session.execute(
+            update(IngestJob)
+            .where(IngestJob.id == job_id)
+            .values(
+                user_metadata=IngestJob.user_metadata.op("||")(
+                    text("""'{"all_layers": ["capitals", "rivers"]}'::jsonb""")
+                )
+            )
+        )
+        await test_db_session.commit()
+        await _wait(test_db_session, job_id, settings.pending_job_timeout_seconds + 600)
+        deferred: list[uuid.UUID] = []
+        stale_to_the_previous_release: list[bool] = []
+
+        async def _swept_then_deferred(_task, **kwargs) -> None:
+            child_id = uuid.UUID(kwargs["job_id"])
+            deferred.append(child_id)
+            stale_to_the_previous_release.append(
+                await _settle_in_another_session(child_id)
+            )
+
+        with patch(
+            "app.processing.ingest.service.defer_async_with_tenant",
+            new=_swept_then_deferred,
+        ):
+            response = await client.post(
+                f"/ingest/commit-fan-out/{job_id}",
+                json={"layers": [{"layer_name": "capitals"}]},
+                headers=editor_auth_header,
+            )
+
+        assert response.status_code == 202, response.text
+        [child_id] = deferred
+        assert stale_to_the_previous_release == [False]
+        child = await _row(test_db_session, child_id)
+        assert (child.status, child.error_message) == ("pending", None)

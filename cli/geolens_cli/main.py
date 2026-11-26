@@ -903,14 +903,64 @@ def login(
     state.output.success(f"Logged in to {instance} as {username} ({backend})")
 
 
+def _revoke_server_session(instance: str) -> bool:
+    """Revoke the stored login's session on the server; False if unconfirmed.
+
+    Resolves the stored credential the way ``resolve_active_credential()``
+    does, minus GEOLENS_TOKEN. An API-key profile has no session, so nothing is
+    sent and the result is True. An ambiguous or unreadable identity, a
+    refresh token with no bearer, a network error and any answer but 204 are
+    all unconfirmed: a rejected credential does not prove the refresh family it
+    belonged to is gone. A refresh token is used only when it is paired with the
+    stored bearer; otherwise the bearer's own session is revoked.
+    """
+    from geolens.api.auth import logout_current_session_auth_logout_session_post as _logout
+    from geolens.models.refresh_request import RefreshRequest
+
+    from ._sdk_helpers import make_client
+
+    try:
+        marker = _auth._read_active_kind_marker(instance)
+        if marker == "api_key":
+            return True
+        bearer = _auth._load_stored_bearer_value(instance)
+        if marker is None and _auth.load_api_key_strict(instance):
+            if bearer:
+                return False
+            return True
+        try:
+            refresh = _auth.load_refresh_token_strict(instance)
+            fingerprint = _auth._load_refresh_fingerprint(instance)
+        except _auth.KeyringCredentialUnreadable:
+            if not bearer:
+                return False
+            # Without the pairing proof, fall back to the bearer's own session.
+            refresh = fingerprint = None
+        if not bearer:
+            return not refresh
+        if refresh and fingerprint == _auth._fingerprint_bearer(bearer):
+            resp = _logout.sync_detailed(
+                client=make_client(instance).client,
+                body=RefreshRequest(refresh_token=refresh),
+            )
+        else:
+            resp = _logout.sync_detailed(
+                client=make_client(instance, bearer_token=bearer).client
+            )
+        return int(resp.status_code) == 204
+    except Exception:  # broad: offline or unreadable storage must not block local logout
+        return False
+
+
 @app.command()
 def logout(ctx: typer.Context) -> None:
-    """Tear down credentials for the active instance."""
+    """Revoke the stored session on the server, then delete local credentials."""
     state: AppState = ctx.obj
     instance = state.active_instance()
     if not instance:
         state.output.error("No active instance — nothing to log out from.")
         raise typer.Exit(2)
+    session_revoked = _revoke_server_session(instance)
     try:
         _auth.delete_credentials(instance)
     except _auth.CredentialsFileCorrupt as exc:
@@ -933,7 +983,21 @@ def logout(ctx: typer.Context) -> None:
             _config.config_path().unlink()
         except FileNotFoundError:
             pass
+    if state.json_mode:
+        state.output.json(
+            {
+                "message": f"Logged out of {instance}",
+                "ok": True,
+                "session_revoked": session_revoked,
+            }
+        )
+        return
     state.output.success(f"Logged out of {instance}")
+    if not session_revoked:
+        state.output.warn(
+            "The server did not confirm the session ended, so it may still be "
+            "active there. Sign out from the web app to end it."
+        )
 
 
 @app.command()

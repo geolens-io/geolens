@@ -368,3 +368,50 @@ async def test_collection_items_self_link_preserves_active_params(
     assert qs["limit"] == ["1"]
     assert qs["offset"] == ["2"]
     assert 'rel="self"' in resp.headers["link"]
+
+
+_PAST_INT8 = "100000000000000000000000"
+
+
+async def test_stac_offset_past_int8_is_rejected_on_every_route(client: AsyncClient):
+    """asyncpg cannot encode it; it used to surface as a 500 from the database."""
+    missing = uuid.uuid4()
+    responses = [
+        await client.get("/stac/search", params={"offset": _PAST_INT8}),
+        await client.post("/stac/search", json={"offset": int(_PAST_INT8)}),
+        await client.get(
+            f"/stac/collections/{missing}/items", params={"offset": _PAST_INT8}
+        ),
+    ]
+
+    assert [r.status_code for r in responses] == [400, 400, 400], [
+        r.text for r in responses
+    ]
+
+
+async def test_stac_offset_at_int8_max_still_answers(client: AsyncClient):
+    resp = await client.get("/stac/search", params={"offset": str(2**63 - 1)})
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["features"] == []
+
+
+@pytest.mark.parametrize(
+    "intersects",
+    [
+        {"type": "Point"},
+        {"type": "Blob", "coordinates": [1, 2]},
+        {"type": "Feature", "geometry": {"type": "Point", "coordinates": [1, 2]}},
+        {"type": "FeatureCollection", "features": []},
+    ],
+    ids=["no-coordinates", "unknown-type", "feature", "feature-collection"],
+)
+async def test_stac_search_malformed_intersects_is_a_400(
+    client: AsyncClient, intersects
+):
+    get = await client.get(
+        "/stac/search", params={"intersects": json.dumps(intersects)}
+    )
+    post = await client.post("/stac/search", json={"intersects": intersects})
+
+    assert (get.status_code, post.status_code) == (400, 400), (get.text, post.text)

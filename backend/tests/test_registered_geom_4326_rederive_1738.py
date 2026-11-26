@@ -1,8 +1,11 @@
 """Out-of-band writes to a registered table have to become visible.
 
 Registering an existing table copies no data: the catalog points at the live
-relation and every read is served from it. ``geom_4326`` is the exception —
-it is a plain column that ``register_existing_table`` populates ONCE, and
+relation and every read is served from it. ``geom_4326`` is the exception on
+a table whose render column is plain: it was populated ONCE at registration
+(registration now creates a stored generated column instead, which
+re-derives itself; the tables staged here carry a plain column, as a table
+registered before that change or a column its owner wrote would), and
 nothing re-derives it afterwards. So the owner's own writes, which are the
 entire reason to register a table rather than upload one, land in ``geom``
 and are never rendered:
@@ -85,10 +88,16 @@ def _tile_xy(lon: float, lat: float, z: int) -> tuple[int, int]:
 
 
 async def _create_source_table(session, table_name: str, *, lon: float, lat: float):
-    """A table exactly as an owner would leave it: `geom`, and no `geom_4326`.
+    """A table exactly as an owner would leave it: `geom`, and a plain `geom_4326`.
 
-    This is what registration is handed. The render column, its index and the
-    reader grant are all things GeoLens adds on the way in.
+    The plain render column is the shape this suite's repair path serves.
+    Registration now creates a stored generated column instead, so a table
+    handed to registration without one no longer produces a plain column
+    for the repair to re-derive. Tables registered before that change, and
+    columns an owner wrote themselves, stay plain, and the repair still
+    re-derives those. The generated registration path is covered by
+    ``test_register_generated_geom_4326_3533``. The index and the reader
+    grant are still things GeoLens adds on the way in.
     """
     await session.execute(
         text(
@@ -106,6 +115,13 @@ async def _create_source_table(session, table_name: str, *, lon: float, lat: flo
         ),
         {"lon": lon, "lat": lat},
     )
+    await session.execute(
+        text(
+            f'ALTER TABLE data."{table_name}" '
+            f"ADD COLUMN geom_4326 geometry(Geometry, 4326)"
+        )
+    )
+    await session.execute(text(f'UPDATE data."{table_name}" SET geom_4326 = geom'))
     await session.commit()
 
 
@@ -434,6 +450,230 @@ async def test_an_overwrite_restores_the_column_the_index_and_the_grant(
         await _drop(test_db_session, table_name)
 
 
+async def _geom_4326_attgenerated(session, table_name: str) -> str | None:
+    """pg_attribute.attgenerated for geom_4326: 's' stored, '' plain, None absent."""
+    await session.rollback()
+    return await session.scalar(
+        text(
+            "SELECT attgenerated::text FROM pg_attribute "
+            "WHERE attrelid = to_regclass(format('%I.%I', 'data', CAST(:t AS text))) "
+            "AND attname = 'geom_4326' AND NOT attisdropped"
+        ),
+        {"t": table_name},
+    )
+
+
+async def test_a_refresh_restores_a_dropped_column_as_a_generated_one(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """The repair adds the column the way registration does.
+
+    A plain column would go stale on the next out-of-band write to `geom`
+    and need another refresh; a stored generated one follows the write.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_gen_{uuid.uuid4().hex[:10]}"
+    await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.execute(
+            text(f'REVOKE ALL ON data."{table_name}" FROM geolens_reader')
+        )
+        await test_db_session.commit()
+        assert await _geom_4326_attgenerated(test_db_session, table_name) is None
+
+        await _refresh(test_db_session, client, admin_auth_header, dataset.id)
+
+        assert await _geom_4326_attgenerated(test_db_session, table_name) == "s"
+        assert await _has_gist_index(test_db_session, table_name)
+        assert await _reader_can_select(test_db_session, table_name)
+        assert await _features_at(test_db_session, table_name, _HERE) == 1
+
+        await test_db_session.execute(
+            text(
+                f'UPDATE data."{table_name}" '  # noqa: S608
+                f"SET geom = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)"
+            ),
+            {"lon": _THERE[0], "lat": _THERE[1]},
+        )
+        await test_db_session.commit()
+        assert await _features_at(test_db_session, table_name, _THERE) == 1
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+async def test_a_refresh_gives_a_generated_geom_a_plain_filled_column(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """PostgreSQL won't derive one generated column from another."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_gg_{uuid.uuid4().hex[:10]}"
+    await test_db_session.execute(
+        text(
+            f'CREATE TABLE data."{table_name}" ('
+            f"  gid serial PRIMARY KEY, x float8, y float8,"
+            f"  geom geometry(Point, 4326) GENERATED ALWAYS AS "
+            f"    (ST_SetSRID(ST_MakePoint(x, y), 4326)) STORED)"
+        )
+    )
+    await test_db_session.execute(
+        text(f'INSERT INTO data."{table_name}" (x, y) VALUES (:x, :y)'),  # noqa: S608
+        {"x": _HERE[0], "y": _HERE[1]},
+    )
+    await test_db_session.commit()
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.commit()
+
+        await _refresh(test_db_session, client, admin_auth_header, dataset.id)
+
+        assert await _geom_4326_attgenerated(test_db_session, table_name) == ""
+        assert await _has_gist_index(test_db_session, table_name)
+        assert await _features_at(test_db_session, table_name, _HERE) == 1
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+@pytest.mark.parametrize("generated_geom", [False, True], ids=["generated", "plain"])
+async def test_a_restored_column_bumps_the_tile_version_and_purges_tiles(
+    test_db_session, generated_geom: bool
+) -> None:
+    """The repair commits before the measurement, so it owns the invalidation.
+
+    The column is restored by its own ADD, which fills it with no rows
+    counted as rewritten; with an existing gid nothing else triggers the
+    bump either. If the measurement then fails, stale cached tiles would
+    outlive the repair.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_inv_{uuid.uuid4().hex[:10]}"
+    if generated_geom:
+        await test_db_session.execute(
+            text(
+                f'CREATE TABLE data."{table_name}" ('
+                f"  gid serial PRIMARY KEY, x float8, y float8,"
+                f"  geom geometry(Point, 4326) GENERATED ALWAYS AS "
+                f"    (ST_SetSRID(ST_MakePoint(x, y), 4326)) STORED)"
+            )
+        )
+        await test_db_session.execute(
+            text(f'INSERT INTO data."{table_name}" (x, y) VALUES (:x, :y)'),  # noqa: S608
+            {"x": _HERE[0], "y": _HERE[1]},
+        )
+        await test_db_session.commit()
+    else:
+        await _create_source_table(
+            test_db_session, table_name, lon=_HERE[0], lat=_HERE[1]
+        )
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.commit()
+        before = await _stored_version(test_db_session, dataset.id)
+
+        with patch.object(
+            tasks_postgis_refresh, "invalidate_tile_cache_for_table", AsyncMock()
+        ) as purge:
+            report = await tasks_postgis_refresh._repair_geom_4326(
+                dataset.id, Dataset, schema="data", role="geolens_reader"
+            )
+
+        assert report.column_added is True
+        assert report.gid_added is False
+        assert report.tile_cache_version == before + 1
+        assert await _stored_version(test_db_session, dataset.id) == before + 1
+        purge.assert_awaited_once_with(table_name)
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+async def test_restoring_a_plain_column_fills_only_rows_that_have_geometry(
+    test_db_session,
+) -> None:
+    """A row with no geometry has nothing to render, so its row is left alone.
+
+    On an owner-managed table an UPDATE fires its triggers and writes a new
+    row version; the plain fallback must keep to the conditional fill.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_trg_{uuid.uuid4().hex[:10]}"
+    await test_db_session.execute(
+        text(
+            f'CREATE TABLE data."{table_name}" ('
+            f"  gid serial PRIMARY KEY, x float8, y float8,"
+            f"  geom geometry(Point, 4326) GENERATED ALWAYS AS "
+            f"    (CASE WHEN x IS NULL THEN NULL "
+            f"     ELSE ST_SetSRID(ST_MakePoint(x, y), 4326) END) STORED)"
+        )
+    )
+    await test_db_session.execute(
+        text(f'INSERT INTO data."{table_name}" (x, y) VALUES (:x, :y), (NULL, NULL)'),  # noqa: S608
+        {"x": _HERE[0], "y": _HERE[1]},
+    )
+    await test_db_session.commit()
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{table_name}_log" (gid int)')
+        )
+        await test_db_session.execute(
+            text(
+                f'CREATE FUNCTION data."{table_name}_fn"() RETURNS trigger '
+                f"LANGUAGE plpgsql AS $$ BEGIN "
+                f'INSERT INTO data."{table_name}_log" VALUES (NEW.gid); '
+                f"RETURN NEW; END $$"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f'CREATE TRIGGER t BEFORE UPDATE ON data."{table_name}" '
+                f'FOR EACH ROW EXECUTE FUNCTION data."{table_name}_fn"()'
+            )
+        )
+        await test_db_session.commit()
+
+        report = await tasks_postgis_refresh._repair_geom_4326(
+            dataset.id, Dataset, schema="data", role="geolens_reader"
+        )
+
+        assert report.column_added is True
+        assert report.index_added is True
+        assert report.rows_rewritten == 1
+        fired = (
+            await test_db_session.execute(
+                text(f'SELECT gid FROM data."{table_name}_log"')  # noqa: S608
+            )
+        ).all()
+        populated = await test_db_session.scalar(
+            text(f'SELECT gid FROM data."{table_name}" WHERE x IS NOT NULL')  # noqa: S608
+        )
+        assert [row.gid for row in fired] == [populated]
+    finally:
+        await test_db_session.rollback()
+        await test_db_session.execute(
+            text(f'DROP TABLE IF EXISTS data."{table_name}_log"')
+        )
+        await test_db_session.execute(
+            text(f'DROP FUNCTION IF EXISTS data."{table_name}_fn"() CASCADE')
+        )
+        await _drop(test_db_session, table_name)
+
+
 # ---------------------------------------------------------------------------
 # Cost: the scan is unconditional, the writes are not
 # ---------------------------------------------------------------------------
@@ -457,8 +697,11 @@ async def test_a_refresh_that_finds_no_drift_rewrites_no_rows(
         dataset = await _register(test_db_session, table_name, admin_id)
         await test_db_session.commit()
 
-        # Registration has just written the column with the same expression,
-        # so even the FIRST repair has nothing to do.
+        # The column was filled with the same expression registration
+        # writes, so even the FIRST repair has nothing to do to the rows.
+        # The index is the exception: the column pre-existed, so
+        # registration never created it (it only creates the index
+        # alongside a column it adds), and this first repair restores it.
         first = await tasks_postgis_refresh._repair_geom_4326(
             dataset.id, Dataset, schema="data", role="geolens_reader"
         )
@@ -466,7 +709,7 @@ async def test_a_refresh_that_finds_no_drift_rewrites_no_rows(
         assert (first.rows_rewritten, first.column_added, first.index_added) == (
             0,
             False,
-            False,
+            True,
         )
 
         await _refresh(test_db_session, client, admin_auth_header, dataset.id)

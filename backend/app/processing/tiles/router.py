@@ -630,16 +630,15 @@ def _compute_stretch_rescale(
     """Compute Titiler ``rescale=lo,hi`` fragments from band statistics.
 
     percentile → [percentile_<pmin>, percentile_<pmax>]. stddev → [mean ±
-    sigma·σ] clamped to [min, max]. One fragment per band (up to n_bands);
-    empty when stats are insufficient (caller falls back to minmax).
+    sigma·σ] clamped to [min, max]. One fragment per band; empty unless every
+    band has a usable range, since a short list makes Titiler apply band 1's
+    range to all bands (caller falls back to minmax).
     """
     pmin_key = _percentile_key(pmin)
     pmax_key = _percentile_key(pmax)
     parts: list[str] = []
     for i in range(n_bands):
-        if i >= len(bands):
-            break
-        b = bands[i]
+        b = bands[i] if i < len(bands) else {}
         if stretch == "percentile":
             lo = b.get(pmin_key)
             hi = b.get(pmax_key)
@@ -647,7 +646,7 @@ def _compute_stretch_rescale(
             mean = b.get("mean")
             std = b.get("std")
             if mean is None or std is None:
-                continue
+                return []
             lo = mean - sigma * std
             hi = mean + sigma * std
             bmin, bmax = b.get("min"), b.get("max")
@@ -656,7 +655,7 @@ def _compute_stretch_rescale(
             if bmax is not None:
                 hi = min(hi, bmax)
         if lo is None or hi is None or not (lo < hi):
-            continue
+            return []
         # A literal "+" in an exponent would be read as a space in the query.
         parts.append(f"rescale={quote(str(lo))},{quote(str(hi))}")
     return parts
@@ -1419,7 +1418,10 @@ async def raster_tile_proxy(
         render_params = _apply_stretch_rescale(render_params, [])
     elif stretch and stretch != "minmax" and not render_params.startswith("algorithm="):
         bands = await _fetch_band_statistics(open_path, eff_pmin, eff_pmax)
-        n_bands = min(band_count or 1, 3)
+        # Two bands without a selection are grayscale plus alpha.
+        n_bands = render_params.count("bidx=") or (
+            1 if band_count == 2 else min(band_count or 1, 3)
+        )
         rescale_parts = (
             _compute_stretch_rescale(
                 bands, stretch, n_bands, pmin=eff_pmin, pmax=eff_pmax, sigma=eff_sigma
@@ -1427,6 +1429,8 @@ async def raster_tile_proxy(
             if bands
             else []
         )
+        if not rescale_parts and auth_resp.headers.get(_DATA_RANGE_HEADER):
+            rescale_parts = _data_range_rescale(bands or [], n_bands)
         if rescale_parts:
             render_params = _apply_stretch_rescale(render_params, rescale_parts)
         else:

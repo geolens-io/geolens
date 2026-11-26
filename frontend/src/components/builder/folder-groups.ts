@@ -114,6 +114,24 @@ export function getPersistedFolderGroup(layer: MapLayerResponse): PersistedFolde
   };
 }
 
+/**
+ * `layer` with `current`'s place in the stack: its sort_order, its folder and
+ * the folder marker a save writes, so restoring older state can't move it or
+ * point it at a folder that no longer exists.
+ */
+export function withPlacementOf(layer: MapLayerResponse, current: MapLayerResponse): MapLayerResponse {
+  const { parent_group_id: _parentGroupId, ...rest } = layer as GroupedLayer;
+  const parentGroupId = getParentGroupId(current);
+  const folderGroup = getPersistedFolderGroup(current);
+  const sameMarker = JSON.stringify(getPersistedFolderGroup(layer)) === JSON.stringify(folderGroup);
+  return {
+    ...rest,
+    ...(parentGroupId ? { parent_group_id: parentGroupId } : {}),
+    sort_order: current.sort_order,
+    style_config: sameMarker ? layer.style_config : withPersistedFolderGroup(layer.style_config, folderGroup),
+  } as MapLayerResponse;
+}
+
 // Group identity is persisted only on children (the builder.folderGroup*
 // markers written by prepareLayersForPersistence below), so a group row with no
 // children has no carrier and can't survive save+reload; left alone it would

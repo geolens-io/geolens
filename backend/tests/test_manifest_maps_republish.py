@@ -224,6 +224,7 @@ async def test_a_builder_edit_keeps_every_styling_field_and_answers_a070(
         assert (result.action, result.styling) == ("update", "kept")
         assert _codes(result) == [("A070", "info", None)]
         assert "since the last publish that replaced it" in result.messages[0].message
+        assert f"Updated layer style by {admin.username}," in result.messages[0].message
     assert await _state(test_db_session, created.map_id) == before
     map_obj = await _map_row(test_db_session, created.map_id)
     assert (map_obj.name, map_obj.description) == ("New name", "New description")
@@ -233,6 +234,102 @@ async def test_a_builder_edit_keeps_every_styling_field_and_answers_a070(
         if e.action == "manifest.publish"
     ]
     assert [e.details["styling_applied"] for e in publishes] == [True, False]
+
+
+_MISSING = ["==", ["get", "NO_SUCH_COLUMN"], "x"]
+
+
+def _asking_for_a_missing_column(dataset_id, *, mode, extra=()) -> dict:
+    return _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(dataset_id), **{**_PARKS, "filter": _MISSING}),
+        _layer("names", dataset_id=str(dataset_id)),
+        *extra,
+        styling=mode,
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "warned"),
+    [("keep", False), ("replace", True)],
+)
+async def test_a_column_check_reads_the_styling_the_map_ends_with(
+    test_db_session, clean_tables, mode, warned
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    entry = _asking_for_a_missing_column(dataset_id, mode=mode)
+
+    [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
+    [applied] = (await _apply(test_db_session, admin, entry)).maps
+
+    for result in (checked, applied):
+        assert (("A063", "warning", "parks") in _codes(result)) is warned
+
+
+async def test_a_new_layer_on_a_kept_publish_is_still_column_checked(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    entry = _asking_for_a_missing_column(
+        dataset_id,
+        mode="keep",
+        extra=(
+            _layer(
+                "added",
+                dataset_id=str(dataset_id),
+                filter=_MISSING,
+                label_config={"column": "NO_SUCH_COLUMN"},
+            ),
+        ),
+    )
+
+    [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
+
+    assert [c for c in _codes(checked) if c[0] == "A063"] == [
+        ("A063", "warning", "added")
+    ]
+
+
+async def test_a070_shows_the_latest_edit_only_to_a_caller_who_reads_the_history(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    from sqlalchemy import update
+
+    admin = await _admin(test_db_session)
+    viewer, _ = await _person(client, test_db_session, admin_auth_header, "viewer")
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await service_history.record_map_history_event(
+        test_db_session,
+        map_id=created.map_id,
+        actor=admin,
+        target_type="map",
+        action="layer.rename",
+        summary="Renamed layer to Hidden Wetlands Survey",
+    )
+    await test_db_session.commit()
+    [allowed] = (
+        await _apply(test_db_session, admin, _publish(dataset_id), dry_run=True)
+    ).maps
+    await test_db_session.execute(
+        update(Map).where(Map.id == created.map_id).values(created_by=viewer.id)
+    )
+    await test_db_session.commit()
+    [denied] = (
+        await _apply(test_db_session, viewer, _publish(dataset_id), dry_run=True)
+    ).maps
+
+    [a070] = [m for m in denied.messages if m.code == "A070"]
+    assert "A003" in [m.code for m in denied.messages]
+    assert "Wetlands" not in a070.message
+    assert "UTC" not in a070.message
+    assert "The latest edit: Renamed layer to Hidden Wetlands Survey" in (
+        [m for m in allowed.messages if m.code == "A070"][0].message
+    )
 
 
 async def test_a_republish_after_a_kept_one_still_keeps(
@@ -1730,6 +1827,7 @@ async def test_a_move_into_an_empty_group_is_wider_for_its_later_members(
     assert (parks.dataset_id, _SECRET_CATEGORY in str(parks.paint)) == (second, False)
 
 
+@pytest.mark.parametrize("styling", ["keep", "replace"])
 @pytest.mark.parametrize(
     ("dashboard_version", "widget_version"),
     [(2, 2), (1, 99)],
@@ -1743,6 +1841,7 @@ async def test_a_widening_move_refuses_a_map_whose_dashboard_it_cant_rewrite(
     monkeypatch,
     dashboard_version,
     widget_version,
+    styling,
 ):
     """A dashboard a newer server saved, or a widget this server can't parse,
     stays through a move, since it can't tell which layer the widget names;
@@ -1769,7 +1868,7 @@ async def test_a_widening_move_refuses_a_map_whose_dashboard_it_cant_rewrite(
     )
     await test_db_session.commit()
     rows = await _rows(test_db_session, created.map_id)
-    entry = _publish(second, styling="keep", visibility="public")
+    entry = _publish(second, styling=styling, visibility="public")
 
     [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
     [result] = (await _apply(test_db_session, admin, entry)).maps
@@ -2313,6 +2412,107 @@ async def test_a_kept_publish_answers_alike_for_a_hidden_and_a_missing_dataset(
     assert "A073" not in {code for code, _, _ in _codes(hidden_applied)}
 
 
+@pytest.mark.parametrize("hidden_side", ["stored", "manifest"])
+async def test_replace_under_a_newer_dashboard_answers_alike_for_a_hidden_and_a_missing_dataset(
+    client, test_db_session, admin_auth_header, clean_tables, hidden_side
+):
+    """A dataset the caller can't read answers as one that doesn't exist
+    when the dashboard's widgets can't be removed, whichever side names it."""
+    from sqlalchemy import update
+
+    admin = await _admin(test_db_session)
+    editor, _ = await _person(client, test_db_session, admin_auth_header)
+    own = await _dataset(test_db_session, editor.id)
+    admins = await _dataset(test_db_session, admin.id)
+    stored = admins if hidden_side == "stored" else own
+    first = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(stored)),
+        _layer("names", dataset_id=str(own)),
+    )
+    [created] = (await _apply(test_db_session, editor, first)).maps
+    [parks] = [
+        layer
+        for layer in await _layers(test_db_session, created.map_id)
+        if layer.manifest_key == "parks"
+    ]
+    widget = {**_HISTOGRAM, "v": 2, "id": _WIDGET_ID, "layer_id": str(parks.id)}
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(dashboard_config={"version": 2, "widgets": [widget]})
+    )
+    await test_db_session.commit()
+    await _hide(test_db_session, admins)
+    answers = {}
+    for name, parks_dataset in (("hidden", str(admins)), ("missing", _NO_SUCH_DATASET)):
+        entry = _entry(
+            "qgis-map-parks",
+            _layer("parks", dataset_id=parks_dataset),
+            _layer("names", dataset_id=str(own)),
+            styling="replace",
+        )
+        answers[name] = [
+            (await _apply(test_db_session, editor, entry, dry_run=dry_run)).maps[0]
+            for dry_run in (True, False)
+        ]
+
+    [hidden_checked, hidden_applied] = answers["hidden"]
+    [missing_checked, missing_applied] = answers["missing"]
+    assert hidden_checked.model_dump() == missing_checked.model_dump()
+    assert hidden_applied.model_dump() == missing_applied.model_dump()
+    assert ("A052", "error", "parks") in _codes(hidden_applied)
+    assert "A099" not in {code for code, _, _ in _codes(hidden_applied)}
+
+
+async def test_replace_refuses_moving_a_layer_off_a_dataset_the_caller_cant_read(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    """Under a dashboard whose widgets can't be removed, a move from a
+    dataset the caller can't read to one it can widens, and a dry run says so."""
+    from sqlalchemy import update
+
+    admin = await _admin(test_db_session)
+    editor, _ = await _person(client, test_db_session, admin_auth_header)
+    own = await _dataset(test_db_session, editor.id)
+    admins = await _dataset(test_db_session, admin.id)
+    first = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(admins)),
+        _layer("names", dataset_id=str(own)),
+    )
+    [created] = (await _apply(test_db_session, editor, first)).maps
+    [parks] = [
+        layer
+        for layer in await _layers(test_db_session, created.map_id)
+        if layer.manifest_key == "parks"
+    ]
+    widget = {**_HISTOGRAM, "v": 2, "id": _WIDGET_ID, "layer_id": str(parks.id)}
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(dashboard_config={"version": 2, "widgets": [widget]})
+    )
+    await test_db_session.commit()
+    await _hide(test_db_session, admins)
+    rows = await _rows(test_db_session, created.map_id)
+    entry = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(own)),
+        _layer("names", dataset_id=str(own)),
+        styling="replace",
+    )
+
+    [checked] = (await _apply(test_db_session, editor, entry, dry_run=True)).maps
+    [result] = (await _apply(test_db_session, editor, entry)).maps
+
+    for answer in (checked, result):
+        assert answer.action == "error"
+        assert [m.layer for m in answer.messages if m.code == "A099"] == ["parks"]
+    assert _codes(checked) == _codes(result)
+    assert await _rows(test_db_session, created.map_id) == rows
+
+
 async def test_a_kept_layer_on_a_dataset_the_request_creates_isnt_judged_yet(
     test_db_session, clean_tables
 ):
@@ -2343,6 +2543,262 @@ async def test_a_kept_layer_on_a_dataset_the_request_creates_isnt_judged_yet(
     [result] = await run_manifest_maps(test_db_session, request, admin, results)
 
     assert _codes(result) == []
+
+
+@pytest.mark.parametrize("held_by", ["this-request", "earlier-job"])
+async def test_a_move_off_a_dataset_still_publishing_waits_for_its_job(
+    test_db_session, clean_tables, held_by
+):
+    """A kept layer's move off a dataset a job is still replacing waits for the job."""
+    from sqlalchemy import update
+
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+    from app.platform.jobs.models import IngestJob
+    from app.processing.ingest.manifest_maps import run_manifest_maps
+    from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
+    from tests.test_manifest_maps_apply import _maps_only
+    from tests.test_manifest_maps_dry_run import _local_dataset_entry
+
+    admin = await _admin(test_db_session)
+    columns = [*_COLUMNS, _ACRES, _INSPECTED]
+
+    async def made(visibility):
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin.id,
+            visibility=visibility,
+            geometry_type="MultiPolygon",
+            column_info=[dict(column) for column in columns],
+        )
+        await test_db_session.commit()
+        return dataset.id
+
+    source, target = await made("private"), await made("public")
+    styled = _entry(
+        "qgis-map-parks", _layer("parks", dataset_id=str(source), **_SECRET)
+    )
+    [created] = (await _apply(test_db_session, admin, styled)).maps
+    [parks] = await _layers(test_db_session, created.map_id)
+    parks_id = str(parks.id)
+    widget = {**_HISTOGRAM, "id": _WIDGET_ID, "layer_id": parks_id}
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(dashboard_config={"version": 1, "widgets": [widget]})
+    )
+    job = IngestJob(
+        dataset_id=source,
+        source_filename="parks.fgb",
+        created_by=admin.id,
+        status="pending",
+        user_metadata={"manifest_key": "qgis-source"},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    job_id = job.id
+    moving = _entry(
+        "qgis-map-parks", _layer("parks", dataset_id=str(target)), styling="keep"
+    )
+    rows = await _rows(test_db_session, created.map_id)
+
+    if held_by == "this-request":
+        request = _maps_only(
+            moving,
+            datasets=[{**_local_dataset_entry("qgis-source"), "visibility": "public"}],
+        )
+        results = [
+            ManifestApplyEntryResult(
+                dataset_key="qgis-source",
+                action="update",
+                message="m",
+                dataset_id=source,
+            )
+        ]
+        [waiting] = await run_manifest_maps(test_db_session, request, admin, results)
+    else:
+        [checked] = (await _apply(test_db_session, admin, moving, dry_run=True)).maps
+        [waiting] = (await _apply(test_db_session, admin, moving)).maps
+        assert _codes(checked) == _codes(waiting)
+
+    assert (waiting.action, _codes(waiting)) == (
+        "error",
+        [("A052", "error", "parks")],
+    )
+    assert await _rows(test_db_session, created.map_id) == rows
+    map_row = await _map_row(test_db_session, created.map_id)
+    assert [w["layer_id"] for w in map_row.dashboard_config["widgets"]] == [parks_id]
+
+    # The job publishes the dataset public, and the maps are sent again.
+    record_id = select(Dataset.record_id).where(Dataset.id == source)
+    await test_db_session.execute(
+        update(Record)
+        .where(Record.id == record_id.scalar_subquery())
+        .values(visibility="public")
+    )
+    await test_db_session.execute(
+        update(IngestJob)
+        .where(IngestJob.id == job_id)
+        .values(status="complete", completed_at=datetime.now(UTC))
+    )
+    await test_db_session.commit()
+    [moved] = (await _apply(test_db_session, admin, moving)).maps
+
+    assert (moved.action, _warnings(moved)) == ("update", [])
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert (parks.dataset_id, _SECRET_CATEGORY in str(parks.paint)) == (target, True)
+    map_row = await _map_row(test_db_session, created.map_id)
+    assert [w["layer_id"] for w in map_row.dashboard_config["widgets"]] == [parks_id]
+
+
+async def test_a_source_job_finishing_mid_check_is_judged_on_what_it_published(
+    test_db_session, clean_tables
+):
+    """A source whose job finishes while the map is checked is judged on the columns it published."""
+    from sqlalchemy import update
+
+    import app.core.db as db_module
+    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.platform.jobs.in_flight import datasets_with_jobs_in_flight
+    from app.platform.jobs.models import IngestJob
+
+    admin = await _admin(test_db_session)
+
+    async def made(kind):
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin.id,
+            visibility="public",
+            geometry_type="MultiPolygon",
+            column_info=[*_COLUMNS, _ACRES, _value(kind)],
+        )
+        await test_db_session.commit()
+        return dataset.id
+
+    source, target = await made("integer"), await made("text")
+    styled = _entry(
+        "qgis-map-parks", _layer("parks", dataset_id=str(source), paint=_MATCH)
+    )
+    [created] = (await _apply(test_db_session, admin, styled)).maps
+    [parks] = await _layers(test_db_session, created.map_id)
+    parks_id = str(parks.id)
+    widget = {**_HISTOGRAM, "id": _WIDGET_ID, "layer_id": parks_id}
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(dashboard_config={"version": 1, "widgets": [widget]})
+    )
+    job = IngestJob(
+        dataset_id=source,
+        source_filename="parks.fgb",
+        created_by=admin.id,
+        status="pending",
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    job_id = job.id
+    published = []
+
+    async def finishing_first(session, dataset_ids):
+        ids = set(dataset_ids)
+        if source in ids and not published:
+            # The job replaces the source's value column with text and
+            # commits, in between the apply's own reads.
+            async with db_module.async_session() as other:
+                await other.execute(
+                    update(Dataset)
+                    .where(Dataset.id == source)
+                    .values(column_info=[*_COLUMNS, _ACRES, _value("text")])
+                )
+                await other.execute(
+                    update(IngestJob)
+                    .where(IngestJob.id == job_id)
+                    .values(status="complete", completed_at=datetime.now(UTC))
+                )
+                await other.commit()
+            published.append(source)
+        return await datasets_with_jobs_in_flight(session, ids)
+
+    moving = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(target), opacity=0.5),
+        styling="keep",
+    )
+    with patch.object(manifest_apply, "datasets_with_jobs_in_flight", finishing_first):
+        [moved] = (await _apply(test_db_session, admin, moving)).maps
+
+    assert published == [source]
+    assert (moved.action, _warnings(moved)) == ("update", [])
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert (parks.dataset_id, parks.opacity) == (target, 1.0)
+    map_row = await _map_row(test_db_session, created.map_id)
+    assert [w["layer_id"] for w in map_row.dashboard_config["widgets"]] == [parks_id]
+
+
+async def test_a_failed_source_update_doesnt_hold_a_move_to_a_ready_dataset(
+    test_db_session, clean_tables
+):
+    """A kept layer moves off a dataset whose update in the same request failed before queueing a job."""
+    from sqlalchemy import update
+
+    from app.platform.jobs.models import IngestJob
+    from app.processing.ingest.manifest_maps import run_manifest_maps
+    from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
+    from tests.test_manifest_maps_apply import _maps_only
+    from tests.test_manifest_maps_dry_run import _local_dataset_entry
+
+    admin = await _admin(test_db_session)
+    columns = [*_COLUMNS, _ACRES, _INSPECTED]
+
+    async def made():
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin.id,
+            visibility="public",
+            geometry_type="MultiPolygon",
+            column_info=[dict(column) for column in columns],
+        )
+        await test_db_session.commit()
+        return dataset.id
+
+    source, target = await made(), await made()
+    test_db_session.add(
+        IngestJob(
+            dataset_id=source,
+            source_filename="parks.fgb",
+            created_by=admin.id,
+            status="complete",
+            completed_at=datetime.now(UTC),
+            user_metadata={"manifest_key": "qgis-source"},
+        )
+    )
+    styled = _entry(
+        "qgis-map-parks", _layer("parks", dataset_id=str(source), **_SECRET)
+    )
+    [created] = (await _apply(test_db_session, admin, styled)).maps
+    [parks] = await _layers(test_db_session, created.map_id)
+    parks_id = str(parks.id)
+    widget = {**_HISTOGRAM, "id": _WIDGET_ID, "layer_id": parks_id}
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(dashboard_config={"version": 1, "widgets": [widget]})
+    )
+    await test_db_session.commit()
+    moving = _entry(
+        "qgis-map-parks", _layer("parks", dataset_id=str(target)), styling="keep"
+    )
+    request = _maps_only(moving, datasets=[_local_dataset_entry("qgis-source")])
+    failed = ManifestApplyEntryResult(
+        dataset_key="qgis-source", action="error", message="m"
+    )
+
+    [moved] = await run_manifest_maps(test_db_session, request, admin, [failed])
+
+    assert (moved.action, _warnings(moved)) == ("update", [])
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert (parks.dataset_id, _SECRET_CATEGORY in str(parks.paint)) == (target, True)
+    map_row = await _map_row(test_db_session, created.map_id)
+    assert [w["layer_id"] for w in map_row.dashboard_config["widgets"]] == [parks_id]
 
 
 async def test_a_map_another_change_holds_answers_busy(test_db_session, clean_tables):
@@ -2856,6 +3312,41 @@ async def test_the_notes_block_is_recognised_whatever_order_the_clocks_give(
     notes = (await _map_row(test_db_session, created.map_id)).notes
     assert notes.count("Published from") == 1
     assert notes.split("\n").count("---") == 1
+
+
+async def test_an_older_publishes_block_is_recognised_among_many_recorded_ones(
+    test_db_session, clean_tables
+):
+    from app.modules.catalog.maps.models import MapEditHistoryEvent
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (
+        await _apply(test_db_session, admin, _publish(dataset_id, loss_report=_LOSS))
+    ).maps
+    first_block = (await _map_row(test_db_session, created.map_id)).notes.split(
+        "\n---\n"
+    )[0]
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    test_db_session.add_all(
+        MapEditHistoryEvent(
+            map_id=created.map_id,
+            target_type="map",
+            action="manifest.publish",
+            summary="Published",
+            details={"notes_digest": hashlib.sha256(str(n).encode()).hexdigest()},
+        )
+        for n in range(300)
+    )
+    map_row = await _map_row(test_db_session, created.map_id)
+    map_row.notes = f"{first_block}\n---\nMine"
+    await test_db_session.commit()
+
+    await _apply(test_db_session, admin, _publish(dataset_id))
+
+    notes = (await _map_row(test_db_session, created.map_id)).notes
+    assert notes.count("Published from") == 1
+    assert notes.endswith("\n---\nMine")
 
 
 @pytest.mark.parametrize("case", ["bomb", "parser-raises", "gif"])

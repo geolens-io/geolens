@@ -551,9 +551,26 @@ fi
 # keep answering, though the frontend can only return errors for API calls until
 # the new api is running.
 BACKUP_DIR="$PROJECT_ROOT/backups/pre-upgrade"
-mkdir -p "$BACKUP_DIR"
+# The dump holds password hashes, API key hashes and encrypted credentials, so
+# keep it owner-only whatever the umask, and tighten a directory an earlier
+# upgrade left looser.
+BACKUP_TAIL="Nothing was stopped, .env still pins ${PREVIOUS_VERSION}, and the database is untouched."
+[ ! -L "$BACKUP_DIR" ] \
+  || fail "$BACKUP_DIR is a symlink; refusing to write the backup through it. $BACKUP_TAIL"
+if [ -d "$BACKUP_DIR" ] && [ "$(ls -ld "$BACKUP_DIR" | cut -c5-10)" != "------" ]; then
+  say "  tightening $BACKUP_DIR to owner-only (0700)"
+fi
+(umask 077 && mkdir -p "$BACKUP_DIR") && chmod 700 "$BACKUP_DIR" \
+  || fail "Could not create $BACKUP_DIR with owner-only permissions; it is owned by $(ls -ld "$BACKUP_DIR" 2>/dev/null | awk '{print $3}'), you are $(id -un). $BACKUP_TAIL"
+BACKUP_DIR_OWNER="$(ls -ld "$BACKUP_DIR" | awk '{print $3}')"
+[ "$BACKUP_DIR_OWNER" = "$(id -un)" ] \
+  || fail "$BACKUP_DIR is owned by $BACKUP_DIR_OWNER, not $(id -un). $BACKUP_TAIL"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
 BACKUP_FILE="$BACKUP_DIR/${POSTGRES_DB}_pre_${CURRENT_VERSION:-unknown}_to_${TARGET_VERSION}_${STAMP}.dump"
+# The name is predictable, so an entry planted while the directory was looser
+# would steer the dump; nobody else can add one now that it is owner-only.
+[ ! -e "$BACKUP_FILE" ] && [ ! -L "$BACKUP_FILE" ] \
+  || fail "$BACKUP_FILE already exists; refusing to write the backup over it. $BACKUP_TAIL"
 
 # Put the instance back the way we found it. `--no-deps` is load-bearing: the
 # prod compose gives api a `depends_on: migrate: service_completed_successfully`
@@ -627,8 +644,11 @@ APP_DOWN=1
 say "  pre-upgrade database backup -> $BACKUP_FILE"
 # -Fc custom-format dump (the format restore.sh expects via pg_restore). Stream
 # to the host file via `exec -T` so the dump lands outside the container.
-if ! compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-    -Fc --no-owner --no-acl > "$BACKUP_FILE"; then
+# The empty file is created 0600 first because a default ACL on the directory
+# overrides the umask; the redirect then keeps that mode.
+if ! (umask 077; : > "$BACKUP_FILE" && chmod 600 "$BACKUP_FILE" \
+    && compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -Fc --no-owner --no-acl > "$BACKUP_FILE"); then
   rm -f "$BACKUP_FILE"
   report_restore
   fail "Pre-upgrade backup failed (pg_dump). Aborting before the database was changed."

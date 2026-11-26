@@ -14,7 +14,7 @@ from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlparse
 
 import structlog
-from sqlalchemy import and_, func, select
+from sqlalchemy import and_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import (
@@ -28,12 +28,12 @@ from app.platform.jobs.models import (
     MANIFEST_FINGERPRINT_METADATA_KEY,
     IngestJob,
 )
-from app.platform.jobs.sweep import JOB_TIMEOUT_SECONDS, may_be_stale
-from app.processing.ingest.manifest_reservation import (
-    claim_upload,
-    plain_upload,
+from app.platform.jobs.sweep import (
+    JOB_TIMEOUT_SECONDS,
+    may_be_stale,
     unclaimed_upload,
 )
+from app.processing.ingest.manifest_reservation import claim_upload
 from app.processing.ingest.manifest_schemas import (
     MANIFEST_SOURCE_EXTENSIONS,
     UPLOAD_URI_PREFIX,
@@ -57,7 +57,8 @@ ManifestSourceKind = Literal["local", "http", "storage", "upload"]
 # another account's job id from one that never existed.
 UPLOAD_SOURCE_UNAVAILABLE = (
     "The upload this source names is unknown, has expired, or was already "
-    "used. Upload the file again."
+    "used. Upload the file again, then apply the manifest again with the new "
+    "upload as this source."
 )
 
 UPLOAD_READ_FAILED = (
@@ -410,12 +411,9 @@ async def prepare_manifest_source(
         await db.execute(
             select(
                 IngestJob,
-                and_(
-                    IngestJob.status == "pending",
-                    func.coalesce(IngestJob.file_path, "") != "",
-                    plain_upload(),
-                    unclaimed_upload(),
-                ).label("claimable"),
+                and_(IngestJob.status == "pending", unclaimed_upload()).label(
+                    "claimable"
+                ),
             ).where(
                 IngestJob.id == job_id,
                 IngestJob.created_by == user.id,

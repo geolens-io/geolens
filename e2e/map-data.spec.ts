@@ -114,6 +114,71 @@ test.describe('Viewer Map data panel', () => {
     }
   });
 
+  for (const size of [{ width: 1600, height: 800 }, { width: 640, height: 400 }]) {
+    test(`a tall legend stays clear of the table and basemap button at ${size.width}x${size.height}`, async ({ page, request }) => {
+      await page.setViewportSize(size);
+      const tallMapId = await createMap(request, `Reader Legend E2E ${Date.now()}`);
+      try {
+        for (let i = 0; i < 14; i += 1) {
+          const layer = await request.post(`${BASE_URL}/api/maps/${tallMapId}/layers/`, {
+            headers: authHeaders(),
+            data: { dataset_id: datasetId },
+          });
+          expect(layer.ok()).toBe(true);
+        }
+        const launcher = await openViewer(page, tallMapId);
+        // Not by role: a squeezed legend is hidden and drops out of the role tree.
+        const legend = page.locator('[role="region"][aria-label="Layers"]');
+        await expect(legend).toBeVisible();
+        // A collapsed legend is unmounted and has no bottom.
+        const legendBottom = async () => ((await legend.count()) ? legend.evaluate((el) => el.getBoundingClientRect().bottom) : null);
+        const basemap = page.getByRole('button', { name: /basemap/i }).first();
+        await expect(basemap).toBeVisible();
+        await expect.poll(async () => {
+          const [bottom, b] = await Promise.all([legendBottom(), basemap.boundingBox()]);
+          return b ? b.y - (bottom ?? 0) : -1;
+        }).toBeGreaterThanOrEqual(0);
+
+        await launcher.click();
+        const panel = page.getByRole('region', { name: 'Map data' });
+        await expect(panel.getByRole('row', { name: /^Show row / }).first()).toBeVisible({ timeout: 15_000 });
+        await expect.poll(async () => {
+          const [bottom, p] = await Promise.all([legendBottom(), panel.boundingBox()]);
+          return p ? p.y - (bottom ?? 0) : -1;
+        }).toBeGreaterThanOrEqual(0);
+        if (size.height === 400) {
+          // No room beside the table: the legend collapses and its toggle says so.
+          const toggle = page.getByRole('button', { name: /^(Show|Hide) legend$/ });
+          await expect(toggle).toHaveAttribute('aria-label', 'Show legend');
+          await expect(toggle).toHaveAttribute('aria-expanded', 'false');
+          await expect(legend).toHaveCount(0);
+
+          // Asking for it opens the legend over the table; Escape puts it away.
+          await toggle.click();
+          await expect(legend).toBeVisible();
+          const [overlay, table] = await Promise.all([legend.boundingBox(), panel.boundingBox()]);
+          expect(overlay!.y + overlay!.height).toBeGreaterThan(table!.y);
+          const topElement = await legend.evaluate((el) => {
+            const r = el.getBoundingClientRect();
+            return el.contains(document.elementFromPoint(r.left + 20, r.bottom - 10));
+          });
+          expect(topElement).toBe(true);
+          await page.keyboard.press('Escape');
+          await expect(legend).toHaveCount(0);
+          await expect(toggle).toHaveAttribute('aria-label', 'Show legend');
+
+          // Moving focus on into the table also puts the overlay away.
+          await toggle.click();
+          await expect(legend).toBeVisible();
+          await panel.getByRole('radio', { name: 'Table' }).focus();
+          await expect(legend).toHaveCount(0);
+        }
+      } finally {
+        await deleteMap(request, tallMapId);
+      }
+    });
+  }
+
   test('on a phone the panel docks in the map pane and Expand opens it full screen', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const launcher = await openViewer(page, mapId);

@@ -1113,6 +1113,7 @@ interface SaveState {
 const DASHBOARD_SAVE_ERRORS = new Set([
   'errors.dashboardTooNew',
   'errors.dashboardTooManyWidgets',
+  'errors.dashboardLayerMoveRefused',
   'errors.dashboardWidgetsRefused',
   'errors.dashboardWidgetFilterRefused',
 ]);

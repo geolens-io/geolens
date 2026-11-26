@@ -82,6 +82,7 @@ from app.modules.catalog.collections.service import (
     stamp_collections_after_member_delete,
 )
 from app.modules.catalog.features.service import lock_catalog_rows_for_write
+from app.modules.catalog.maps.service import clear_images_after_dataset_delete
 from app.modules.catalog.write_recheck import refuse_stale_write
 from app.modules.catalog.ownership import (
     require_transfer_admin,
@@ -736,9 +737,14 @@ async def bulk_delete_datasets_endpoint(
     if deleted > 0:
         await invalidate_catalog_cache()
 
-    # Last, so no storage round trip can delay or skip the
-    # invalidations above for any item in the batch.
-    await _reap_after_commit(*pending_reaps)
+    try:
+        await clear_images_after_dataset_delete(
+            db, {m for d in pending_reaps for m in d.map_ids}
+        )
+    finally:
+        # Last, so no storage round trip can delay or skip the invalidations
+        # above for any item in the batch; a cancelled clear still reaps.
+        await _reap_after_commit(*pending_reaps)
     # Again once stamped: a read since the first invalidation may have cached
     # the collections' old times.
     if await stamp_collections_after_member_delete(
@@ -833,11 +839,16 @@ async def delete_dataset_endpoint(
     # deleted row. That map decides visibility; a stale entry would authorize a
     # successor under the deleted dataset's rules.
     notify_table_invalidated(table_name)
-
-    # After both invalidations: the reap awaits object storage, so a slow
-    # backend or cancellation would delay or skip them and leave search and the
-    # tile map serving a deleted dataset until TTL.
-    await _reap_after_commit(deletion)
+    try:
+        # The images may show the deleted dataset, while their readers are now
+        # authorized against the layers left.
+        await clear_images_after_dataset_delete(db, deletion.map_ids)
+    finally:
+        # After both invalidations and the image clear: the reap awaits object
+        # storage, so a slow backend or cancellation would delay or skip them
+        # and leave search and the tile map serving a deleted dataset until
+        # TTL. A cancelled clear still reaps.
+        await _reap_after_commit(deletion)
     # Again once stamped: a read since the first invalidation may have cached
     # the collections' old times.
     if await stamp_collections_after_member_delete(db, deletion.collection_ids):

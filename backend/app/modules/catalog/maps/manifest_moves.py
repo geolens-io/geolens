@@ -4,14 +4,13 @@ keeps its styling only where that styling fits the dataset."""
 from __future__ import annotations
 
 import uuid
-from collections.abc import Collection, Iterable, Iterator, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from typing import Any, NamedTuple
 
 from app.core.csv_safety import NUMERIC_SQL_TYPES
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.record_types import capabilities
-from app.modules.catalog.authorization import datasets_beyond_audience
 from app.modules.catalog.datasets.domain.service import (
     is_aggregate_number_type,
     is_date_type,
@@ -27,6 +26,7 @@ from app.modules.catalog.maps.dashboard import (
     stored_widgets,
     widget_columns,
 )
+from app.modules.catalog.maps.dashboard_moves import stranding_moves, widening_pairs
 from app.modules.catalog.maps.dashboard_filters import (
     column_types,
     composed_filter,
@@ -39,6 +39,7 @@ from app.modules.catalog.maps.manifest_columns import (
 )
 from app.modules.catalog.maps.manifest_layers import kept_layer
 from app.modules.catalog.maps.manifest_messages import (
+    DATASET_NOT_READY,
     MOVED_LAYER_RESTYLED,
     OTHER_REFUSAL,
     listed,
@@ -289,19 +290,23 @@ class Moves(NamedTuple):
     """Moves the map can't make, which refuse the whole map."""
 
 
+def _repointed(
+    stored: Iterable[tuple[MapLayer, Any]], targets: Mapping[str, Target]
+) -> Iterator[tuple[MapLayer, Any, Target]]:
+    """Each matched keyed layer whose manifest names another dataset."""
+    for layer, was in stored:
+        target = targets.get(layer.manifest_key) if layer.manifest_key else None
+        if target is not None and target.dataset_id not in (None, layer.dataset_id):
+            yield layer, was, target
+
+
 def _moving(
     stored: Iterable[tuple[MapLayer, Any]], targets: Mapping[str, Target]
 ) -> Iterator[tuple[MapLayer, Any, Target]]:
-    """Each matched keyed layer whose manifest dataset is another one the
-    caller can read, on a stored dataset the caller can read."""
-    for layer, was in stored:
-        target = targets.get(layer.manifest_key) if layer.manifest_key else None
-        if (
-            was is not None
-            and target is not None
-            and target.dataset is not None
-            and target.dataset_id != layer.dataset_id
-        ):
+    """Each of those whose manifest dataset the caller can read, on a stored
+    dataset the caller can read."""
+    for layer, was, target in _repointed(stored, targets):
+        if was is not None and target.dataset is not None:
             yield layer, was, target
 
 
@@ -309,19 +314,65 @@ async def widening_moves(
     session: AsyncSession,
     stored: Iterable[tuple[MapLayer, Any]],
     targets: Mapping[str, Target],
+    dashboard: Any,
+    *,
+    kept: bool,
 ) -> set[tuple[uuid.UUID, uuid.UUID]]:
-    """The ``(from, to)`` dataset pairs of the layers a kept publish may move
-    where somebody who reads ``to`` may be unable to read ``from``."""
-    pairs = sorted(
-        {
-            (layer.dataset_id, target.dataset_id)
-            for layer, _, target in _moving(stored, targets)
-        }
+    """The ``(from, to)`` dataset pairs of the layers a publish moves where
+    somebody who reads ``to`` may be unable to read ``from``: all of them for
+    a ``kept`` publish, and otherwise those the save would refuse under the
+    map's ``dashboard`` (``stranding_moves``). Only moves between datasets
+    the caller can read are judged, so one it can't read answers as one that
+    doesn't exist."""
+    pairs = [
+        (layer.dataset_id, to.dataset_id) for layer, _, to in _moving(stored, targets)
+    ]
+    if kept:
+        return await widening_pairs(session, pairs)
+    return await stranding_moves(session, dashboard, pairs)
+
+
+def unsettled_sources(
+    stored: Sequence[tuple[MapLayer, Any]],
+    targets: Mapping[str, Target],
+    busy: Collection[uuid.UUID],
+    pending: Mapping[str | uuid.UUID, tuple[str | None, str]],
+) -> list[dict[str, Any]]:
+    """A052 for each layer the publish would move off a dataset in ``busy``,
+    one a pending or running job writes, that the request doesn't plan.
+    The move waits for that job, as a layer onto such a dataset does: judged
+    on the dataset as it was before the job, it could replace the layer's
+    styling and remove its widgets for good. Only moves between datasets the
+    caller can read are named."""
+    return [
+        message(
+            DATASET_NOT_READY,
+            "error",
+            f"Layer {short(layer.manifest_key)} can't move to the dataset the "
+            "manifest names yet: the dataset it is on hasn't finished "
+            "publishing.",
+            fix="Send the maps again once its job finishes.",
+            layer=layer.manifest_key,
+        )
+        for layer, _, _ in _moving(stored, targets)
+        if layer.dataset_id in busy and layer.dataset_id not in pending
+    ]
+
+
+def _stranded(layer: MapLayer) -> dict[str, Any]:
+    return message(
+        OTHER_REFUSAL,
+        "error",
+        f"Layer {short(layer.manifest_key)} can't move to the dataset "
+        "the manifest names: some who can read that dataset can't "
+        "read the one it left, and this map's dashboard holds "
+        "widgets this server can't read, saved by a newer GeoLens, "
+        "so it can't remove the ones that may show the old "
+        "dataset's values.",
+        fix="Remove the layer's dashboard widgets in the GeoLens "
+        "that added them, or keep the layer on its dataset.",
+        layer=layer.manifest_key,
     )
-    if not pairs:
-        return set()
-    beyond = await datasets_beyond_audience(session, [(b, a) for a, b in pairs])
-    return {pair for pair, flag in zip(pairs, beyond, strict=True) if flag}
 
 
 def move_kept_layers(
@@ -343,10 +394,20 @@ def move_kept_layers(
     judged without reading that dataset. ``widening`` holds the moves
     ``widening_moves`` found widening who reads the layer; such a move is an
     error when the map's dashboard holds widgets this server can't read,
-    since it can't remove them.
+    since it can't remove them. When the publish replaces the styling, only
+    those errors apply, and a layer it moves from a dataset the caller can't
+    read to one it can is one of them: the caller reads the new dataset and
+    not the old, so the move widens without any audience read.
     """
     moves = Moves({}, [], [], [])
     if not kept:
+        if not can_drop_widgets(dashboard):
+            moves.errors.extend(
+                _stranded(layer)
+                for layer, was, target in _repointed(stored, targets)
+                if target.dataset is not None
+                and (was is None or (layer.dataset_id, target.dataset_id) in widening)
+            )
         return moves
     widgets = stored_widgets(dashboard)
     for layer, was, target in _moving(stored, targets):
@@ -363,21 +424,7 @@ def move_kept_layers(
             moves.keep_widgets_of.append(layer.id)
             continue
         if widens and not can_drop_widgets(dashboard):
-            moves.errors.append(
-                message(
-                    OTHER_REFUSAL,
-                    "error",
-                    f"Layer {short(layer.manifest_key)} can't move to the dataset "
-                    "the manifest names: some who can read that dataset can't "
-                    "read the one it left, and this map's dashboard holds "
-                    "widgets this server can't read, saved by a newer GeoLens, "
-                    "so it can't remove the ones that may show the old "
-                    "dataset's values.",
-                    fix="Remove the layer's dashboard widgets in the GeoLens "
-                    "that added them, or keep the layer on its dataset.",
-                    layer=layer.manifest_key,
-                )
-            )
+            moves.errors.append(_stranded(layer))
             continue
         # Hidden in GeoLens stays hidden; the flag holds no dataset values.
         moves.layers[layer.id] = target.layer.model_copy(

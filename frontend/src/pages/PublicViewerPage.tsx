@@ -19,6 +19,7 @@ import { LoadingState } from '@/components/layout/LoadingState';
 import { SiteBanner } from '@/components/layout/SiteBanner';
 import { NewVersionBanner } from '@/components/layout/NewVersionBanner';
 import { useDocumentTitle } from '@/hooks/use-document-title';
+import { isFramed } from '@/lib/embed-context';
 import { MapErrorBoundary } from '@/components/error';
 import { Button } from '@/components/ui/button';
 
@@ -202,7 +203,7 @@ function PublicViewer() {
         mainLandmark
       >
         {({ onMapReady, mapLayers }) => (
-          <main id="map-viewport" className="w-full min-w-0 min-h-0 flex-1 relative overflow-hidden">
+          <main id="map-viewport" data-map-frame className="w-full min-w-0 min-h-0 flex-1 relative overflow-hidden">
             {/* Full-viewport map */}
             <MapErrorBoundary>
               <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
@@ -216,6 +217,7 @@ function PublicViewer() {
                   fitLayers={fitLayers}
                   visibleLayers={visibleLayers}
                   embedToken={embedToken}
+                  cooperativeGestures={isEmbed && isFramed()}
                   onMapReady={onMapReady}
                   onDrawnChange={setDrawnLayers}
                   datasetLinksAllowed={!data.has_non_public_layers}

@@ -17,7 +17,7 @@ export function SkipToContent() {
     }
 
     if (window.location.hash !== '#main-content') {
-      window.history.replaceState(null, '', '#main-content');
+      window.history.replaceState(window.history.state, '', '#main-content');
     }
   };
 

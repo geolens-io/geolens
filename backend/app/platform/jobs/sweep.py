@@ -45,6 +45,7 @@ from app.platform.jobs.heartbeat import ANALYSIS_MATERIALIZE_LEASE_SECONDS
 from app.platform.jobs.models import (
     ACTIVE_STATUSES,
     ANALYSIS_OUTPUT_TABLE_FIELD,
+    COMMIT_ATTEMPTED_METADATA_KEY,
     EMBEDDING_BACKFILL_METADATA_KEY,
     FAN_OUT_INTERRUPTED_METADATA_KEY,
     PUBLISH_FOLLOWUPS_FIELD,
@@ -64,6 +65,7 @@ from app.platform.jobs.ledger import Outcome, end_stale, run_stale_passes
 from app.platform.jobs.originals_reconcile import reconcile_orphaned_originals
 from app.platform.jobs.quicklook_reconcile import reconcile_orphaned_quicklooks
 from app.platform.jobs.staging_reconcile import reconcile_orphaned_staging_objects
+from app.platform.source_copies import EXISTING_DATASET_MARKERS
 from app.platform.storage.titiler_url import resolve_current_storage_key
 
 log = structlog.get_logger()
@@ -113,6 +115,56 @@ STALE_PENDING_BOUND_MESSAGE = FixedReason(
 )
 
 
+# Any of these on a row means a dataset or a manifest entry already holds it.
+_HELD_UPLOAD_KEYS = (*EXISTING_DATASET_MARKERS, "manifest_key")
+
+
+def unclaimed_upload():
+    """Predicate: a finished upload for a new dataset that nothing has taken.
+
+    Its file is staged, and no import commit, manifest entry or dataset holds
+    the row, so nothing waits on it while it stays pending. A row with no
+    file, a service import (a row with a source URL), a replacement of an
+    existing dataset and a dispatched job are all excluded. A URL import that
+    finished downloading carries no source URL, so it counts.
+    """
+    return and_(
+        func.coalesce(IngestJob.file_path, "") != "",
+        IngestJob.source_url.is_(None),
+        IngestJob.dataset_id.is_(None),
+        *(IngestJob.user_metadata[key].astext.is_(None) for key in _HELD_UPLOAD_KEYS),
+        ~dispatch_attempted(),
+    )
+
+
+def _metadata(job: IngestJob) -> dict:
+    return job.user_metadata if isinstance(job.user_metadata, dict) else {}
+
+
+def _is_dispatched(job: IngestJob) -> bool:
+    """``dispatch_attempted`` for a loaded job."""
+    return _metadata(job).get(COMMIT_ATTEMPTED_METADATA_KEY) not in (None, "")
+
+
+def _is_unclaimed_upload(job: IngestJob) -> bool:
+    """``unclaimed_upload`` for a loaded job."""
+    metadata = _metadata(job)
+    return (
+        bool(job.file_path)
+        and job.source_url is None
+        and job.dataset_id is None
+        and all(metadata.get(key) is None for key in _HELD_UPLOAD_KEYS)
+        and not _is_dispatched(job)
+    )
+
+
+def _waits_the_longer_cutoff(job: IngestJob) -> bool:
+    """Which cutoff ``stale_pending_clauses`` holds a loaded pending job to."""
+    if _is_dispatched(job):
+        return False
+    return (job.file_path or "").startswith("staging/") or _is_unclaimed_upload(job)
+
+
 def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
     """Every predicate required to fail a timed-out pending job.
 
@@ -121,25 +173,63 @@ def stale_pending_clauses(now: datetime, *, completion_bound: bool) -> tuple:
     or the live-queue check.
 
     ``completion_bound`` selects the half by the ``staging/`` PREFIX of
-    ``file_path``, not truthiness, which would also catch direct uploads
-    (absolute local paths) and leave them pending for a day.
-    False is the 1h abandonment policy; True is the 24h backstop for a bound
-    upload that never committed, which the retention purge would otherwise
-    never reach.
+    ``file_path`` (a bucket upload), not truthiness, which would also catch
+    direct uploads (absolute local paths). A row ages from
+    ``coalesce(staged_at, created_at)`` against one of two cutoffs: the
+    pending timeout, or the longer wait of
+    ``stale_pending_cutoff_seconds(completion_bound=True)``.
+
+    A dispatched row gets the pending timeout in either half. Its queue entry
+    keeps it pending until a worker claims it, and the dispatch stamp
+    restarts ``staged_at``, so only a dispatch that never reached the queue
+    ages out. A row nobody dispatched gets the longer wait in the bound half,
+    a backstop the retention purge would otherwise never reach, and in the
+    unbound half only as an ``unclaimed_upload``: a client uploads every file
+    of a publish manifest before the apply claims any of them. Every other
+    unbound row gets the pending timeout.
     """
     # coalesce, not a bare LIKE: NOT (NULL LIKE ...) is NULL, so a bare negation
     # would drop every NULL file_path row — the case that most needs the 1h policy.
     completion_key = func.coalesce(IngestJob.file_path, "").like("staging/%")
     cutoff_seconds = stale_pending_cutoff_seconds(completion_bound=completion_bound)
-    # Age from `staged_at`, falling back to created_at. Every
-    # writer of that key restarts the pending window where the row re-entered it.
-    age_basis = func.coalesce(
-        IngestJob.user_metadata.op("->>")("staged_at").cast(DateTime(timezone=True)),
-        IngestJob.created_at,
+    # Age from `staged_at`, falling back to created_at; every writer of that
+    # key restarts the pending window where the row re-entered it. A dispatch
+    # stamp counts too: a release before the dispatch restarted `staged_at`
+    # wrote only the stamp, and GREATEST skips its NULL on an undispatched row.
+    # Only `commit_attempted_marker` writes the stamp, always an ISO timestamp.
+    age_basis = func.greatest(
+        func.coalesce(
+            IngestJob.user_metadata.op("->>")("staged_at").cast(
+                DateTime(timezone=True)
+            ),
+            IngestJob.created_at,
+        ),
+        func.nullif(
+            IngestJob.user_metadata.op("->>")(COMMIT_ATTEMPTED_METADATA_KEY), ""
+        ).cast(DateTime(timezone=True)),
     )
+    aged = age_basis < now - timedelta(seconds=cutoff_seconds)
+    if completion_bound:
+        pending_seconds = stale_pending_cutoff_seconds(completion_bound=False)
+        aged = or_(
+            aged,
+            and_(
+                dispatch_attempted(),
+                age_basis < now - timedelta(seconds=pending_seconds),
+            ),
+        )
+    else:
+        bound_seconds = stale_pending_cutoff_seconds(completion_bound=True)
+        aged = and_(
+            aged,
+            or_(
+                not_(unclaimed_upload()),
+                age_basis < now - timedelta(seconds=bound_seconds),
+            ),
+        )
     return (
         IngestJob.status == "pending",
-        age_basis < now - timedelta(seconds=cutoff_seconds),
+        aged,
         completion_key if completion_bound else not_(completion_key),
         no_live_procrastinate_job(),
     )
@@ -1255,17 +1345,27 @@ def _childless_fan_out_parent():
     )
 
 
-def _pending_age_basis(job: IngestJob) -> datetime | None:
-    """What the pass ages a pending job from: ``staged_at``, else ``created_at``.
-
-    An unreadable or naive stamp falls back to ``created_at``, which is never
-    later, so the fallback can only make a job look older.
-    """
+def _aware_stamp(job: IngestJob, key: str) -> datetime | None:
+    """The timezone-aware ISO timestamp ``user_metadata[key]``, else None."""
     try:
-        staged_at = datetime.fromisoformat((job.user_metadata or {})["staged_at"])
+        stamp = datetime.fromisoformat(_metadata(job)[key])
     except (KeyError, TypeError, ValueError):
-        return job.created_at
-    return staged_at if staged_at.tzinfo is not None else job.created_at
+        return None
+    return stamp if stamp.tzinfo is not None else None
+
+
+def _pending_age_basis(job: IngestJob) -> datetime | None:
+    """What the pass ages a pending job from.
+
+    ``staged_at``, else ``created_at``, or the dispatch stamp when that is
+    later. An unreadable or naive stamp is skipped, which can only make a job
+    look older.
+    """
+    basis = _aware_stamp(job, "staged_at") or job.created_at
+    dispatched_at = _aware_stamp(job, COMMIT_ATTEMPTED_METADATA_KEY)
+    if basis is None or dispatched_at is None:
+        return basis or dispatched_at
+    return max(basis, dispatched_at)
 
 
 def may_be_stale(job: IngestJob, now: datetime) -> bool:
@@ -1286,7 +1386,7 @@ def may_be_stale(job: IngestJob, now: datetime) -> bool:
     if job.status == "pending":
         basis = _pending_age_basis(job)
         cutoff = stale_pending_cutoff_seconds(
-            completion_bound=(job.file_path or "").startswith("staging/")
+            completion_bound=_waits_the_longer_cutoff(job)
         )
         return basis is not None and (now - basis).total_seconds() > cutoff
     if job.status == "fanned_out":
@@ -1368,21 +1468,25 @@ async def settle_stale_jobs(
         if ended.outcome is Outcome.LANDED:
             pending.append((job_id, status))
 
-    # The bound half — exempt from the 1h clause, and the purge
-    # only takes terminal rows, so it is immortal without this backstop.
+    # The bound half. The purge only takes terminal rows, so without this
+    # backstop a bucket upload nobody committed would stay pending forever. A
+    # dispatched row here was committed, so it reports that it never queued.
     bound = stale_pending_clauses(now, completion_bound=True)
-    for job_id, attempt_id in await _stale_candidates(
-        db, select(IngestJob.id, IngestJob.attempt_id), bound, scope
+    dispatched = dispatch_attempted()
+    for job_id, attempt_id, was_dispatched in await _stale_candidates(
+        db, select(IngestJob.id, IngestJob.attempt_id, dispatched), bound, scope
     ):
         ended = await end_stale(
             db,
             job_id,
             attempt_id,
             expect="pending",
-            still_stale=bound,
+            still_stale=(*bound, dispatched if was_dispatched else not_(dispatched)),
             status="failed",
             code="never_started",
-            reason=STALE_PENDING_BOUND_MESSAGE,
+            reason=STALE_PENDING_UNBOUND_MESSAGE
+            if was_dispatched
+            else STALE_PENDING_BOUND_MESSAGE,
         )
         if ended.outcome is Outcome.LANDED:
             pending.append((job_id, "failed"))

@@ -131,6 +131,7 @@ export const StoryMapPane = memo(function StoryMapPane({ resolved, next, emptyHi
         <div
           key={scene.scene.map_id}
           data-slot={role}
+          data-map-frame
           inert={role !== 'active'}
           aria-hidden={role !== 'active' || undefined}
           className={cn('absolute inset-0', role === 'active' ? 'z-10' : 'z-0 pointer-events-none')}

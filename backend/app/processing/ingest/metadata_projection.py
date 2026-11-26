@@ -23,9 +23,10 @@ def _geom_4326_expr(source_srid: int) -> str:
     """The expression that derives ``geom_4326`` from ``geom``.
 
     One definition: :func:`add_4326_column` and the out-of-band repair
-    :func:`rederive_geom_4326` both write this column, and a drift between
-    them would make a refresh rewrite every row of every table forever
-    while "fixing" nothing.
+    :func:`rederive_geom_4326` both write this column, as a fill or as a
+    stored generation expression, and a drift between them would make a
+    refresh rewrite every row of every table forever while "fixing"
+    nothing.
 
     Linearize in the source CRS, then reproject. An arc is defined by its
     control points, and CRS transforms are nonlinear: transforming the
@@ -45,6 +46,8 @@ async def add_4326_column(
     source_srid: int,
     *,
     schema: str = "data",
+    generated: bool = False,
+    fill: bool = True,
 ) -> None:
     """Add a geom_4326 column with WGS84 geometry and spatial index.
 
@@ -62,23 +65,77 @@ async def add_4326_column(
     `ST_CurveToLine` densifies arcs here, at the one boundary they all
     read from. It is a no-op on already-linear input, and the curved source
     stays in `geom`, like Z.
+
+    With ``generated`` the column is a stored generated column instead of
+    a plain column filled by a full-table UPDATE: PostgreSQL derives it
+    from ``geom`` as rows are written, so adding it to a large table
+    costs one table rewrite with no dead tuples and no second pass, and
+    later out-of-band writes to ``geom`` stay visible without a refresh.
+    The generation expression is the same one the plain path writes
+    (:func:`_geom_4326_expr`), so readers see the same values. A plain
+    ``geom_4326`` that already exists is left alone rather than converted,
+    since converting it would rewrite the table this flag exists to avoid;
+    a generated one is already deriving itself. A ``geom`` that is itself
+    a generated column cannot be referenced by another generated column,
+    so such a table gets the plain column and fill instead: the stored
+    values are the same, but later out-of-band writes to ``geom`` need a
+    refresh to show, as they did before this change. Registration passes
+    this flag; ingest staging and analysis outputs keep the plain column
+    their feature-edit writes expect to update directly. ``fill=False``
+    makes the plain path add the column without the full-table UPDATE, for
+    a caller that fills it conditionally itself.
     """
     tref = _qtable(table_name, schema=schema)
-
-    await session.execute(
-        text(
-            # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
-            f"ALTER TABLE {tref} "
-            f"ADD COLUMN IF NOT EXISTS geom_4326 geometry(Geometry, 4326)"
-        )
-    )
 
     # The expression, and why it linearizes before it reprojects, live on
     # _geom_4326_expr: the repair path writes the same column and must write
     # it the same way.
     rewrite_expr = _geom_4326_expr(source_srid)
-    # codeql[py/sql-injection] table via _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
-    await session.execute(text(f"UPDATE {tref} SET geom_4326 = {rewrite_expr}"))
+
+    write_generated = generated
+    if generated:
+        columns = (
+            await session.execute(
+                text(
+                    "SELECT column_name, is_generated "
+                    "FROM information_schema.columns "
+                    "WHERE table_schema = :schema AND table_name = :table "
+                    "  AND column_name IN ('geom', 'geom_4326')"
+                ).bindparams(schema=schema, table=table_name)
+            )
+        ).all()
+        found = {row.column_name: row.is_generated for row in columns}
+        if "geom_4326" in found:
+            # A generated column already derives itself, and a plain one is
+            # left with its values: converting it would rewrite the table.
+            write_generated = None
+        elif found.get("geom") == "ALWAYS":
+            # PostgreSQL refuses a generated column that references another
+            # generated column, so a table whose geom derives itself gets
+            # the plain column and fill below instead.
+            write_generated = False
+
+    if write_generated is True:
+        await session.execute(
+            text(
+                # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
+                f"ALTER TABLE {tref} "
+                f"ADD COLUMN IF NOT EXISTS geom_4326 geometry(Geometry, 4326) "
+                f"GENERATED ALWAYS AS ({rewrite_expr}) STORED"
+            )
+        )
+    elif write_generated is False:
+        await session.execute(
+            text(
+                # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
+                f"ALTER TABLE {tref} "
+                f"ADD COLUMN IF NOT EXISTS geom_4326 geometry(Geometry, 4326)"
+            )
+        )
+
+        if fill:
+            # codeql[py/sql-injection] table via _qtable (metadata_sql.py); rewrite_expr is one of _geom_4326_expr's two literals
+            await session.execute(text(f"UPDATE {tref} SET geom_4326 = {rewrite_expr}"))
 
     await ensure_geom_4326_gist_index(session, table_name, schema=schema)
 
@@ -166,13 +223,16 @@ async def rederive_geom_4326(
 ) -> Geom4326Repair:
     """Re-apply the geom_4326 invariant to a table written to outside GeoLens.
 
-    ``geom_4326`` is a plain column, populated once at registration and
-    afterwards only by GeoLens's own feature-edit writes. A registered
-    table's owner keeps writing to it directly, and nothing re-derives the
-    column for those writes: an ``UPDATE geom``, a
-    ``DELETE``+re-``INSERT``, or ``ogr2ogr -overwrite`` (which drops and
-    recreates the table without the column, index, or reader grant) leaves
-    rows whose render geometry is stale or NULL. Every reader filters on
+    On a table whose ``geom_4326`` is a plain column, it was populated
+    once at registration and afterwards only by GeoLens's own feature-edit
+    writes. Registration now creates a stored generated column instead,
+    which re-derives itself on every write, so this function skips those
+    (see ``REPAIR_GENERATED``). A registered table's owner keeps writing
+    to it directly, and nothing re-derives the plain column for those
+    writes: an ``UPDATE geom``, a ``DELETE``+re-``INSERT``, or
+    ``ogr2ogr -overwrite`` (which drops and recreates the table without
+    the column, index, or reader grant) leaves rows whose render geometry
+    is stale or NULL. Every reader filters on
     ``geom_4326 && <envelope>``, and ``NULL && anything`` is NULL, so
     those rows go silently invisible rather than visibly wrong.
 
@@ -224,15 +284,19 @@ async def rederive_geom_4326(
         # takes ACCESS EXCLUSIVE regardless, and a merely queued lock request
         # already blocks every reader behind it, so issuing it on the ordinary
         # path (a table that still has its column) would stop the world on
-        # every refresh. ``IF NOT EXISTS`` stays as the race guard for a
-        # column added between the probe and here.
-        await session.execute(
-            text(
-                # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
-                f"ALTER TABLE {tref} "
-                f"ADD COLUMN IF NOT EXISTS geom_4326 geometry(Geometry, 4326)"
-            )
+        # every refresh. Registration's helper decides generated or plain, so
+        # a repaired table ends up shaped like a registered one.
+        await add_4326_column(
+            session,
+            table_name,
+            source_srid,
+            schema=schema,
+            generated=True,
+            fill=False,
         )
+        added = await probe_geom_4326(session, table_name, schema=schema)
+        if added.render_generated:
+            return Geom4326Repair(REPAIR_APPLIED, True, True, 0)
 
     rewrite_expr = _geom_4326_expr(source_srid)
     result = await session.execute(
@@ -243,7 +307,12 @@ async def rederive_geom_4326(
             f"      ST_AsBinary({rewrite_expr})"
         )
     )
-    index_added = await ensure_geom_4326_gist_index(session, table_name, schema=schema)
+    # A column restored above took its index with it when it was dropped, and
+    # add_4326_column has just created it.
+    index_added = (
+        await ensure_geom_4326_gist_index(session, table_name, schema=schema)
+        or not state.has_render
+    )
     return Geom4326Repair(
         REPAIR_APPLIED,
         not state.has_render,
