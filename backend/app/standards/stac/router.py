@@ -176,12 +176,12 @@ async def _resolve_urls(db: AsyncSession, request: Request) -> tuple[str, str]:
 def _without_crs(geometry: Any) -> Any:
     """The GeoJSON geometry with every ``crs`` member removed.
 
-    STAC ``intersects`` is always WGS 84. PostGIS reads a ``crs`` member: an
+    STAC ``intersects`` is always WGS 84. PostGIS reads a ``crs`` member, in any letter case: an
     empty one is a parse error and an EPSG one changes the SRID.
     """
     if not isinstance(geometry, dict):
         return geometry
-    cleaned = {k: v for k, v in geometry.items() if k != "crs"}
+    cleaned = {k: v for k, v in geometry.items() if k.lower() != "crs"}
     members = cleaned.get("geometries")
     if isinstance(members, list):
         cleaned["geometries"] = [_without_crs(m) for m in members]

@@ -184,19 +184,21 @@ _CRS_MEMBERS = {
 @pytest.mark.anyio
 @pytest.mark.parametrize("method", ["GET", "POST"])
 @pytest.mark.parametrize("crs", _CRS_MEMBERS.values(), ids=_CRS_MEMBERS.keys())
+@pytest.mark.parametrize("key", ["crs", "CRS"])
 @pytest.mark.parametrize("nested", [False, True], ids=["geometry", "in-collection"])
 async def test_intersects_crs_member_is_ignored_as_wgs84(
     client: AsyncClient,
     seam_rasters: dict[str, str],
     method: str,
     crs: dict,
+    key: str,
     nested: bool,
 ):
     """STAC intersects is WGS 84, so a crs member neither fails nor moves the SRID."""
     box = {
         "type": "Polygon",
         "coordinates": [[[168, 18], [177, 18], [177, 27], [168, 27], [168, 18]]],
-        "crs": crs,
+        key: crs,
     }
     area = {"type": "GeometryCollection", "geometries": [box]} if nested else box
     found = await _search(client, method, list(seam_rasters.values()), area)
