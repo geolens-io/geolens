@@ -173,3 +173,50 @@ async def test_seam_collection_keeps_its_points_and_lines(
     found = await _search(client, method, list(seam_rasters.values()), collection)
 
     assert _names(seam_rasters, found) == {"east", "west", "straddling", "far"}
+
+
+_CRS_MEMBERS = {
+    "empty": {},
+    "epsg-3857": {"type": "name", "properties": {"name": "urn:ogc:def:crs:EPSG::3857"}},
+}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["GET", "POST"])
+@pytest.mark.parametrize("crs", _CRS_MEMBERS.values(), ids=_CRS_MEMBERS.keys())
+@pytest.mark.parametrize("key", ["crs", "CRS"])
+@pytest.mark.parametrize("nested", [False, True], ids=["geometry", "in-collection"])
+async def test_intersects_crs_member_is_ignored_as_wgs84(
+    client: AsyncClient,
+    seam_rasters: dict[str, str],
+    method: str,
+    crs: dict,
+    key: str,
+    nested: bool,
+):
+    """STAC intersects is WGS 84, so a crs member neither fails nor moves the SRID."""
+    box = {
+        "type": "Polygon",
+        "coordinates": [[[168, 18], [177, 18], [177, 27], [168, 27], [168, 18]]],
+        key: crs,
+    }
+    area = {"type": "GeometryCollection", "geometries": [box]} if nested else box
+    found = await _search(client, method, list(seam_rasters.values()), area)
+
+    assert _names(seam_rasters, found) == {"east"}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["GET", "POST"])
+async def test_intersects_competing_mixed_case_members_use_one_reading(
+    client: AsyncClient, seam_rasters: dict[str, str], method: str
+):
+    """PostGIS matches member names without case; the filter must not depend on it."""
+    area = {
+        "type": "Polygon",
+        "Coordinates": [[[0, 0]]],
+        "coordinates": [[[168, 18], [177, 18], [177, 27], [168, 27], [168, 18]]],
+    }
+    found = await _search(client, method, list(seam_rasters.values()), area)
+
+    assert _names(seam_rasters, found) == {"east"}

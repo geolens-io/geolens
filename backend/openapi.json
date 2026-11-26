@@ -25354,6 +25354,7 @@
           "offset": {
             "default": 0,
             "description": "Number of items to skip for pagination.",
+            "maximum": 9.223372036854776e+18,
             "minimum": 0.0,
             "title": "Offset",
             "type": "integer"
@@ -73736,6 +73737,7 @@
             "schema": {
               "default": 0,
               "description": "Legacy offset-based pagination. The page size is capped at 200; the rel=next link advances one page at a time, and a high offset is costly to serve.",
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -74258,6 +74260,7 @@
             "schema": {
               "default": 0,
               "description": "Legacy offset-based pagination. The page size is capped at 200; a high offset is costly to serve.",
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
