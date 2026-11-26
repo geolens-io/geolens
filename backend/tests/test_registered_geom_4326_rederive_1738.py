@@ -450,6 +450,98 @@ async def test_an_overwrite_restores_the_column_the_index_and_the_grant(
         await _drop(test_db_session, table_name)
 
 
+async def _geom_4326_attgenerated(session, table_name: str) -> str | None:
+    """pg_attribute.attgenerated for geom_4326: 's' stored, '' plain, None absent."""
+    await session.rollback()
+    return await session.scalar(
+        text(
+            "SELECT attgenerated::text FROM pg_attribute "
+            "WHERE attrelid = to_regclass(format('%I.%I', 'data', CAST(:t AS text))) "
+            "AND attname = 'geom_4326' AND NOT attisdropped"
+        ),
+        {"t": table_name},
+    )
+
+
+async def test_a_refresh_restores_a_dropped_column_as_a_generated_one(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """The repair adds the column the way registration does.
+
+    A plain column would go stale on the next out-of-band write to `geom`
+    and need another refresh; a stored generated one follows the write.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_gen_{uuid.uuid4().hex[:10]}"
+    await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.execute(
+            text(f'REVOKE ALL ON data."{table_name}" FROM geolens_reader')
+        )
+        await test_db_session.commit()
+        assert await _geom_4326_attgenerated(test_db_session, table_name) is None
+
+        await _refresh(test_db_session, client, admin_auth_header, dataset.id)
+
+        assert await _geom_4326_attgenerated(test_db_session, table_name) == "s"
+        assert await _has_gist_index(test_db_session, table_name)
+        assert await _reader_can_select(test_db_session, table_name)
+        assert await _features_at(test_db_session, table_name, _HERE) == 1
+
+        await test_db_session.execute(
+            text(
+                f'UPDATE data."{table_name}" '  # noqa: S608
+                f"SET geom = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)"
+            ),
+            {"lon": _THERE[0], "lat": _THERE[1]},
+        )
+        await test_db_session.commit()
+        assert await _features_at(test_db_session, table_name, _THERE) == 1
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+async def test_a_refresh_gives_a_generated_geom_a_plain_filled_column(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """PostgreSQL won't derive one generated column from another."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_gg_{uuid.uuid4().hex[:10]}"
+    await test_db_session.execute(
+        text(
+            f'CREATE TABLE data."{table_name}" ('
+            f"  gid serial PRIMARY KEY, x float8, y float8,"
+            f"  geom geometry(Point, 4326) GENERATED ALWAYS AS "
+            f"    (ST_SetSRID(ST_MakePoint(x, y), 4326)) STORED)"
+        )
+    )
+    await test_db_session.execute(
+        text(f'INSERT INTO data."{table_name}" (x, y) VALUES (:x, :y)'),  # noqa: S608
+        {"x": _HERE[0], "y": _HERE[1]},
+    )
+    await test_db_session.commit()
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.commit()
+
+        await _refresh(test_db_session, client, admin_auth_header, dataset.id)
+
+        assert await _geom_4326_attgenerated(test_db_session, table_name) == ""
+        assert await _has_gist_index(test_db_session, table_name)
+        assert await _features_at(test_db_session, table_name, _HERE) == 1
+    finally:
+        await _drop(test_db_session, table_name)
+
+
 # ---------------------------------------------------------------------------
 # Cost: the scan is unconditional, the writes are not
 # ---------------------------------------------------------------------------

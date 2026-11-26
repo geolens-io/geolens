@@ -280,15 +280,14 @@ async def rederive_geom_4326(
         # takes ACCESS EXCLUSIVE regardless, and a merely queued lock request
         # already blocks every reader behind it, so issuing it on the ordinary
         # path (a table that still has its column) would stop the world on
-        # every refresh. ``IF NOT EXISTS`` stays as the race guard for a
-        # column added between the probe and here.
-        await session.execute(
-            text(
-                # codeql[py/sql-injection] identifiers validated by _qtable (metadata_sql.py)
-                f"ALTER TABLE {tref} "
-                f"ADD COLUMN IF NOT EXISTS geom_4326 geometry(Geometry, 4326)"
-            )
+        # every refresh. Registration's helper decides generated or plain, so
+        # a repaired table ends up shaped like a registered one.
+        await add_4326_column(
+            session, table_name, source_srid, schema=schema, generated=True
         )
+        added = await probe_geom_4326(session, table_name, schema=schema)
+        if added.render_generated:
+            return Geom4326Repair(REPAIR_APPLIED, True, True, 0)
 
     rewrite_expr = _geom_4326_expr(source_srid)
     result = await session.execute(
