@@ -77,7 +77,7 @@ async def clear_images_after_dataset_delete(
     if not ids:
         return 0
     deadline = time.monotonic() + _DATASET_DELETE_IMAGE_BUDGET_S
-    cleared = 0
+    cleared: list[tuple[uuid.UUID, list[str]]] = []
     try:
         with_images = list(
             await session.scalars(
@@ -109,6 +109,8 @@ async def clear_images_after_dataset_delete(
             )
             continue
         if keys:
-            cleared += 1
-            await discard_map_asset_objects(session, map_id, keys)
-    return cleared
+            cleared.append((map_id, keys))
+    # Storage last, so no object round trip delays another map's clear.
+    for map_id, keys in cleared:
+        await discard_map_asset_objects(session, map_id, keys)
+    return len(cleared)

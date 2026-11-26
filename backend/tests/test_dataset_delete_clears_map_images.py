@@ -7,6 +7,7 @@ import sqlalchemy as sa
 from httpx import AsyncClient
 
 import app.core.db as db_module
+import app.modules.catalog.datasets.api.router as datasets_router
 from app.modules.catalog.maps import service_images
 from app.modules.catalog.maps.models import Map, MapLayer
 from tests.factories import create_dataset, create_user
@@ -136,5 +137,30 @@ async def test_a_map_held_past_the_budget_keeps_its_images_and_the_delete_lands(
         assert resp.status_code == 204, resp.text
         assert await _stored_images(held) == held_images
         assert await _stored_images(cleared) == (None, None)
+    finally:
+        await _cleanup_data_table(test_db_session, private.table_name)
+
+
+async def test_the_images_are_cleared_before_the_storage_reap_starts(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch
+):
+    """The reap awaits object storage, so a slow or cancelled one can't leave
+    the images readable."""
+    owner_headers, private, beside, alone, _ = await _maps_around_a_private_dataset(
+        client, admin_auth_header, test_db_session
+    )
+    seen_at_reap: list[tuple] = []
+    real_reap = datasets_router._reap_after_commit
+
+    async def recording_reap(*deletions):
+        seen_at_reap.extend([await _stored_images(beside), await _stored_images(alone)])
+        await real_reap(*deletions)
+
+    monkeypatch.setattr(datasets_router, "_reap_after_commit", recording_reap)
+    try:
+        resp = await _delete(client, private, owner_headers)
+
+        assert resp.status_code == 204, resp.text
+        assert seen_at_reap == [(None, None), (None, None)]
     finally:
         await _cleanup_data_table(test_db_session, private.table_name)
