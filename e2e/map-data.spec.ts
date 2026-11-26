@@ -127,21 +127,26 @@ test.describe('Viewer Map data panel', () => {
           expect(layer.ok()).toBe(true);
         }
         const launcher = await openViewer(page, tallMapId);
-        const legend = page.getByRole('region', { name: 'Layers', exact: true });
+        // Not by role: a squeezed legend is hidden and drops out of the role tree.
+        const legend = page.locator('[role="region"][aria-label="Layers"]');
+        await expect(legend).toBeVisible();
+        const legendBox = () => legend.evaluate((el) => el.getBoundingClientRect().bottom).then((bottom) => ({ bottom }));
         const basemap = page.getByRole('button', { name: /basemap/i }).first();
         await expect(basemap).toBeVisible();
         await expect.poll(async () => {
-          const [l, b] = await Promise.all([legend.boundingBox(), basemap.boundingBox()]);
-          return l && b ? b.y - (l.y + l.height) : -1;
+          const [l, b] = await Promise.all([legendBox(), basemap.boundingBox()]);
+          return l && b ? b.y - l.bottom : -1;
         }).toBeGreaterThanOrEqual(0);
 
         await launcher.click();
         const panel = page.getByRole('region', { name: 'Map data' });
         await expect(panel.getByRole('row', { name: /^Show row / }).first()).toBeVisible({ timeout: 15_000 });
         await expect.poll(async () => {
-          const [l, p] = await Promise.all([legend.boundingBox(), panel.boundingBox()]);
-          return l && p ? p.y - (l.y + l.height) : -1;
+          const [l, p] = await Promise.all([legendBox(), panel.boundingBox()]);
+          return l && p ? p.y - l.bottom : -1;
         }).toBeGreaterThanOrEqual(0);
+        // No room left beside the table: the legend's clipped buttons must leave the tab order.
+        if (size.height === 400) await expect(legend.getByRole('button').first()).toBeHidden();
       } finally {
         await deleteMap(request, tallMapId);
       }

@@ -85,9 +85,13 @@ export function LayerLegend({
   // Rows below the fold get a fading chevron so a cut-off list reads as
   // scrollable rather than complete.
   const [moreBelow, setMoreBelow] = useState(false);
+  // Squeezed to nothing by the table or the bottom controls, the panel hides
+  // so its clipped buttons leave the tab order.
+  const [squeezed, setSqueezed] = useState(false);
   const updateMoreBelow = useCallback(() => {
     const el = panelRef.current;
     if (!el) return;
+    setSqueezed(el.clientHeight < 40 && el.scrollHeight >= 40);
     setMoreBelow(el.scrollHeight - el.scrollTop - el.clientHeight > 4);
   }, []);
   useEffect(() => {
@@ -144,7 +148,7 @@ export function LayerLegend({
         // offset plus clearance above that bottom-left stack. The docked Map data
         // table's height comes off too, since it shrinks the visible map. In a pane too short for both, the
         // legend collapses rather than cover the table or the bottom controls.
-        className={`absolute ${edge} top-14 z-10 w-64 max-h-[max(0px,calc(100%-11rem-var(--viewer-data-panel-height,0px)))] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50`}
+        className={`${squeezed ? 'invisible ' : ''}absolute ${edge} top-14 z-10 w-64 max-h-[max(0px,calc(100%-11rem-var(--viewer-data-panel-height,0px)))] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50`}
       >
         <div className="p-3 border-b border-border/50">
           <h2 className="text-sm font-semibold text-foreground">

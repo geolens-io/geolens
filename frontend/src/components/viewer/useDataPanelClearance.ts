@@ -7,8 +7,9 @@ const PROPERTY = '--viewer-data-panel-height';
  * so the legend, a sibling of the map, can stay clear of the table.
  *
  * The viewport is captured at mount because a closing panel reports its zero
- * after React has detached the shell ref. A map only ever writes while its own
- * panel is open, so a standby map unmounting leaves the active map's value alone.
+ * after React has detached the shell ref. A story keeps outgoing and active maps
+ * under one viewport, so a map resets the value only while it is still the one
+ * it wrote; another map's later value is left alone.
  */
 export function useDataPanelClearance(
   shellRef: RefObject<HTMLElement | null>,
@@ -18,8 +19,14 @@ export function useDataPanelClearance(
   useEffect(() => {
     viewportRef.current = shellRef.current?.closest<HTMLElement>('#map-viewport') ?? null;
   }, [shellRef]);
+  const writtenRef = useRef<string | null>(null);
   return useCallback((height: number) => {
-    viewportRef.current?.style.setProperty(PROPERTY, `${height}px`);
+    const style = viewportRef.current?.style;
+    const value = `${height}px`;
+    if (style && (height > 0 || style.getPropertyValue(PROPERTY) === writtenRef.current)) {
+      style.setProperty(PROPERTY, value);
+    }
+    writtenRef.current = height > 0 ? value : null;
     onHeightChange?.(height);
   }, [onHeightChange]);
 }

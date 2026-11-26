@@ -30,4 +30,18 @@ describe('useDataPanelClearance', () => {
     rerender(<div id="map-viewport"><Slot height={240} /></div>);
     expect(viewport(container).style.getPropertyValue('--viewer-data-panel-height')).toBe('240px');
   });
+
+  it('keeps the active table height when an outgoing map with its own table closes', () => {
+    const { container, rerender } = render(
+      <div id="map-viewport"><Slot key="out" height={240} /><Slot key="in" height={280} /></div>,
+    );
+    rerender(<div id="map-viewport"><Slot key="in" height={280} /></div>);
+    expect(viewport(container).style.getPropertyValue('--viewer-data-panel-height')).toBe('280px');
+  });
+
+  it('resets the height when the only open table closes', () => {
+    const { container, rerender } = render(<div id="map-viewport"><Slot height={240} /></div>);
+    rerender(<div id="map-viewport" />);
+    expect(viewport(container).style.getPropertyValue('--viewer-data-panel-height')).toBe('0px');
+  });
 });
