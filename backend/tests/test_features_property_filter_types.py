@@ -377,3 +377,16 @@ async def test_a_bbox_of_finite_but_huge_floats_is_not_a_500(
     )
 
     assert resp.status_code == 200, resp.text
+
+
+_PAST_INT8 = "100000000000000000000000"
+
+
+@pytest.mark.parametrize("big", ["3000000000", _PAST_INT8])
+async def test_ogc_single_feature_id_beyond_int4_is_a_404(
+    client: AsyncClient, typed_dataset: Dataset, big
+):
+    """The gid bind is int8, so an id past int4 reaches the table and misses."""
+    resp = await client.get(f"{_items_url(typed_dataset)}/{big}")
+
+    assert resp.status_code == 404, resp.text

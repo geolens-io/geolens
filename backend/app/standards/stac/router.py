@@ -21,12 +21,15 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 from pydantic import BaseModel, Field, field_validator
+import shapely
+from shapely.errors import ShapelyError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.modules.catalog.collections.models import Collection, CollectionDataset
 from app.core.config import settings
+from app.core.db.pg_ranges import INT8_MAX
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.statement_timeout import bound_anonymous_reads, bound_every_read
@@ -1085,6 +1088,7 @@ async def get_collection_items(
     offset: int = Query(
         0,
         ge=0,
+        le=INT8_MAX,
         description=(
             "Legacy offset-based pagination. The page size is capped at "
             f"{_STAC_MAX_LIMIT}; the rel=next link advances one page at a "
@@ -1452,8 +1456,10 @@ def _build_search_filters(
             intersects if isinstance(intersects, str) else json.dumps(intersects)
         )
         try:
-            check_wrap_turns(json.loads(intersects_str))
-        except (ValueError, TypeError) as e:
+            parsed = json.loads(intersects_str)
+            shapely.from_geojson(intersects_str)
+            check_wrap_turns(parsed)
+        except (ValueError, TypeError, ShapelyError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid intersects geometry: {e}",
@@ -1767,6 +1773,7 @@ async def search_get(
     offset: int = Query(
         0,
         ge=0,
+        le=INT8_MAX,
         description=(
             "Legacy offset-based pagination. The page size is capped at "
             f"{_STAC_MAX_LIMIT}; a high offset is costly to serve."
@@ -1835,6 +1842,7 @@ class StacSearchBody(BaseModel):
     offset: int = Field(
         default=0,
         ge=0,
+        le=INT8_MAX,
         description="Number of items to skip for pagination.",
     )
 

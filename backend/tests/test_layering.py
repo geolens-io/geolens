@@ -1497,7 +1497,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the collections routes also answer under the desktop entry's gate.
     "backend/app/modules/catalog/search/router.py": 1476,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1942,
+    "backend/app/standards/stac/router.py": 1950,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 3016,
@@ -1530,7 +1530,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # expressions, since it runs only PostGIS functions on geom, and only
     # when every function the expression depends on is built in or an
     # extension's.
-    "backend/app/modules/catalog/features/service.py": 1898,
+    "backend/app/modules/catalog/features/service.py": 1912,
     # Dataset visibility, the VRT member counts and extents each requester may
     # see, which groups can't read a dataset, and whether one dataset's readers
     # reach past another's, today or by its sharing rules, share the permission

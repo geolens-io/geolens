@@ -20,7 +20,12 @@ from sqlalchemy import types as sa_types
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.db.pg_ranges import check_int8_range, check_pg_value_range
+from app.core.db.pg_ranges import (
+    INT8_MAX,
+    INT8_MIN,
+    check_int8_range,
+    check_pg_value_range,
+)
 from app.core.geo import seam_extent_wkt_for_table
 from app.modules.catalog.features.idempotency import (  # noqa: F401 - façade for other domains
     current_table_oid,
@@ -788,7 +793,10 @@ async def read_features_json(
     geometry = "ST_AsGeoJSON(geom_4326, 6)" if with_geometry else "NULL::text"
     drop_geom = " - 'geom_4326'" if with_geometry else ""
     row_source = await _projected_row_source(
-        db, table_name, with_geometry=with_geometry, where_sql="WHERE gid = ANY(:gids)"
+        db,
+        table_name,
+        with_geometry=with_geometry,
+        where_sql="WHERE gid = ANY(CAST(:gids AS bigint[]))",
     )
     result = await db.execute(
         text(
@@ -867,7 +875,13 @@ async def get_feature_by_id(
 async def _features_by_ids(
     db: AsyncSession, table_name: str, gids: list[int], *, has_geometry: bool = True
 ) -> list[dict]:
-    """The features with these gids, in the order the gids are given."""
+    """The features with these gids, in the order the gids are given.
+
+    A gid outside int8 cannot name a row, so it is dropped before the bind.
+    """
+    gids = [gid for gid in gids if INT8_MIN <= gid <= INT8_MAX]
+    if not gids:
+        return []
     if has_geometry:
         select_cols = (
             "gid, ST_AsGeoJSON(geom_4326, 6)::json AS geometry, "
@@ -877,7 +891,7 @@ async def _features_by_ids(
         select_cols = "gid, NULL::json AS geometry, to_jsonb(t.*) - 'gid' AS properties"
 
     row_source = await _projected_row_source(db, table_name, with_geometry=has_geometry)
-    sql = f"SELECT {select_cols} FROM {row_source} t WHERE gid = ANY(:gids)"
+    sql = f"SELECT {select_cols} FROM {row_source} t WHERE gid = ANY(CAST(:gids AS bigint[]))"
     result = await db.execute(text(sql).bindparams(gids=gids))
     by_gid = {row.gid: dict(row._mapping) for row in result}
     return [by_gid[gid] for gid in gids if gid in by_gid]
