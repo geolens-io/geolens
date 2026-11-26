@@ -397,6 +397,11 @@ DOCKERFILE_TARGET_FOR_TESTS='FROM --platform=linux/amd64 postgis/postgis:17-3.6
 run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
   _mode="$1"; shift
   make_stubs "$_mode"
+  # Runs a second apart reuse a dump name, which upgrade.sh refuses; drop
+  # earlier dumps but keep anything a test planted on purpose (symlinks).
+  for _d in "$FAKE"/backups/pre-upgrade/*.dump; do
+    [ -f "$_d" ] && [ ! -L "$_d" ] && rm -f "$_d"
+  done
   ( env "PATH=$SHIM:$PATH" GEOLENS_REPO_URL="file:///fake" \
       DOCKER_LOG="$CALLLOG" DOCKER_MIGRATE_MODE="$_mode" GIT_LOG="$GITLOG" \
       DOCKER_STOP_MODE="${STOP_MODE:-ok}" \
@@ -1710,6 +1715,31 @@ else
   bad "symlinked backup dir not refused cleanly (exit=$(cat "$WORK/code.txt"))"
 fi
 rm -rf "$FAKE/backups"
+
+# A dump name planted before the run (it is predictable to the second) is
+# refused before anything is stopped, so the dump can't follow a symlink.
+seed_prod_env
+rm -rf "$FAKE/backups"
+mkdir -p "$FAKE/backups/pre-upgrade"
+printf 'keep\n' > "$WORK/planted-target"
+cat > "$SHIM/date" <<'SH'
+#!/bin/sh
+[ "$1" = "+%Y%m%d_%H%M%S" ] && { echo 20261126_120000; exit 0; }
+exec /bin/date "$@"
+SH
+chmod +x "$SHIM/date"
+ln -s "$WORK/planted-target" "$FAKE/backups/pre-upgrade/geolens_pre_1.2.3_to_1.2.4_20261126_120000.dump"
+run_upgrade ok 1.2.4
+rm -f "$SHIM/date"
+if [ "$(cat "$WORK/code.txt")" != "0" ] \
+   && grep -qF "already exists" "$WORK/out.txt" \
+   && [ -z "$(pos_of stop_app)" ] \
+   && [ "$(cat "$WORK/planted-target")" = "keep" ]; then
+  ok "a planted dump name is refused before the app is stopped, target untouched"
+else
+  bad "planted dump name not refused cleanly (exit=$(cat "$WORK/code.txt"))"
+fi
+rm -rf "$FAKE/backups" "$WORK/planted-target"
 
 echo "1..$((PASS + FAIL))"
 echo "# $PASS passed, $FAIL failed"

@@ -567,6 +567,10 @@ BACKUP_DIR_OWNER="$(ls -ld "$BACKUP_DIR" | awk '{print $3}')"
   || fail "$BACKUP_DIR is owned by $BACKUP_DIR_OWNER, not $(id -un). $BACKUP_TAIL"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
 BACKUP_FILE="$BACKUP_DIR/${POSTGRES_DB}_pre_${CURRENT_VERSION:-unknown}_to_${TARGET_VERSION}_${STAMP}.dump"
+# The name is predictable, so an entry planted while the directory was looser
+# would steer the dump; nobody else can add one now that it is owner-only.
+[ ! -e "$BACKUP_FILE" ] && [ ! -L "$BACKUP_FILE" ] \
+  || fail "$BACKUP_FILE already exists; refusing to write the backup over it. $BACKUP_TAIL"
 
 # Put the instance back the way we found it. `--no-deps` is load-bearing: the
 # prod compose gives api a `depends_on: migrate: service_completed_successfully`
