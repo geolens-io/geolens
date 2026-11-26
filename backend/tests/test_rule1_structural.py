@@ -1192,6 +1192,12 @@ MAP_ALLOWLIST: dict[str, str] = {
     "app.modules.admin.router_operations.list_share_tokens_endpoint": (
         "admin-gated (manage_users); lists public maps and their share links"
     ),
+    "app.modules.catalog.datasets.api.router.delete_dataset_endpoint": (
+        "clears the images of maps that drew the deleted dataset; returns no map"
+    ),
+    "app.modules.catalog.datasets.api.router.bulk_delete_datasets_endpoint": (
+        "clears the images of maps that drew the deleted datasets; returns no map"
+    ),
 }
 
 
