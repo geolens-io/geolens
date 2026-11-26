@@ -20,11 +20,13 @@ import secrets
 import uuid
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from httpx import AsyncClient
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.catalog.maps.models import Map
 from app.modules.embed_tokens.models import EmbedToken
+from app.modules.embed_tokens.public_router import embed_token_from_query
 
 from tests.factories import get_user_id
 from tests.repo_paths import repo_root
@@ -203,6 +205,104 @@ async def test_frame_policy_empty_token_is_open_framing(client: AsyncClient):
 
 
 # ---------------------------------------------------------------------------
+# The shell's query string, as the edge forwards it
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("query", "expected"),
+    [
+        ("embed=true&et=tok", "tok"),
+        ("embed=true&%65t=tok", "tok"),
+        ("embed=true&et=a%2Bb+c", "a+b c"),
+        ("embed=true", ""),
+        ("", ""),
+        ("embed=true&et=", ""),
+        ("embed=true&et", ""),
+        ("embed=true;et=tok", ""),
+        ("embed=true&e+t=tok", ""),
+        ("embed=true&ET=&et=tok", None),
+        ("embed=true&eT=tok", None),
+        ("embed=true&%45%54=tok&et=tok", None),
+        ("embed=true&et=tok&et=", None),
+        ("embed=true&et=&et=tok", None),
+        ("&".join(["x=1"] * 300) + "&et=tok", None),
+    ],
+)
+def test_embed_token_from_query_matches_the_viewer_page(query, expected):
+    """The policy reads `et` as URLSearchParams.get does, or None when ambiguous."""
+    assert embed_token_from_query(query) == expected
+
+
+async def _locked_token(test_db_session: AsyncSession) -> str:
+    uid = await get_user_id(test_db_session, "admin")
+    map_obj = await _create_public_map(test_db_session, created_by=uid)
+    raw = await _create_embed_token(
+        test_db_session,
+        map_id=map_obj.id,
+        created_by=uid,
+        allowed_origins=["https://partner.example"],
+    )
+    await test_db_session.commit()
+    return raw
+
+
+async def test_frame_policy_reads_encoded_et_name_from_shell_query(
+    client: AsyncClient, test_db_session: AsyncSession
+):
+    """A percent-encoded `et` name still gets the locked token's policy."""
+    raw = await _locked_token(test_db_session)
+    # The edge's raw $arg_et does not match `%65t`, so it sends an empty token.
+    resp = await client.get(
+        "/embed/frame-policy",
+        params={"token": ""},
+        headers={"X-Embed-Query": f"embed=true&%65t={raw}"},
+    )
+    assert resp.status_code == 200
+    assert (
+        resp.headers["x-embed-frame-ancestors"]
+        == "frame-ancestors 'self' https://partner.example"
+    )
+
+
+@pytest.mark.parametrize(
+    ("shell_query", "edge_token"),
+    [
+        ("embed=true&ET=&et={raw}", ""),
+        ("embed=true&et={raw}&et=", "{raw}"),
+        ("embed=true&et=&et={raw}", ""),
+    ],
+)
+async def test_frame_policy_ambiguous_et_fails_closed(
+    client: AsyncClient, test_db_session: AsyncSession, shell_query, edge_token
+):
+    """A duplicate or case-variant `et` gets frame-ancestors 'none'."""
+    raw = await _locked_token(test_db_session)
+    resp = await client.get(
+        "/embed/frame-policy",
+        params={"token": edge_token.format(raw=raw)},
+        headers={"X-Embed-Query": shell_query.format(raw=raw)},
+    )
+    assert resp.status_code == 200
+    assert resp.headers["x-embed-frame-ancestors"] == "frame-ancestors 'none'"
+    assert "frame-ancestors 'none'" in resp.headers["content-security-policy"]
+
+
+async def test_frame_policy_shell_query_without_et_is_open_framing(
+    client: AsyncClient,
+):
+    """A forwarded query with no `et` is a plain share: open framing."""
+    resp = await client.get(
+        "/embed/frame-policy",
+        params={"token": ""},
+        headers={"X-Embed-Query": "embed=true&zoom=4"},
+    )
+    assert resp.status_code == 200
+    assert resp.headers.get("x-embed-frame-ancestors", "") == ""
+    assert "frame-ancestors" not in resp.headers.get("content-security-policy", "")
+
+
+# ---------------------------------------------------------------------------
 # Edge (nginx) wiring invariants — config-presence assertions
 # ---------------------------------------------------------------------------
 
@@ -224,15 +324,17 @@ def test_nginx_m_route_uses_frame_policy_auth_request():
         "auth_request_set $embed_frame_ancestors $upstream_http_x_embed_frame_ancestors;"
         in conf
     ), "P0-02: the frame-ancestors directive must be copied from the API response."
-    # Codex P1 (#338): the auth_request subrequest does not carry the parent
-    # query string, so the parent's `et` is captured into `set $embed_et $arg_et`
-    # in the /m/ location and forwarded (subrequests share parent `set` vars).
-    assert "set $embed_et $arg_et;" in conf, (
-        "the /m/ location must capture the `et` query param into $embed_et."
+    # The subrequest does not carry the parent query string, so the /m/
+    # location captures it into `set` variables, which subrequests share.
+    assert "set $embed_args $args;" in conf, (
+        "the /m/ location must capture the whole query into $embed_args."
+    )
+    assert "proxy_set_header X-Embed-Query $embed_args;" in conf, (
+        "the subrequest must forward the whole query, which the policy endpoint "
+        "parses as the viewer page does; $arg_et reads `et` differently."
     )
     assert "/embed/frame-policy?token=$embed_et" in conf, (
-        "the subrequest must forward the captured embed token ($embed_et), not "
-        "the share-token path segment or the (empty) subrequest $arg_et."
+        "the subrequest keeps sending `token` for an API without X-Embed-Query."
     )
     assert "${embed_frame_ancestors}" in conf, (
         "P0-02: the /m/ CSP must interpolate the per-token frame-ancestors value."
