@@ -9,6 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.exc import DBAPIError, OperationalError, ProgrammingError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.temporal import temporal_interval
 from app.core.config import settings
 from app.core.record_types import capabilities
 from app.core.db.tenant_session import current_tenant_var
@@ -419,16 +420,9 @@ async def get_dataset_collection(
         or dataset.record.temporal_end is not None
     ):
         extent["temporal"] = {
-            "interval": [
-                [
-                    dataset.record.temporal_start.isoformat()
-                    if dataset.record.temporal_start
-                    else "..",
-                    dataset.record.temporal_end.isoformat()
-                    if dataset.record.temporal_end
-                    else "..",
-                ]
-            ]
+            "interval": temporal_interval(
+                dataset.record.temporal_start, dataset.record.temporal_end
+            )
         }
 
     # Raster/VRT datasets have no backing feature table, so they expose no
