@@ -358,7 +358,7 @@ function DashboardWidgetList({
       </p>
     );
     return intro ? (
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="relative min-h-0 flex-1 overflow-y-auto">
         {intro}
         {hidden}
       </div>
@@ -371,7 +371,8 @@ function DashboardWidgetList({
       id={id}
       className={cn(
         'p-3',
-        !intro && 'min-h-0 flex-1 overflow-y-auto',
+        // Positioned so its screen-reader-only table captions stay inside the scroll area instead of stretching the page.
+        !intro && 'relative min-h-0 flex-1 overflow-y-auto',
         layout !== 'right'
           ? '@container grid grid-cols-[repeat(auto-fill,minmax(min(100%,16rem),1fr))] content-start gap-3'
           : 'space-y-3',
@@ -430,7 +431,7 @@ function DashboardWidgetList({
     </ul>
   );
   return intro ? (
-    <div className="min-h-0 flex-1 overflow-y-auto">
+    <div className="relative min-h-0 flex-1 overflow-y-auto">
       {intro}
       {list}
     </div>
