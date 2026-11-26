@@ -598,7 +598,7 @@ async def test_column_rename_onto_a_listed_name_keeps_the_column_out_of_tiles(
 async def test_column_ddl_gives_up_behind_a_reader(
     client: AsyncClient, admin_auth_header: dict, method: str, path: str, body
 ):
-    """Column DDL behind an open reader answers 503 and leaves the reader and table as they were."""
+    """Column DDL behind an open reader answers 409 and leaves the reader and table as they were."""
     import app.core.db as db_module
     from sqlalchemy import select, text
 
@@ -628,7 +628,8 @@ async def test_column_ddl_gives_up_behind_a_reader(
                 json=body,
                 headers=admin_auth_header,
             )
-            assert resp.status_code == 503, resp.text
+            assert resp.status_code == 409, resp.text
+            assert resp.json()["code"] == "catalog_lock_conflict"
             assert (await holder.scalar(text("SELECT 1"))) == 1
         finally:
             await holder.rollback()

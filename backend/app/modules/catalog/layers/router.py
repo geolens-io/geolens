@@ -8,7 +8,7 @@ from sqlalchemy.exc import DBAPIError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.modules.audit.service import AuditEvent, audit_emit
-from app.core.db.sqlstate import is_lock_conflict, is_operational, sqlstate
+from app.core.db.sqlstate import is_operational, sqlstate
 from app.core.identity import Identity
 from app.core.record_types import capabilities
 from app.core.upload_errors import refusal_detail
@@ -66,10 +66,10 @@ async def _raise_ddl_db_error(db: AsyncSession, exc: DBAPIError, action: str) ->
     """Roll back and map a DDL DB error to the right status. Never returns.
 
     Classified by SQLSTATE like the feature-write path: a bad request is a
-    400, an outage or a table another transaction holds a 503.
+    400, an outage a 503.
     """
     await db.rollback()
-    if is_operational(exc) or is_lock_conflict(exc):
+    if is_operational(exc):
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Database temporarily unavailable.",
