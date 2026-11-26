@@ -542,6 +542,62 @@ async def test_a_refresh_gives_a_generated_geom_a_plain_filled_column(
         await _drop(test_db_session, table_name)
 
 
+@pytest.mark.parametrize("generated_geom", [False, True], ids=["generated", "plain"])
+async def test_a_restored_column_bumps_the_tile_version_and_purges_tiles(
+    test_db_session, generated_geom: bool
+) -> None:
+    """The repair commits before the measurement, so it owns the invalidation.
+
+    The column is restored by its own ADD, which fills it with no rows
+    counted as rewritten; with an existing gid nothing else triggers the
+    bump either. If the measurement then fails, stale cached tiles would
+    outlive the repair.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_inv_{uuid.uuid4().hex[:10]}"
+    if generated_geom:
+        await test_db_session.execute(
+            text(
+                f'CREATE TABLE data."{table_name}" ('
+                f"  gid serial PRIMARY KEY, x float8, y float8,"
+                f"  geom geometry(Point, 4326) GENERATED ALWAYS AS "
+                f"    (ST_SetSRID(ST_MakePoint(x, y), 4326)) STORED)"
+            )
+        )
+        await test_db_session.execute(
+            text(f'INSERT INTO data."{table_name}" (x, y) VALUES (:x, :y)'),  # noqa: S608
+            {"x": _HERE[0], "y": _HERE[1]},
+        )
+        await test_db_session.commit()
+    else:
+        await _create_source_table(
+            test_db_session, table_name, lon=_HERE[0], lat=_HERE[1]
+        )
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.commit()
+        before = await _stored_version(test_db_session, dataset.id)
+
+        with patch.object(
+            tasks_postgis_refresh, "invalidate_tile_cache_for_table", AsyncMock()
+        ) as purge:
+            report = await tasks_postgis_refresh._repair_geom_4326(
+                dataset.id, Dataset, schema="data", role="geolens_reader"
+            )
+
+        assert report.column_added is True
+        assert report.gid_added is False
+        assert report.tile_cache_version == before + 1
+        assert await _stored_version(test_db_session, dataset.id) == before + 1
+        purge.assert_awaited_once_with(table_name)
+    finally:
+        await _drop(test_db_session, table_name)
+
+
 # ---------------------------------------------------------------------------
 # Cost: the scan is unconditional, the writes are not
 # ---------------------------------------------------------------------------
