@@ -316,6 +316,11 @@ def _nginx_conf_text() -> str:
     return path.read_text()
 
 
+def _location_block(conf: str, header: str) -> str:
+    start = conf.index(header)
+    return conf[start : conf.index("\n    }\n", start)]
+
+
 def test_nginx_m_route_uses_frame_policy_auth_request():
     """The /m/ location must validate the token via auth_request and copy the
     per-token frame-ancestors into the CSP, with X-Frame-Options omitted."""
@@ -329,14 +334,16 @@ def test_nginx_m_route_uses_frame_policy_auth_request():
     ), "P0-02: the frame-ancestors directive must be copied from the API response."
     # The subrequest does not carry the parent query string, so the /m/
     # location captures it into `set` variables, which subrequests share.
-    assert "set $embed_args $args;" in conf, (
+    m_block = _location_block(conf, "location ~ ^/m/ {")
+    policy_block = _location_block(conf, "location = /_embed_frame_policy {")
+    assert "set $embed_args $args;" in m_block, (
         "the /m/ location must capture the whole query into $embed_args."
     )
-    assert "proxy_set_header X-Embed-Query $embed_args;" in conf, (
+    assert "proxy_set_header X-Embed-Query $embed_args;" in policy_block, (
         "the subrequest must forward the whole query, which the policy endpoint "
         "parses as the viewer page does; $arg_et reads `et` differently."
     )
-    assert "/embed/frame-policy?token=$embed_et" in conf, (
+    assert "/embed/frame-policy?token=$embed_et" in policy_block, (
         "the subrequest keeps sending `token` for an API without X-Embed-Query."
     )
     assert "${embed_frame_ancestors}" in conf, (
