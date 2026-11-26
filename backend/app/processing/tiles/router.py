@@ -2516,8 +2516,8 @@ async def _acquire_and_serve_tile(
         async with pool.acquire(timeout=TILE_POOL_ACQUIRE_TIMEOUT_SECONDS) as tile_conn:
             try:
                 async with tile_conn.transaction():
-                    # Bound before the tile query; a no-op in single_tenant or
-                    # when tid is None.
+                    # Bound before the tile query: geolens_reader in
+                    # single_tenant, the tenant reader role in multi_tenant.
                     await set_tenant_role_for_tile_request(tile_conn, tid)
                     tile = await query_callable(pool, tile_conn)
             except asyncio.TimeoutError:

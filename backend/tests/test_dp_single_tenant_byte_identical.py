@@ -328,37 +328,31 @@ class TestGucUnsetInSingleTenantDataPlane:
 
 
 # ---------------------------------------------------------------------------
-# (h) Tile-path binder is a no-op in single_tenant
+# (h) Tile-path binder adds no tenant binding in single_tenant
 # ---------------------------------------------------------------------------
 
 
-class TestTilePathBinderNoopInSingleTenant:
-    """(h): set_tenant_role_for_tile_request is a no-op in single_tenant.
+class TestTilePathBinderInSingleTenant:
+    """(h): set_tenant_role_for_tile_request adds no tenant binding in single_tenant.
 
-    Mirrors test_dp02_read_path_binding.py TestSetTenantRoleSingleTenantNoOp
-    as an additional byte-identical guard: the binder must not issue ANY SQL
-    in single_tenant mode, even with a non-None tenant_id.
+    The binder only drops to ``geolens_reader``; it must not bind a per-tenant
+    role or search_path, even with a non-None tenant_id.
     """
 
     @pytest.mark.asyncio
-    async def test_binder_noop_in_single_tenant_any_uuid(self, monkeypatch):
-        """set_tenant_role_for_tile_request issues zero SQL in single_tenant."""
+    @pytest.mark.parametrize("tenant_id", [_TENANT_A, None])
+    async def test_binder_binds_no_tenant_state_in_single_tenant(
+        self, monkeypatch, tenant_id
+    ):
+        """set_tenant_role_for_tile_request issues no tenant SQL in single_tenant."""
         monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: False)
         from app.processing.tiles.pool import set_tenant_role_for_tile_request
 
         mock_conn = AsyncMock()
-        await set_tenant_role_for_tile_request(mock_conn, _TENANT_A)
-        mock_conn.execute.assert_not_awaited()
-
-    @pytest.mark.asyncio
-    async def test_binder_noop_in_single_tenant_none_tenant_id(self, monkeypatch):
-        """set_tenant_role_for_tile_request is a no-op with None tenant_id."""
-        monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: False)
-        from app.processing.tiles.pool import set_tenant_role_for_tile_request
-
-        mock_conn = AsyncMock()
-        await set_tenant_role_for_tile_request(mock_conn, None)
-        mock_conn.execute.assert_not_awaited()
+        await set_tenant_role_for_tile_request(mock_conn, tenant_id)
+        sql = " ".join(call.args[0] for call in mock_conn.execute.await_args_list)
+        assert "search_path" not in sql
+        assert "_t_" not in sql
 
 
 # ---------------------------------------------------------------------------
