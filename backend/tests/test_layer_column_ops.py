@@ -519,3 +519,41 @@ async def test_column_edits_keep_the_source_names_of_imported_columns(
     )
     assert dropped.status_code == 200, dropped.text
     assert await source_names() == {"name": "Name", "amount": "VALUE 1"}
+
+
+@pytest.mark.anyio
+async def test_column_rename_and_drop_follow_the_tile_allowlist(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """A rename moves the tile allowlist entry to the new name; a drop removes it."""
+    dataset_id = await _create_layer(client, admin_auth_header, title="Tile Allowlist")
+    resp = await client.patch(
+        f"/datasets/{dataset_id}",
+        json={"tile_columns": ["value", "name"]},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = await client.patch(
+        f"/layers/{dataset_id}/columns/value/name",
+        json={"new_name": "amount"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    resp = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["tile_columns"] == ["amount", "name"]
+
+    resp = await client.delete(
+        f"/layers/{dataset_id}/columns/amount", headers=admin_auth_header
+    )
+    assert resp.status_code == 200, resp.text
+    resp = await client.post(
+        f"/layers/{dataset_id}/columns/",
+        json={"column": {"name": "value", "type": "text"}},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 201, resp.text
+    resp = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["tile_columns"] == ["name"]

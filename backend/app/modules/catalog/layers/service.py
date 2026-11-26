@@ -71,6 +71,25 @@ async def _keep_source_names(
     return column_info
 
 
+async def _follow_tile_columns(
+    session: AsyncSession, dataset: Dataset, column_name: str, new_name: str | None
+) -> None:
+    """Rename ``column_name`` in the tile allowlist, or remove it when ``new_name`` is None.
+
+    Called with the catalog rows held. A stale entry would drop the column from
+    tiles and embed reads, and would publish a later column created under the
+    old name that nobody chose.
+    """
+    await session.refresh(dataset, ["tile_columns"])
+    if not dataset.tile_columns or column_name not in dataset.tile_columns:
+        return
+    dataset.tile_columns = [
+        new_name if name == column_name else name
+        for name in dataset.tile_columns
+        if name != column_name or new_name is not None
+    ]
+
+
 async def _compute_quality_detail(
     session: AsyncSession, dataset: Dataset, column_info: list[dict]
 ) -> object:
@@ -370,6 +389,7 @@ async def rename_column(
         session, dataset, column_info, {column_name: new_name}
     )
     dataset.column_info = column_info
+    await _follow_tile_columns(session, dataset, column_name, new_name)
 
     # Keep the cached sample-values snapshot keyed by the new
     # name; the builder reads this dict and an old-name entry looks like an
@@ -510,6 +530,7 @@ async def drop_column(
     column_info = await _keep_source_names(session, dataset, column_info)
     dataset.column_info = column_info
     dataset.quality_detail = quality_detail
+    await _follow_tile_columns(session, dataset, column_name, None)
 
     # Drop the removed column's cached sample values too.
     if dataset.sample_values and column_name in dataset.sample_values:
