@@ -2412,6 +2412,59 @@ async def test_a_kept_publish_answers_alike_for_a_hidden_and_a_missing_dataset(
     assert "A073" not in {code for code, _, _ in _codes(hidden_applied)}
 
 
+@pytest.mark.parametrize("hidden_side", ["stored", "manifest"])
+async def test_replace_under_a_newer_dashboard_answers_alike_for_a_hidden_and_a_missing_dataset(
+    client, test_db_session, admin_auth_header, clean_tables, hidden_side
+):
+    """A dataset the caller can't read answers as one that doesn't exist
+    when the dashboard's widgets can't be removed, whichever side names it."""
+    from sqlalchemy import update
+
+    admin = await _admin(test_db_session)
+    editor, _ = await _person(client, test_db_session, admin_auth_header)
+    own = await _dataset(test_db_session, editor.id)
+    admins = await _dataset(test_db_session, admin.id)
+    stored = admins if hidden_side == "stored" else own
+    first = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(stored)),
+        _layer("names", dataset_id=str(own)),
+    )
+    [created] = (await _apply(test_db_session, editor, first)).maps
+    [parks] = [
+        layer
+        for layer in await _layers(test_db_session, created.map_id)
+        if layer.manifest_key == "parks"
+    ]
+    widget = {**_HISTOGRAM, "v": 2, "id": _WIDGET_ID, "layer_id": str(parks.id)}
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(dashboard_config={"version": 2, "widgets": [widget]})
+    )
+    await test_db_session.commit()
+    await _hide(test_db_session, admins)
+    answers = {}
+    for name, parks_dataset in (("hidden", str(admins)), ("missing", _NO_SUCH_DATASET)):
+        entry = _entry(
+            "qgis-map-parks",
+            _layer("parks", dataset_id=parks_dataset),
+            _layer("names", dataset_id=str(own)),
+            styling="replace",
+        )
+        answers[name] = [
+            (await _apply(test_db_session, editor, entry, dry_run=dry_run)).maps[0]
+            for dry_run in (True, False)
+        ]
+
+    [hidden_checked, hidden_applied] = answers["hidden"]
+    [missing_checked, missing_applied] = answers["missing"]
+    assert hidden_checked.model_dump() == missing_checked.model_dump()
+    assert hidden_applied.model_dump() == missing_applied.model_dump()
+    assert ("A052", "error", "parks") in _codes(hidden_applied)
+    assert "A099" not in {code for code, _, _ in _codes(hidden_applied)}
+
+
 async def test_a_kept_layer_on_a_dataset_the_request_creates_isnt_judged_yet(
     test_db_session, clean_tables
 ):

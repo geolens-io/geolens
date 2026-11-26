@@ -289,28 +289,19 @@ class Moves(NamedTuple):
     """Moves the map can't make, which refuse the whole map."""
 
 
-def _repointed(
-    stored: Iterable[tuple[MapLayer, Any]], targets: Mapping[str, Target]
-) -> Iterator[tuple[MapLayer, Any, Target]]:
-    """Each matched keyed layer whose manifest names another dataset; the
-    layer keeps its id there, so the save moves it."""
-    for layer, was in stored:
-        target = targets.get(layer.manifest_key) if layer.manifest_key else None
-        if (
-            target is not None
-            and target.dataset_id is not None
-            and target.dataset_id != layer.dataset_id
-        ):
-            yield layer, was, target
-
-
 def _moving(
     stored: Iterable[tuple[MapLayer, Any]], targets: Mapping[str, Target]
 ) -> Iterator[tuple[MapLayer, Any, Target]]:
-    """Each of those whose manifest dataset the caller can read, on a stored
-    dataset the caller can read."""
-    for layer, was, target in _repointed(stored, targets):
-        if was is not None and target.dataset is not None:
+    """Each matched keyed layer whose manifest dataset is another one the
+    caller can read, on a stored dataset the caller can read."""
+    for layer, was in stored:
+        target = targets.get(layer.manifest_key) if layer.manifest_key else None
+        if (
+            was is not None
+            and target is not None
+            and target.dataset is not None
+            and target.dataset_id != layer.dataset_id
+        ):
             yield layer, was, target
 
 
@@ -323,22 +314,17 @@ async def widening_moves(
     kept: bool,
 ) -> set[tuple[uuid.UUID, uuid.UUID]]:
     """The ``(from, to)`` dataset pairs of the layers a publish moves where
-    somebody who reads ``to`` may be unable to read ``from``: those a ``kept``
-    publish judges, and otherwise those the save would refuse under the map's
-    ``dashboard`` (``stranding_moves``)."""
+    somebody who reads ``to`` may be unable to read ``from``: all of them for
+    a ``kept`` publish, and otherwise those the save would refuse under the
+    map's ``dashboard`` (``stranding_moves``). Only moves between datasets
+    the caller can read are judged, so one it can't read answers as one that
+    doesn't exist."""
+    pairs = [
+        (layer.dataset_id, to.dataset_id) for layer, _, to in _moving(stored, targets)
+    ]
     if kept:
-        moving = _moving(stored, targets)
-        return await widening_pairs(
-            session, ((layer.dataset_id, to.dataset_id) for layer, _, to in moving)
-        )
-    return await stranding_moves(
-        session,
-        dashboard,
-        (
-            (layer.dataset_id, to.dataset_id)
-            for layer, _, to in _repointed(stored, targets)
-        ),
-    )
+        return await widening_pairs(session, pairs)
+    return await stranding_moves(session, dashboard, pairs)
 
 
 def _stranded(layer: MapLayer) -> dict[str, Any]:
@@ -376,16 +362,15 @@ def move_kept_layers(
     judged without reading that dataset. ``widening`` holds the moves
     ``widening_moves`` found widening who reads the layer; such a move is an
     error when the map's dashboard holds widgets this server can't read,
-    since it can't remove them. A publish that replaces the styling moves
-    every matched keyed layer the manifest points elsewhere, and only those
-    errors apply.
+    since it can't remove them. When the publish replaces the styling, only
+    those errors apply.
     """
     moves = Moves({}, [], [], [])
     if not kept:
         if not can_drop_widgets(dashboard):
             moves.errors.extend(
                 _stranded(layer)
-                for layer, _, target in _repointed(stored, targets)
+                for layer, _, target in _moving(stored, targets)
                 if (layer.dataset_id, target.dataset_id) in widening
             )
         return moves
