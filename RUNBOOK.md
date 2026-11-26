@@ -455,6 +455,28 @@ before the first migration: migration `0001_baseline` verifies `postgis`,
 `pg_trgm`, `vector` and `unaccent` and aborts if any is missing rather than
 creating them.
 
+A deployment that only pulls images, such as an ECS task, has no checkout to run
+the script from. The `geolens-backup` image has `psql` and carries `init-db.sh`
+and the role reconciler at `/scripts`. Its entrypoint is the backup loop, so
+override it:
+
+```bash
+# Export PGPASSWORD and GEOLENS_RUNTIME_DB_PASSWORD first; `-e NAME` without a
+# value forwards them without putting the secrets in the command line.
+docker run --rm --entrypoint /scripts/init-db.sh \
+  -e POSTGRES_HOST=<host> -e POSTGRES_PORT=5432 \
+  -e POSTGRES_USER=<admin> -e POSTGRES_DB=geolens -e PGPASSWORD \
+  -e GEOLENS_RUNTIME_DB_ROLE=geolens_app -e GEOLENS_RUNTIME_DB_PASSWORD \
+  -e GEOLENS_MIGRATION_DB_ROLE=<migration-login> \
+  -e PGSSLMODE=verify-full -e PGSSLROOTCERT=/certs/ca.pem -v /path/to/certs:/certs:ro \
+  ghcr.io/geolens-io/geolens-backup:<version>
+```
+
+`GEOLENS_MIGRATION_DB_ROLE` is the username in `MIGRATION_DATABASE_URL_OVERRIDE`;
+leave it out only when migrations run as the provider admin. `psql` itself reads
+`PGSSLMODE` and `PGSSLROOTCERT`; drop them and the certificate mount for a
+database that doesn't require TLS.
+
 `postgis` and `vector` are not PostgreSQL "trusted" extensions, so the
 connecting identity needs superuser-equivalent authority (`rds_superuser`,
 `cloudsqlsuperuser`); `pg_trgm` and `unaccent` are trusted and need only CREATE

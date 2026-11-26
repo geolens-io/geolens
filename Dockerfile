@@ -253,7 +253,11 @@ RUN apt-get update && apt-get upgrade -y --no-install-recommends && \
 # backup-entrypoint.sh sources nothing, so no further script needs to move.
 COPY scripts/backup-entrypoint.sh scripts/restore.sh /scripts/
 COPY scripts/lib/common.sh /scripts/lib/common.sh
-RUN chmod +x /scripts/backup-entrypoint.sh /scripts/restore.sh
+# The managed-database bootstrap runs from this image too, since it already has
+# psql: init-db.sh finds the role reconciler at lib/configure-runtime-db-role.sh.
+COPY scripts/init-db.sh /scripts/init-db.sh
+COPY scripts/lib/configure-runtime-db-role.sh /scripts/lib/configure-runtime-db-role.sh
+RUN chmod +x /scripts/backup-entrypoint.sh /scripts/restore.sh /scripts/init-db.sh
 
 ENTRYPOINT ["/scripts/backup-entrypoint.sh"]
 
