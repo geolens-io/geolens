@@ -328,36 +328,8 @@ def test_multi_tenant_tile_pool_accepts_distinct_login(monkeypatch):
     pool_module._validate_tile_database_isolation()
 
 
-async def test_setup_tile_connection_issues_set_role():
-    """_setup_tile_connection runs ``SET ROLE geolens_reader`` on every fresh
-    pool checkout so tile-path queries cannot mutate or drop tables."""
-    from app.processing.tiles.pool import _setup_tile_connection
-
-    conn = AsyncMock()
-    await _setup_tile_connection(conn)
-
-    conn.execute.assert_awaited_once_with("SET ROLE geolens_reader")
-
-
-async def test_setup_tile_connection_logs_and_continues_on_postgres_error(monkeypatch):
-    """If geolens_reader doesn't exist (e.g. legacy upgrade pre-v6.0), the
-    setup callback logs a warning and lets the connection serve requests
-    rather than crashing the pool."""
-    import asyncpg
-
-    from app.processing.tiles.pool import _setup_tile_connection
-
-    conn = AsyncMock()
-    conn.execute.side_effect = asyncpg.PostgresError("role does not exist")
-
-    # Should not raise — the warning path is the contract.
-    await _setup_tile_connection(conn)
-    conn.execute.assert_awaited_once_with("SET ROLE geolens_reader")
-
-
-async def test_init_tile_pool_passes_setup_callback(monkeypatch):
-    """init_tile_pool wires ``setup=_setup_tile_connection`` into
-    asyncpg.create_pool so every fresh connection drops privileges."""
+async def test_init_tile_pool_sets_no_session_state_on_acquire(monkeypatch):
+    """init_tile_pool validates new connections but sets no per-acquire session state."""
     from app.processing.tiles import pool as pool_module
 
     captured_kwargs: dict = {}
@@ -376,7 +348,7 @@ async def test_init_tile_pool_passes_setup_callback(monkeypatch):
         # Ensure module-level state is reset so other tests don't see a fake.
         pool_module._tile_pool = None
 
-    assert captured_kwargs.get("setup") is pool_module._setup_tile_connection
+    assert "setup" not in captured_kwargs
     assert captured_kwargs.get("init") is pool_module._init_tile_connection
 
 
