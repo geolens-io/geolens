@@ -32,6 +32,7 @@ from app.modules.catalog.maps.service_groups import (
     set_map_groups,
     unshare_group_maps,
 )
+from app.modules.catalog.maps.service_links import links_retired_last
 from app.modules.catalog.maps.service_history import (
     list_map_history,
     record_map_history_event,
@@ -85,6 +86,7 @@ __all__ = [
     "LayersHiddenFromGroupsError",
     "RestrictedWithoutGroupsError",
     "record_map_groups_change",
+    "links_retired_last",
     "set_map_groups",
     "unshare_group_maps",
     "get_dataset_meta",

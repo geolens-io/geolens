@@ -1218,7 +1218,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 132,
+        "backend/app/modules/catalog/maps/service.py": 134,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 150,
         "backend/app/processing/ai/chat_service.py": 487,
@@ -1352,7 +1352,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # history event, the share link and the result's visibility, groups and
     # removed layers share the row lock the apply holds, which is also where its
     # groups are planned and its moved layers are judged.
-    "backend/app/modules/catalog/maps/manifest_apply.py": 1191,
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1194,
     # The publish manifest's request and response models in one place, which
     # the vendored wire schema, the contract snapshot and both SDKs are held to.
     "backend/app/processing/ingest/manifest_schemas.py": 1036,

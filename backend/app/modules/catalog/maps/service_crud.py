@@ -495,7 +495,9 @@ async def update_map(
     ``keep_widgets_of``, for a caller that checked they fit the new dataset.
 
     A ``visibility`` goes through ``prepare_map_visibility``, which may make it
-    restricted, revoke the map's links, or raise ``RestrictedWithoutGroupsError``.
+    restricted or raise ``RestrictedWithoutGroupsError``. A save that narrows
+    the map revokes its links (``retire_map_links``) after every check that
+    can refuse it.
 
     With ``expected_updated_at``, the map is locked first and a map changed
     since that value raises 409 ``stale_write`` before anything is written.
@@ -522,10 +524,13 @@ async def update_map(
     if map_obj is None:
         raise ValueError(f"Map {map_id} not found")
     refuse_stale_write(map_obj.updated_at, expected_updated_at)
+    stored_visibility = None
     if visibility is not None:
         from app.modules.catalog.maps.service_groups import prepare_map_visibility
 
-        visibility = await prepare_map_visibility(session, map_id, visibility)
+        stored_visibility, visibility = await prepare_map_visibility(
+            session, map_id, visibility
+        )
 
     # Update scalar fields (skip None values, except explicit notes=null which
     # clears private builder notes, and explicit plugins=null which restores
@@ -583,6 +588,12 @@ async def update_map(
     await session.flush()
     # The flush's UPDATE holds the map row when there was one to write.
     await recheck_map_ownership(session, map_id)
+    if stored_visibility is not None and visibility is not None:
+        from app.modules.catalog.maps.service_links import retire_map_links
+
+        # After every refusal: an embed token's revocation is cached outside
+        # this transaction.
+        await retire_map_links(session, map_id, stored_visibility, visibility)
     # One LEFT JOIN reads forked_name, owner_username and the DB-side
     # updated_at, so no ``session.refresh(map_obj)`` is needed.
     layer_rows = await _fetch_layer_rows_ordered(session, map_obj.id)

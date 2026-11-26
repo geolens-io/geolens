@@ -22,7 +22,6 @@ from app.core.identity import Identity
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.authorization import (
-    ANONYMOUS_MAP_VISIBILITIES,
     RESTRICTED_MAP_VISIBILITY,
     answers_audience_questions,
 )
@@ -49,9 +48,8 @@ from app.modules.catalog.maps.service_layers import (
     lock_map_layers,
     touch_map,
 )
-from app.modules.catalog.maps.service_public import revoke_share_token_by_map
+from app.modules.catalog.maps.service_links import retire_map_links
 from app.modules.catalog.write_recheck import refuse_stale_write
-from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
 from app.platform.catalog_locks import bounded_row_lock
 from app.platform.extensions import get_permission_extension
 
@@ -134,22 +132,6 @@ async def lock_layer_datasets(
     )
 
 
-async def _retire_links(
-    session: AsyncSession, map_id: uuid.UUID, current: str, new: str
-) -> None:
-    """Revoke the map's share and embed tokens when moving from ``current`` to
-    ``new`` leaves public or enters restricted."""
-    leaves_public = (
-        current in ANONYMOUS_MAP_VISIBILITIES and new not in ANONYMOUS_MAP_VISIBILITIES
-    )
-    enters_restricted = (
-        new == RESTRICTED_MAP_VISIBILITY and current != RESTRICTED_MAP_VISIBILITY
-    )
-    if leaves_public or enters_restricted:
-        await revoke_share_token_by_map(session, map_id)
-        await revoke_embed_tokens_by_map(session, map_id)
-
-
 async def map_has_groups(session: AsyncSession, map_id: uuid.UUID) -> bool:
     return bool(
         await session.scalar(select(exists().where(MapGroupGrant.map_id == map_id)))
@@ -171,27 +153,27 @@ def map_visibility_for(requested: str, has_groups: bool) -> str:
 
 async def prepare_map_visibility(
     session: AsyncSession, map_id: uuid.UUID, requested: str
-) -> str:
-    """Return the visibility a write of ``requested`` gives the map: a map
-    with groups is restricted wherever it would be private. Locks the map,
-    revokes its links when the write narrows it, and takes its layers'
-    datasets with ``lock_layer_datasets`` when the write opens it to more
-    readers.
+) -> tuple[str, str]:
+    """Return the map's stored visibility and the one a write of
+    ``requested`` gives it: a map with groups is restricted wherever it would
+    be private. Locks the map, and takes its layers' datasets with
+    ``lock_layer_datasets`` when the write opens it to more readers. The
+    caller retires the map's links (``retire_map_links``) once nothing can
+    refuse the write.
 
     Raises ``RestrictedWithoutGroupsError`` for ``restricted`` on a map with
     no group.
     """
     await lock_map_layers(session, map_id)
-    current = await session.scalar(select(Map.visibility).where(Map.id == map_id))
+    current = str(await session.scalar(select(Map.visibility).where(Map.id == map_id)))
     visibility = requested
     if requested in ("private", RESTRICTED_MAP_VISIBILITY):
         visibility = map_visibility_for(
             requested, await map_has_groups(session, map_id)
         )
-    if _MAP_REACH[visibility] > _MAP_REACH.get(str(current), 0):
+    if _MAP_REACH[visibility] > _MAP_REACH.get(current, 0):
         await lock_layer_datasets(session, map_id)
-    await _retire_links(session, map_id, str(current), visibility)
-    return visibility
+    return current, visibility
 
 
 async def record_map_groups_change(
@@ -339,5 +321,5 @@ async def set_map_groups(
     map_obj.visibility = visibility
     await session.flush()
     # Last: an embed token's revocation is cached outside this transaction.
-    await _retire_links(session, map_obj.id, previous, visibility)
+    await retire_map_links(session, map_obj.id, previous, visibility)
     return result

@@ -113,6 +113,7 @@ from app.modules.catalog.maps.service import (
     discard_map_asset_objects,
     lock_map_for_asset_write,
     check_map_ownership,
+    links_retired_last,
     lock_map_layers,
     record_map_history_event,
 )
@@ -1066,13 +1067,15 @@ async def _apply_map(session: AsyncSession, entry: Any, request: _Request) -> di
         if plan.result["action"] == "error":
             await session.rollback()
             return plan.result
-        result = await _write_map(session, entry, request, plan)
-        cleared: list[str] = []
-        had_thumbnail = False
-        if plan.moves_dataset:
-            locked = await lock_map_for_asset_write(session, result["map_id"])
-            had_thumbnail = locked.thumbnail_uri is not None
-            cleared = await clear_map_images(session, result["map_id"], locked)
+        # The share step and the image lock can refuse after the map narrows.
+        async with links_retired_last(session):
+            result = await _write_map(session, entry, request, plan)
+            cleared: list[str] = []
+            had_thumbnail = False
+            if plan.moves_dataset:
+                locked = await lock_map_for_asset_write(session, result["map_id"])
+                had_thumbnail = locked.thumbnail_uri is not None
+                cleared = await clear_map_images(session, result["map_id"], locked)
         await session.commit()
     except HTTPException as exc:
         await session.rollback()
