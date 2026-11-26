@@ -35,7 +35,7 @@ from app.modules.catalog.maps.service import (
     update_map,
     validate_public_visibility,
 )
-from app.modules.embed_tokens.service import revoke_embed_tokens_for_dropped_datasets
+from app.modules.catalog.maps.service_links import retire_dropped_embed_tokens
 from app.platform.request_credential import api_key_audit_details
 
 _HISTORY_FIELDS = ("name", "visibility", "terrain_config", "basemap_config")
@@ -256,7 +256,7 @@ async def apply_map_update(
         await _reject_non_public_datasets(db, map_obj, user)
         # Replacing the layer set can drop a dataset an embed token is
         # scoped to; revoke orphaned tokens so they stop serving its tiles.
-        await revoke_embed_tokens_for_dropped_datasets(db, map_id)
+        await retire_dropped_embed_tokens(db, map_id)
     return saved
 
 

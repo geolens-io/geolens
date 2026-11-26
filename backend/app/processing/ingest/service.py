@@ -800,10 +800,13 @@ async def register_existing_table(
     registration serves from the live table the owner keeps writing to
     directly. A later curved row degrades tiles/reads/analysis for that
     dataset only. STORED GENERATED ``geom_4326`` columns fall under the same
-    contract. Direct writes can also leave ``geom_4326`` stale or NULL,
-    invisible to every reader that filters on it; ``refresh_postgis``
+    contract. Direct writes can also leave a plain ``geom_4326`` stale or
+    NULL, invisible to every reader that filters on it; ``refresh_postgis``
     re-derives the column, and restores it plus its GiST index and the
     reader grant if the table was dropped and recreated without them.
+    Registration now creates ``geom_4326`` as a stored generated column
+    instead, which re-derives itself on every write, so it never goes
+    stale; a plain column the owner already had keeps the old behaviour.
 
     ``managed`` declares the caller created the table, so deleting the
     dataset may drop it again. Defaults False since the two register
@@ -946,10 +949,17 @@ async def register_existing_table(
             srid = await get_table_srid(session, table_name, schema=_schema)
             # Savepoint so a partial failure (column added, index creation
             # failed) rolls back cleanly instead of a half-indexed table.
+            # A stored generated column: adding it costs one table rewrite
+            # with no dead tuples instead of a full-table UPDATE, and later
+            # out-of-band writes to geom stay visible without a refresh.
             try:
                 async with session.begin_nested():
                     await add_4326_column(
-                        session, table_name, srid or 4326, schema=_schema
+                        session,
+                        table_name,
+                        srid or 4326,
+                        schema=_schema,
+                        generated=True,
                     )
             except Exception as exc:  # broad: ALTER TABLE/CREATE INDEX inside savepoint can fail for schema/permission reasons
                 raise _step_refusal(

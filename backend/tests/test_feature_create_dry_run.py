@@ -894,6 +894,83 @@ async def test_a_generated_column_refuses_a_dry_run(
     assert free
 
 
+@pytest.mark.parametrize(
+    ("expression", "status"),
+    [
+        ("ST_Force2D(ST_CurveToLine(ST_SetSRID(geom, 4326)))", 200),
+        ("ST_SetSRID(geom, 4326)", 409),
+    ],
+    ids=["registration-expression", "other-expression"],
+)
+async def test_a_generated_geom_4326_allows_a_dry_run_only_with_the_registration_expression(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    relation_dataset,
+    expression,
+    status,
+):
+    """Registration's own generated column is safe to dry-run through.
+
+    Its expression runs only PostGIS functions on geom, so the rolled-back
+    insert cannot reach past the transaction through it. A geom_4326
+    generated with any other expression is still refused: the exemption
+    is by expression, not by column name.
+    """
+    name = f"test_dry_gen4326_{uuid.uuid4().hex[:8]}"
+    dataset_id = await relation_dataset(
+        name,
+        f"CREATE TABLE data.{name} ("
+        f"gid serial, geom geometry(Point, 4326), "
+        f"geom_4326 geometry(Geometry, 4326) GENERATED ALWAYS AS "
+        f"({expression}) STORED, name text, status text)",
+        drop=(f"DROP TABLE data.{name}",),
+    )
+
+    resp = await client.post(
+        _dry(dataset_id), json=_feature(POINT_A, name="a"), headers=admin_auth_header
+    )
+
+    if status == 200:
+        assert resp.status_code == 200, resp.text
+    else:
+        assert (resp.status_code, resp.json()["detail"]) == (409, _USER_CODE_REFUSAL)
+
+
+async def test_a_shadowed_postgis_name_in_a_generated_geom_4326_still_refuses_a_dry_run(
+    test_db_session,
+):
+    """A user function shadowing a PostGIS name does not pass the exemption.
+
+    The shadow sits ahead of public on this transaction's search path, so
+    PostgreSQL prints the call without its schema and the expression text
+    matches the registration expression exactly. The dry run is still
+    refused: the expression depends on a function that is neither built in
+    nor an extension's. Nothing is committed, because a committed shadow
+    would answer every other session's ST_Force2D for as long as it lived.
+    """
+    from app.modules.catalog.features.service import dry_run_blocker
+
+    tag = uuid.uuid4().hex[:8]
+    shadow, name = f"test_shadow_{tag}", f"test_dry_gen4326_shadow_{tag}"
+    try:
+        for statement in (
+            f"CREATE SCHEMA {shadow}",
+            f"CREATE FUNCTION {shadow}.st_force2d(geom geometry) "
+            "RETURNS geometry LANGUAGE sql IMMUTABLE AS 'SELECT $1'",
+            f"SET LOCAL search_path = {shadow}, public",
+            f"CREATE TABLE data.{name} ("
+            "gid serial, geom geometry(Point, 4326), "
+            "geom_4326 geometry(Geometry, 4326) GENERATED ALWAYS AS "
+            "(ST_Force2D(ST_CurveToLine(ST_SetSRID(geom, 4326)))) STORED, "
+            "name text, status text)",
+        ):
+            await test_db_session.execute(text(statement))
+
+        assert await dry_run_blocker(test_db_session, name) == "user_code"
+    finally:
+        await test_db_session.rollback()
+
+
 async def test_a_table_missing_at_the_check_is_never_inserted_into(
     client: AsyncClient,
     admin_auth_header: dict,

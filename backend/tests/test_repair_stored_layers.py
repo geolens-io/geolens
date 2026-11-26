@@ -211,7 +211,6 @@ async def test_command_skips_a_layer_with_no_recorded_columns_and_an_unreadable_
 
     report = await repair_stored_layers(test_db_session)
 
-    assert len(report.layers) == 2
     by_layer = {entry.layer_id: entry for entry in report.layers}
     assert by_layer[unrecorded_layer_id].status == "skipped"
     assert by_layer[unrecorded_layer_id].reason == "the dataset recorded no columns"

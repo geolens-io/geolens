@@ -721,7 +721,7 @@ async def test_lowering_visibility_revokes_links_by_the_locked_read(
     """A map published while the update waited for the lock still loses its links."""
     from sqlalchemy import update
 
-    from app.modules.catalog.maps import service_groups
+    from app.modules.catalog.maps import service_groups, service_links
     from app.modules.catalog.maps.models import Map
 
     headers, _ = owner
@@ -742,7 +742,7 @@ async def test_lowering_visibility_revokes_links_by_the_locked_read(
         revoked.append(revoked_map_id)
 
     monkeypatch.setattr(service_groups, "lock_map_layers", published_while_waiting)
-    monkeypatch.setattr(service_groups, "revoke_share_token_by_map", record_revoke)
+    monkeypatch.setattr(service_links, "revoke_share_token_by_map", record_revoke)
     try:
         resp = await client.put(
             f"/maps/{map_id}", json={"visibility": "private"}, headers=headers

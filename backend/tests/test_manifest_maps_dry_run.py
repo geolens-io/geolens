@@ -504,11 +504,22 @@ async def test_a_dataset_whose_job_is_not_complete_answers_a052(
 
 
 class _Statements:
-    def __init__(self) -> None:
-        self.count = 0
+    """Records statement text, leaving out reads of cached settings.
 
-    def __call__(self, *args) -> None:
-        self.count += 1
+    A settings value that expires (30 s) or is evicted by a parallel test
+    between two runs is read again, which says nothing about the dataset.
+    """
+
+    def __init__(self) -> None:
+        self.texts: list[str] = []
+
+    def __call__(self, conn, cursor, statement, *args) -> None:
+        if "app_settings" not in statement:
+            self.texts.append(statement)
+
+    @property
+    def count(self) -> int:
+        return len(self.texts)
 
 
 async def _answer_and_statements(session, user, layer: dict):
