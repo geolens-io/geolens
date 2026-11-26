@@ -17,7 +17,11 @@ from sqlalchemy.dialects import postgresql
 
 from app.modules.audit.models import AuditLog
 from app.modules.catalog.maps.models import Map, MapLayer
-from app.modules.catalog.maps.repair_stored_layers import repair_stored_layers
+from app.modules.catalog.maps.repair_stored_layers import (
+    RepairReport,
+    StoredLayerRepair,
+    repair_stored_layers,
+)
 from tests.conftest import _acquire_test_session_with_retry
 from tests.factories import create_dataset
 from tests.test_manifest_maps_dry_run import _admin
@@ -517,3 +521,24 @@ def test_command_runs_in_a_fresh_process_without_the_app_imported():
     assert result.returncode == 0, result.stderr
     assert "InvalidRequestError" not in result.stderr
     assert "Dry run: no changes were written." in result.stdout
+
+
+def test_report_lists_the_names_a_repaired_layer_left_unresolved():
+    map_id, layer_id, dataset_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    report = RepairReport(
+        layers=[
+            StoredLayerRepair(
+                map_id=map_id,
+                layer_id=layer_id,
+                dataset_id=dataset_id,
+                status="repaired",
+                repaired={"Some_Field": "some_field"},
+                unrepaired={"No_Such": "missing"},
+            )
+        ]
+    )
+
+    assert report.format().splitlines()[0] == (
+        f"map {map_id} layer {layer_id}: repaired Some_Field -> some_field; "
+        "left No_Such (missing)"
+    )

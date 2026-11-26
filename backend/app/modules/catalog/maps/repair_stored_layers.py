@@ -104,21 +104,19 @@ class RepairReport:
             lines.append("Dry run: no changes were written.")
         for entry in self.layers:
             where = f"map {entry.map_id} layer {entry.layer_id}"
+            left = ", ".join(
+                f"{name} ({why})" for name, why in sorted(entry.unrepaired.items())
+            )
             if entry.status == "repaired":
                 changes = ", ".join(
                     f"{old} -> {new}" for old, new in sorted(entry.repaired.items())
                 )
                 verb = "would repair" if self.dry_run else "repaired"
-                lines.append(f"{where}: {verb} {changes}")
+                lines.append(
+                    f"{where}: {verb} {changes}" + (f"; left {left}" if left else "")
+                )
             elif entry.status == "unchanged":
-                if entry.unrepaired:
-                    left = ", ".join(
-                        f"{name} ({why})"
-                        for name, why in sorted(entry.unrepaired.items())
-                    )
-                    lines.append(f"{where}: unchanged, left {left}")
-                else:
-                    lines.append(f"{where}: unchanged")
+                lines.append(f"{where}: unchanged" + (f", left {left}" if left else ""))
             else:
                 lines.append(f"{where}: skipped ({entry.reason})")
         repaired_word = "would be repaired" if self.dry_run else "repaired"
