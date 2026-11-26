@@ -1457,6 +1457,11 @@ def _build_search_filters(
         )
         try:
             parsed = json.loads(intersects_str)
+            if isinstance(parsed, dict) and parsed.get("type") in (
+                "Feature",
+                "FeatureCollection",
+            ):
+                raise ValueError("expected a GeoJSON geometry, not a Feature")
             shapely.from_geojson(intersects_str)
             check_wrap_turns(parsed)
         except (ValueError, TypeError, ShapelyError) as e:

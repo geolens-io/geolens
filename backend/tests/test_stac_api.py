@@ -398,8 +398,13 @@ async def test_stac_offset_at_int8_max_still_answers(client: AsyncClient):
 
 @pytest.mark.parametrize(
     "intersects",
-    [{"type": "Point"}, {"type": "Blob", "coordinates": [1, 2]}],
-    ids=["no-coordinates", "unknown-type"],
+    [
+        {"type": "Point"},
+        {"type": "Blob", "coordinates": [1, 2]},
+        {"type": "Feature", "geometry": {"type": "Point", "coordinates": [1, 2]}},
+        {"type": "FeatureCollection", "features": []},
+    ],
+    ids=["no-coordinates", "unknown-type", "feature", "feature-collection"],
 )
 async def test_stac_search_malformed_intersects_is_a_400(
     client: AsyncClient, intersects
