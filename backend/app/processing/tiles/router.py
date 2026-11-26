@@ -1,6 +1,7 @@
 """FastAPI tile endpoint serving vector tiles via PostGIS ST_AsMVT."""
 
 import asyncio
+import functools
 import gzip
 import math
 import threading
@@ -30,7 +31,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.url_redaction import redact_exception_text
 from app.core.geo import extent_lon_span, extent_to_span_bbox, raster_crs_facts
-from app.core.identity import Identity
+from app.core.identity import Identity, IdentitySnapshot
 from app.core.raster_bands import is_palette_raster
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.tile_scope import (
@@ -66,6 +67,7 @@ from app.platform.extensions import (
     get_processing_port,
 )
 from app.platform.service_endpoints import MAX_QUERY_FIELDS
+from app.platform.storage.raster_relay import is_relay_url
 from app.platform.storage.titiler_url import build_titiler_cog_url
 from app.processing.tiles import remote_sources
 from app.processing.raster.models import RasterAsset
@@ -833,6 +835,8 @@ async def _resolve_raster_meta(
     db: AsyncSession,
     dataset_id: uuid.UUID,
     requested_version: str | None = None,
+    *,
+    reread: bool = False,
 ) -> _RasterMeta:
     """Look up raster dataset/asset metadata with a short in-memory cache.
 
@@ -845,7 +849,8 @@ async def _resolve_raster_meta(
     Each dataset has one snapshot. A ``requested_version`` newer than it
     re-reads the row as ``_cached_snapshot`` describes, so a replace is picked
     up by the first request that names its version; an equal, older or
-    unreadable one is served the snapshot.
+    unreadable one is served the snapshot. ``reread`` asks for a snapshot read
+    after the call, under the same once-per-interval bound.
 
     Raises HTTPException(404) when the dataset is missing, is not a raster,
     or has no raster asset.
@@ -860,10 +865,23 @@ async def _resolve_raster_meta(
         cache_key,
         db,
         names_newer=lambda meta: (
-            version is not None and int(version) > meta.tile_cache_version
+            reread or (version is not None and int(version) > meta.tile_cache_version)
         ),
         read=lambda: _read_raster_meta(db, dataset_id, tenant_id),
     )
+
+
+async def _reread_raster_meta(db: AsyncSession, dataset_id: uuid.UUID) -> bool:
+    """Replace the cached raster snapshot with a fresh read; False if the read failed.
+
+    It decides nothing about access: the caller authorizes again through the
+    snapshot it leaves behind.
+    """
+    try:
+        await _resolve_raster_meta(db, dataset_id, reread=True)
+    except HTTPException:
+        return False
+    return True
 
 
 async def _signed_template_authorizes(
@@ -1366,6 +1384,10 @@ async def raster_tile_proxy(
                 detail=f"sigma must be > 0; got sigma={eff_sigma}",
             )
 
+    # Authorizing rolls the session back, which expires an ORM user, and the
+    # check after a replace reads the caller again.
+    if user is not None:
+        user = IdentitySnapshot.of(user)
     auth_resp = await raster_auth_check(request, dataset_id, user, db)
     open_path = auth_resp.headers.get("X-GeoLens-Asset-OpenPath")
     if not open_path:
@@ -1373,6 +1395,86 @@ async def raster_tile_proxy(
             status_code=status.HTTP_404_NOT_FOUND, detail="No raster asset"
         )
 
+    tile = functools.partial(
+        _fetch_raster_tile,
+        dataset_id=dataset_id,
+        z=z,
+        x=x,
+        y=y,
+        fmt=fmt,
+        colormap_name=colormap_name,
+        stretch=stretch,
+        eff_pmin=eff_pmin,
+        eff_pmax=eff_pmax,
+        eff_sigma=eff_sigma,
+    )
+    resp, cache_status = await tile(auth_resp, open_path)
+    # A replace deletes the old managed COG when it commits, while this
+    # process's snapshot can still name it for up to its TTL. Titiler answers a
+    # missing file with a 500, so the snapshot is re-read and the request
+    # authorized again from it; only a snapshot naming another file earns the
+    # one further render. A relay address is never stable, so it is not compared.
+    if (
+        resp.status_code == 500
+        and not is_relay_url(open_path)
+        and await _reread_raster_meta(db, dataset_id)
+    ):
+        auth_resp = await raster_auth_check(request, dataset_id, user, db)
+        fresh_path = auth_resp.headers.get("X-GeoLens-Asset-OpenPath")
+        if fresh_path and fresh_path != open_path:
+            resp, cache_status = await tile(auth_resp, fresh_path)
+
+    # Private/restricted rasters must never be retained by the shared nginx
+    # cache, whose key carries no auth. `no-store` makes nginx skip caching
+    # (frontend/nginx.conf honors it); only public datasets are cacheable.
+    if cache_status == "public":
+        cache_control = public_cache_control(3600)
+    else:
+        cache_control = "private, no-store"
+
+    if resp.status_code == 404:
+        # A tile outside the raster extent; clients ask for each empty child
+        # of an empty parent, so the 204 is cacheable like a tile with data.
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT,
+            headers={"Cache-Control": cache_control},
+        )
+    if resp.status_code != 200:
+        # Logged so upstream titiler failures are diagnosable from logs alone.
+        logger.warning(
+            "Raster tile fetch returned non-200",
+            dataset_id=str(dataset_id),
+            z=z,
+            x=x,
+            y=y,
+            status_code=resp.status_code,
+        )
+        raise HTTPException(status_code=resp.status_code, detail="Tile fetch failed")
+
+    return Response(
+        content=resp.content,
+        media_type=resp.headers.get("content-type", "image/png"),
+        headers={"Cache-Control": cache_control},
+    )
+
+
+async def _fetch_raster_tile(
+    auth_resp: Response,
+    open_path: str,
+    *,
+    dataset_id: uuid.UUID,
+    z: int,
+    x: int,
+    y: int,
+    fmt: str,
+    colormap_name: str | None,
+    stretch: str | None,
+    eff_pmin: float,
+    eff_pmax: float,
+    eff_sigma: float,
+) -> tuple[httpx.Response, str]:
+    """Render one tile of ``open_path`` in Titiler with the render parameters
+    ``auth_resp`` carries, returning Titiler's response and the cache scope."""
     render_params = auth_resp.headers.get("X-GeoLens-Render-Params", "")
     # Carries the dataset's public/private cache scope through to the tile
     # response so private rasters are never stored by a shared cache; defaults
@@ -1516,38 +1618,7 @@ async def raster_tile_proxy(
             detail="Tile service unavailable",
         )
 
-    # Private/restricted rasters must never be retained by the shared nginx
-    # cache, whose key carries no auth. `no-store` makes nginx skip caching
-    # (frontend/nginx.conf honors it); only public datasets are cacheable.
-    if cache_status == "public":
-        cache_control = public_cache_control(3600)
-    else:
-        cache_control = "private, no-store"
-
-    if resp.status_code == 404:
-        # A tile outside the raster extent; clients ask for each empty child
-        # of an empty parent, so the 204 is cacheable like a tile with data.
-        return Response(
-            status_code=status.HTTP_204_NO_CONTENT,
-            headers={"Cache-Control": cache_control},
-        )
-    if resp.status_code != 200:
-        # Logged so upstream titiler failures are diagnosable from logs alone.
-        logger.warning(
-            "Raster tile fetch returned non-200",
-            dataset_id=str(dataset_id),
-            z=z,
-            x=x,
-            y=y,
-            status_code=resp.status_code,
-        )
-        raise HTTPException(status_code=resp.status_code, detail="Tile fetch failed")
-
-    return Response(
-        content=resp.content,
-        media_type=resp.headers.get("content-type", "image/png"),
-        headers={"Cache-Control": cache_control},
-    )
+    return resp, cache_status
 
 
 async def _refused_mosaics(db: AsyncSession, datasets: list["Any"]) -> set[uuid.UUID]:
