@@ -140,3 +140,40 @@ class TestLogoutRevokesServerSession:
         result = runner.invoke(app, ["logout"])
         assert result.exit_code == 0, result.output
         assert "may still be active" in result.output
+
+    def test_rejected_refresh_token_warns(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        self._login_with_refresh(runner, mock_keyring)
+
+        class _Resp:
+            status_code = 401
+
+        monkeypatch.setattr(self._LOGOUT, lambda **kw: _Resp())
+        result = runner.invoke(app, ["logout"])
+        assert result.exit_code == 0, result.output
+        assert "may still be active" in result.output
+
+    def test_unreadable_refresh_storage_still_revokes_the_bearer(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import auth as _auth
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        runner.invoke(app, ["login", "https://prod.example.com/api", "--token", "tok"])
+
+        def unreadable(_instance):
+            raise _auth.KeyringCredentialUnreadable("refresh", "locked")
+
+        monkeypatch.setattr(_auth, "load_refresh_token_strict", unreadable)
+        calls = []
+
+        class _Resp:
+            status_code = 204
+
+        monkeypatch.setattr(self._LOGOUT, lambda **kw: calls.append(kw) or _Resp())
+        result = runner.invoke(app, ["logout"])
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+        assert "body" not in calls[0]

@@ -908,8 +908,9 @@ def _revoke_server_session(instance: str) -> bool:
 
     API-key and anonymous profiles have no session, so nothing is sent and the
     result is True. A refresh token is used only when it is paired with the
-    stored bearer; otherwise the bearer's own session is revoked, and a bearer
-    the server rejects counts as a failure since its refresh family may live on.
+    stored bearer; otherwise the bearer's own session is revoked. Any answer but
+    204 counts as a failure: a rejected credential does not prove the refresh
+    family it belonged to is gone.
     """
     if _auth.load_active_credential_kind(instance) == "api_key":
         return True
@@ -919,9 +920,13 @@ def _revoke_server_session(instance: str) -> bool:
     from ._sdk_helpers import make_client
 
     try:
-        refresh = _auth.load_refresh_token_strict(instance)
         bearer = _auth._load_stored_bearer_value(instance)
-        fingerprint = _auth._load_refresh_fingerprint(instance)
+        try:
+            refresh = _auth.load_refresh_token_strict(instance)
+            fingerprint = _auth._load_refresh_fingerprint(instance)
+        except _auth.KeyringCredentialUnreadable:
+            # Without the pairing proof, fall back to the bearer's own session.
+            refresh = fingerprint = None
         paired = bool(
             refresh
             and bearer
@@ -932,8 +937,7 @@ def _revoke_server_session(instance: str) -> bool:
                 client=make_client(instance).client,
                 body=RefreshRequest(refresh_token=refresh),
             )
-            # An unknown refresh token has nothing left to revoke.
-            return int(resp.status_code) in (204, 401)
+            return int(resp.status_code) == 204
         if bearer:
             resp = _logout.sync_detailed(
                 client=make_client(instance, bearer_token=bearer).client
