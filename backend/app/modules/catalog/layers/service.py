@@ -88,20 +88,26 @@ async def _bound_ddl_lock_wait(session: AsyncSession) -> None:
 async def _follow_tile_columns(
     session: AsyncSession, dataset: Dataset, column_name: str, new_name: str | None
 ) -> None:
-    """Rename ``column_name`` in the tile allowlist, or remove it when ``new_name`` is None.
+    """Carry the column's place in the tile allowlist to ``new_name``, or drop it.
 
+    ``new_name`` None removes ``column_name``. A listed ``new_name`` the column
+    was not listed under is removed, so a rename never publishes a column.
     Called with the catalog rows held. A stale entry would drop the column from
     tiles and embed reads, and would publish a later column created under the
     old name that nobody chose.
     """
     await session.refresh(dataset, ["tile_columns"])
-    if not dataset.tile_columns or column_name not in dataset.tile_columns:
+    if dataset.tile_columns is None:
         return
-    dataset.tile_columns = [
-        new_name if name == column_name else name
-        for name in dataset.tile_columns
-        if name != column_name or new_name is not None
-    ]
+    kept: list[str] = []
+    for name in dataset.tile_columns:
+        if name == column_name:
+            if new_name is not None:
+                kept.append(new_name)
+        elif name != new_name:
+            kept.append(name)
+    if kept != dataset.tile_columns:
+        dataset.tile_columns = kept
 
 
 async def _compute_quality_detail(

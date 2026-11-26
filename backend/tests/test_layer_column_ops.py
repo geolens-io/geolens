@@ -560,6 +560,32 @@ async def test_column_rename_and_drop_follow_the_tile_allowlist(
 
 
 @pytest.mark.anyio
+async def test_column_rename_onto_a_listed_name_keeps_the_column_out_of_tiles(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """A column outside the tile allowlist stays outside it when renamed to a listed name."""
+    dataset_id = await _create_layer(
+        client, admin_auth_header, title="Tile Listed Name"
+    )
+    resp = await client.patch(
+        f"/datasets/{dataset_id}",
+        json={"tile_columns": ["name", "amount"]},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = await client.patch(
+        f"/layers/{dataset_id}/columns/value/name",
+        json={"new_name": "amount"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    resp = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["tile_columns"] == ["name"]
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("method", "path", "body"),
     [
