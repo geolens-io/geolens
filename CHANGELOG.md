@@ -32,6 +32,7 @@ and releases use semantic versioning.
 - A GeoJSON file that declares its CRS by link or URL (the form RFC 7946 removed) is now read as WGS 84, as it already was on servers without internet access. Reproject such a file, or give it a `name` CRS, before importing it.
 
 ### Fixed
+- `geolens logout` now ends the stored login's session on the server before it deletes the local credentials, so a saved refresh token can no longer be used after logging out. If the server cannot be reached, the local credentials are still deleted and the command warns that the session may still be active. API-key logins have no session and make no server call.
 - Going Back to the catalog, or using the skip link, no longer erases the router's history entry state, so Back from a page with unsaved work asks before dropping the draft, as it does elsewhere.
 - Raster tiles with a percentile or standard-deviation stretch no longer draw with the wrong colors when one band has no usable range. The stretch now applies only when every band has one, and falls back to the default range otherwise.
 - Exporting a dataset with a very long title, about 250 bytes or more, no longer fails in every format. The file is built under a fixed name and the title only names the download.
