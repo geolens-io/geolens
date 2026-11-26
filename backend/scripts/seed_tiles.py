@@ -211,6 +211,9 @@ async def _seed_dataset(
     async def seed_one(z: int, x: int, y: int) -> None:
         async with sem:
             try:
+                from app.processing.tiles.pool import (
+                    set_tenant_role_for_tile_request,
+                )
                 from app.processing.tiles.service import get_tile, parse_cols_param
 
                 # The tile route asks the catalog the same question before it
@@ -222,16 +225,21 @@ async def _seed_dataset(
                 additional_columns, cols_key = parse_cols_param(
                     None, columns, z, tile_columns=tile_columns
                 )
-                tile = await get_tile(
-                    pool,
-                    table_name,
-                    z,
-                    x,
-                    y,
-                    columns,
-                    tile_columns=tile_columns,
-                    additional_columns=additional_columns,
-                )
+                # Rendered as geolens_reader, as the tile route renders, so a
+                # seeded tile carries nothing a served one couldn't.
+                async with pool.acquire() as conn, conn.transaction():
+                    await set_tenant_role_for_tile_request(conn, None)
+                    tile = await get_tile(
+                        pool,
+                        table_name,
+                        z,
+                        x,
+                        y,
+                        columns,
+                        tile_columns=tile_columns,
+                        additional_columns=additional_columns,
+                        conn=conn,
+                    )
                 # The check above and the render are separate statements. A
                 # dataset id is never reissued, so a second look proves it still
                 # existed while its table was read.
