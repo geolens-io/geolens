@@ -294,6 +294,44 @@ async def test_a_new_layer_on_a_kept_publish_is_still_column_checked(
     ]
 
 
+async def test_a070_shows_the_latest_edit_only_to_a_caller_who_reads_the_history(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    from sqlalchemy import update
+
+    admin = await _admin(test_db_session)
+    viewer, _ = await _person(client, test_db_session, admin_auth_header, "viewer")
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await service_history.record_map_history_event(
+        test_db_session,
+        map_id=created.map_id,
+        actor=admin,
+        target_type="map",
+        action="layer.rename",
+        summary="Renamed layer to Hidden Wetlands Survey",
+    )
+    await test_db_session.commit()
+    [allowed] = (
+        await _apply(test_db_session, admin, _publish(dataset_id), dry_run=True)
+    ).maps
+    await test_db_session.execute(
+        update(Map).where(Map.id == created.map_id).values(created_by=viewer.id)
+    )
+    await test_db_session.commit()
+    [denied] = (
+        await _apply(test_db_session, viewer, _publish(dataset_id), dry_run=True)
+    ).maps
+
+    [a070] = [m for m in denied.messages if m.code == "A070"]
+    assert "A003" in [m.code for m in denied.messages]
+    assert "Wetlands" not in a070.message
+    assert "UTC" not in a070.message
+    assert "The latest edit: Renamed layer to Hidden Wetlands Survey" in (
+        [m for m in allowed.messages if m.code == "A070"][0].message
+    )
+
+
 async def test_a_republish_after_a_kept_one_still_keeps(
     client, test_db_session, admin_auth_header, clean_tables
 ):

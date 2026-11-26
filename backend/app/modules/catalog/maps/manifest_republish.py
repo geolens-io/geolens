@@ -196,16 +196,16 @@ def styling_applies(mode: str, *, edited: bool) -> bool:
     return mode == "replace" or (mode == "replace_if_unedited" and not edited)
 
 
-def styling_kept_message(edit: StylingEdit | None, *, show_actor: bool) -> str:
-    """The A070 text. The editor is named only to a caller who can read the
-    map's history, which shows the same name."""
+def styling_kept_message(edit: StylingEdit | None) -> str:
+    """The A070 text, with the latest edit when one is given. The caller
+    passes it only when they could read it in the map's history."""
     text = (
         "The map's styling was edited in GeoLens since the last publish "
         "that replaced it, so its styling was kept."
     )
     if edit is None:
         return text
-    by = f" by {edit.actor}" if show_actor and edit.actor else ""
+    by = f" by {edit.actor}" if edit.actor else ""
     return f"{text} The latest edit: {edit.summary}{by}, {edit.at:%Y-%m-%d %H:%M} UTC."
 
 

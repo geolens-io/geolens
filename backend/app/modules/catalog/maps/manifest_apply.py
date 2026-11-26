@@ -650,7 +650,11 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 _message(
                     STYLING_KEPT,
                     "info",
-                    styling_kept_message(edited, show_actor=request.may_edit_maps),
+                    styling_kept_message(
+                        # The history route's own gate: edit_metadata on a map
+                        # the caller owns or administers.
+                        edited if request.may_edit_maps else None
+                    ),
                     fix='Send styling "replace" to replace it.',
                 )
             )
