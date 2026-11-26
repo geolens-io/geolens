@@ -147,6 +147,10 @@ def install_api_statement_timeout(engine) -> None:
 
     @event.listens_for(sync_engine, "begin")
     def _apply_statement_timeout(conn) -> None:
+        # `begin` also fires on AUTOCOMMIT connections (startup DDL and role
+        # checks), where SET LOCAL has no transaction to live in and only warns.
+        if conn.get_execution_options().get("isolation_level") == "AUTOCOMMIT":
+            return
         chosen = _anonymous_statement() if _anonymous_read.get() else None
         if chosen is None:
             chosen = statement
