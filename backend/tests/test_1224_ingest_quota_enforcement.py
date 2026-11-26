@@ -7,7 +7,7 @@ These tests run against the real test DB (same pattern as test_ingest.py):
 
 Requirements verified:
   Byte cap → 413
-  Dataset count cap → 422
+  Dataset count cap → not an upload refusal
   Default 0 unlimited → never rejects
 """
 
@@ -218,21 +218,22 @@ class TestUploadByteCap:
 
 
 class TestUploadCountCap:
-    async def test_upload_count_cap_exceeded_rejects_422(
+    async def test_upload_at_the_count_cap_is_accepted(
         self,
         client: AsyncClient,
         admin_auth_header: dict,
         test_db_session: AsyncSession,
     ) -> None:
-        """Count cap: user already AT cap → 422 Dataset quota exceeded.
+        """Count cap: an upload is not refused for it.
 
-        Enforcement boundary (fail-before).
+        The door cannot tell a new dataset from a replacement; the commit
+        answers for the count (tests/test_dataset_cap_at_create.py).
         """
         user_id = await _get_test_user_id(
             test_db_session, settings.geolens_admin_username
         )
 
-        # Insert 1 record so count=1; cap=1 → count(1) >= cap(1) → 422
+        # Insert 1 record so count >= 1; cap=1 puts the user at the cap.
         await _create_record(test_db_session, user_id=user_id)
 
         with (
@@ -244,19 +245,12 @@ class TestUploadCountCap:
             patch(
                 "app.modules.quota.service.MAX_DATASETS_PER_USER.get",
                 new_callable=AsyncMock,
-                return_value=1,  # cap=1; user has ≥1 → reject
+                return_value=1,
             ),
         ):
-            resp = await client.post(
-                "/ingest/upload",
-                files={"file": ("test.geojson", _GEOJSON, "application/json")},
-                headers=admin_auth_header,
-            )
+            status_code = await _upload_geojson(client, admin_auth_header)
 
-        assert resp.status_code == 422, (
-            f"Expected 422, got {resp.status_code}: {resp.text}"
-        )
-        assert "Dataset quota exceeded" in resp.json()["detail"]
+        assert status_code == 201, f"Expected 201, got {status_code}"
 
     async def test_upload_default_unlimited_never_rejects(
         self,

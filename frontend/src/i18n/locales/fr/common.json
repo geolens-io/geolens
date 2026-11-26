@@ -428,6 +428,7 @@
     "storyVisibilityUnsupported": "Les récits ne peuvent pas encore être publiés avec cette visibilité.",
     "dashboardTooNew": "Ce tableau de bord a été enregistré par une version plus récente de GeoLens et ne peut pas être modifié ici.",
     "dashboardTooManyWidgets": "Un tableau de bord contient au plus 50 widgets. Supprimez-en avant d'enregistrer.",
+    "dashboardLayerMoveRefused": "Le tableau de bord de cette carte contient des widgets que cette version de GeoLens ne peut pas lire : cette couche ne peut donc pas passer à un jeu de données partagé plus largement que l'actuel. Supprimez les widgets de la couche dans la version de GeoLens qui les a ajoutés, ou laissez la couche sur son jeu de données.",
     "dashboardWidgetsRefused": "Certains widgets du tableau de bord utilisent des couches absentes de cette carte ou que vous ne pouvez pas lire. Supprimez-les ou choisissez d'autres couches.",
     "dashboardWidgetFilterRefused": "Le filtre d'un widget du tableau de bord ne peut pas s'appliquer à sa couche : le serveur a refusé l'une de ses conditions, ou il est trop volumineux avec le filtre de la couche. Vérifiez-le dans le panneau Tableau de bord.",
     "storyImageUnreadable": "Le fichier n’est pas une image lisible.",
@@ -907,6 +908,9 @@
     "zoomOut": "Zoom arrière",
     "terrainEnable": "Activer le terrain 3D",
     "terrainDisable": "Désactiver le terrain 3D",
+    "cooperativeGesturesWindows": "Utilisez Ctrl + molette pour zoomer sur la carte",
+    "cooperativeGesturesMac": "Utilisez ⌘ + molette pour zoomer sur la carte",
+    "cooperativeGesturesMobile": "Utilisez deux doigts pour déplacer la carte",
     "title": "Carte"
   }
 }

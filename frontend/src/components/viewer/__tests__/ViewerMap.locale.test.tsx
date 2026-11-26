@@ -5,8 +5,14 @@ import { render, screen } from '@/test/test-utils';
 import { afterEach, describe, it, expect, vi } from 'vitest';
 
 vi.mock('@vis.gl/react-maplibre', () => ({
-  Map: ({ children, locale }: { children?: ReactNode; locale?: Record<string, string> }) => (
-    <div data-testid="mapgl" data-locale={JSON.stringify(locale ?? null)}>{children}</div>
+  Map: ({ children, locale, cooperativeGestures }: { children?: ReactNode; locale?: Record<string, string>; cooperativeGestures?: boolean }) => (
+    <div
+      data-testid="mapgl"
+      data-locale={JSON.stringify(locale ?? null)}
+      data-cooperative={String(cooperativeGestures)}
+    >
+      {children}
+    </div>
   ),
   NavigationControl: () => null,
   ScaleControl: () => null,
@@ -65,5 +71,26 @@ describe('ViewerMap locale', () => {
     const locale = JSON.parse(screen.getByTestId('mapgl').dataset.locale ?? 'null');
     expect(locale['NavigationControl.ZoomIn']).toBe('Zoom avant');
     expect(locale['FullscreenControl.Enter']).toBe('Plein écran');
+  });
+
+  it('turns cooperative gestures on only when asked, with the prompt in the interface language', async () => {
+    await act(() => changeTestLanguage('fr'));
+    const props = {
+      basemapStyle: 'positron',
+      initialViewState: { center_lng: 0, center_lat: 0, zoom: 1, bearing: 0, pitch: 0 },
+      layers: [],
+      visibleLayers: new Set<string>(),
+    };
+
+    const { rerender } = render(<ViewerMap {...props} />);
+    expect(screen.getByTestId('mapgl').dataset.cooperative).toBe('false');
+
+    rerender(<ViewerMap {...props} cooperativeGestures />);
+    const map = screen.getByTestId('mapgl');
+    expect(map.dataset.cooperative).toBe('true');
+    const locale = JSON.parse(map.dataset.locale ?? 'null');
+    expect(locale['CooperativeGesturesHandler.WindowsHelpText']).toBe('Utilisez Ctrl + molette pour zoomer sur la carte');
+    expect(locale['CooperativeGesturesHandler.MacHelpText']).toContain('⌘');
+    expect(locale['CooperativeGesturesHandler.MobileHelpText']).toBe('Utilisez deux doigts pour déplacer la carte');
   });
 });

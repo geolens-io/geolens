@@ -177,7 +177,10 @@ logger = logging.getLogger(__name__)
 # run. Its ``pending_dataset_keys`` became the required ``pending_datasets``
 # mapping, and it gained the required keyword-only ``unsettled_dataset_ids``,
 # ``public_fallback``, ``client`` and ``ip_address``.
-EXTENSION_API_VERSION: int = 27
+# 27 -> 28: ProcessingPort gained the required ``plan_manifest_groups``,
+# ``apply_manifest_groups`` and ``manifest_dataset_group_names`` methods for
+# manifest groups.
+EXTENSION_API_VERSION: int = 28
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

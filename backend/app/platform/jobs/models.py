@@ -68,10 +68,14 @@ COMMIT_ATTEMPTED_METADATA_KEY = "commit_attempted_at"
 def commit_attempted_marker() -> dict[str, str]:
     """The ``user_metadata`` fragment that records a dispatch attempt.
 
-    One producer for two writers (the guard and ``create_fan_out_jobs``), so
-    they can't disagree on the timestamp format the predicate reads.
+    It also restarts the pending clock (``staged_at``). An unclaimed upload
+    may wait a day, but a dispatched one gets only the pending timeout, so a
+    stamp that kept an old ``staged_at`` would let the stale sweep fail the
+    row before its queue entry exists. Every dispatch writer uses this one
+    producer, so none can stamp without the restart.
     """
-    return {COMMIT_ATTEMPTED_METADATA_KEY: datetime.now(timezone.utc).isoformat()}
+    now = datetime.now(timezone.utc).isoformat()
+    return {COMMIT_ATTEMPTED_METADATA_KEY: now, "staged_at": now}
 
 
 # The account a committed import publishes for; an admin may commit another

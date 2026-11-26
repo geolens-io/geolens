@@ -198,7 +198,7 @@ async def create_dataset(
     record_type = "table" if ing.geometry_type is None else "vector_dataset"
 
     # Authoritative count-cap check at the point the Record row is
-    # created — the upload-time check_upload_quota cannot be atomic because
+    # created — the door's check_dataset_count_quota cannot be atomic because
     # this row only comes to exist here, after the pre-check passed.
     from app.modules.quota.service import reserve_dataset_slot
 

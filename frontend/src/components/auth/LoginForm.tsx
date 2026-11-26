@@ -39,13 +39,25 @@ export function LoginForm({ signupOpen = false }: { signupOpen?: boolean }) {
     };
   }, []);
 
-  async function handleSubmit(e: FormEvent) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    // Read the fields themselves: autofill can fill them before React's state sees it.
+    const form = new FormData(e.currentTarget);
+    const typedUsername = String(form.get('username') ?? '');
+    const typedPassword = String(form.get('password') ?? '');
+    if (!typedUsername.trim()) {
+      document.getElementById('username')?.focus();
+      return;
+    }
+    // Controlled inputs re-render from state, so adopt what was read or a
+    // failed attempt would blank an autofilled form.
+    setUsername(typedUsername);
+    setPassword(typedPassword);
     setError(null);
     setLoading(true);
 
     try {
-      await login(username, password);
+      await login(typedUsername, typedPassword);
       const from = (location.state as { from?: string } | null)?.from;
       // The root route is the canonical search workspace.
       const target = postSignInPath(from);
@@ -71,6 +83,7 @@ export function LoginForm({ signupOpen = false }: { signupOpen?: boolean }) {
         {/* On a server error, mark both credentials invalid and associate the error. */}
         <Input
           id="username"
+          name="username"
           type="text"
           value={username}
           onChange={(e) => setUsername(e.target.value)}
@@ -88,6 +101,7 @@ export function LoginForm({ signupOpen = false }: { signupOpen?: boolean }) {
         </Label>
         <PasswordInput
           id="password"
+          name="password"
           value={password}
           onChange={(e) => setPassword(e.target.value)}
           placeholder={t('enterPassword')}
@@ -103,11 +117,9 @@ export function LoginForm({ signupOpen = false }: { signupOpen?: boolean }) {
           {error}
         </p>
       )}
-      <Button
-        type="submit"
-        disabled={loading || !username.trim() || !password}
-        className="h-[42px] w-full font-semibold"
-      >
+      {/* Stays enabled while a field is empty: the browser then points at the
+          missing field, and a filled-in look from autofill is never a dead button. */}
+      <Button type="submit" disabled={loading} className="h-[42px] w-full font-semibold">
         {loading && <Loader2 className="size-4 animate-spin" />}
         {loading ? t('signingIn') : t('signIn')}
       </Button>

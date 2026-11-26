@@ -113,8 +113,11 @@ def _follow_ups(
         status = state.status(item["id"])
         notes = list(entry.notes) if entry else []
         if status == FAILED and entry is not None:
-            kind = "quota" if "refused the upload" in (entry.error or "") else "failed"
-            add(item["id"], kind, entry.error or "failed")
+            # The storage cap answers at the upload and the dataset cap at
+            # the commit, so the commit's refusal is known by its message.
+            error = entry.error or ""
+            over_quota = "refused the upload" in error or "quota exceeded" in error
+            add(item["id"], "quota" if over_quota else "failed", error or "failed")
         if item.get("kept_import"):
             add(
                 item["id"],

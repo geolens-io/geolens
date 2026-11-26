@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
+from dataclasses import dataclass, replace
 from typing import Any
 
 from sqlalchemy import (
@@ -27,6 +28,8 @@ from sqlalchemy.orm import aliased
 from app.core.identity import Identity
 from app.modules.auth.models import Group, GroupMember
 from app.modules.auth.schemas import GroupRef
+from app.platform.record_audience import widens_audience
+from app.platform.request_credential import refuse_publish_key
 
 
 class UnknownGroupsError(LookupError):
@@ -62,6 +65,165 @@ async def lock_share_groups(
     usable = {row.id for row in found.all() if row.tenant_id == tenant_id}
     if wanted - usable:
         raise UnknownGroupsError(wanted - usable)
+
+
+async def lock_groups(
+    session: AsyncSession, wanted: set[uuid.UUID], granted: Select[Any]
+) -> None:
+    """Lock ``wanted`` and the groups ``granted`` selects against deletion,
+    whether or not they exist, as ``lock_share_groups`` does."""
+    await session.execute(
+        select(Group.id)
+        .where(or_(Group.id.in_(wanted), Group.id.in_(granted)))
+        .order_by(Group.id)
+        .with_for_update(read=True, key_share=True)
+    )
+
+
+# The ``audience_before`` that says to judge a group change by the item's
+# stored visibility, as the sharing routes do.
+CURRENT_LEVEL = "current"
+
+
+@dataclass(frozen=True)
+class SharePlan:
+    """What sharing an item with exactly some groups would leave.
+
+    ``groups`` are the ones it ends with, by name. ``left_off`` names the
+    wanted groups that don't exist, belong to another tenant, or that a
+    non-admin would add without being a member; nothing else of them is
+    known to the caller. ``held_back`` are the groups the item may not gain
+    without reaching more people than it does, and ``added`` the groups it
+    gains. ``unchanged`` means the item keeps its groups as they are, since
+    the share was held back. ``granted`` are the item's groups when planned.
+    """
+
+    groups: list[GroupRef]
+    left_off: list[uuid.UUID]
+    held_back: list[GroupRef]
+    added: list[GroupRef]
+    unchanged: bool = False
+    granted: frozenset[uuid.UUID] = frozenset()
+
+    @property
+    def group_ids(self) -> list[uuid.UUID]:
+        return [group.id for group in self.groups]
+
+
+def active_tenant_id(item: Any | None) -> uuid.UUID | None:
+    """The tenant an item's groups must belong to: the stored item's, or the
+    request's own for an item a publish is about to create."""
+    if item is not None:
+        return item.tenant_id
+    from app.core.db.tenant_session import current_tenant_var
+    from app.core.tenancy import is_multi_tenant
+
+    tenant = current_tenant_var.get() if is_multi_tenant() else None
+    return uuid.UUID(str(tenant)) if tenant else None
+
+
+def level_with_groups(
+    level: str, has_groups: bool, *, role_granted: bool = False
+) -> str:
+    """The visibility an item at ``level`` ends at with or without groups:
+    grants make a private item restricted, and a restricted one left with no
+    group, and no role grant, becomes private."""
+    if level not in ("private", "restricted"):
+        return level
+    if has_groups or (level == "restricted" and role_granted):
+        return "restricted"
+    return "private"
+
+
+async def plan_share_groups(
+    session: AsyncSession,
+    wanted: Iterable[uuid.UUID],
+    current: set[uuid.UUID],
+    actor: Identity,
+    *,
+    is_admin: bool,
+    tenant_id: uuid.UUID | None,
+) -> SharePlan:
+    """Plan sharing an item granted ``current`` with exactly ``wanted``,
+    leaving off what the sharing route would refuse instead of raising.
+
+    A current group is kept when wanted, as the route keeps a group its
+    owner has since left. Writes nothing.
+    """
+    wanted = set(wanted)
+    rows = (
+        await session.execute(
+            select(Group.id, Group.name, Group.tenant_id).where(
+                Group.id.in_(wanted | current)
+            )
+        )
+    ).all()
+    names = {row.id: row.name for row in rows if row.tenant_id == tenant_id}
+    usable = wanted & set(names)
+    added = usable - current
+    if added and not is_admin:
+        added &= await joined_groups(session, actor, added)
+
+    def refs(ids: Iterable[uuid.UUID]) -> list[GroupRef]:
+        return sorted(
+            (GroupRef(id=group_id, name=names[group_id]) for group_id in ids),
+            key=lambda ref: (ref.name, ref.id),
+        )
+
+    return SharePlan(
+        groups=refs((usable & current) | added),
+        left_off=sorted(wanted - (usable & current) - added),
+        held_back=[],
+        added=refs(added),
+        granted=frozenset(current),
+    )
+
+
+def hold_back_widening(
+    plan: SharePlan, before: str | None, level: str, *, role_granted: bool = False
+) -> SharePlan:
+    """``plan``, held back whole when it would let more people read the item
+    than at ``before`` (None for an item the publish creates) once it is at
+    ``level`` with the planned groups: the item then keeps its groups as they
+    are. A restricted item would gain the groups it adds; a private one
+    every planned group, retained ones too."""
+    if before is None:
+        return plan
+    after = level_with_groups(level, bool(plan.groups), role_granted=role_granted)
+    if not widens_audience(before, after, added_groups=bool(plan.added)):
+        return plan
+    held = plan.added if before == "restricted" else plan.groups
+    return replace(plan, held_back=[*plan.held_back, *held], added=[], unchanged=True)
+
+
+def hold_back_revoked(
+    plan: SharePlan, granted_at_plan: Iterable[uuid.UUID]
+) -> SharePlan:
+    """``plan`` without the groups the item had when the share was planned
+    and has lost since: a grant removed after the plan wins over it."""
+    revoked = set(granted_at_plan) - plan.granted
+    held = [group for group in plan.added if group.id in revoked]
+    if not held:
+        return plan
+    return replace(
+        plan,
+        groups=[group for group in plan.groups if group.id not in revoked],
+        added=[group for group in plan.added if group.id not in revoked],
+        held_back=[*plan.held_back, *held],
+    )
+
+
+def refuse_publish_key_widening_share(
+    session: AsyncSession, before: str | None, after: str, added: set[uuid.UUID]
+) -> None:
+    """Refuse a publish key a group change that lets more people read an
+    item than at ``before``, None for one this transaction created: a wider
+    level, retained grants taking effect included, or groups added to a
+    restricted item."""
+    if before is not None and widens_audience(before, after, added_groups=bool(added)):
+        refuse_publish_key(
+            session, "A publish key can't share an item with more people."
+        )
 
 
 async def refuse_unjoined_groups(

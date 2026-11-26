@@ -117,6 +117,13 @@ describe('API error localization boundary', () => {
     expect(classifyApiError(refused('layer_unavailable'), 422)).toEqual({ key: 'errors.dashboardWidgetsRefused' });
   });
 
+  it("says a layer can't move while a newer dashboard's widgets stay on it", () => {
+    const detail =
+      "This map's dashboard holds widgets this version of GeoLens can't read, so a layer can't move to a dataset that people who can't read its current dataset can read. Remove the layer's widgets in the GeoLens that added them, or keep the layer on its dataset.";
+    expect(classifyApiError(detail, 409)).toEqual({ key: 'errors.dashboardLayerMoveRefused' });
+    expect(translateApiErrorDetail(detail, 409)).toContain('shared more widely than its current one');
+  });
+
   it('names the refused workflow edge and the steps still open to the caller', () => {
     const detail = denial('pending_review', 'published', ['approved', 'draft']);
     expect(classifyApiError(detail, 422)).toEqual({

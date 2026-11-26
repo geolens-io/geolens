@@ -16,6 +16,37 @@ PUBLIC_VISIBILITY_DENIED = (
 )
 
 
+def audience_phrase(visibility: str, group_names: list[str] | tuple = ()) -> str:
+    """Who besides its owner and admins reads an item at ``visibility``, in
+    words, for a sharing warning: ``group_names`` are a restricted item's."""
+    if visibility == "public":
+        return "everyone"
+    if visibility == "internal":
+        return "everyone in your organization"
+    if visibility == "restricted" and group_names:
+        return "members of " + ", ".join(repr(name) for name in group_names)
+    return "nobody else"
+
+
+def widens_audience(
+    before: str | None, after: str, *, added_groups: bool = False
+) -> bool:
+    """Whether an item at ``before`` (None for one that doesn't exist yet)
+    reaches more readers at ``after``: a wider level, or a restricted item
+    that stays restricted with groups added."""
+    if before is None:
+        return False
+    if VISIBILITY_ORDER.index(after) > VISIBILITY_ORDER.index(before):
+        return True
+    return before == after == "restricted" and added_groups
+
+
+def readable_level(visibility: str, record_status: str) -> str:
+    """The level a record at ``visibility`` is read at: until it is
+    published only its owner and admins read it, whatever its visibility."""
+    return visibility if record_status == "published" else "private"
+
+
 def opens_to_anonymous(
     now_visibility: str,
     now_status: str,
@@ -57,11 +88,14 @@ def publish_key_widening(
 class Publication:
     """The visibility and status an apply writes. ``visibility`` None keeps
     the record's; ``fell_back_for`` names who was refused public when the
-    fallback wrote internal instead: ``"key"`` or ``"restriction"``."""
+    fallback wrote internal instead: ``"key"`` or ``"restriction"``.
+    ``widening_refused`` is set when a publish key asked for a wider level
+    than the record has, which is then kept."""
 
     visibility: str | None
     record_status: str
     fell_back_for: str | None = None
+    widening_refused: bool = False
 
 
 class PublicationRefused(Exception):
@@ -97,7 +131,9 @@ def effective_publication(
     create. A refused ``public`` becomes internal when ``public_fallback`` is
     ``"internal"`` and is refused otherwise. A publish key never opens a
     record to anonymous readers, which is a refused public too, and never
-    widens. The status is the intent's. Raises ``PublicationRefused``.
+    widens: a wider level it asks for, fallback included, keeps the record's
+    level with ``widening_refused`` set. The status is the intent's. Raises
+    ``PublicationRefused``.
     """
     visibility, fell_back_for = requested_visibility, None
     refused_for = "key" if is_key else "restriction"
@@ -105,7 +141,12 @@ def effective_publication(
         visibility, fell_back_for = _fall_back(public_fallback, refused_for)
     if now is None:
         return Publication(visibility or "private", record_status, fell_back_for)
+    widening_refused = False
     if is_key:
+        if visibility is not None and VISIBILITY_ORDER.index(
+            visibility
+        ) > VISIBILITY_ORDER.index(now[0]):
+            visibility, fell_back_for, widening_refused = None, None, True
         if visibility is None and opens_to_anonymous(
             *now, visibility=None, record_status=record_status
         ):
@@ -115,7 +156,7 @@ def effective_publication(
         )
         if refusal is not None:
             raise PublicationRefused("widening", refusal)
-    return Publication(visibility, record_status, fell_back_for)
+    return Publication(visibility, record_status, fell_back_for, widening_refused)
 
 
 def settled_visibility(

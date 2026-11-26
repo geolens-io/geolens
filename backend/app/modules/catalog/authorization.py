@@ -9,7 +9,7 @@ apply_map_visibility_filter().
 import enum
 import uuid
 from dataclasses import replace
-from collections.abc import Awaitable, Callable, Iterable, Sequence
+from collections.abc import Awaitable, Callable, Iterable, Mapping, Sequence
 from typing import Any
 
 import structlog
@@ -907,23 +907,26 @@ _AUDIENCE_PAIRS_PER_STATEMENT = 500
 
 
 async def _audiences_exceeded(
-    db: AsyncSession, pairs: Sequence[tuple[Any, Any]]
+    db: AsyncSession, pairs: Sequence[tuple[Any, Any]], *, owner_exempt: bool = True
 ) -> list[bool]:
     """For each ``(vrt, member)`` RecordAudienceQuery pair: may somebody who
     can read the VRT be unable to read the member?
 
-    A member the VRT's owner also owns and can read never counts: publishing
-    a mosaic of one's own data is the owner's choice, as exporting it would
-    be. An account the authority leaves unclassified (NULL) counts as unable,
-    as in the shared-map guard. An authority that can't answer
-    (:func:`answers_audience_questions`) gets every pair counted.
+    With ``owner_exempt``, a member the VRT's owner also owns and can read
+    never counts: publishing a mosaic of one's own data is the owner's
+    choice, as exporting it would be. An account the authority leaves
+    unclassified (NULL) counts as unable, as in the shared-map guard. An
+    authority that can't answer (:func:`answers_audience_questions`) gets
+    every pair counted.
     """
     if len(pairs) > _AUDIENCE_PAIRS_PER_STATEMENT:
         step = _AUDIENCE_PAIRS_PER_STATEMENT
         return [
             flag
             for start in range(0, len(pairs), step)
-            for flag in await _audiences_exceeded(db, pairs[start : start + step])
+            for flag in await _audiences_exceeded(
+                db, pairs[start : start + step], owner_exempt=owner_exempt
+            )
         ]
 
     from app.modules.auth.models import User
@@ -956,7 +959,9 @@ async def _audiences_exceeded(
         for index, (outer, inner) in enumerate(audiences)
     ]
     shared = [
-        index for index, (vrt, member) in enumerate(pairs) if _shares_owner(vrt, member)
+        index
+        for index, (vrt, member) in enumerate(pairs)
+        if owner_exempt and _shares_owner(vrt, member)
     ]
     arms += [
         select(literal(index), literal("o")).where(
@@ -1133,6 +1138,108 @@ async def vrts_beyond_member_audience(
     for (index, _, _), flag in zip(pairs, flags, strict=True):
         beyond[index] = beyond[index] or flag
     return beyond
+
+
+async def _dataset_grants(
+    db: AsyncSession, dataset_ids: Iterable[uuid.UUID]
+) -> dict[uuid.UUID, frozenset[tuple[str, uuid.UUID]]]:
+    """Each dataset's role and group grants, as ``("role" | "group", id)``."""
+    from app.modules.catalog.datasets.domain.models import (
+        DatasetGrant,
+        DatasetGroupGrant,
+    )
+
+    wanted = bindparam("wanted", list(set(dataset_ids)), type_=ARRAY(Uuid))
+    rows = await db.execute(
+        union_all(
+            select(
+                DatasetGrant.dataset_id, literal("role"), DatasetGrant.role_id
+            ).where(DatasetGrant.dataset_id == any_(wanted)),
+            select(
+                DatasetGroupGrant.dataset_id,
+                literal("group"),
+                DatasetGroupGrant.group_id,
+            ).where(DatasetGroupGrant.dataset_id == any_(wanted)),
+        )
+    )
+    grants: dict[uuid.UUID, set[tuple[str, uuid.UUID]]] = {}
+    for dataset_id, kind, grantee in rows.all():
+        grants.setdefault(dataset_id, set()).add((kind, grantee))
+    return {dataset_id: frozenset(held) for dataset_id, held in grants.items()}
+
+
+def _wider_by_rule(
+    now: RecordAudienceQuery,
+    was: RecordAudienceQuery,
+    grants: Mapping[uuid.UUID, frozenset[tuple[str, uuid.UUID]]],
+) -> bool:
+    """Whether the sharing rules let somebody read ``now`` who can't read
+    ``was``, whoever holds an account today. An unpublished record reads
+    like a private one: only its owner and admins see it."""
+
+    def kind(query: RecordAudienceQuery) -> str:
+        return query.visibility if query.record_status == "published" else "private"
+
+    old, new = kind(was), kind(now)
+    same_owner = now.owner_id == was.owner_id
+    if old == "public":
+        return False
+    if old == "internal":
+        return new == "public"
+    if new == "private" and old in ("private", "restricted"):
+        return not same_owner
+    if (old, new) == ("restricted", "restricted"):
+        return not (
+            same_owner
+            and grants.get(now.dataset_id, frozenset())
+            <= grants.get(was.dataset_id, frozenset())
+        )
+    return True
+
+
+async def datasets_beyond_audience(
+    db: AsyncSession, pairs: Sequence[tuple[uuid.UUID, uuid.UUID]]
+) -> list[bool]:
+    """For each ``(dataset_id, source_id)``: may somebody who can read the
+    dataset be unable to read the source?
+
+    Yes when the sharing rules allow it (:func:`_wider_by_rule`), since a
+    later account or group member would read it, or when an account does
+    today, judged as a mosaic against a member
+    (:func:`vrt_members_beyond_audience`) except that a shared owner counts
+    like anybody else. A dataset that no longer exists, or whose visibility,
+    status or owner changed while it was read, counts. Takes no locks.
+    """
+    ids = {i for pair in pairs for i in pair}
+    queries = await _record_audience_queries(db, ids)
+    grants = await _dataset_grants(db, ids)
+    # Read again: a sharing change committed between the two statements
+    # could pair one dataset's old visibility with its new grants.
+    again = await _record_audience_queries(db, ids)
+    known = [
+        pair
+        for pair in pairs
+        if all(
+            i in queries and i in again and queries[i][0] == again[i][0] for i in pair
+        )
+    ]
+    flags = dict(
+        zip(
+            known,
+            await _audiences_exceeded(
+                db,
+                [(queries[a][0], queries[b][0]) for a, b in known],
+                owner_exempt=False,
+            ),
+            strict=True,
+        )
+    )
+    return [
+        pair not in flags
+        or flags[pair]
+        or _wider_by_rule(queries[pair[0]][0], queries[pair[1]][0], grants)
+        for pair in pairs
+    ]
 
 
 async def vrt_links_beyond_audience(

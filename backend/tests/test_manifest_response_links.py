@@ -254,6 +254,8 @@ async def test_a_public_that_fell_back_reports_internal(test_db_session, clean_t
     entry.messages = [
         ManifestMessage(code="A020", severity="warning", message="fell back")
     ]
+    # What the entry decided, as reporting the entry records it.
+    entry.decide("internal", None, False)
 
     await manifest_links.describe_results(
         test_db_session, _request("public"), admin, _http_request(), [entry], None
@@ -365,6 +367,26 @@ async def test_a_failed_lookup_keeps_the_levels_of_the_other_results(
 
     assert (unreadable.visibility, readable.visibility) == (None, "internal")
     assert readable.links is not None
+
+
+async def test_a_failed_lookup_reports_the_level_the_planned_groups_make(
+    test_db_session, clean_tables, monkeypatch
+):
+    admin = await _admin(test_db_session)
+    entry = _entry(uuid.uuid4())
+    entry.mark_pending("private")
+    entry.decide("private", ["Team"], False)
+
+    async def broken(_self, db, _dataset_id):
+        await db.execute(text("SELECT * FROM catalog.no_such_table"))
+
+    monkeypatch.setattr(type(get_processing_port()), "get_dataset", broken)
+
+    await manifest_links.describe_results(
+        test_db_session, _request(), admin, _http_request(), [entry], None
+    )
+
+    assert (entry.visibility, entry.groups) == ("restricted", ["Team"])
 
 
 @pytest.mark.parametrize(

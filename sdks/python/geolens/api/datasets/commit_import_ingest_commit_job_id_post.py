@@ -124,7 +124,8 @@ def sync_detailed(
     Stores user metadata on the job and queues the ingest task.
     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
     size and a point cloud's size are checked against the storage quota again
-    here.
+    here. The dataset-count cap is checked here, not at upload: an account at
+    its cap gets a 422 and the job stays pending.
 
     Args:
         job_id (UUID):
@@ -180,7 +181,8 @@ def sync(
     Stores user metadata on the job and queues the ingest task.
     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
     size and a point cloud's size are checked against the storage quota again
-    here.
+    here. The dataset-count cap is checked here, not at upload: an account at
+    its cap gets a 422 and the job stays pending.
 
     Args:
         job_id (UUID):
@@ -231,7 +233,8 @@ async def asyncio_detailed(
     Stores user metadata on the job and queues the ingest task.
     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
     size and a point cloud's size are checked against the storage quota again
-    here.
+    here. The dataset-count cap is checked here, not at upload: an account at
+    its cap gets a 422 and the job stays pending.
 
     Args:
         job_id (UUID):
@@ -285,7 +288,8 @@ async def asyncio(
     Stores user metadata on the job and queues the ingest task.
     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
     size and a point cloud's size are checked against the storage quota again
-    here.
+    here. The dataset-count cap is checked here, not at upload: an account at
+    its cap gets a 422 and the job stays pending.
 
     Args:
         job_id (UUID):

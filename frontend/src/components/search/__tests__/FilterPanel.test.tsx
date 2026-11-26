@@ -37,6 +37,20 @@ describe('FilterPanel', () => {
     expect(screen.getByText(/Table.*\(1\)/)).toBeInTheDocument();
   });
 
+  it('puts each type\'s icon before its option without changing the option\'s name', () => {
+    render(<FilterPanel totalResults={18} allTypesTotal={18} desktopLayout="rail" />);
+
+    const icons = { Vector: 'lucide-layers', Raster: 'lucide-grid-3x3', Table: 'lucide-table-2' };
+    for (const [name, iconClass] of Object.entries(icons)) {
+      const option = screen.getByRole('radio', { name: new RegExp(`^${name}\\s*\\d+$`) });
+      const chip = option.querySelector('[data-slot="badge"]');
+      expect(chip).toHaveAttribute('aria-hidden', 'true');
+      expect(chip?.querySelector(`svg.${iconClass}`)).not.toBeNull();
+      expect(chip).toHaveTextContent('');
+    }
+    expect(screen.getByRole('radio', { name: /^All/ }).querySelector('[data-slot="badge"]')).toBeNull();
+  });
+
   it('shows the result total on All when it exceeds the dataset facet sum', () => {
     render(<FilterPanel totalResults={4} allTypesTotal={4} />);
 

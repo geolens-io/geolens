@@ -3,7 +3,9 @@
   "job_message_kinds": [
     "manifest_attribute_unmatched",
     "manifest_collection_refused",
-    "manifest_public_fallback"
+    "manifest_groups_left_off",
+    "manifest_public_fallback",
+    "manifest_widening_kept"
   ],
   "loss_item_kind": {
     "required": true,
@@ -18,6 +20,9 @@
     "A052",
     "A053",
     "A054",
+    "A056",
+    "A057",
+    "A058",
     "A059",
     "A062",
     "A063",
@@ -46,6 +51,10 @@
       "errors": {
         "required": false,
         "type": "array<string>"
+      },
+      "groups": {
+        "required": false,
+        "type": "array<string>|null"
       },
       "job_id": {
         "required": false,
@@ -215,6 +224,10 @@
         "required": false,
         "type": "null|string"
       },
+      "groups": {
+        "required": false,
+        "type": "array<string:uuid>|null"
+      },
       "key": {
         "required": true,
         "type": "string"
@@ -290,6 +303,10 @@
       "description": {
         "required": false,
         "type": "null|string"
+      },
+      "groups": {
+        "required": false,
+        "type": "array<string:uuid>|null"
       },
       "key": {
         "required": true,

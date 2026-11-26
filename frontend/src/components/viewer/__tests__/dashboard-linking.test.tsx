@@ -418,7 +418,7 @@ describe('dashboard linking', () => {
       result: { values: ['a', 'b', 'c'].map((letter) => ({ value: long(letter), count: 1 })), other_count: 0 },
     }) as never);
     // The popup's fields ride along in the tile URL's cols=.
-    const fields = Array.from({ length: 120 }, (_, i) => `a_rather_long_attribute_column_name_${i}`);
+    const fields = Array.from({ length: 300 }, (_, i) => `a_rather_long_attribute_column_name_${i}`);
     const clustered = {
       ...layer(parcelsId, 'Parcels'),
       geometry_type: 'POINT',
@@ -441,7 +441,7 @@ describe('dashboard linking', () => {
     expect(filtered).toEqual(['in', ['get', 'land_use'], ['literal', [long('a'), long('b')]]]);
 
     // Three values are about 3,700 characters of CQL2, within the route's 4,096,
-    // but the URL with the columns no longer fits nginx's 8 KiB request line.
+    // but the URL with the columns no longer fits the proxy's 16 KiB request line.
     await user.click(boxes[2]);
     await waitFor(() =>
       expect(screen.getByRole('status')).toHaveTextContent("Too many values to filter this layer's clusters. Pick fewer."),

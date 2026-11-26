@@ -3834,7 +3834,8 @@ export const healthHealthGet = <ThrowOnError extends boolean = false>(options?: 
  *
  * Returns HTTP 202 with per-layer outcomes. Partial success is possible:
  * each layer result carries status='queued' or status='failed' with a
- * user-safe error message.
+ * user-safe error message. An account at its dataset-count cap gets a 422
+ * and nothing is queued.
  *
  * Permission: same as POST /ingest/commit/{job_id} — 'upload' capability.
  */
@@ -3864,7 +3865,8 @@ export const commitFanOutIngestCommitFanOutJobIdPost = <ThrowOnError extends boo
  * Stores user metadata on the job and queues the ingest task.
  * Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
  * size and a point cloud's size are checked against the storage quota again
- * here.
+ * here. The dataset-count cap is checked here, not at upload: an account at
+ * its cap gets a 422 and the job stays pending.
  */
 export const commitImportIngestCommitJobIdPost = <ThrowOnError extends boolean = false>(options: Options<CommitImportIngestCommitJobIdPostData, ThrowOnError>): RequestResult<CommitImportIngestCommitJobIdPostResponses, CommitImportIngestCommitJobIdPostErrors, ThrowOnError> => (options.client ?? client).post<CommitImportIngestCommitJobIdPostResponses, CommitImportIngestCommitJobIdPostErrors, ThrowOnError>({
     security: [
@@ -4371,7 +4373,9 @@ export const cancelJobJobsJobIdCancelPost = <ThrowOnError extends boolean = fals
  * Retry a failed ingestion job by re-queuing.
  *
  * Only callable on jobs with status 'failed'. The staging file must
- * still exist (preserved on failure for retry).
+ * still exist (preserved on failure for retry). A retry imports a new
+ * dataset, so an account at its dataset-count cap gets a 422 and the job
+ * stays failed.
  */
 export const retryJobJobsJobIdRetryPost = <ThrowOnError extends boolean = false>(options: Options<RetryJobJobsJobIdRetryPostData, ThrowOnError>): RequestResult<RetryJobJobsJobIdRetryPostResponses, RetryJobJobsJobIdRetryPostErrors, ThrowOnError> => (options.client ?? client).post<RetryJobJobsJobIdRetryPostResponses, RetryJobJobsJobIdRetryPostErrors, ThrowOnError>({
     security: [

@@ -694,6 +694,9 @@ from .manifest_contact import ManifestContact
 from .manifest_dataset import ManifestDataset
 from .manifest_dataset_links import ManifestDatasetLinks
 from .manifest_dataset_visibility_type_0 import ManifestDatasetVisibilityType0
+from .manifest_groups_left_off_detail import ManifestGroupsLeftOffDetail
+from .manifest_groups_left_off_detail_reason import ManifestGroupsLeftOffDetailReason
+from .manifest_groups_left_off_warning import ManifestGroupsLeftOffWarning
 from .manifest_loss_item import ManifestLossItem
 from .manifest_loss_report import ManifestLossReport
 from .manifest_loss_report_summary import ManifestLossReportSummary
@@ -721,6 +724,8 @@ from .manifest_publication import ManifestPublication
 from .manifest_removed_layer import ManifestRemovedLayer
 from .manifest_source import ManifestSource
 from .manifest_source_type import ManifestSourceType
+from .manifest_widening_kept_detail import ManifestWideningKeptDetail
+from .manifest_widening_kept_warning import ManifestWideningKeptWarning
 from .map_access_response import MapAccessResponse
 from .map_bookmark import MapBookmark
 from .map_create import MapCreate
@@ -1683,6 +1688,9 @@ __all__ = (
     "ManifestDataset",
     "ManifestDatasetLinks",
     "ManifestDatasetVisibilityType0",
+    "ManifestGroupsLeftOffDetail",
+    "ManifestGroupsLeftOffDetailReason",
+    "ManifestGroupsLeftOffWarning",
     "ManifestLossItem",
     "ManifestLossReport",
     "ManifestLossReportSummary",
@@ -1710,6 +1718,8 @@ __all__ = (
     "ManifestRemovedLayer",
     "ManifestSource",
     "ManifestSourceType",
+    "ManifestWideningKeptDetail",
+    "ManifestWideningKeptWarning",
     "MapAccessResponse",
     "MapBookmark",
     "MapCreate",

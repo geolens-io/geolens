@@ -5,7 +5,7 @@ task does the download. The tests split along that seam:
 
 - Submission scope, asserted on the HTTP response: auth, the SSRF and scheme
   refusals, filename derivation/override/clamping, the extension allowlist,
-  standalone VRT, control characters, and the dataset-count quota. Success is
+  standalone VRT and control characters. Success is
   201 with status 'running' and a job row that stays 'running' until the task
   runs.
 - Task scope, asserted on the IngestJob row and the staged files: the download
@@ -921,29 +921,30 @@ class TestUrlImportReaperInteraction:
     async def test_staged_pending_row_gets_a_fresh_review_window(
         self, client, test_db_session
     ):
-        """The running lease covers the fetch, but the
-        completion CAS used to return the row to 'pending' with created_at
-        unchanged — at the 61s floor of pending_job_timeout_seconds the sweep
-        could reap the freshly staged local-mode import while the user was
-        mid-preview. Tested against the sweep's OWN clause set: pending age
-        is now measured from coalesce(staged_at, created_at). Three rows, all
-        with created_at backdated a day: a staged import with a fresh
-        staged_at keeps its window; one whose staged_at also aged out is
-        still reaped (a restart, not an exemption); a pre-fetch abandoned
-        twin without the key still ages from creation, unweakened."""
+        """A staged import's pending age runs from ``staged_at``, not from a
+        ``created_at`` the download has already spent.
+
+        Checked against the sweep's own clause set, with three rows created
+        before the cutoff: one staged just now keeps its window, one staged
+        before the cutoff is swept (the window restarts, it doesn't exempt),
+        and one that never staged still ages from creation."""
         from datetime import datetime, timedelta, timezone
 
         from sqlalchemy import update as sa_update
 
-        from app.platform.jobs.sweep import stale_pending_clauses
+        from app.platform.jobs.sweep import (
+            stale_pending_clauses,
+            stale_pending_cutoff_seconds,
+        )
 
         now = datetime.now(timezone.utc)
-        day_ago = now - timedelta(days=1)
+        # A local-mode import binds an absolute path, and a staged file nothing
+        # has imported yet waits as long there as one in a bucket.
+        long_ago = now - timedelta(
+            seconds=stale_pending_cutoff_seconds(completion_bound=True) + 60
+        )
         staged_fresh = IngestJob(
             source_filename="freshwindow-a.geojson",
-            # Local-mode staging binds an ABSOLUTE path -> the unbound half,
-            # i.e. the short configurable cutoff (S3 mode binds 'staging/%'
-            # and already sat under the 24h backstop).
             file_path="/tmp/urlimport/freshwindow-a.geojson",
             status="pending",
             user_metadata={"staged_at": now.isoformat()},
@@ -952,7 +953,7 @@ class TestUrlImportReaperInteraction:
             source_filename="freshwindow-b.geojson",
             file_path="/tmp/urlimport/freshwindow-b.geojson",
             status="pending",
-            user_metadata={"staged_at": day_ago.isoformat()},
+            user_metadata={"staged_at": long_ago.isoformat()},
         )
         abandoned = IngestJob(
             source_filename="freshwindow-c.geojson",
@@ -964,7 +965,7 @@ class TestUrlImportReaperInteraction:
         await test_db_session.execute(
             sa_update(IngestJob)
             .where(IngestJob.id.in_([staged_fresh.id, staged_stale.id, abandoned.id]))
-            .values(created_at=day_ago)
+            .values(created_at=long_ago)
         )
 
         swept = (

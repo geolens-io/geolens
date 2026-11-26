@@ -24,7 +24,7 @@ class UploadConfigResponse:
         allowed_extensions (str): Comma-separated list of allowed file extensions.
         remaining_dataset_quota (int | None | Unset): Datasets the caller may still create before hitting the per-user
             count cap, or null when no count cap is configured (unlimited). Advisory UX hint only — the cap is enforced
-            server-side at upload.
+            server-side when a dataset is created.
     """
 
     presigned_uploads: bool

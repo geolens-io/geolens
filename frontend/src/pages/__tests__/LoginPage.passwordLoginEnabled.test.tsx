@@ -105,7 +105,8 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
       expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
     });
     expect(screen.getByLabelText('Password', { exact: true })).toBeInTheDocument();
-    expect(screen.queryByText(/sign in using your organization/i)).not.toBeInTheDocument();
+    expect(screen.getByText(/use your geolens username and password/i)).toBeInTheDocument();
+    expect(screen.queryByText(/sign in with your organization/i)).not.toBeInTheDocument();
     // Divider belongs above the OAuth buttons because a password form sits above it.
     expect(await screen.findByText(/or continue with/i)).toBeInTheDocument();
   });
@@ -122,7 +123,7 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
     await waitFor(() => {
       expect(screen.getByLabelText(/username/i)).toBeInTheDocument();
     });
-    expect(screen.queryByText(/sign in using your organization/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sign in with your organization/i)).not.toBeInTheDocument();
   });
 
   it('hides the username/password form and shows SSO-only message when password_login_enabled is false', async () => {
@@ -137,11 +138,13 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
     // Wait for the SSO-only message to appear after config resolves.
     await waitFor(() => {
       expect(
-        screen.getByText(/sign in using your organization/i)
+        screen.getByText(/sign in with your organization/i)
       ).toBeInTheDocument();
     });
     // The username/password form must not render.
     expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
+    // The password hint would describe fields this mode does not show.
+    expect(screen.queryByText(/use your geolens username and password/i)).not.toBeInTheDocument();
     expect(screen.queryByLabelText('Password', { exact: true })).not.toBeInTheDocument();
     // SSO-only: OAuth buttons are the primary path, so the "or continue with"
     // divider must be suppressed (it has no password form to be an alternative to).
@@ -165,11 +168,11 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
 
     // Default SSO-only state: form hidden, break-glass disclosure present.
     await waitFor(() => {
-      expect(screen.getByText(/sign in using your organization/i)).toBeInTheDocument();
+      expect(screen.getByText(/sign in with your organization/i)).toBeInTheDocument();
     });
     expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
     const breakGlass = screen.getByRole('button', {
-      name: /admin\? sign in with a password/i,
+      name: /sign in with an administrator password/i,
     });
 
     // Clicking reveals the password form (the server still enforces the gate).
@@ -195,6 +198,6 @@ describe('LoginPage — password_login_enabled conditional render (SSO-03)', () 
     });
     expect(screen.getByLabelText('Password', { exact: true })).toBeInTheDocument();
     // The SSO-only message must NOT appear on error.
-    expect(screen.queryByText(/sign in using your organization/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/sign in with your organization/i)).not.toBeInTheDocument();
   });
 });

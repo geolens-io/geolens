@@ -146,24 +146,66 @@ async def test_a_publish_key_accepting_a_held_v2_narrowing_applies_it(
     assert await _record(test_db_session, held.dataset_id) == ("private", "published")
 
 
-async def test_a_publish_key_cannot_accept_a_held_v2_widening(
+async def test_a_publish_key_accepting_a_held_v2_widening_keeps_the_level(
     test_db_session, clean_tables
 ):
-    """Refused as the key's own apply of it would be; nothing is queued."""
+    """As the key's own apply of it would: the data is replaced and the
+    dataset keeps its level."""
     held = await _hold(
         test_db_session,
         record=("private", "published"),
         **_v2(visibility="internal", manifest_requested_visibility="internal"),
     )
 
-    with pytest.raises(HTTPException) as refused:
-        await _accept(test_db_session, held, publish_key=True)
+    job = await _accept(test_db_session, held, publish_key=True)
 
-    assert refused.value.status_code == 403
-    assert refused.value.detail["message"] == (
-        "A publish key can't widen a dataset's visibility"
-    )
+    assert (job.status, job.error_message) == ("complete", None)
     assert await _record(test_db_session, held.dataset_id) == ("private", "published")
+    assert {
+        "kind": "manifest_widening_kept",
+        "details": {"visibility": "internal"},
+    } in job.user_metadata["warnings"]
+
+
+@pytest.mark.parametrize("publish_key", [False, True], ids=["session", "key"])
+async def test_an_accept_after_a_narrowing_holds_back_the_planned_groups(
+    test_db_session, clean_tables, publish_key
+):
+    """The apply shared an internal dataset with a group, which changed no
+    audience; the dataset was made private before anyone accepted."""
+    from app.modules.auth.models import Group, GroupMember
+    from app.modules.catalog.datasets.domain.models import DatasetGroupGrant
+
+    held = await _hold(test_db_session, record=("private", "published"))
+    group = Group(name=f"grp-{uuid.uuid4().hex[:8]}")
+    test_db_session.add(group)
+    await test_db_session.flush()
+    group_id = group.id
+    test_db_session.add(GroupMember(group_id=group_id, user_id=held.user.id))
+    job_row = await test_db_session.get(IngestJob, held.job_id)
+    job_row.user_metadata = {
+        **job_row.user_metadata,
+        **_v2(
+            manifest_groups=[str(group_id)],
+            manifest_groups_planned_from="internal",
+        ),
+    }
+    await test_db_session.commit()
+
+    job = await _accept(test_db_session, held, publish_key=publish_key)
+
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, held.dataset_id) == ("private", "published")
+    granted = await test_db_session.scalars(
+        select(DatasetGroupGrant.group_id).where(
+            DatasetGroupGrant.dataset_id == held.dataset_id
+        )
+    )
+    assert list(granted) == []
+    assert {
+        "kind": "manifest_groups_left_off",
+        "details": {"group_ids": [str(group_id)], "reason": "held_back"},
+    } in job.user_metadata["warnings"]
 
 
 async def test_a_publish_key_accepting_a_held_v1_run_keeps_the_publication(
@@ -804,3 +846,46 @@ async def test_an_accept_whose_task_lookup_fails_gives_the_acceptance_back(
 
     job = await _accept(test_db_session, held, publish_key=False)
     assert (job.status, job.error_message) == ("complete", None)
+
+
+async def test_an_accept_does_not_restore_a_grant_revoked_since_the_plan(
+    test_db_session, clean_tables
+):
+    """The held entry kept groups A and B; B was removed before the accept."""
+    from app.modules.auth.models import Group, GroupMember
+    from app.modules.catalog.datasets.domain.models import DatasetGroupGrant
+
+    held = await _hold(test_db_session, record=("restricted", "published"))
+    ids = []
+    for _ in range(2):
+        group = Group(name=f"grp-{uuid.uuid4().hex[:8]}")
+        test_db_session.add(group)
+        await test_db_session.flush()
+        test_db_session.add(GroupMember(group_id=group.id, user_id=held.user.id))
+        ids.append(group.id)
+    kept, revoked = ids
+    test_db_session.add(DatasetGroupGrant(dataset_id=held.dataset_id, group_id=kept))
+    job_row = await test_db_session.get(IngestJob, held.job_id)
+    job_row.user_metadata = {
+        **job_row.user_metadata,
+        **_v2(
+            manifest_groups=[str(kept), str(revoked)],
+            manifest_groups_planned_from="restricted",
+            manifest_groups_granted=[str(kept), str(revoked)],
+        ),
+    }
+    await test_db_session.commit()
+
+    job = await _accept(test_db_session, held, publish_key=False)
+
+    assert (job.status, job.error_message) == ("complete", None)
+    granted = await test_db_session.scalars(
+        select(DatasetGroupGrant.group_id).where(
+            DatasetGroupGrant.dataset_id == held.dataset_id
+        )
+    )
+    assert set(granted) == {kept}
+    assert {
+        "kind": "manifest_groups_left_off",
+        "details": {"group_ids": [str(revoked)], "reason": "held_back"},
+    } in job.user_metadata["warnings"]

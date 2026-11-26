@@ -172,11 +172,17 @@ class TestExtensionApiVersionConstant:
         replaces the ``processing_port`` key with the old signature gets a
         TypeError on every manifest with maps.
 
+        v28 adds the required ``plan_manifest_groups``,
+        ``apply_manifest_groups`` and ``manifest_dataset_group_names``
+        methods to ``ProcessingPort``. An overlay that replaces the
+        ``processing_port`` key without them fails every manifest version 2
+        entry that names groups, and every version 2 response.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 27
+        assert EXTENSION_API_VERSION == 28
 
 
 class TestCheckExtensionApiVersion:

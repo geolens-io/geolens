@@ -521,21 +521,57 @@ async def apply_manifest_replacement(
     """Bring a replaced dataset's record to the manifest job that replaced it.
 
     Its credit line, then its title, summary and publication judged again as
-    a version 2 job's must be, then its collection and attribute text. Runs
-    in the publish transaction holding the catalog rows; a refusal fails the
-    replacement, and a job no manifest created changes nothing.
+    a version 2 job's must be, then its collection and attribute text. Last,
+    the dataset's groups are held to the ones its entry named, since the
+    replacement's data would reach any other. Runs in the publish transaction
+    holding the catalog rows; a refusal fails the replacement, and a job no
+    manifest created changes nothing.
     """
-    from app.processing.ingest.manifest_dataset_fields import apply_fields_for_job
+    from app.processing.ingest.manifest_dataset_fields import (
+        apply_fields_for_job,
+        hold_to_entry_groups,
+        share_groups_for_job,
+        shares_groups,
+    )
     from app.processing.ingest.manifest_publication import settle_stored_publication
 
     await apply_manifest_record_metadata(session, dataset.record, user_metadata)
     publication = await settle_stored_publication(
         session, uuid.UUID(job_id), dataset.record, user_metadata
     )
+    # Who read the dataset before this publish, which its groups are judged
+    # against.
+    before = dataset.record.visibility
+    # Private with groups is restricted: share first and write that, so the
+    # shared-map checks judge the audience the publish leaves, not a private
+    # moment between the two writes.
+    groups_first = publication.get("visibility") == "private" and shares_groups(
+        user_metadata
+    )
+    first = None
+    if groups_first:
+        first = await share_groups_for_job(
+            session, uuid.UUID(job_id), dataset, user_metadata, audience_before=before
+        )
+        if first.shared:
+            publication = {**publication, "visibility": "restricted"}
     await apply_manifest_publication(
         session, dataset, publication, actor_id=uuid.UUID(user_id)
     )
-    await apply_fields_for_job(session, uuid.UUID(job_id), dataset, user_metadata)
+    share = await apply_fields_for_job(
+        session,
+        uuid.UUID(job_id),
+        dataset,
+        user_metadata,
+        audience_before=before,
+        share_groups=not groups_first,
+    )
+    await hold_to_entry_groups(
+        session,
+        dataset.id,
+        user_metadata,
+        because=(first or share).kept_because,
+    )
 
 
 @asynccontextmanager

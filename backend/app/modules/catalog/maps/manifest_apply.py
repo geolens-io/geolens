@@ -28,6 +28,7 @@ from app.core.permissions import EDIT_METADATA
 from app.core.processing_port import MINTED_SHARE_KEY
 from app.core.record_types import capabilities
 from app.modules.auth import permissions as auth_permissions
+from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.authorization import (
     ANONYMOUS_MAP_VISIBILITIES,
     apply_visibility_filter,
@@ -44,12 +45,14 @@ from app.modules.catalog.maps.manifest_columns import (
 from app.modules.catalog.maps.manifest_layers import plan_layer_stack
 from app.modules.catalog.maps.manifest_republish import (
     ManagedNotes,
+    clear_map_images,
     loss_lines,
     managed_notes,
     publish_line,
     store_manifest_thumbnail,
     styling_applies,
     styling_edited_since_publish,
+    styling_kept_message,
     written_notes_digests,
 )
 from app.modules.catalog.maps.manifest_messages import (
@@ -60,7 +63,6 @@ from app.modules.catalog.maps.manifest_messages import (
     THUMBNAIL_NOT_STORED,
     SHARE_LINK_NOT_CREATED,
     SHARE_LINK_WITHHELD,
-    KEPT_LAYER_DATASET,
     KEY_NOT_WRITABLE,
     DATASET_NOT_READY,
     LAYER_REMOVED,
@@ -75,12 +77,27 @@ from app.modules.catalog.maps.manifest_messages import (
     problem as _problem,
     short as _short,
 )
+from app.modules.catalog.maps.manifest_moves import (
+    Target,
+    move_kept_layers,
+    widening_moves,
+)
 from app.modules.catalog.maps.manifest_share import ShareMint, mint_share_link
 from app.modules.catalog.maps.manifest_visibility import (
     judge_visibility,
     planned_public,
 )
+from app.modules.catalog.maps.manifest_sharing import (
+    group_messages,
+    layer_sharing_gaps,
+    lock_entry_groups,
+    more_visible,
+    plan_map_groups,
+    share_map,
+    with_groups,
+)
 from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.catalog.group_sharing import SharePlan
 from app.modules.catalog.maps.publish_vocabulary import (
     LABEL_METADATA_KEYS,
     STYLE_METADATA_KEYS,
@@ -93,23 +110,22 @@ from app.modules.catalog.maps.schemas import (
 )
 from app.modules.catalog.maps.service import (
     bulk_check_dataset_access,
+    discard_map_asset_objects,
+    lock_map_for_asset_write,
     check_map_ownership,
     lock_map_layers,
     record_map_history_event,
 )
-from app.modules.catalog.maps.service_groups import (
-    map_groups,
-    map_has_groups,
-    map_visibility_for,
-)
+from app.modules.catalog.maps.service_groups import map_groups
 from app.modules.catalog.maps.service_update import apply_map_create, apply_map_update
 from app.modules.settings.basemaps import list_public_basemaps
 from app.platform.catalog_locks import CatalogLockConflict
-from app.platform.extensions import get_permission_extension
+from app.platform.extensions import get_catalog_port, get_permission_extension
 from app.platform.jobs.in_flight import (
     datasets_with_jobs_in_flight,
     manifest_keys_with_jobs_in_flight,
 )
+from app.platform.record_audience import widens_audience
 from app.platform.request_credential import is_publish_key
 
 MAP_KEY_NOT_WRITABLE = "This map key belongs to a map you can't edit."
@@ -125,6 +141,10 @@ DATASET_UNAVAILABLE = (
     "or you can't read it."
 )
 
+KEY_THUMBNAIL_REFUSED = (
+    "The thumbnail wasn't stored: A publish key can't replace a map's thumbnail"
+)
+
 # Shape-checks a layer whose dataset didn't resolve; never stored.
 _NO_DATASET = uuid.UUID(int=0)
 
@@ -136,6 +156,13 @@ class _Dataset(NamedTuple):
     record_type: str | None
     visibility: str
     record_status: str
+    geometry_type: str | None
+    # A raster's, None for any other dataset.
+    is_dem: bool | None
+    band_count: int | None
+    # The columns its vector tiles carry; None for the per-zoom default.
+    tile_columns: list[str] | None
+    title: str = ""
 
     @property
     def public(self) -> bool:
@@ -177,6 +204,15 @@ class _Plan:
     published_at: datetime | None = None
     # Stored rows the apply leaves out of its layer list and must not delete.
     keep_layer_ids: list[uuid.UUID] = field(default_factory=list)
+    # The groups the apply shares the map with; None keeps its groups.
+    share: SharePlan | None = None
+    # Whether the caller shares as an admin, read in the map's transaction:
+    # never through a publish key.
+    is_admin: bool = False
+    # Moved layers whose dashboard widgets fit their new dataset.
+    keep_widgets_of: list[uuid.UUID] = field(default_factory=list)
+    # Whether a layer the map keeps shows another dataset after the apply.
+    moves_dataset: bool = False
 
 
 async def _readable_datasets(
@@ -193,6 +229,7 @@ async def _readable_datasets(
     as one that didn't.
     """
     wanted = sorted(set(dataset_ids))
+    RasterAsset = get_catalog_port().raster_asset_orm_class()
     stmt = (
         select(
             Dataset.id,
@@ -200,17 +237,21 @@ async def _readable_datasets(
             Record.record_type,
             Record.visibility,
             Record.record_status,
+            Dataset.geometry_type,
+            RasterAsset.is_dem,
+            RasterAsset.band_count,
+            Dataset.tile_columns,
+            Record.title,
         )
         .join(Record, Dataset.record_id == Record.id)
+        .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(Dataset.id.in_(wanted))
     )
     roles = await get_user_roles(session, user)
     stmt = apply_visibility_filter(stmt, user, roles, Record, DatasetGrant)
     rows = await session.execute(stmt)
     return {
-        row[0]: _Dataset(
-            list(row[1]) if isinstance(row[1], list) else None, row[2], row[3], row[4]
-        )
+        row[0]: _Dataset(list(row[1]) if isinstance(row[1], list) else None, *row[2:])
         for row in rows
     }
 
@@ -489,6 +530,82 @@ def _check_layer(
         return messages, None
 
 
+def _shown_datasets(
+    plan: _Plan,
+    datasets: Mapping[uuid.UUID, _Dataset],
+    stored: Sequence[tuple[MapLayer, _Dataset | None]],
+    unsettled: Collection[uuid.UUID],
+    request: _Request,
+) -> list[tuple[str | None, uuid.UUID, _Dataset]]:
+    """Each layer the planned map shows, by key (None for one added in
+    GeoLens), with its dataset when the caller reads it and this request
+    doesn't publish it: those keep their own audience whatever the map's. A
+    layer the apply keeps shows its stored dataset."""
+    readable = {
+        **{layer.dataset_id: dataset for layer, dataset in stored if dataset},
+        **datasets,
+    }
+    shown = []
+    for layer, key in zip(plan.layers, plan.layer_keys, strict=False):
+        dataset = readable.get(layer.dataset_id)
+        if (
+            dataset is not None
+            and layer.dataset_id not in request.pending_datasets
+            and layer.dataset_id not in unsettled
+        ):
+            shown.append((key, layer.dataset_id, dataset))
+    return shown
+
+
+async def _plan_sharing(
+    session: AsyncSession,
+    entry: Any,
+    request: _Request,
+    plan: _Plan,
+    shows_non_public: bool,
+    shown: Sequence[tuple[str | None, uuid.UUID, _Dataset]],
+    messages: list[dict[str, Any]],
+) -> tuple[str, list[GroupRef]]:
+    """Plan who reads the map: the visibility it stores and its groups,
+    with the sharing messages added to ``messages``. Only a dry run warns
+    that the map reaches more people (A057); the apply that follows it
+    widens the map as the dry run said."""
+    map_obj = plan.map_obj
+    now = map_obj.visibility if map_obj is not None else None
+    plan.write_visibility, visibility_messages = judge_visibility(
+        entry,
+        now,
+        shows_non_public,
+        public_fallback=request.public_fallback,
+        may_set_public=request.may_set_public,
+        is_key=request.is_key,
+    )
+    messages.extend(visibility_messages)
+    plan.is_admin = "admin" in await get_user_roles(session, request.user)
+    groups, plan.share = await plan_map_groups(
+        session,
+        entry,
+        map_obj,
+        request.user,
+        is_admin=plan.is_admin,
+        is_key=request.is_key,
+        level=plan.write_visibility or now or "private",
+    )
+    messages.extend(group_messages(entry, plan.share))
+    visibility = with_groups(plan.write_visibility or now or "private", groups)
+    shares = plan.share is not None and not plan.share.unchanged
+    if now is not None and plan.write_visibility in (None, now) and not shares:
+        # Nothing writes the level or the grants, so a private map stays
+        # private whatever grants it kept from before.
+        visibility = now
+    if request.dry_run and widens_audience(
+        now, visibility, added_groups=bool(plan.share and plan.share.added)
+    ):
+        messages.append(more_visible(entry, visibility, groups))
+    messages.extend(await layer_sharing_gaps(session, shown, visibility, groups))
+    return visibility, groups
+
+
 async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _Plan:
     """Check one map and plan its apply. Writes nothing.
 
@@ -527,14 +644,17 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             basemap=entry.basemap_style is not None,
             bookmarks=entry.bookmarks is not None,
         )
-        styling_applied = styling_applies(entry.styling, edited=edited)
+        styling_applied = styling_applies(entry.styling, edited=edited is not None)
         if not styling_applied and entry.styling == "replace_if_unedited":
             messages.append(
                 _message(
                     STYLING_KEPT,
                     "info",
-                    "The map's styling was edited in GeoLens since the last "
-                    "publish that replaced it, so its styling was kept.",
+                    styling_kept_message(
+                        # The history route's own gate: edit_metadata on a map
+                        # the caller owns or administers.
+                        edited if request.may_edit_maps else None
+                    ),
                     fix='Send styling "replace" to replace it.',
                 )
             )
@@ -553,7 +673,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
     layers: list[MapLayerInput] = []
     keys: list[str] = []
     non_public_by_key: dict[str, bool] = {}
-    dataset_by_key: dict[str, uuid.UUID | None] = {}
+    targets: dict[str, Target] = {}
     datasets, unsettled = request.datasets, request.unsettled_dataset_ids
     if not request.dry_run:
         dataset_ids = _layer_dataset_ids([entry], request.dataset_ids_by_key)
@@ -580,7 +700,6 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             if dataset_id and (planned is not None or dataset_id not in unsettled)
             else None
         )
-        dataset_by_key[layer.key] = dataset_id
         layer_messages, stored_layer = _check_layer(
             layer, dataset_id, dataset, pending=planned is not None
         )
@@ -590,6 +709,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         if stored_layer is not None:
             layers.append(stored_layer)
             keys.append(layer.key)
+            targets[layer.key] = Target(dataset_id, dataset, stored_layer)
     plan = _Plan(result={}, map_obj=map_obj, styling_applied=styling_applied)
     plan.notes = managed_notes(
         map_obj.notes if map_obj is not None else None,
@@ -598,7 +718,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             *(loss_lines(entry.loss_report) if styling_applied else ()),
         ],
         (
-            await written_notes_digests(session, map_obj.id)
+            await written_notes_digests(session, map_obj.id, map_obj.notes)
             if map_obj is not None
             else frozenset()
         ),
@@ -611,18 +731,53 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
     if map_obj is not None:
         stored = await _stored_layers(session, map_obj.id, user)
         listed = {layer.key for layer in entry.layers}
-        # The stored layers the map goes on showing with their own dataset.
+        # The stored layers the map goes on showing with their own dataset; a
+        # listed one shows the manifest's, counted below.
         retained_non_public = any(
             not planned_public(dataset, request.pending_datasets.get(layer.dataset_id))
             for layer, dataset in stored
             if dataset is not None
             and (
                 layer.manifest_key is None
-                or (layer.manifest_key in listed and not styling_applied)
                 or (layer.manifest_key not in listed and entry.styling == "keep")
             )
         )
         try:
+            moves = move_kept_layers(
+                stored,
+                targets,
+                map_obj.dashboard_config,
+                kept=not styling_applied,
+                widening=await widening_moves(
+                    session,
+                    stored,
+                    targets,
+                    map_obj.dashboard_config,
+                    kept=not styling_applied,
+                ),
+            )
+            messages.extend([*moves.errors, *moves.warnings])
+            if not styling_applied:
+                taking_manifest = {
+                    layer.manifest_key
+                    for layer, _ in stored
+                    if layer.id in moves.layers
+                    and layer.id not in moves.keep_widgets_of
+                }
+                keeping = {
+                    layer.manifest_key for layer, _ in stored if layer.manifest_key
+                } - taking_manifest
+                # These layers keep the styling they have, not the one the
+                # manifest sent, which the two checks read.
+                messages[:] = [
+                    m
+                    for m in messages
+                    if not (
+                        m["code"] in (STYLE_KEY_DROPPED, COLUMN_MISSING)
+                        and m["layer"] in keeping
+                    )
+                ]
+            plan.keep_widgets_of = moves.keep_widgets_of
             (
                 plan.layers,
                 plan.layer_keys,
@@ -636,7 +791,9 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 keys,
                 keep_styling=not styling_applied,
                 remove_missing=entry.styling != "keep",
+                moved=moves.layers,
             )
+            plan.moves_dataset = _moves_a_dataset(stored, plan.layers)
         except ValidationError:
             messages.append(
                 _message(
@@ -648,9 +805,6 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 )
             )
             total = 0
-        messages.extend(
-            _kept_datasets(stored, dataset_by_key, kept=not styling_applied)
-        )
     else:
         plan.layers, plan.layer_keys = plan_layer_stack(entry, [], layers, keys)[:2]
         total = len(entry.layers)
@@ -663,30 +817,18 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 fix="Remove layers from the map in GeoLens, or publish fewer.",
             )
         )
-    # A manifest layer counts only where the map takes it; a kept matched
-    # layer goes on showing its stored dataset, counted above.
-    stored_keys = {layer.manifest_key for layer, _ in stored if layer.manifest_key}
+    # A manifest layer counts only where the map takes it; a kept layer on a
+    # dataset the caller can't read stays there.
+    unmoved = {layer.manifest_key for layer, dataset in stored if dataset is None}
     shows_non_public = retained_non_public or any(
         non_public
         for key, non_public in non_public_by_key.items()
-        if styling_applied or key not in stored_keys
+        if styling_applied or key not in unmoved
     )
-    now = map_obj.visibility if map_obj is not None else None
-    plan.write_visibility, visibility_messages = judge_visibility(
-        entry,
-        now,
-        shows_non_public,
-        public_fallback=request.public_fallback,
-        may_set_public=request.may_set_public,
-        is_key=request.is_key,
+    shown = _shown_datasets(plan, datasets, stored, unsettled, request)
+    stored_visibility, groups = await _plan_sharing(
+        session, entry, request, plan, shows_non_public, shown, messages
     )
-    messages.extend(visibility_messages)
-    stored_visibility = now or "private"
-    if plan.write_visibility is not None:
-        stored_visibility = map_visibility_for(
-            plan.write_visibility,
-            map_obj is not None and await map_has_groups(session, map_obj.id),
-        )
     messages.extend(
         _message(
             LAYER_REMOVED,
@@ -705,9 +847,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         "map_id": map_obj.id if map_obj is not None else None,
         "messages": messages,
         "visibility": None if failed else stored_visibility,
-        "groups": []
-        if failed or map_obj is None
-        else [group.name for group in await map_groups(session, map_obj.id)],
+        "groups": [] if failed else [group.name for group in groups],
         "styling": None if failed else "applied" if styling_applied else "kept",
         "removed_layers": []
         if failed
@@ -723,6 +863,15 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
     return plan
 
 
+def _moves_a_dataset(
+    stored: Iterable[tuple[MapLayer, Any]], layers: Iterable[MapLayerInput]
+) -> bool:
+    before = {layer.id: layer.dataset_id for layer, _ in stored}
+    return any(
+        layer.id in before and before[layer.id] != layer.dataset_id for layer in layers
+    )
+
+
 def _no_room_for_notes(notes: ManagedNotes) -> dict[str, Any]:
     removed = (
         ", and an earlier publish's notes at the top were removed. The rest "
@@ -736,33 +885,6 @@ def _no_room_for_notes(notes: ManagedNotes) -> dict[str, Any]:
         "The map's notes leave no room for the publish notes, so none were "
         f"written{removed}",
     )
-
-
-def _kept_datasets(
-    stored: Iterable[tuple[MapLayer, _Dataset | None]],
-    dataset_by_key: Mapping[str, uuid.UUID | None],
-    *,
-    kept: bool,
-) -> Iterable[dict[str, Any]]:
-    """When the styling is ``kept``, a warning for each matched keyed layer
-    whose manifest dataset, None for one the request creates, it leaves
-    unshown. A layer on a dataset the caller can't read gets none, so the
-    answer can't confirm which dataset it shows."""
-    if not kept:
-        return
-    for layer, dataset in stored:
-        key = layer.manifest_key
-        if dataset is None:
-            continue
-        if key in dataset_by_key and dataset_by_key[key] != layer.dataset_id:
-            yield _message(
-                KEPT_LAYER_DATASET,
-                "warning",
-                f"Layer {_short(key)} still shows its earlier dataset, because "
-                "the map's styling was kept.",
-                fix='Send styling "replace" to show the new dataset.',
-                layer=key,
-            )
 
 
 async def _settling_now(
@@ -805,6 +927,7 @@ async def _write_map(
     map it leaves public a share link through the share service. Flushes."""
     user = request.user
     map_obj = plan.map_obj
+    created = map_obj is None
     if map_obj is None:
         # Every layer's dataset is checked before the map row exists.
         await _refuse_unreadable_layers(session, plan.layers, user)
@@ -855,7 +978,18 @@ async def _write_map(
         ip_address=request.ip_address,
         layer_keys=plan.layer_keys,
         keep_layer_ids=plan.keep_layer_ids,
+        keep_widgets_of=plan.keep_widgets_of,
     )
+    if plan.share is not None:
+        await share_map(
+            session,
+            map_obj,
+            plan.share,
+            user,
+            is_admin=plan.is_admin,
+            ip_address=request.ip_address,
+            audience_before=None if created else before,
+        )
     after = map_obj.visibility
     await record_map_history_event(
         session,
@@ -927,11 +1061,18 @@ async def _apply_map(session: AsyncSession, entry: Any, request: _Request) -> di
     only when everything for the map was written."""
     try:
         await _lock_map_key(session, entry.key)
+        await lock_entry_groups(session, entry)
         plan = await _check_map(session, entry, request)
         if plan.result["action"] == "error":
             await session.rollback()
             return plan.result
         result = await _write_map(session, entry, request, plan)
+        cleared: list[str] = []
+        had_thumbnail = False
+        if plan.moves_dataset:
+            locked = await lock_map_for_asset_write(session, result["map_id"])
+            had_thumbnail = locked.thumbnail_uri is not None
+            cleared = await clear_map_images(session, result["map_id"], locked)
         await session.commit()
     except HTTPException as exc:
         await session.rollback()
@@ -943,10 +1084,24 @@ async def _apply_map(session: AsyncSession, entry: Any, request: _Request) -> di
         await session.rollback()
         log.exception("manifest_map_apply_failed", map_key=entry.key)
         return _error_result(entry.key, MAP_APPLY_FAILED)
-    # A thumbnail shows the manifest's styling, so it goes with it.
+    try:
+        await discard_map_asset_objects(session, result["map_id"], cleared)
+    except Exception:  # broad: the map is written; its old images are only orphaned
+        await session.rollback()
+        log.exception("manifest_map_image_cleanup_failed", map_key=entry.key)
+    # A thumbnail shows the manifest's styling, so it goes with it. A publish
+    # key may not replace a thumbnail, judged on the one the move cleared.
     if entry.thumbnail is not None and plan.styling_applied:
-        refused = await store_manifest_thumbnail(
-            session, result["map_id"], entry.thumbnail, request.user, plan.published_at
+        refused = (
+            KEY_THUMBNAIL_REFUSED
+            if request.is_key and had_thumbnail
+            else await store_manifest_thumbnail(
+                session,
+                result["map_id"],
+                entry.thumbnail,
+                request.user,
+                plan.published_at,
+            )
         )
         if refused is not None:
             warning = _message(THUMBNAIL_NOT_STORED, "warning", refused)

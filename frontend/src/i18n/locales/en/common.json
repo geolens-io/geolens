@@ -586,6 +586,7 @@
     "storyVisibilityUnsupported": "Stories can't be published with this visibility yet.",
     "dashboardTooNew": "This dashboard was saved by a newer version of GeoLens and can't be changed here.",
     "dashboardTooManyWidgets": "A dashboard holds at most 50 widgets. Remove some before saving.",
+    "dashboardLayerMoveRefused": "This map's dashboard has widgets this version of GeoLens can't read, so this layer can't move to a dataset that's shared more widely than its current one. Remove the layer's widgets in the GeoLens version that added them, or keep the layer on its dataset.",
     "dashboardWidgetsRefused": "Some dashboard widgets name layers that aren't on this map or that you can't read. Remove them or pick other layers.",
     "dashboardWidgetFilterRefused": "A dashboard widget's filter can't be used on its layer: the server refused one of its conditions, or it is too large together with the layer's filter. Check it in the Dashboard panel.",
     "storyImageUnreadable": "The file isn't a readable image.",
@@ -907,6 +908,9 @@
     "zoomOut": "Zoom out",
     "terrainEnable": "Enable 3D terrain",
     "terrainDisable": "Disable 3D terrain",
+    "cooperativeGesturesWindows": "Use Ctrl + scroll to zoom the map",
+    "cooperativeGesturesMac": "Use ⌘ + scroll to zoom the map",
+    "cooperativeGesturesMobile": "Use two fingers to move the map",
     "title": "Map"
   }
 }

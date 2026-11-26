@@ -39,6 +39,7 @@
       "pattern": "^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?![\\s\\S])"
     },
     "visibility": {"enum": ["private", "internal", "public"]},
+    "groups": {"type": "array", "maxItems": 100, "items": {"$ref": "#/$defs/uuid"}},
     "text500": {"type": "string", "minLength": 1, "maxLength": 500},
     "text5000": {"type": "string", "minLength": 1, "maxLength": 5000},
     "freeObject": {"type": "object"},
@@ -167,7 +168,8 @@
           "type": "array",
           "maxItems": 500,
           "items": {"$ref": "#/$defs/attribute"}
-        }
+        },
+        "groups": {"$ref": "#/$defs/groups"}
       }
     },
     "view": {
@@ -304,7 +306,8 @@
           "type": "array",
           "maxItems": 100,
           "items": {"$ref": "#/$defs/bookmark"}
-        }
+        },
+        "groups": {"$ref": "#/$defs/groups"}
       }
     }
   }

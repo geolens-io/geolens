@@ -168,6 +168,7 @@ async def apply_map_update(
     ip_address: str | None,
     layer_keys: Sequence[str | None] | None = None,
     keep_layer_ids: Sequence[uuid.UUID] = (),
+    keep_widgets_of: Sequence[uuid.UUID] = (),
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Apply ``body`` to ``map_obj`` for ``user`` and return ``update_map``'s tuple.
 
@@ -196,7 +197,9 @@ async def apply_map_update(
     records the change of visibility itself. ``layer_keys`` gives each of
     ``body.layers`` the ``manifest_key`` its row stores; without it no key
     changes. A stored layer in ``keep_layer_ids`` that ``body.layers`` leaves
-    out is kept in its place, as a layer hidden from ``user`` is.
+    out is kept in its place, as a layer hidden from ``user`` is. A layer in
+    ``keep_widgets_of`` keeps its dashboard widgets when it moves to another
+    dataset, which a caller asks only once it has checked they fit there.
     """
     map_id = map_obj.id
     await _check_map_update(db, map_obj, body, user)
@@ -213,7 +216,11 @@ async def apply_map_update(
     keyed_before = (
         await _keyed_layers(db, map_id) if record_history and compares_layers else None
     )
-    kwargs = {**_update_kwargs(body, layer_keys), "keep_layer_ids": keep_layer_ids}
+    kwargs = {
+        **_update_kwargs(body, layer_keys),
+        "keep_layer_ids": keep_layer_ids,
+        "keep_widgets_of": keep_widgets_of,
+    }
     saved = await _save_map_update(db, map_id, body, user, kwargs)
     map_obj, layer_tuples = saved[0], saved[1]
 

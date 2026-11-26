@@ -3583,7 +3583,8 @@ export interface paths {
          *
          *     Returns HTTP 202 with per-layer outcomes. Partial success is possible:
          *     each layer result carries status='queued' or status='failed' with a
-         *     user-safe error message.
+         *     user-safe error message. An account at its dataset-count cap gets a 422
+         *     and nothing is queued.
          *
          *     Permission: same as POST /ingest/commit/{job_id} — 'upload' capability.
          */
@@ -3610,7 +3611,8 @@ export interface paths {
          *     Stores user metadata on the job and queues the ingest task.
          *     Only callable on jobs with status 'pending'. A 3D Tiles tileset's unpacked
          *     size and a point cloud's size are checked against the storage quota again
-         *     here.
+         *     here. The dataset-count cap is checked here, not at upload: an account at
+         *     its cap gets a 422 and the job stays pending.
          */
         post: operations["commit_import_ingest_commit__job_id__post"];
         delete?: never;
@@ -4091,7 +4093,9 @@ export interface paths {
          * @description Retry a failed ingestion job by re-queuing.
          *
          *     Only callable on jobs with status 'failed'. The staging file must
-         *     still exist (preserved on failure for retry).
+         *     still exist (preserved on failure for retry). A retry imports a new
+         *     dataset, so an account at its dataset-count cap gets a 422 and the job
+         *     stays failed.
          */
         post: operations["retry_job_jobs__job_id__retry_post"];
         delete?: never;
@@ -8525,6 +8529,11 @@ export interface components {
              * @description Database connections the deployment configures, listed only for an account that can create datasets.
              */
             database_connections?: components["schemas"]["CapabilitiesDatabaseConnection"][];
+            /**
+             * Groups
+             * @description The sharing groups the account may share with, by name: the ones it belongs to, or every group for an admin. A publish key shares as its owner without the admin role. The ids go in a publish manifest's `groups`.
+             */
+            groups?: components["schemas"]["GroupRef"][];
         };
         /** CapabilitiesRateLimits */
         CapabilitiesRateLimits: {
@@ -12365,7 +12374,7 @@ export interface components {
             /** Error Code */
             error_code?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"] | components["schemas"]["ManifestPublicFallbackWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"] | components["schemas"]["ManifestPublicFallbackWarning"] | components["schemas"]["ManifestGroupsLeftOffWarning"] | components["schemas"]["ManifestWideningKeptWarning"])[];
             /**
              * Can Retry
              * @default false
@@ -12417,7 +12426,7 @@ export interface components {
             /** Warning Message */
             warning_message?: string | null;
             /** Warnings */
-            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"] | components["schemas"]["ManifestPublicFallbackWarning"])[];
+            warnings?: (components["schemas"]["ReservedRenameWarning"] | components["schemas"]["DbfTruncationCollisionWarning"] | components["schemas"]["MercatorClipWarning"] | components["schemas"]["ZmDroppedWarning"] | components["schemas"]["ManifestCollectionRefusedWarning"] | components["schemas"]["ManifestAttributeUnmatchedWarning"] | components["schemas"]["ManifestPublicFallbackWarning"] | components["schemas"]["ManifestGroupsLeftOffWarning"] | components["schemas"]["ManifestWideningKeptWarning"])[];
             /** Progress */
             progress?: number | null;
             /** Current Step */
@@ -12743,6 +12752,11 @@ export interface components {
             visibility?: string | null;
             /** @description Links to the dataset. Null when there is no dataset yet or the caller can't read it. Left out in manifest version 1. */
             links?: components["schemas"]["ManifestDatasetLinks"] | null;
+            /**
+             * Groups
+             * @description Names of the groups the dataset is shared with once the entry's job finishes. Empty for a private dataset, whose earlier grants admit nobody until it is shared again. Null when the entry failed or the caller can't see the dataset's groups. Left out in manifest version 1.
+             */
+            groups?: string[] | null;
         };
         /** ManifestApplyRequest */
         ManifestApplyRequest: {
@@ -12918,6 +12932,11 @@ export interface components {
              * @description Per-column title, description and units, by column name in the uploaded file. Version 2 only. A null field keeps the stored text; a name matching no column is warning A092.
              */
             attributes?: components["schemas"]["ManifestAttribute"][] | null;
+            /**
+             * Groups
+             * @description Version 2 only. Share with exactly these groups, by id from `capabilities.me.groups`; omitted keeps the current groups, and an empty list removes them all. A dataset's new data is never published while a group outside the list still has it shared: if such a group can't be removed, the entry or its job fails and the dataset keeps its data and groups. A private item with groups is restricted: its owner, admins and the groups' members read it. A group that doesn't exist, or that the caller isn't a member of (an admin may use any), is left off with warning A058 and the publish goes ahead. A publish key can't add groups to an existing private or restricted item, which is warning A056 and keeps the item's groups; an item that would then keep a group the list leaves out is refused with error A056.
+             */
+            groups?: string[] | null;
         };
         /**
          * ManifestDatasetLinks
@@ -12939,6 +12958,32 @@ export interface components {
              * @description The vector tile URL template, with {z}, {x} and {y}. Null for a dataset with no vector tiles, and while a job is still writing the dataset (queued, running or held): read the template again once it completes. A private dataset's tiles need the caller's API key header.
              */
             tiles?: string | null;
+        };
+        /** ManifestGroupsLeftOffDetail */
+        ManifestGroupsLeftOffDetail: {
+            /**
+             * Group Ids
+             * @description The groups the dataset wasn't shared with.
+             */
+            group_ids: string[];
+            /**
+             * Reason
+             * @description left_off: the groups no longer exist, or the submitter may not share with them. held_back: sharing with them would let more people read the dataset than before this publish, by a publish key or after the dataset was narrowed since the apply, so it kept the groups it had. refused: the share was refused or held up, and the dataset kept the groups it had.
+             * @enum {string}
+             */
+            reason: "left_off" | "held_back" | "refused";
+        };
+        /**
+         * ManifestGroupsLeftOffWarning
+         * @description Publish manifest code A058: the dataset wasn't shared with some groups.
+         */
+        ManifestGroupsLeftOffWarning: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "manifest_groups_left_off";
+            details: components["schemas"]["ManifestGroupsLeftOffDetail"];
         };
         /** ManifestLossItem */
         ManifestLossItem: {
@@ -12977,14 +13022,14 @@ export interface components {
             basemap_style?: string | null;
             /**
              * Styling
-             * @description Whether a republish replaces the map's styling: its view, basemap, bookmarks and its keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless styling it would write was edited in GeoLens since the last publish that replaced it, and answers info A070 when it keeps it. A view or basemap edit counts only when the manifest sends a `view` or `basemap_style` that would overwrite it, and a bookmarks edit only when it sends `bookmarks`. A kept layer keeps its dataset too, with warning A073 when the manifest names another. Name, description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's styling.
+             * @description Whether a republish replaces the map's styling: its view, basemap, bookmarks and its keyed layers' paint, layout, style, labels, popup, filter, opacity, visible flag and name. `replace` always does. `keep` never does, and keeps keyed layers the manifest no longer lists. `replace_if_unedited` does unless styling it would write was edited in GeoLens since the last publish that replaced it, and answers info A070 when it keeps it. A view or basemap edit counts only when the manifest sends a `view` or `basemap_style` that would overwrite it, and a bookmarks edit only when it sends `bookmarks`. A kept layer the manifest points at another dataset moves to it and keeps its styling when that fits there: by the datasets' sharing rules, everyone who can read the new dataset can read the old one, the same geometry type (for a raster, the same DEM kind and one band under a colormap), and every column its styling and dashboard widgets read, in the type family it had and of the type each use needs. A move clears the map's thumbnail and social card image. Otherwise it takes the manifest's styling, with warning A073 naming what didn't fit. Name, description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's styling.
              * @default replace_if_unedited
              * @enum {string}
              */
             styling: "replace_if_unedited" | "replace" | "keep";
             /**
              * Thumbnail
-             * @description A PNG or JPEG data URI, stored as the map's thumbnail once the map is written, with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling leaves the map's thumbnail as it is. One the storage step refuses or can't store is warning A072, and the map stays published.
+             * @description A PNG or JPEG data URI, stored as the map's thumbnail once the map is written, with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling leaves the map's thumbnail as it is unless it moves a layer to another dataset, which clears it. One the storage step refuses or can't store is warning A072, and the map stays published.
              */
             thumbnail?: string | null;
             /** @description Written, one line per item, in a block at the top of the map's notes, above a `---` line. A republish replaces the leading block only when it is exactly a block some publish of this map wrote; all other text is kept whole. Left out when the styling is kept, and cut to what fits the notes limit. When the notes leave no room for the block, none is written, and an earlier publish's block is removed if the notes start with one; the rest of the notes is untouched (info A071). */
@@ -13001,6 +13046,11 @@ export interface components {
              * @description Named areas, in display order (max 100). Part of the map's styling: a republish that applies styling replaces the map's bookmarks with these, and an empty list removes them. Left out, the map's bookmarks are kept.
              */
             bookmarks?: components["schemas"]["MapBookmark"][] | null;
+            /**
+             * Groups
+             * @description Version 2 only. Share with exactly these groups, by id from `capabilities.me.groups`; omitted keeps the current groups, and an empty list removes them all. A dataset's new data is never published while a group outside the list still has it shared: if such a group can't be removed, the entry or its job fails and the dataset keeps its data and groups. A private item with groups is restricted: its owner, admins and the groups' members read it. A group that doesn't exist, or that the caller isn't a member of (an admin may use any), is left off with warning A058 and the publish goes ahead. A publish key can't add groups to an existing private or restricted item, which is warning A056 and keeps the item's groups; an item that would then keep a group the list leaves out is refused with error A056.
+             */
+            groups?: string[] | null;
         };
         /**
          * ManifestMapLayer
@@ -13270,6 +13320,27 @@ export interface components {
             layer?: string | null;
             /** Checksum */
             checksum?: string | null;
+        };
+        /** ManifestWideningKeptDetail */
+        ManifestWideningKeptDetail: {
+            /**
+             * Visibility
+             * @description The wider level the entry asked for.
+             */
+            visibility: string;
+        };
+        /**
+         * ManifestWideningKeptWarning
+         * @description Publish manifest code A056: a publish key can't widen the dataset, so
+         *     it kept its level.
+         */
+        ManifestWideningKeptWarning: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            kind: "manifest_widening_kept";
+            details: components["schemas"]["ManifestWideningKeptDetail"];
         };
         /** MapAccessResponse */
         MapAccessResponse: {
@@ -18737,7 +18808,7 @@ export interface components {
             allowed_extensions: string;
             /**
              * Remaining Dataset Quota
-             * @description Datasets the caller may still create before hitting the per-user count cap, or null when no count cap is configured (unlimited). Advisory UX hint only — the cap is enforced server-side at upload.
+             * @description Datasets the caller may still create before hitting the per-user count cap, or null when no count cap is configured (unlimited). Advisory UX hint only — the cap is enforced server-side when a dataset is created.
              */
             remaining_dataset_quota?: number | null;
         };

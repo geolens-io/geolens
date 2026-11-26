@@ -6,7 +6,7 @@ from __future__ import annotations
 import copy
 import json
 import math
-from collections.abc import Mapping, Sequence
+from collections.abc import Callable, Mapping, Sequence
 from pathlib import Path
 from typing import Any
 from urllib.parse import urlsplit
@@ -30,6 +30,7 @@ from ._sdk_helpers import (
 
 APPLY_ENDPOINT = "/ingest/manifest/apply"
 _COUNT_KEYS = ("create", "update", "skip", "blocked", "error")
+_MAP_COUNT_KEYS = ("create", "update", "skip", "error")
 
 # The fixed 600s long-request bound (EXTENDED_REQUEST_TIMEOUT_SECONDS) can
 # expire during an apply that is still succeeding. ManifestApplyRequest allows
@@ -469,9 +470,38 @@ def summarize_results(response: Mapping[str, Any]) -> dict[str, int]:
     return counts
 
 
+def _map_results(response: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    """The version 2 `maps` results; empty for a version 1 response."""
+    maps = response.get("maps")
+    if not isinstance(maps, list):
+        return []
+    return [item for item in maps if isinstance(item, Mapping)]
+
+
+def summarize_map_results(response: Mapping[str, Any]) -> dict[str, int]:
+    """Count map result actions in deterministic key order."""
+
+    counts = dict.fromkeys(_MAP_COUNT_KEYS, 0)
+    for item in _map_results(response):
+        action = item.get("action")
+        if action in counts:
+            counts[str(action)] += 1
+    return counts
+
+
 def apply_report_payload(path: Path, response: Mapping[str, Any]) -> dict[str, Any]:
     """Return deterministic JSON output for `geolens --json apply`."""
 
+    report = _dataset_report_payload(path, response)
+    if isinstance(response.get("maps"), list):
+        report["map_counts"] = summarize_map_results(response)
+        report["maps"] = response["maps"]
+    return report
+
+
+def _dataset_report_payload(
+    path: Path, response: Mapping[str, Any]
+) -> dict[str, Any]:
     return {
         "accepted": bool(response.get("accepted")),
         "counts": summarize_results(response),
@@ -484,6 +514,107 @@ def apply_report_payload(path: Path, response: Mapping[str, Any]) -> dict[str, A
     }
 
 
+_DEFERRED_MAP_CODE = "A052"
+
+
+def deferred_map_keys(response: Mapping[str, Any]) -> list[str]:
+    """Keys of maps the server held back until their datasets finish (A052)."""
+
+    return [
+        str(item["map_key"])
+        for item in _map_results(response)
+        if item.get("map_key")
+        and any(
+            isinstance(message, Mapping) and message.get("code") == _DEFERRED_MAP_CODE
+            for message in item.get("messages") or []
+        )
+    ]
+
+
+def _entry_succeeded(result: Mapping[str, Any]) -> bool:
+    """A dataset entry that finished: followed to complete, or an unchanged skip."""
+    status = result.get("final_status")
+    if status is not None:
+        return status == "complete"
+    return result.get("action") == "skip"
+
+
+def retry_deferred_maps(
+    client: Any,
+    document: Mapping[str, Any],
+    response: Mapping[str, Any],
+    *,
+    timeout: float | None | _Unset = _UNSET,
+) -> tuple[dict[str, Any], int]:
+    """Send the maps the server deferred (A052) again, once their datasets finish.
+
+    The maps are sent only when every dataset entry in this run completed;
+    otherwise each keeps its A052 result with a ``not_retried`` reason. The request has the
+    document's request-level fields, no datasets and only those maps, so nothing
+    is uploaded or queued again. Returns the merged response and an exit code,
+    nonzero when the second request failed, in which case the first apply's
+    results stand and the maps carry the failure as ``not_retried``.
+    """
+    merged = dict(response)
+    results = [r for r in response.get("results") or [] if isinstance(r, Mapping)]
+    keys = set(deferred_map_keys(response))
+    to_send = [
+        item
+        for item in document.get("maps") or []
+        if isinstance(item, Mapping) and item.get("key") in keys
+    ]
+    reasons: dict[str, str] = {}
+    if not all(_entry_succeeded(result) for result in results):
+        reasons = {
+            str(item["key"]): (
+                "a dataset in this run did not finish; run apply again once it does"
+            )
+            for item in to_send
+        }
+        to_send = []
+    final: dict[str, Mapping[str, Any]] = {}
+    failure = 0
+    if to_send:
+        request: dict[str, Any] = {
+            name: copy.deepcopy(document[name])
+            for name in ("manifest_version", "client", "catalog", "public_fallback")
+            if name in document
+        }
+        request.update(datasets=[], maps=copy.deepcopy(to_send), dry_run=False)
+        try:
+            again = post_manifest_apply(client, request, timeout=timeout)
+            final = {
+                str(m.get("map_key")): m
+                for m in again.get("maps") or []
+                if isinstance(m, Mapping)
+            }
+        except (ManifestApplyRequestError, ManifestApplyTimeout) as exc:
+            failure = exc.exit_code
+            reason = f"retry failed: {exc}"
+        except typer.Exit as exc:
+            failure = int(exc.exit_code or EXIT_GENERIC)
+            reason = "retry failed: the request did not complete"
+        if failure:
+            reasons.update({str(m["key"]): reason for m in to_send})
+    merged["maps"] = [
+        _with_retry_outcome(m, final, reasons) for m in response.get("maps") or []
+    ]
+    return merged, failure
+
+
+def _with_retry_outcome(
+    item: Any, final: Mapping[str, Any], reasons: Mapping[str, str]
+) -> Any:
+    if not isinstance(item, Mapping):
+        return item
+    key = str(item.get("map_key"))
+    if key in final:
+        return final[key]
+    if key in reasons:
+        return {**item, "not_retried": reasons[key]}
+    return item
+
+
 def wait_for_apply_jobs(
     client: Any,
     response: Mapping[str, Any],
@@ -491,6 +622,7 @@ def wait_for_apply_jobs(
     instance: str,
     credential_kind: str,
     credential_provenance: str | None,
+    on_client_replaced: Callable[[Any], None] | None = None,
 ) -> dict[str, Any]:
     """Follow every queued job to its end and stamp each result with the outcome.
 
@@ -508,6 +640,8 @@ def wait_for_apply_jobs(
     def replace_client(replacement: Any) -> None:
         nonlocal active_client
         active_client = replacement
+        if on_client_replaced is not None:
+            on_client_replaced(replacement)
 
     waited = copy.deepcopy(dict(response))
     results = waited.get("results")
@@ -585,6 +719,8 @@ def has_apply_errors(response: Mapping[str, Any]) -> bool:
     """Return True when the backend rejected or any result is an error."""
 
     if response.get("accepted") is False:
+        return True
+    if any(item.get("action") == "error" for item in _map_results(response)):
         return True
     results = response.get("results")
     if not isinstance(results, list):
@@ -672,3 +808,88 @@ def render_apply_summary(
             )
 
     console.print(table)
+    _render_dataset_details(console, results)
+    _render_map_results(console, response)
+
+
+def _print_line(console: Console, line: str) -> None:
+    console.print(line, soft_wrap=True, markup=False, highlight=False)
+
+
+def _message_lines(messages: Any, indent: str) -> list[str]:
+    if not isinstance(messages, list):
+        return []
+    lines = []
+    for message in messages:
+        if not isinstance(message, Mapping):
+            continue
+        layer = f" (layer {message['layer']})" if message.get("layer") else ""
+        lines.append(
+            f"{indent}{message.get('severity', 'info')} {message.get('code', '')}"
+            f"{layer}: {message.get('message', '')}"
+        )
+        if message.get("fix"):
+            lines.append(f"{indent}  Fix: {message['fix']}")
+    return lines
+
+
+def _link_lines(links: Any, indent: str) -> list[str]:
+    if not isinstance(links, Mapping):
+        return []
+    return [f"{indent}{name}: {url}" for name, url in links.items() if url]
+
+
+def _render_dataset_details(console: Console, results: Any) -> None:
+    """Visibility, links and coded messages that version 2 adds to each entry."""
+    if not isinstance(results, list):
+        return
+    for result in results:
+        if not isinstance(result, Mapping):
+            continue
+        lines = []
+        if result.get("visibility"):
+            lines.append(f"  visibility: {result['visibility']}")
+        lines += _link_lines(result.get("links"), "  ")
+        lines += _message_lines(result.get("messages"), "  ")
+        if lines:
+            _print_line(console, f"{result.get('dataset_key')}:")
+            for line in lines:
+                _print_line(console, line)
+
+
+def _render_map_results(console: Console, response: Mapping[str, Any]) -> None:
+    maps = _map_results(response)
+    if not maps:
+        return
+    counts = summarize_map_results(response)
+    _print_line(
+        console,
+        "Maps: "
+        + ", ".join(f"{key}={counts[key]}" for key in _MAP_COUNT_KEYS),
+    )
+    table = Table(title="Manifest map results")
+    for column in ("MAP", "ACTION", "MAP ID", "VISIBILITY", "STYLING"):
+        table.add_column(column, overflow="fold")
+    for item in maps:
+        table.add_row(
+            *(
+                Text(_cell(item, key))
+                for key in ("map_key", "action", "map_id", "visibility", "styling")
+            )
+        )
+    console.print(table)
+    for item in maps:
+        lines = _link_lines(item.get("links"), "  ")
+        if item.get("groups"):
+            lines.append("  groups: " + ", ".join(str(g) for g in item["groups"]))
+        for layer in item.get("removed_layers") or []:
+            if isinstance(layer, Mapping):
+                where = f" ({layer['link']})" if layer.get("link") else ""
+                lines.append(f"  removed layer {layer.get('key')}{where}")
+        lines += _message_lines(item.get("messages"), "  ")
+        if item.get("not_retried"):
+            lines.append(f"  not retried: {item['not_retried']}")
+        if lines:
+            _print_line(console, f"{item.get('map_key')}:")
+            for line in lines:
+                _print_line(console, line)

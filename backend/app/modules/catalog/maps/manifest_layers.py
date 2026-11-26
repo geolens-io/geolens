@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import itertools
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 from app.modules.catalog.maps.models import MapLayer
@@ -40,6 +41,7 @@ def plan_layer_stack(
     *,
     keep_styling: bool = False,
     remove_missing: bool = True,
+    moved: Mapping[uuid.UUID, MapLayerInput] | None = None,
 ) -> tuple[list[MapLayerInput], list[str | None], list[MapLayer], int, list[uuid.UUID]]:
     """The layers an apply sends, their keys, the keyed layers it removes,
     how many layers the map then has, and the stored rows it keeps without
@@ -48,7 +50,8 @@ def plan_layer_stack(
     ``stored`` pairs each of the map's layers with its dataset, None when the
     caller can't read it; ``layers`` and ``keys`` are the manifest's layers
     as stored and their keys. A keyed layer keeps its row, and with
-    ``keep_styling`` its stored styling, dataset and slot too. A layer added
+    ``keep_styling`` its slot and, unless ``moved`` gives it by row id, its
+    stored styling and dataset too. A layer added
     in GeoLens keeps its slot, and so does a layer the caller can't read,
     which the save keeps; the manifest's other layers take the other slots in
     manifest order, the first on top. A readable keyed layer the manifest no longer
@@ -96,7 +99,9 @@ def plan_layer_stack(
         )
         sent_keys.append(key)
     readable_kept = [layer for layer, dataset in kept if dataset is not None]
-    sent += [kept_layer(layer) for layer in readable_kept]
+    sent += [
+        (moved or {}).get(layer.id) or kept_layer(layer) for layer in readable_kept
+    ]
     sent_keys += [layer.manifest_key for layer in readable_kept]
     unsent = [layer.id for layer, dataset in kept if dataset is None]
     unlisted = [layer for layer, _ in kept if layer.manifest_key not in listed]

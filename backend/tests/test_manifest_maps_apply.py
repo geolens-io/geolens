@@ -541,7 +541,11 @@ async def test_a_public_map_over_a_private_dataset_is_a020_in_both_runs(
         assert (result.action, _codes(result)) == ("error", [("A020", "error", None)])
         assert "datasets that aren't public" in result.messages[0].message
     assert (fell_back.action, fell_back.visibility) == ("create", "internal")
-    assert _codes(fell_back) == [("A020", "warning", None)]
+    # The organization reads the map, and not the private layer's dataset.
+    assert _codes(fell_back) == [
+        ("A020", "warning", None),
+        ("A056", "warning", "parks"),
+    ]
     assert (await _map_row(test_db_session, fell_back.map_id)).visibility == "internal"
     assert await _count(test_db_session, Map, "qgis-map-open") == 1
 
@@ -646,7 +650,10 @@ async def test_a_publish_key_never_makes_a_map_public_or_wider(
     assert (fell_back.action, fell_back.visibility) == ("create", "internal")
     assert _codes(fell_back) == [("A020", "warning", None)]
     assert (private.action, private.visibility) == ("create", "private")
-    assert (widened.action, _codes(widened)) == ("error", [("A099", "error", None)])
+    # The widening is left out and the map is still published, at its level.
+    assert (widened.action, widened.visibility) == ("update", "private")
+    assert _codes(widened) == [("A056", "warning", None)]
+    assert "can't share the map" in widened.messages[0].message
     assert (await _map_row(test_db_session, private.map_id)).visibility == "private"
 
 
@@ -1490,7 +1497,10 @@ async def test_a_kept_layer_is_judged_on_what_the_request_publishes(
 
     [result] = await run_manifest_maps(test_db_session, request, admin, results)
 
-    assert _codes(result) == ([("A020", "error", None)] if refused else [])
+    # The private map the dry run opens to everyone says so.
+    assert _codes(result) == (
+        [("A020", "error", None)] if refused else [("A057", "warning", None)]
+    )
 
 
 async def test_a_kept_layer_survives_its_dataset_becoming_readable_mid_apply(

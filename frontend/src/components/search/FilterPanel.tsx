@@ -23,6 +23,7 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { FilterChip } from './FilterChip';
+import { RecordTypeBadge } from './RecordTypeBadge';
 import { FilterSheet } from './FilterSheet';
 import { KeywordFacetPicker } from './KeywordFacetPicker';
 import { SaveSearchButton } from './SavedSearches';
@@ -655,37 +656,55 @@ export function FilterPanel({
           }
           className="grid grid-cols-1 gap-2"
         >
-          <ToggleGroupItem value="all" className="h-8 justify-between px-3 text-xs">
+          <ToggleGroupItem value="all" className="h-8 justify-between gap-2 px-3 text-xs">
             {t('filters.allTypes', { defaultValue: 'All' })}
             {(allTypesTotal !== undefined || Object.keys(counts).length > 0) && <span className="readout text-muted-foreground">{allTypeCount}</span>}
           </ToggleGroupItem>
-          <ToggleGroupItem value="vector_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.vector_dataset === 0}>
-            {t('filters.vector', { defaultValue: 'Vector' })}
+          <ToggleGroupItem value="vector_dataset" className="h-8 justify-between gap-2 px-3 text-xs" disabled={counts.vector_dataset === 0}>
+            <span className="flex min-w-0 items-center gap-2">
+              <RecordTypeBadge recordType="vector_dataset" decorative />
+              {t('filters.vector', { defaultValue: 'Vector' })}
+            </span>
             {counts.vector_dataset !== undefined && <span className="readout text-muted-foreground">{counts.vector_dataset}</span>}
           </ToggleGroupItem>
-          <ToggleGroupItem value="raster_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.raster_dataset === 0}>
-            {t('filters.raster', { defaultValue: 'Raster' })}
+          <ToggleGroupItem value="raster_dataset" className="h-8 justify-between gap-2 px-3 text-xs" disabled={counts.raster_dataset === 0}>
+            <span className="flex min-w-0 items-center gap-2">
+              <RecordTypeBadge recordType="raster_dataset" decorative />
+              {t('filters.raster', { defaultValue: 'Raster' })}
+            </span>
             {counts.raster_dataset !== undefined && <span className="readout text-muted-foreground">{counts.raster_dataset}</span>}
           </ToggleGroupItem>
-          <ToggleGroupItem value="vrt_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.vrt_dataset === 0}>
-            {t('filters.vrt', { defaultValue: 'Virtual Raster' })}
+          <ToggleGroupItem value="vrt_dataset" className="h-8 justify-between gap-2 px-3 text-xs" disabled={counts.vrt_dataset === 0}>
+            <span className="flex min-w-0 items-center gap-2">
+              <RecordTypeBadge recordType="vrt_dataset" decorative />
+              {t('filters.vrt', { defaultValue: 'Virtual Raster' })}
+            </span>
             {counts.vrt_dataset !== undefined && <span className="readout text-muted-foreground">{counts.vrt_dataset}</span>}
           </ToggleGroupItem>
           {showsTableToggle && (
-            <ToggleGroupItem value="table" className="h-8 justify-between px-3 text-xs" disabled={counts.table === 0}>
-              {t('card.table', { defaultValue: 'Table' })}
+            <ToggleGroupItem value="table" className="h-8 justify-between gap-2 px-3 text-xs" disabled={counts.table === 0}>
+              <span className="flex min-w-0 items-center gap-2">
+                <RecordTypeBadge recordType="table" decorative />
+                {t('card.table', { defaultValue: 'Table' })}
+              </span>
               {counts.table !== undefined && <span className="readout text-muted-foreground">{counts.table}</span>}
             </ToggleGroupItem>
           )}
           {showsTiles3dToggle && (
-            <ToggleGroupItem value="tiles3d_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.tiles3d_dataset === 0}>
-              {t('card.tiles3d', { defaultValue: '3D Tiles' })}
+            <ToggleGroupItem value="tiles3d_dataset" className="h-8 justify-between gap-2 px-3 text-xs" disabled={counts.tiles3d_dataset === 0}>
+              <span className="flex min-w-0 items-center gap-2">
+                <RecordTypeBadge recordType="tiles3d_dataset" decorative />
+                {t('card.tiles3d', { defaultValue: '3D Tiles' })}
+              </span>
               <span className="readout text-muted-foreground">{counts.tiles3d_dataset}</span>
             </ToggleGroupItem>
           )}
           {showsPointcloudToggle && (
-            <ToggleGroupItem value="pointcloud_dataset" className="h-8 justify-between px-3 text-xs" disabled={counts.pointcloud_dataset === 0}>
-              {t('card.pointcloud', { defaultValue: 'Point cloud' })}
+            <ToggleGroupItem value="pointcloud_dataset" className="h-8 justify-between gap-2 px-3 text-xs" disabled={counts.pointcloud_dataset === 0}>
+              <span className="flex min-w-0 items-center gap-2">
+                <RecordTypeBadge recordType="pointcloud_dataset" decorative />
+                {t('card.pointcloud', { defaultValue: 'Point cloud' })}
+              </span>
               <span className="readout text-muted-foreground">{counts.pointcloud_dataset}</span>
             </ToggleGroupItem>
           )}

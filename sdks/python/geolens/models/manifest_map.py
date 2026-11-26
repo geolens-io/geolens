@@ -12,6 +12,7 @@ from ..models.manifest_map_styling import ManifestMapStyling
 from ..models.manifest_map_visibility_type_0 import check_manifest_map_visibility_type_0
 from ..models.manifest_map_visibility_type_0 import ManifestMapVisibilityType0
 from typing import cast
+from uuid import UUID
 
 if TYPE_CHECKING:
     from ..models.manifest_loss_report import ManifestLossReport
@@ -39,13 +40,17 @@ class ManifestMap:
             `replace_if_unedited` does unless styling it would write was edited in GeoLens since the last publish that
             replaced it, and answers info A070 when it keeps it. A view or basemap edit counts only when the manifest sends
             a `view` or `basemap_style` that would overwrite it, and a bookmarks edit only when it sends `bookmarks`. A kept
-            layer keeps its dataset too, with warning A073 when the manifest names another. Name, description, notes,
-            visibility and new layers are applied in every mode, and a new map takes the manifest's styling. Default:
-            'replace_if_unedited'.
+            layer the manifest points at another dataset moves to it and keeps its styling when that fits there: by the
+            datasets' sharing rules, everyone who can read the new dataset can read the old one, the same geometry type (for
+            a raster, the same DEM kind and one band under a colormap), and every column its styling and dashboard widgets
+            read, in the type family it had and of the type each use needs. A move clears the map's thumbnail and social
+            card image. Otherwise it takes the manifest's styling, with warning A073 naming what didn't fit. Name,
+            description, notes, visibility and new layers are applied in every mode, and a new map takes the manifest's
+            styling. Default: 'replace_if_unedited'.
         thumbnail (None | str | Unset): A PNG or JPEG data URI, stored as the map's thumbnail once the map is written,
             with the thumbnail upload's checks, when the manifest's styling is applied. A publish that keeps the styling
-            leaves the map's thumbnail as it is. One the storage step refuses or can't store is warning A072, and the map
-            stays published.
+            leaves the map's thumbnail as it is unless it moves a layer to another dataset, which clears it. One the storage
+            step refuses or can't store is warning A072, and the map stays published.
         loss_report (ManifestLossReport | None | Unset): Written, one line per item, in a block at the top of the map's
             notes, above a `---` line. A republish replaces the leading block only when it is exactly a block some publish
             of this map wrote; all other text is kept whole. Left out when the styling is kept, and cut to what fits the
@@ -56,6 +61,14 @@ class ManifestMap:
         bookmarks (list[MapBookmark] | None | Unset): Named areas, in display order (max 100). Part of the map's
             styling: a republish that applies styling replaces the map's bookmarks with these, and an empty list removes
             them. Left out, the map's bookmarks are kept.
+        groups (list[UUID] | None | Unset): Version 2 only. Share with exactly these groups, by id from
+            `capabilities.me.groups`; omitted keeps the current groups, and an empty list removes them all. A dataset's new
+            data is never published while a group outside the list still has it shared: if such a group can't be removed,
+            the entry or its job fails and the dataset keeps its data and groups. A private item with groups is restricted:
+            its owner, admins and the groups' members read it. A group that doesn't exist, or that the caller isn't a member
+            of (an admin may use any), is left off with warning A058 and the publish goes ahead. A publish key can't add
+            groups to an existing private or restricted item, which is warning A056 and keeps the item's groups; an item
+            that would then keep a group the list leaves out is refused with error A056.
     """
 
     key: str
@@ -69,6 +82,7 @@ class ManifestMap:
     loss_report: ManifestLossReport | None | Unset = UNSET
     visibility: ManifestMapVisibilityType0 | None | Unset = UNSET
     bookmarks: list[MapBookmark] | None | Unset = UNSET
+    groups: list[UUID] | None | Unset = UNSET
 
     def to_dict(self) -> dict[str, Any]:
         from ..models.manifest_loss_report import ManifestLossReport
@@ -141,6 +155,18 @@ class ManifestMap:
         else:
             bookmarks = self.bookmarks
 
+        groups: list[str] | None | Unset
+        if isinstance(self.groups, Unset):
+            groups = UNSET
+        elif isinstance(self.groups, list):
+            groups = []
+            for groups_type_0_item_data in self.groups:
+                groups_type_0_item = str(groups_type_0_item_data)
+                groups.append(groups_type_0_item)
+
+        else:
+            groups = self.groups
+
         field_dict: dict[str, Any] = {}
 
         field_dict.update(
@@ -166,6 +192,8 @@ class ManifestMap:
             field_dict["visibility"] = visibility
         if bookmarks is not UNSET:
             field_dict["bookmarks"] = bookmarks
+        if groups is not UNSET:
+            field_dict["groups"] = groups
 
         return field_dict
 
@@ -299,6 +327,28 @@ class ManifestMap:
 
         bookmarks = _parse_bookmarks(d.pop("bookmarks", UNSET))
 
+        def _parse_groups(data: object) -> list[UUID] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                groups_type_0 = []
+                _groups_type_0 = data
+                for groups_type_0_item_data in _groups_type_0:
+                    groups_type_0_item = UUID(groups_type_0_item_data)
+
+                    groups_type_0.append(groups_type_0_item)
+
+                return groups_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[UUID] | None | Unset, data)
+
+        groups = _parse_groups(d.pop("groups", UNSET))
+
         manifest_map = cls(
             key=key,
             name=name,
@@ -311,6 +361,7 @@ class ManifestMap:
             loss_report=loss_report,
             visibility=visibility,
             bookmarks=bookmarks,
+            groups=groups,
         )
 
         return manifest_map

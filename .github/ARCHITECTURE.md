@@ -85,18 +85,20 @@ Features/Records, STAC, and DCAT.
 ## How an upload flows (asynchronous)
 
 ```
-upload → processing/ingest/router.py (validates, stages file, checks quota)
-       → enqueues a procrastinate job (row in Postgres)
+upload → processing/ingest/router.py (validates, stages file, checks the storage quota)
+commit → checks the dataset quota, enqueues a procrastinate job (row in Postgres)
        → worker.py picks it up → ogr2ogr pipeline → writes features to PostGIS,
          creates catalog Records, generates embeddings + a quicklook
 ```
 
 The HTTP request returns immediately; the heavy work happens in the **worker**. The
-upload request does an early quota check so an over-quota upload fails fast. The
-authoritative check runs in the worker: `reserve_dataset_slot` and `reserve_storage_bytes`
-in `modules/quota/service.py` take a per-user advisory lock inside the transaction that
-creates the record, then recount usage. Concurrent uploads by one user serialize on that
-lock, so they can't all pass the early check and overshoot the cap.
+upload request does an early storage-quota check so an over-quota upload fails fast.
+The dataset-count cap is checked at the commit instead, because an upload may replace
+an existing dataset through a publish manifest. The authoritative check runs in the
+worker: `reserve_dataset_slot` and `reserve_storage_bytes` in
+`modules/quota/service.py` take a per-user advisory lock inside the transaction that
+creates the record, then recount usage. Concurrent imports by one user serialize on
+that lock, so they can't all pass the early checks and overshoot the cap.
 
 ---
 
