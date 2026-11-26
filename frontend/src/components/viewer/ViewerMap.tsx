@@ -224,6 +224,12 @@ export const ViewerMap = memo(function ViewerMap({
   // each remount opens it again.
   const shellRef = useRef<HTMLDivElement>(null);
   useEffect(() => (shellRef.current ? keepCompactAttributionFolded(shellRef.current) : undefined), []);
+  // The legend is a sibling of this map, so it can't see the docked table
+  // shrinking the visible map. It reads the table's height from the viewport.
+  const reportDataPanelHeight = useCallback((height: number) => {
+    shellRef.current?.closest<HTMLElement>('#map-viewport')?.style.setProperty('--viewer-data-panel-height', `${height}px`);
+    onDataPanelHeightChange?.(height);
+  }, [onDataPanelHeightChange]);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
@@ -1323,7 +1329,7 @@ export const ViewerMap = memo(function ViewerMap({
           embedToken={embedToken}
           onClose={closeDataPanel}
           onListShownChange={setDataListShown}
-          onHeightChange={onDataPanelHeightChange}
+          onHeightChange={reportDataPanelHeight}
         />
       )}
     </div>

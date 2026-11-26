@@ -141,8 +141,9 @@ export function LayerLegend({
         // absolutely positioned inside the map, so a viewport cap would let a
         // tall legend run behind the Map data button (bottom-20 + ~2rem) and the
         // basemap toggle (bottom-8) in the same corner. 11rem = the 3.5rem top
-        // offset plus clearance above that bottom-left stack.
-        className={`absolute ${edge} top-14 z-10 w-64 max-h-[calc(100%-11rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50`}
+        // offset plus clearance above that bottom-left stack. The docked Map data
+        // table's height comes off too, since it shrinks the visible map.
+        className={`absolute ${edge} top-14 z-10 w-64 max-h-[calc(100%-11rem-var(--viewer-data-panel-height,0px))] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50`}
       >
         <div className="p-3 border-b border-border/50">
           <h2 className="text-sm font-semibold text-foreground">

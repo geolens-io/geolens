@@ -114,6 +114,32 @@ test.describe('Viewer Map data panel', () => {
     }
   });
 
+  test('a tall legend stays above the docked table', async ({ page, request }) => {
+    await page.setViewportSize({ width: 1600, height: 800 });
+    const tallMapId = await createMap(request, `Reader Legend E2E ${Date.now()}`);
+    try {
+      for (let i = 0; i < 14; i += 1) {
+        const layer = await request.post(`${BASE_URL}/api/maps/${tallMapId}/layers/`, {
+          headers: authHeaders(),
+          data: { dataset_id: datasetId },
+        });
+        expect(layer.ok()).toBe(true);
+      }
+      const launcher = await openViewer(page, tallMapId);
+      const legend = page.getByRole('region', { name: 'Layers', exact: true });
+      await expect(legend).toBeVisible();
+      await launcher.click();
+      const panel = page.getByRole('region', { name: 'Map data' });
+      await expect(panel.getByRole('row', { name: /^Show row / }).first()).toBeVisible({ timeout: 15_000 });
+      await expect.poll(async () => {
+        const [l, p] = await Promise.all([legend.boundingBox(), panel.boundingBox()]);
+        return l && p ? p.y - (l.y + l.height) : -1;
+      }).toBeGreaterThanOrEqual(0);
+    } finally {
+      await deleteMap(request, tallMapId);
+    }
+  });
+
   test('on a phone the panel docks in the map pane and Expand opens it full screen', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     const launcher = await openViewer(page, mapId);
