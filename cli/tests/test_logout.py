@@ -105,3 +105,38 @@ class TestLogoutRevokesServerSession:
         result = runner.invoke(app, ["logout"])
         assert result.exit_code == 0, result.output
         assert calls == []
+
+    def test_unpaired_refresh_token_is_not_used(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import auth as _auth
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        runner.invoke(app, ["login", "https://prod.example.com/api", "--token", "tok"])
+        _auth.store_refresh_token(
+            "https://prod.example.com/api", "old-refresh", bearer_token="older-tok"
+        )
+        calls = []
+
+        class _Resp:
+            status_code = 204
+
+        monkeypatch.setattr(self._LOGOUT, lambda **kw: calls.append(kw) or _Resp())
+        result = runner.invoke(app, ["logout"])
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+        assert "body" not in calls[0]
+
+    def test_rejected_bearer_warns(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        runner.invoke(app, ["login", "https://prod.example.com/api", "--token", "tok"])
+
+        class _Resp:
+            status_code = 401
+
+        monkeypatch.setattr(self._LOGOUT, lambda **kw: _Resp())
+        result = runner.invoke(app, ["logout"])
+        assert result.exit_code == 0, result.output
+        assert "may still be active" in result.output

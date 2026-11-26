@@ -907,7 +907,9 @@ def _revoke_server_session(instance: str) -> bool:
     """Revoke the stored login's session on the server; False if that failed.
 
     API-key and anonymous profiles have no session, so nothing is sent and the
-    result is True. An expired session answers 401, which is already revoked.
+    result is True. A refresh token is used only when it is paired with the
+    stored bearer; otherwise the bearer's own session is revoked, and a bearer
+    the server rejects counts as a failure since its refresh family may live on.
     """
     if _auth.load_active_credential_kind(instance) == "api_key":
         return True
@@ -918,21 +920,28 @@ def _revoke_server_session(instance: str) -> bool:
 
     try:
         refresh = _auth.load_refresh_token_strict(instance)
-        bearer = _auth.load_bearer_token(instance)
-        if refresh:
+        bearer = _auth._load_stored_bearer_value(instance)
+        fingerprint = _auth._load_refresh_fingerprint(instance)
+        paired = bool(
+            refresh
+            and bearer
+            and fingerprint == _auth._fingerprint_bearer(bearer)
+        )
+        if paired:
             resp = _logout.sync_detailed(
                 client=make_client(instance).client,
                 body=RefreshRequest(refresh_token=refresh),
             )
-        elif bearer:
+            # An unknown refresh token has nothing left to revoke.
+            return int(resp.status_code) in (204, 401)
+        if bearer:
             resp = _logout.sync_detailed(
-                client=make_client(instance, bearer_token=bearer.value).client
+                client=make_client(instance, bearer_token=bearer).client
             )
-        else:
-            return True
+            return int(resp.status_code) == 204
     except Exception:  # broad: offline or unreadable storage must not block local logout
         return False
-    return int(resp.status_code) in (204, 401)
+    return True
 
 
 @app.command()
