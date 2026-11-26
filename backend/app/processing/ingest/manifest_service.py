@@ -569,6 +569,8 @@ async def _admit_key_dataset(db: AsyncSession, dataset: Any, user: Identity) -> 
     # level (layering invariant).
     from app.modules.catalog.authorization import check_dataset_write_access
 
+    # The row may have been loaded before a transfer committed.
+    await db.refresh(dataset.record, attribute_names=["created_by"])
     if dataset.record.created_by != user.id:
         raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED)
     try:
@@ -1185,6 +1187,34 @@ def _dataset_busy_result(dataset: ManifestDataset) -> ManifestApplyEntryResult:
     )
 
 
+async def _answer_in_flight(
+    db: AsyncSession,
+    request: ManifestApplyRequest,
+    user: Identity,
+    dataset: ManifestDataset,
+    fields: ManifestEntryFields | None,
+    job: IngestJob,
+) -> ManifestApplyEntryResult:
+    """Answer an unchanged entry for the job of its key still in flight."""
+    # The dataset may have passed to another owner since the job was queued;
+    # only its owner is answered for it, before the match judges the owner's
+    # shared maps.
+    if job.dataset_id is not None:
+        named = await get_processing_port().get_dataset(db, job.dataset_id)
+        if named is not None:
+            await _admit_key_dataset(db, named, user)
+    if not await in_flight_job_matches(db, user, fields, dataset, job):
+        raise DatasetBusyError(
+            "The key's in-flight apply publishes otherwise than this one."
+        )
+    answer_as_the_job_ends(fields, dry_run=request.dry_run)
+    result = _skip_result_for_in_flight(dataset, job)
+    # The match above settled the level the queued job publishes.
+    result.mark_pending(fields.visibility if fields else None)
+    await db.commit()
+    return result
+
+
 async def _reserve_or_settle_entry(
     db: AsyncSession,
     request: ManifestApplyRequest,
@@ -1211,16 +1241,7 @@ async def _reserve_or_settle_entry(
         raise ManifestSourceError("Manifest source could not be prepared")
 
     if classification == "skip_in_flight" and job is not None:
-        if not await in_flight_job_matches(db, user, fields, dataset, job):
-            raise DatasetBusyError(
-                "The key's in-flight apply publishes otherwise than this one."
-            )
-        answer_as_the_job_ends(fields, dry_run=request.dry_run)
-        result = _skip_result_for_in_flight(dataset, job)
-        # The match above settled the level the queued job publishes.
-        result.mark_pending(fields.visibility if fields else None)
-        await db.commit()
-        return result
+        return await _answer_in_flight(db, request, user, dataset, fields, job)
 
     if classification == "skip_complete" and job is not None:
         if existing_dataset is None:

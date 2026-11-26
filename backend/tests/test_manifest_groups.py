@@ -26,6 +26,7 @@ from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetGrant,
     DatasetGroupGrant,
+    Record,
 )
 from app.modules.catalog.maps.models import (
     Map,
@@ -37,7 +38,10 @@ from app.platform.extensions import get_processing_port
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.schemas import ManifestGroupsLeftOffWarning
 from app.processing.ingest.manifest_schemas import ManifestApplyRequest
-from app.processing.ingest.manifest_service import apply_manifest
+from app.processing.ingest.manifest_service import (
+    MANIFEST_KEY_NOT_OWNED,
+    apply_manifest,
+)
 from app.processing.ingest.manifest_sources import manifest_dataset_fingerprint
 from tests.factories import create_user
 from tests.test_api_key_scope_875 import _remove_keys_minted_by_the_test  # noqa: F401
@@ -3051,3 +3055,56 @@ async def test_a_dry_run_over_a_held_replacement_answers_as_its_accept_ends(
     assert await _dataset_grants(test_db_session, held.dataset_id) == {
         groups[letter].id for letter in left_with
     }
+
+
+_NEW_OWNERS_MAP = "Plans of the new owner"
+
+
+async def _pass_to_a_new_owner(client, admin_auth_header, session, dataset_id):
+    """Transfer the dataset to an editor whose organization-wide map shows
+    it, so unpublishing it would strand that map's other readers."""
+    _, owner = await _editor(client, session, admin_auth_header)
+    await _editor(client, session, admin_auth_header)
+    record_id = select(Dataset.record_id).where(Dataset.id == dataset_id)
+    await session.execute(
+        update(Record)
+        .where(Record.id == record_id.scalar_subquery())
+        .values(created_by=owner.id)
+    )
+    owners_map = Map(name=_NEW_OWNERS_MAP, created_by=owner.id, visibility="internal")
+    session.add(owners_map)
+    await session.flush()
+    session.add(MapLayer(map_id=owners_map.id, dataset_id=dataset_id))
+    await session.commit()
+
+
+@pytest.mark.parametrize("queued", [True, False], ids=["in-flight", "fresh"])
+async def test_a_former_owner_learns_nothing_of_the_new_owners_maps(
+    client, admin_auth_header, test_db_session, clean_tables, queued
+):
+    """The dataset passed to another owner, with or without its replacement
+    still in flight: the former owner sending the same entry again is
+    answered MANIFEST_KEY_NOT_OWNED, before the new owner's shared maps are
+    judged, and no answer names them."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    key = f"groups-transferred-{'queued' if queued else 'fresh'}"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "internal", "published"
+    )
+    entry = await _uploaded(
+        client, admin_auth_header, key, publication={"intent": "draft"}
+    )
+    if queued:
+        result, _ = await _queue_update(test_db_session, user, entry)
+        assert result.action == "update", result
+    await _pass_to_a_new_owner(client, admin_auth_header, test_db_session, dataset_id)
+
+    for dry_run in (True, False):
+        user = await _admin_user(test_db_session)
+        response, _ = await _apply_entries(
+            test_db_session, user, _entries_request(entry, dry_run=dry_run)
+        )
+        [refused] = response.results
+        assert (refused.action, refused.message) == ("error", MANIFEST_KEY_NOT_OWNED)
+        assert _NEW_OWNERS_MAP not in response.model_dump_json()
