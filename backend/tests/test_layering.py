@@ -1474,7 +1474,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/ingest/service.py": 1607,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 700,
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 704,
     # Dataset request and verification response families share this public contract.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 2033,
     # Records, datasets and their grant, translation and attribute children map

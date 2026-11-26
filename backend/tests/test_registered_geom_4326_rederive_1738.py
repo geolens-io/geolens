@@ -450,6 +450,230 @@ async def test_an_overwrite_restores_the_column_the_index_and_the_grant(
         await _drop(test_db_session, table_name)
 
 
+async def _geom_4326_attgenerated(session, table_name: str) -> str | None:
+    """pg_attribute.attgenerated for geom_4326: 's' stored, '' plain, None absent."""
+    await session.rollback()
+    return await session.scalar(
+        text(
+            "SELECT attgenerated::text FROM pg_attribute "
+            "WHERE attrelid = to_regclass(format('%I.%I', 'data', CAST(:t AS text))) "
+            "AND attname = 'geom_4326' AND NOT attisdropped"
+        ),
+        {"t": table_name},
+    )
+
+
+async def test_a_refresh_restores_a_dropped_column_as_a_generated_one(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """The repair adds the column the way registration does.
+
+    A plain column would go stale on the next out-of-band write to `geom`
+    and need another refresh; a stored generated one follows the write.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_gen_{uuid.uuid4().hex[:10]}"
+    await _create_source_table(test_db_session, table_name, lon=_HERE[0], lat=_HERE[1])
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.execute(
+            text(f'REVOKE ALL ON data."{table_name}" FROM geolens_reader')
+        )
+        await test_db_session.commit()
+        assert await _geom_4326_attgenerated(test_db_session, table_name) is None
+
+        await _refresh(test_db_session, client, admin_auth_header, dataset.id)
+
+        assert await _geom_4326_attgenerated(test_db_session, table_name) == "s"
+        assert await _has_gist_index(test_db_session, table_name)
+        assert await _reader_can_select(test_db_session, table_name)
+        assert await _features_at(test_db_session, table_name, _HERE) == 1
+
+        await test_db_session.execute(
+            text(
+                f'UPDATE data."{table_name}" '  # noqa: S608
+                f"SET geom = ST_SetSRID(ST_MakePoint(:lon, :lat), 4326)"
+            ),
+            {"lon": _THERE[0], "lat": _THERE[1]},
+        )
+        await test_db_session.commit()
+        assert await _features_at(test_db_session, table_name, _THERE) == 1
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+async def test_a_refresh_gives_a_generated_geom_a_plain_filled_column(
+    client: AsyncClient, admin_auth_header: dict, test_db_session
+) -> None:
+    """PostgreSQL won't derive one generated column from another."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_gg_{uuid.uuid4().hex[:10]}"
+    await test_db_session.execute(
+        text(
+            f'CREATE TABLE data."{table_name}" ('
+            f"  gid serial PRIMARY KEY, x float8, y float8,"
+            f"  geom geometry(Point, 4326) GENERATED ALWAYS AS "
+            f"    (ST_SetSRID(ST_MakePoint(x, y), 4326)) STORED)"
+        )
+    )
+    await test_db_session.execute(
+        text(f'INSERT INTO data."{table_name}" (x, y) VALUES (:x, :y)'),  # noqa: S608
+        {"x": _HERE[0], "y": _HERE[1]},
+    )
+    await test_db_session.commit()
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.commit()
+
+        await _refresh(test_db_session, client, admin_auth_header, dataset.id)
+
+        assert await _geom_4326_attgenerated(test_db_session, table_name) == ""
+        assert await _has_gist_index(test_db_session, table_name)
+        assert await _features_at(test_db_session, table_name, _HERE) == 1
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+@pytest.mark.parametrize("generated_geom", [False, True], ids=["generated", "plain"])
+async def test_a_restored_column_bumps_the_tile_version_and_purges_tiles(
+    test_db_session, generated_geom: bool
+) -> None:
+    """The repair commits before the measurement, so it owns the invalidation.
+
+    The column is restored by its own ADD, which fills it with no rows
+    counted as rewritten; with an existing gid nothing else triggers the
+    bump either. If the measurement then fails, stale cached tiles would
+    outlive the repair.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_inv_{uuid.uuid4().hex[:10]}"
+    if generated_geom:
+        await test_db_session.execute(
+            text(
+                f'CREATE TABLE data."{table_name}" ('
+                f"  gid serial PRIMARY KEY, x float8, y float8,"
+                f"  geom geometry(Point, 4326) GENERATED ALWAYS AS "
+                f"    (ST_SetSRID(ST_MakePoint(x, y), 4326)) STORED)"
+            )
+        )
+        await test_db_session.execute(
+            text(f'INSERT INTO data."{table_name}" (x, y) VALUES (:x, :y)'),  # noqa: S608
+            {"x": _HERE[0], "y": _HERE[1]},
+        )
+        await test_db_session.commit()
+    else:
+        await _create_source_table(
+            test_db_session, table_name, lon=_HERE[0], lat=_HERE[1]
+        )
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.commit()
+        before = await _stored_version(test_db_session, dataset.id)
+
+        with patch.object(
+            tasks_postgis_refresh, "invalidate_tile_cache_for_table", AsyncMock()
+        ) as purge:
+            report = await tasks_postgis_refresh._repair_geom_4326(
+                dataset.id, Dataset, schema="data", role="geolens_reader"
+            )
+
+        assert report.column_added is True
+        assert report.gid_added is False
+        assert report.tile_cache_version == before + 1
+        assert await _stored_version(test_db_session, dataset.id) == before + 1
+        purge.assert_awaited_once_with(table_name)
+    finally:
+        await _drop(test_db_session, table_name)
+
+
+async def test_restoring_a_plain_column_fills_only_rows_that_have_geometry(
+    test_db_session,
+) -> None:
+    """A row with no geometry has nothing to render, so its row is left alone.
+
+    On an owner-managed table an UPDATE fires its triggers and writes a new
+    row version; the plain fallback must keep to the conditional fill.
+    """
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"rd_trg_{uuid.uuid4().hex[:10]}"
+    await test_db_session.execute(
+        text(
+            f'CREATE TABLE data."{table_name}" ('
+            f"  gid serial PRIMARY KEY, x float8, y float8,"
+            f"  geom geometry(Point, 4326) GENERATED ALWAYS AS "
+            f"    (CASE WHEN x IS NULL THEN NULL "
+            f"     ELSE ST_SetSRID(ST_MakePoint(x, y), 4326) END) STORED)"
+        )
+    )
+    await test_db_session.execute(
+        text(f'INSERT INTO data."{table_name}" (x, y) VALUES (:x, :y), (NULL, NULL)'),  # noqa: S608
+        {"x": _HERE[0], "y": _HERE[1]},
+    )
+    await test_db_session.commit()
+
+    try:
+        dataset = await _register(test_db_session, table_name, admin_id)
+        await test_db_session.execute(
+            text(f'ALTER TABLE data."{table_name}" DROP COLUMN geom_4326')
+        )
+        await test_db_session.execute(
+            text(f'CREATE TABLE data."{table_name}_log" (gid int)')
+        )
+        await test_db_session.execute(
+            text(
+                f'CREATE FUNCTION data."{table_name}_fn"() RETURNS trigger '
+                f"LANGUAGE plpgsql AS $$ BEGIN "
+                f'INSERT INTO data."{table_name}_log" VALUES (NEW.gid); '
+                f"RETURN NEW; END $$"
+            )
+        )
+        await test_db_session.execute(
+            text(
+                f'CREATE TRIGGER t BEFORE UPDATE ON data."{table_name}" '
+                f'FOR EACH ROW EXECUTE FUNCTION data."{table_name}_fn"()'
+            )
+        )
+        await test_db_session.commit()
+
+        report = await tasks_postgis_refresh._repair_geom_4326(
+            dataset.id, Dataset, schema="data", role="geolens_reader"
+        )
+
+        assert report.column_added is True
+        assert report.index_added is True
+        assert report.rows_rewritten == 1
+        fired = (
+            await test_db_session.execute(
+                text(f'SELECT gid FROM data."{table_name}_log"')  # noqa: S608
+            )
+        ).all()
+        populated = await test_db_session.scalar(
+            text(f'SELECT gid FROM data."{table_name}" WHERE x IS NOT NULL')  # noqa: S608
+        )
+        assert [row.gid for row in fired] == [populated]
+    finally:
+        await test_db_session.rollback()
+        await test_db_session.execute(
+            text(f'DROP TABLE IF EXISTS data."{table_name}_log"')
+        )
+        await test_db_session.execute(
+            text(f'DROP FUNCTION IF EXISTS data."{table_name}_fn"() CASCADE')
+        )
+        await _drop(test_db_session, table_name)
+
+
 # ---------------------------------------------------------------------------
 # Cost: the scan is unconditional, the writes are not
 # ---------------------------------------------------------------------------

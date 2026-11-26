@@ -441,11 +441,15 @@ async def _repair_geom_4326(
             await grant_reader_access(session, table_name, schema=schema, role=role)
 
             tile_version = None
-            if gid_added or (repair is not None and repair.rows_rewritten):
-                # Gated on rewritten rows or a new gid, not column or index:
-                # the bump fires with a change to tile content, and a new gid
-                # renumbers every feature. The atomic spelling, because this
-                # transaction holds no lock on the datasets row.
+            if (
+                gid_added
+                or repair is not None
+                and (repair.rows_rewritten or repair.column_added)
+            ):
+                # A restored column is filled by its own ADD, so it counts no
+                # rewritten rows; a new gid renumbers every feature. The atomic
+                # spelling, because this transaction holds no lock on the
+                # datasets row.
                 tile_version = await bump_tile_cache_version_atomic(
                     session, dataset_cls=Dataset, dataset_id=dataset_uuid
                 )
