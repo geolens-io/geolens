@@ -80,6 +80,7 @@ from app.modules.catalog.maps.manifest_messages import (
 from app.modules.catalog.maps.manifest_moves import (
     Target,
     move_kept_layers,
+    unsettled_sources,
     widening_moves,
 )
 from app.modules.catalog.maps.manifest_share import ShareMint, mint_share_link
@@ -743,16 +744,26 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 or (layer.manifest_key not in listed and entry.styling == "keep")
             )
         )
+        waiting = await unsettled_sources(
+            session, stored, targets, unsettled, request.pending_datasets
+        )
+        messages.extend(waiting)
+        # A move that waits for its source's job is judged once it can be made.
+        movable = {
+            key: target
+            for key, target in targets.items()
+            if key not in {m["layer"] for m in waiting}
+        }
         try:
             moves = move_kept_layers(
                 stored,
-                targets,
+                movable,
                 map_obj.dashboard_config,
                 kept=not styling_applied,
                 widening=await widening_moves(
                     session,
                     stored,
-                    targets,
+                    movable,
                     map_obj.dashboard_config,
                     kept=not styling_applied,
                 ),

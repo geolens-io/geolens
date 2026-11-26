@@ -2545,6 +2545,111 @@ async def test_a_kept_layer_on_a_dataset_the_request_creates_isnt_judged_yet(
     assert _codes(result) == []
 
 
+@pytest.mark.parametrize("held_by", ["this-request", "earlier-job"])
+async def test_a_move_off_a_dataset_still_publishing_waits_for_its_job(
+    test_db_session, clean_tables, held_by
+):
+    """A kept layer's move off a dataset a job is still replacing waits for the job."""
+    from sqlalchemy import update
+
+    from app.modules.catalog.datasets.domain.models import Dataset, Record
+    from app.platform.jobs.models import IngestJob
+    from app.processing.ingest.manifest_maps import run_manifest_maps
+    from app.processing.ingest.manifest_schemas import ManifestApplyEntryResult
+    from tests.test_manifest_maps_apply import _maps_only
+    from tests.test_manifest_maps_dry_run import _local_dataset_entry
+
+    admin = await _admin(test_db_session)
+    columns = [*_COLUMNS, _ACRES, _INSPECTED]
+
+    async def made(visibility):
+        dataset = await create_dataset(
+            test_db_session,
+            created_by=admin.id,
+            visibility=visibility,
+            geometry_type="MultiPolygon",
+            column_info=[dict(column) for column in columns],
+        )
+        await test_db_session.commit()
+        return dataset.id
+
+    source, target = await made("private"), await made("public")
+    styled = _entry(
+        "qgis-map-parks", _layer("parks", dataset_id=str(source), **_SECRET)
+    )
+    [created] = (await _apply(test_db_session, admin, styled)).maps
+    [parks] = await _layers(test_db_session, created.map_id)
+    parks_id = str(parks.id)
+    widget = {**_HISTOGRAM, "id": _WIDGET_ID, "layer_id": parks_id}
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(dashboard_config={"version": 1, "widgets": [widget]})
+    )
+    job = IngestJob(
+        dataset_id=source,
+        source_filename="parks.fgb",
+        created_by=admin.id,
+        status="pending",
+        user_metadata={"manifest_key": "qgis-source"},
+    )
+    test_db_session.add(job)
+    await test_db_session.commit()
+    job_id = job.id
+    moving = _entry(
+        "qgis-map-parks", _layer("parks", dataset_id=str(target)), styling="keep"
+    )
+    rows = await _rows(test_db_session, created.map_id)
+
+    if held_by == "this-request":
+        request = _maps_only(
+            moving,
+            datasets=[{**_local_dataset_entry("qgis-source"), "visibility": "public"}],
+        )
+        results = [
+            ManifestApplyEntryResult(
+                dataset_key="qgis-source",
+                action="update",
+                message="m",
+                dataset_id=source,
+            )
+        ]
+        [waiting] = await run_manifest_maps(test_db_session, request, admin, results)
+    else:
+        [checked] = (await _apply(test_db_session, admin, moving, dry_run=True)).maps
+        [waiting] = (await _apply(test_db_session, admin, moving)).maps
+        assert _codes(checked) == _codes(waiting)
+
+    assert (waiting.action, _codes(waiting)) == (
+        "error",
+        [("A052", "error", "parks")],
+    )
+    assert await _rows(test_db_session, created.map_id) == rows
+    map_row = await _map_row(test_db_session, created.map_id)
+    assert [w["layer_id"] for w in map_row.dashboard_config["widgets"]] == [parks_id]
+
+    # The job publishes the dataset public, and the maps are sent again.
+    record_id = select(Dataset.record_id).where(Dataset.id == source)
+    await test_db_session.execute(
+        update(Record)
+        .where(Record.id == record_id.scalar_subquery())
+        .values(visibility="public")
+    )
+    await test_db_session.execute(
+        update(IngestJob)
+        .where(IngestJob.id == job_id)
+        .values(status="complete", completed_at=datetime.now(UTC))
+    )
+    await test_db_session.commit()
+    [moved] = (await _apply(test_db_session, admin, moving)).maps
+
+    assert (moved.action, _warnings(moved)) == ("update", [])
+    [parks] = await _layers(test_db_session, created.map_id)
+    assert (parks.dataset_id, _SECRET_CATEGORY in str(parks.paint)) == (target, True)
+    map_row = await _map_row(test_db_session, created.map_id)
+    assert [w["layer_id"] for w in map_row.dashboard_config["widgets"]] == [parks_id]
+
+
 async def test_a_map_another_change_holds_answers_busy(test_db_session, clean_tables):
     """Losing the wait for the map row is routine; the map says to retry."""
     from sqlalchemy import text
