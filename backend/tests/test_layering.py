@@ -1220,7 +1220,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 132,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 150,
+        "backend/app/modules/catalog/datasets/domain/service.py": 152,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1235,8 +1235,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,
         # restricted maps' group members and embed tokens included, beside the
-        # share-link lifecycle they gate.
-        "backend/app/modules/catalog/maps/service_public.py": 1171,
+        # share-link lifecycle they gate; a planned group change is judged as
+        # stated grants, without writing them.
+        "backend/app/modules/catalog/maps/service_public.py": 1180,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 662,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
@@ -1256,8 +1257,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
         # A metadata edit judges its visibility and status change as one move, and a
-        # manifest saves its per-column text beside the attribute edit it reuses.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 685,
+        # manifest saves its per-column text beside the attribute edit it reuses;
+        # the shared-map guard also judges a group change it is told of.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 688,
         # Pointer reads sit beside the detail query that shares them; the row
         # browser's page, count, label-filter and box SQL share its projection, and
         # its NULLS LAST keyset also pages the aggregate feature list.
@@ -1271,7 +1273,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 734,
+        "backend/app/platform/extensions/defaults_processing_port.py": 740,
         "backend/app/platform/extensions/defaults_extensions.py": 443,
         "backend/app/modules/catalog/search/service_filters.py": 376,
     }

@@ -405,9 +405,11 @@ async def settle_job_groups(
     (``_stored_share``, the port's planner, ``_share_outcome``): against the
     visibility and groups its own apply planned it from, so a group taken
     off the dataset since is not restored and a share planned for a wider
-    dataset is held back whole. Its replacement is then held to the entry's
-    groups as ``hold_to_entry_groups`` holds it. A job creating its dataset
-    shares what is planned now.
+    dataset is held back whole. A write the shared-map guard would refuse
+    keeps the dataset's groups, as the worker's refused share does. Its
+    replacement is then held to the entry's groups as
+    ``hold_to_entry_groups`` holds it. A job creating its dataset shares
+    what is planned now.
     """
     if existing is None:
         return
@@ -428,23 +430,29 @@ async def settle_job_groups(
             planned_from=job_metadata.get(GROUPS_PLANNED_FROM_METADATA_KEY),
             granted_at_plan=granted,
         )
-        share = _share_outcome(plan, job_metadata)
-        fields.groups_added = plan.added and not plan.unchanged
         fields.job_held_back = []
-        if plan.held_back:
-            fields.job_held_back.append(
-                _held_back_message(
-                    dataset,
-                    plan.held_back,
-                    _job_held_back_cause(dataset, plan, job_metadata),
-                    kept=plan.unchanged,
-                )
-            )
-        if plan.unchanged:
+        if plan.refused:
+            share = _refused_share(plan.refused)
             fields.groups = fields.group_names = None
+            fields.groups_added = False
+            left_with = set(plan.granted)
         else:
-            fields.groups, fields.group_names = plan.group_ids, plan.names
-        left_with = _left_with(plan)
+            share = _share_outcome(plan, job_metadata)
+            fields.groups_added = plan.added and not plan.unchanged
+            if plan.unchanged:
+                fields.groups = fields.group_names = None
+            else:
+                fields.groups, fields.group_names = plan.group_ids, plan.names
+            left_with = _left_with(plan)
+            if plan.held_back:
+                fields.job_held_back.append(
+                    _held_back_message(
+                        dataset,
+                        plan.held_back,
+                        _job_held_back_cause(dataset, plan, job_metadata),
+                        kept=plan.unchanged,
+                    )
+                )
     held_to = _groups_held_to(job_metadata)
     if held_to is not None and left_with - held_to[0]:
         fields.job_refusal = _job_refused_message(
@@ -890,9 +898,7 @@ async def _apply_groups(
         )
     if refusal:
         _groups_warning(job, wanted, "refused")
-        return GroupShare(
-            kept_because=f"The group change was refused: {refusal.rstrip('.')}."
-        )
+        return _refused_share(refusal)
     if plan.left_off:
         _groups_warning(job, plan.left_off, "left_off")
     if plan.held_back_ids:
@@ -918,6 +924,14 @@ def _stored_share(
     if wanted is _MALFORMED or granted is _MALFORMED:
         return GroupShare(kept_because=_KEPT_UNREADABLE)
     return wanted, granted
+
+
+def _refused_share(refusal: str) -> GroupShare:
+    """How a job's share ends when its write is refused with ``refusal``:
+    the dataset keeps its groups."""
+    return GroupShare(
+        kept_because=f"The group change was refused: {refusal.rstrip('.')}."
+    )
 
 
 def _left_with(plan: Any) -> set[uuid.UUID]:

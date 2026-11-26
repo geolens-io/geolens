@@ -1962,7 +1962,10 @@ async def test_a_replacement_whose_group_removal_is_refused_publishes_nothing(
     client, admin_auth_header, test_db_session, clean_tables
 ):
     """The owner's shared map keeps the group, so the removal is refused;
-    publishing anyway would hand the new data to the group the entry drops."""
+    publishing anyway would hand the new data to the group the entry drops.
+    The same manifest sent again while the job is queued says so: a dry run
+    is refused with A056, and an apply answers for the job with it as a
+    warning."""
     _stage_fixture()
     user = await _admin_user(test_db_session)
     _, member = await _editor(client, test_db_session, admin_auth_header)
@@ -1975,6 +1978,21 @@ async def test_a_replacement_whose_group_removal_is_refused_publishes_nothing(
     entry = await _uploaded(client, admin_auth_header, key, groups=[])
     result, task = await _queue_update(test_db_session, user, entry)
     assert (result.action, _codes(result)) == ("update", [])
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True)
+    )
+    [previewed] = response.results
+    assert previewed.action == "error", previewed
+    assert [(m.code, m.severity) for m in previewed.messages] == [("A056", "error")]
+    assert "used in shared maps: Shared" in previewed.messages[0].message
+    # The refused entry rolled the session back, which expires the user row.
+    user = await _admin_user(test_db_session)
+    response, _ = await _apply_entries(test_db_session, user, _entries_request(entry))
+    [applied] = response.results
+    assert (applied.action, applied.job_id) == ("skip", result.job_id)
+    assert _job_refusals(applied) == [("A056", "warning")]
+    assert await _dataset_grants(test_db_session, dataset_id) == {mine.id}
 
     await _assert_not_replaced(
         test_db_session,

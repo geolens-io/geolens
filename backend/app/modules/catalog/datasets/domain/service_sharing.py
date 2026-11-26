@@ -45,8 +45,10 @@ from app.modules.catalog.datasets.domain.models import (
     DatasetGrant,
     DatasetGroupGrant,
 )
+from app.modules.catalog.datasets.domain.helpers import DatasetInSharedMapsError
 from app.modules.catalog.datasets.domain.service_metadata import (
     _apply_visibility_change,
+    refuse_stranding_shared_maps,
 )
 
 log = structlog.get_logger()
@@ -104,12 +106,9 @@ async def set_dataset_groups(
         wanted |= current
     added, removed = wanted - current, current - wanted
     await refuse_unjoined_groups(session, added, actor, is_admin=is_admin)
-    visibility = record.visibility
-    if visibility == "private" and wanted:
-        visibility = "restricted"
-    elif visibility == "restricted" and not wanted:
-        if not await role_granted(session, dataset.id):
-            visibility = "private"
+    visibility = await _level_shared_with(
+        session, dataset.id, record.visibility, wanted
+    )
     refuse_publish_key_widening_share(
         session,
         record.visibility if audience_before == CURRENT_LEVEL else audience_before,
@@ -156,6 +155,47 @@ async def set_dataset_groups(
     if warning is not None and warnings_out is not None:
         warnings_out.append(warning)
     return True
+
+
+async def _level_shared_with(
+    session: AsyncSession, dataset_id: uuid.UUID, level: str, wanted: set[uuid.UUID]
+) -> str:
+    """The visibility a dataset at ``level`` ends at once shared with exactly
+    ``wanted``: grants make a private dataset restricted, and a restricted one
+    left with none, and no role grant, becomes private."""
+    if level == "private" and wanted:
+        return "restricted"
+    if level == "restricted" and not wanted:
+        if not await role_granted(session, dataset_id):
+            return "private"
+    return level
+
+
+async def dataset_share_refusal(
+    session: AsyncSession, dataset: Dataset, group_ids: Iterable[uuid.UUID]
+) -> str | None:
+    """What would refuse sharing ``dataset`` with exactly ``group_ids`` now
+    because it strands one of its owner's shared maps, the guard
+    ``set_dataset_groups`` runs, as a sentence; None when nothing would. The
+    grants are stated to the guard, not written."""
+    record = dataset.record
+    wanted = set(group_ids)
+    current = set(await session.scalars(_granted(dataset.id)))
+    visibility = await _level_shared_with(
+        session, dataset.id, record.visibility, wanted
+    )
+    # The guard runs only where grants decide who reads, as the share's own.
+    if record.visibility not in ("private", "restricted") or (
+        wanted == current and visibility == record.visibility
+    ):
+        return None
+    try:
+        await refuse_stranding_shared_maps(
+            session, record, dataset.id, visibility=visibility, group_ids=wanted
+        )
+    except DatasetInSharedMapsError as exc:
+        return _refusal_sentence(exc)
+    return None
 
 
 def _granted(dataset_id: uuid.UUID):

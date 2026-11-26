@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -224,10 +224,12 @@ async def refuse_stranding_shared_maps(
     visibility: str | None = None,
     record_status: str | None = None,
     regrant: Callable[[], Awaitable[object]] | None = None,
+    group_ids: Collection[uuid.UUID] | None = None,
 ) -> None:
     """Raise ValueError when moving the record to ``visibility`` and
     ``record_status`` (None keeps the current one) strands one of the owner's
-    shared maps. ``regrant`` changes the grants between the two audience reads.
+    shared maps. ``regrant`` changes the grants between the two audience reads;
+    ``group_ids`` states the group grants the change leaves instead.
     """
     from app.modules.catalog.maps.service import (
         find_maps_broken_by_dataset_visibility,
@@ -244,6 +246,7 @@ async def refuse_stranding_shared_maps(
         record_id=record.id,
         owner_id=record.created_by,
         regrant=regrant,
+        group_ids=group_ids,
     )
     if broken_maps:
         unpublishes = record.record_status == "published" and new_status != "published"

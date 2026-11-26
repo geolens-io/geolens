@@ -12,7 +12,9 @@ from typing import Any
 from app.core.processing_port import ManifestGroupsPlan
 
 
-def _groups_plan(plan: Any, role_granted: bool = False) -> ManifestGroupsPlan:
+def _groups_plan(
+    plan: Any, role_granted: bool = False, refused: str | None = None
+) -> ManifestGroupsPlan:
     """A catalog ``SharePlan`` as the port answers it."""
     return ManifestGroupsPlan(
         group_ids=plan.group_ids,
@@ -24,6 +26,7 @@ def _groups_plan(plan: Any, role_granted: bool = False) -> ManifestGroupsPlan:
         added=bool(plan.added),
         unchanged=plan.unchanged,
         role_granted=role_granted,
+        refused=refused,
     )
 
 
@@ -629,6 +632,7 @@ class DefaultProcessingPort:
         granted_at_plan=None,
     ):
         from app.modules.catalog.datasets.domain.service import (
+            dataset_share_refusal,
             get_dataset,
             plan_manifest_dataset_groups,
         )
@@ -636,17 +640,19 @@ class DefaultProcessingPort:
         dataset = None
         if dataset_id is not None:
             dataset = await get_dataset(session, dataset_id)
-        return _groups_plan(
-            *await plan_manifest_dataset_groups(
-                session,
-                dataset,
-                group_ids,
-                user,
-                level=level,
-                planned_from=planned_from,
-                granted_at_plan=granted_at_plan,
-            )
+        plan, role_granted = await plan_manifest_dataset_groups(
+            session,
+            dataset,
+            group_ids,
+            user,
+            level=level,
+            planned_from=planned_from,
+            granted_at_plan=granted_at_plan,
         )
+        refused = None
+        if dataset is not None and granted_at_plan is not None and not plan.unchanged:
+            refused = await dataset_share_refusal(session, dataset, plan.group_ids)
+        return _groups_plan(plan, role_granted, refused)
 
     async def apply_manifest_groups(  # type: ignore[no-untyped-def]
         self,

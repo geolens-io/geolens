@@ -67,7 +67,9 @@ class ManifestGroupsPlan:
     ``held_back_ids`` holds their ids. ``added`` says whether it gains any
     group. ``unchanged`` means the dataset keeps its groups as they are,
     since the share was held back, and ``role_granted`` that a role grant
-    keeps it restricted without groups.
+    keeps it restricted without groups. ``refused`` is, for a job's plan,
+    the sentence the share's write would be refused with because it strands
+    one of the owner's shared maps, None when it wouldn't be.
     """
 
     group_ids: list[uuid.UUID]
@@ -80,6 +82,7 @@ class ManifestGroupsPlan:
     held_back_ids: list[uuid.UUID] = field(default_factory=list)
     # The dataset's groups when planned.
     granted: list[uuid.UUID] = field(default_factory=list)
+    refused: str | None = None
 
 
 class PendingManifestDataset(NamedTuple):
@@ -567,7 +570,8 @@ class ProcessingPort(Protocol):
     # as the caller's roles and a publish key allow. With ``planned_from``
     # and ``granted_at_plan``, the dataset's visibility and groups when a job
     # still to publish planned the share, the answer is what that job would
-    # share now, as ``apply_manifest_groups`` judges it. Writes nothing.
+    # share now, as ``apply_manifest_groups`` judges it, including whether
+    # its write would strand a shared map (``refused``). Writes nothing.
     async def plan_manifest_groups(
         self,
         session: AsyncSession,
