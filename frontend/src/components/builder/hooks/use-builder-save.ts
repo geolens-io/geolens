@@ -232,9 +232,15 @@ function layersMatchServer(
   layerRenames: ReadonlyMap<string, string>,
 ): boolean {
   if (!Array.isArray(serverLayers)) return true;
-  if (localLayers.length !== serverLayers.length) return false;
-  const serverById = new Map(serverLayers.map((l) => [l.id, l]));
-  return localLayers.every((local) => {
+  const persistedLocal = localLayers.filter(
+    (l) => (l as { layer_type?: string }).layer_type !== 'group:folder',
+  );
+  const persistedServer = serverLayers.filter(
+    (l) => (l as { layer_type?: string }).layer_type !== 'group:folder',
+  );
+  if (persistedLocal.length !== persistedServer.length) return false;
+  const serverById = new Map(persistedServer.map((l) => [l.id, l]));
+  return persistedLocal.every((local) => {
     const serverId = layerRenames.get(local.id) ?? local.id;
     const server = serverById.get(serverId);
     return server !== undefined && server.dataset_id === local.dataset_id;

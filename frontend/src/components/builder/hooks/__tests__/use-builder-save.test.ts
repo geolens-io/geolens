@@ -2580,6 +2580,9 @@ describe('useBuilderSave', () => {
     it('skips thumbnail capture after empty-diff metadata save when server layers differ from localLayers', async () => {
       vi.useFakeTimers();
       const mockMap = createMockMap({ loaded: true });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-data-layer_1' ? { loaded: () => true } : undefined,
+      );
       const localLayer = makeLayer({ id: 'layer-1', dataset_id: 'ds-1' });
       const remoteLayer = makeLayer({ id: 'layer-2', dataset_id: 'ds-2' });
 
@@ -2594,7 +2597,6 @@ describe('useBuilderSave', () => {
       });
       const state = makeSaveState({
         localLayers: [localLayer],
-        savedLayers: [localLayer],
         mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
       });
       const { result } = renderHookWithQueryClient(state, queryClient);
@@ -2605,6 +2607,121 @@ describe('useBuilderSave', () => {
 
       expect(mockUploadThumbnail).not.toHaveBeenCalled();
       expect(mockUploadOgImage).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
+    it('uploads thumbnail after save when server layers match localLayers (including grouped maps)', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: true });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-data-layer_1' ? { loaded: () => true } : undefined,
+      );
+      const groupRow = {
+        ...makeLayer({ id: 'group-1', dataset_id: 'ds-1' }),
+        layer_type: 'group:folder' as unknown as MapLayerResponse['layer_type'],
+      };
+      const childLayer = makeLayer({ id: 'layer-1', dataset_id: 'ds-1' });
+
+      mockUpdateMapMutateAsync.mockResolvedValueOnce({
+        id: 'map-1',
+        updated_at: '2026-11-25T08:05:00Z',
+        layers: [childLayer],
+      });
+      mockUploadThumbnail.mockResolvedValueOnce(undefined);
+      mockUploadOgImage.mockResolvedValueOnce(undefined);
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      const state = makeSaveState({
+        hasThumbnail: false,
+        localLayers: [groupRow, childLayer],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHookWithQueryClient(state, queryClient);
+
+      await act(async () => { await result.current.handleSave(); });
+      act(() => { vi.advanceTimersByTime(500); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); await Promise.resolve(); });
+
+      expect(mockUploadThumbnail).toHaveBeenCalledWith(
+        'map-1',
+        expect.stringContaining('data:image/jpeg'),
+        '2026-11-25T08:05:00Z',
+      );
+      vi.useRealTimers();
+    });
+
+    it('auto-capture skips when cached map layers differ from appliedLayers', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: true });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-data-layer_1' ? { loaded: () => true } : undefined,
+      );
+      const childLayer = makeLayer({ id: 'layer-1', dataset_id: 'ds-1' });
+      const remoteLayer = makeLayer({ id: 'layer-2', dataset_id: 'ds-2' });
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      queryClient.setQueryData(queryKeys.maps.detail('map-1'), {
+        id: 'map-1',
+        updated_at: '2026-11-25T08:05:00Z',
+        layers: [remoteLayer],
+      });
+
+      const state = makeSaveState({
+        hasThumbnail: false,
+        localLayers: [childLayer],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHookWithQueryClient(state, queryClient);
+
+      act(() => { result.current.maybeAutoCaptureThumbnail(mockMap as never); });
+      await act(async () => { vi.advanceTimersByTime(500); await Promise.resolve(); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); await Promise.resolve(); });
+      expect(mockUploadThumbnail).not.toHaveBeenCalled();
+      vi.useRealTimers();
+    });
+
+    it('auto-capture uploads for grouped maps when persisted layers match', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: true });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-data-layer_1' ? { loaded: () => true } : undefined,
+      );
+      const groupRow = {
+        ...makeLayer({ id: 'group-1', dataset_id: 'ds-1' }),
+        layer_type: 'group:folder' as unknown as MapLayerResponse['layer_type'],
+      };
+      const childLayer = makeLayer({ id: 'layer-1', dataset_id: 'ds-1' });
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      queryClient.setQueryData(queryKeys.maps.detail('map-1'), {
+        id: 'map-1',
+        updated_at: '2026-11-25T08:06:00Z',
+        layers: [childLayer],
+      });
+      mockUploadThumbnail.mockResolvedValueOnce(undefined);
+      mockUploadOgImage.mockResolvedValueOnce(undefined);
+
+      const state = makeSaveState({
+        hasThumbnail: false,
+        localLayers: [groupRow, childLayer],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHookWithQueryClient(state, queryClient);
+
+      act(() => { result.current.maybeAutoCaptureThumbnail(mockMap as never); });
+      await act(async () => { vi.advanceTimersByTime(500); await Promise.resolve(); });
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); await Promise.resolve(); });
+      expect(mockUploadThumbnail).toHaveBeenCalledWith(
+        'map-1',
+        expect.stringContaining('data:image/jpeg'),
+        '2026-11-25T08:06:00Z',
+      );
       vi.useRealTimers();
     });
 
