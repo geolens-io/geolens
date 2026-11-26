@@ -392,3 +392,36 @@ def test_neither_begin_hook_issues_a_query():
         assert "SET LOCAL" in code, (
             f"the {label} begin hook must use a SET LOCAL utility statement"
         )
+
+
+async def _statements_run_on(isolation_level: str | None) -> list[str]:
+    engine = _fresh_engine()
+    install_api_statement_timeout(engine)
+    seen: list[str] = []
+
+    @event.listens_for(engine.sync_engine, "before_cursor_execute")
+    def _record(_conn, _cursor, statement, *_rest):
+        seen.append(statement)
+
+    try:
+        async with engine.connect() as conn:
+            if isolation_level:
+                await conn.execution_options(isolation_level=isolation_level)
+            await conn.execute(text("SELECT 1"))
+    finally:
+        await engine.dispose()
+    return seen
+
+
+@pytest.mark.anyio
+async def test_an_autocommit_connection_gets_no_set_local(test_db_session):
+    # SET LOCAL outside a transaction block only warns and sets nothing, so the
+    # startup connections that run as AUTOCOMMIT must not issue it.
+    statements = await _statements_run_on("AUTOCOMMIT")
+    assert not any(s.startswith("SET LOCAL") for s in statements)
+
+
+@pytest.mark.anyio
+async def test_a_transaction_still_gets_set_local(test_db_session):
+    statements = await _statements_run_on(None)
+    assert any(s.startswith("SET LOCAL statement_timeout") for s in statements)
