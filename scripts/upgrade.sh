@@ -634,7 +634,10 @@ APP_DOWN=1
 say "  pre-upgrade database backup -> $BACKUP_FILE"
 # -Fc custom-format dump (the format restore.sh expects via pg_restore). Stream
 # to the host file via `exec -T` so the dump lands outside the container.
-if ! (umask 077; compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+# The empty file is created 0600 first because a default ACL on the directory
+# overrides the umask; the redirect then keeps that mode.
+if ! (umask 077; : > "$BACKUP_FILE" && chmod 600 "$BACKUP_FILE" \
+    && compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
     -Fc --no-owner --no-acl > "$BACKUP_FILE"); then
   rm -f "$BACKUP_FILE"
   report_restore
