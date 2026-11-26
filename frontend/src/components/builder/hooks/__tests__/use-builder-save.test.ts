@@ -2686,7 +2686,53 @@ describe('useBuilderSave', () => {
       await act(async () => { vi.advanceTimersByTime(500); await Promise.resolve(); });
       await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); await Promise.resolve(); });
       expect(mockUploadThumbnail).not.toHaveBeenCalled();
+      // The cache never catches up, so the capture gives up and re-arms.
+      act(() => { vi.advanceTimersByTime(5100); });
+      expect(mockMap.once).not.toHaveBeenCalledWith('render', expect.any(Function));
+      expect(shouldAutoCapture('map-1', null)).toBe(true);
       vi.useRealTimers();
+    });
+
+    it('auto-capture waits for the map-detail refetch that follows a layer add', async () => {
+      vi.useFakeTimers();
+      const mockMap = createMockMap({ loaded: true });
+      mockMap.getSource.mockImplementation((sourceId: string) =>
+        sourceId === 'source-data-layer_1' ? { loaded: () => true } : undefined,
+      );
+      const addedLayer = makeLayer({ id: 'layer-1', dataset_id: 'ds-1' });
+
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+      });
+      queryClient.setQueryData(queryKeys.maps.detail('map-1'), {
+        id: 'map-1',
+        updated_at: '2026-11-25T08:00:00Z',
+        layers: [],
+      });
+
+      const state = makeSaveState({
+        hasThumbnail: false,
+        localLayers: [addedLayer],
+        mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+      });
+      const { result } = renderHookWithQueryClient(state, queryClient);
+
+      act(() => { result.current.maybeAutoCaptureThumbnail(mockMap as never); });
+      act(() => { vi.advanceTimersByTime(500); });
+      queryClient.setQueryData(queryKeys.maps.detail('map-1'), {
+        id: 'map-1',
+        updated_at: '2026-11-25T08:00:05Z',
+        layers: [addedLayer],
+      });
+      act(() => { vi.advanceTimersByTime(100); });
+
+      vi.useRealTimers();
+      await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+      expect(mockUploadThumbnail).toHaveBeenCalledWith(
+        'map-1',
+        expect.stringContaining('data:image/jpeg'),
+        '2026-11-25T08:00:05Z',
+      );
     });
 
     it('auto-capture uploads for grouped maps when persisted layers match', async () => {

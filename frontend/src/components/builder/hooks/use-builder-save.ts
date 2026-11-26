@@ -264,6 +264,7 @@ function doCapture(
   captureIsStale?: (mapId: string) => boolean,
   expectedUpdatedAt?: string,
   appliedLayers?: MapLayerResponse[],
+  deadline = Date.now() + 5000,
 ) {
   // Snapshot the expected updated_at when capture is armed (after any
   // pendingLayerAdd / source-load waits have settled), and verify that the
@@ -278,6 +279,15 @@ function doCapture(
     appliedLayers !== undefined &&
     !layersMatchServer(appliedLayers, cachedMap.layers, new Map())
   ) {
+    // A layer add renders before its map-detail refetch lands, so give the
+    // cache a moment to catch up before giving up on this capture.
+    if (Date.now() < deadline && !captureIsStale?.(mapId)) {
+      setTimeout(
+        () => doCapture(map, mapId, queryClient, trigger, captureIsStale, expectedUpdatedAt, appliedLayers, deadline),
+        100,
+      );
+      return;
+    }
     rearmAutoCapture(mapId);
     return;
   }
