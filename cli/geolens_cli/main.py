@@ -903,14 +903,47 @@ def login(
     state.output.success(f"Logged in to {instance} as {username} ({backend})")
 
 
+def _revoke_server_session(instance: str) -> bool:
+    """Revoke the stored login's session on the server; False if that failed.
+
+    API-key and anonymous profiles have no session, so nothing is sent and the
+    result is True. An expired session answers 401, which is already revoked.
+    """
+    if _auth.load_active_credential_kind(instance) == "api_key":
+        return True
+    from geolens.api.auth import logout_current_session_auth_logout_session_post as _logout
+    from geolens.models.refresh_request import RefreshRequest
+
+    from ._sdk_helpers import make_client
+
+    try:
+        refresh = _auth.load_refresh_token_strict(instance)
+        bearer = _auth.load_bearer_token(instance)
+        if refresh:
+            resp = _logout.sync_detailed(
+                client=make_client(instance).client,
+                body=RefreshRequest(refresh_token=refresh),
+            )
+        elif bearer:
+            resp = _logout.sync_detailed(
+                client=make_client(instance, bearer_token=bearer.value).client
+            )
+        else:
+            return True
+    except Exception:  # broad: offline or unreadable storage must not block local logout
+        return False
+    return int(resp.status_code) in (204, 401)
+
+
 @app.command()
 def logout(ctx: typer.Context) -> None:
-    """Tear down credentials for the active instance."""
+    """Revoke the stored session on the server, then delete local credentials."""
     state: AppState = ctx.obj
     instance = state.active_instance()
     if not instance:
         state.output.error("No active instance — nothing to log out from.")
         raise typer.Exit(2)
+    session_revoked = _revoke_server_session(instance)
     try:
         _auth.delete_credentials(instance)
     except _auth.CredentialsFileCorrupt as exc:
@@ -934,6 +967,11 @@ def logout(ctx: typer.Context) -> None:
         except FileNotFoundError:
             pass
     state.output.success(f"Logged out of {instance}")
+    if not session_revoked:
+        state.output.warn(
+            "Could not reach the server to end the session, so it may still be "
+            "active there. Sign out from the web app or try again when online."
+        )
 
 
 @app.command()

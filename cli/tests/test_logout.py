@@ -50,3 +50,58 @@ class TestLogoutConfigPreservation:
         assert mock_keyring.get(("geolens", "https://prod.example.com/api")) == "tok-prod"
         # Only the staging credential was removed.
         assert mock_keyring.get(("geolens", "https://staging.example.com/api")) is None
+
+
+class TestLogoutRevokesServerSession:
+    _LOGOUT = "geolens.api.auth.logout_current_session_auth_logout_session_post.sync_detailed"
+
+    def _login_with_refresh(self, runner, mock_keyring):
+        from geolens_cli import auth as _auth
+
+        runner.invoke(app, ["login", "https://prod.example.com/api", "--token", "tok"])
+        _auth.store_refresh_token("https://prod.example.com/api", "refresh-1", bearer_token="tok")
+
+    def test_logout_sends_the_refresh_token_to_the_server(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        self._login_with_refresh(runner, mock_keyring)
+        calls = []
+
+        class _Resp:
+            status_code = 204
+
+        monkeypatch.setattr(self._LOGOUT, lambda **kw: calls.append(kw) or _Resp())
+        result = runner.invoke(app, ["logout"])
+        assert result.exit_code == 0, result.output
+        assert len(calls) == 1
+        assert calls[0]["body"].refresh_token == "refresh-1"
+        assert "may still be active" not in result.output
+
+    def test_logout_still_clears_local_credentials_when_server_unreachable(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        import httpx
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        self._login_with_refresh(runner, mock_keyring)
+
+        def fail(**_kw):
+            raise httpx.ConnectError("down")
+
+        monkeypatch.setattr(self._LOGOUT, fail)
+        result = runner.invoke(app, ["logout"])
+        assert result.exit_code == 0, result.output
+        assert "may still be active" in result.output
+        assert mock_keyring.get(("geolens", "https://prod.example.com/api")) is None
+
+    def test_api_key_login_makes_no_server_call(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        runner.invoke(app, ["login", "https://prod.example.com/api", "--api-key", "k"])
+        calls = []
+        monkeypatch.setattr(self._LOGOUT, lambda **kw: calls.append(kw))
+        result = runner.invoke(app, ["logout"])
+        assert result.exit_code == 0, result.output
+        assert calls == []
