@@ -8214,12 +8214,18 @@ export interface components {
         };
         /** Body_reupload_dataset_datasets__dataset_id__reupload_post */
         Body_reupload_dataset_datasets__dataset_id__reupload_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /** Body_upload_file_ingest_upload_post */
         Body_upload_file_ingest_upload_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
             /**
              * Kind
@@ -8229,7 +8235,10 @@ export interface components {
         };
         /** Body_upload_map_icon_endpoint_maps_icons_post */
         Body_upload_map_icon_endpoint_maps_icons_post: {
-            /** File */
+            /**
+             * File
+             * Format: binary
+             */
             file: string;
         };
         /**
