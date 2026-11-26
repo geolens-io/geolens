@@ -363,6 +363,42 @@ async def test_command_saves_the_builder_keys_validation_moved_out_of_paint(
     }
 
 
+async def test_command_skips_a_layer_the_renames_would_make_unreadable(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(
+        test_db_session,
+        admin.id,
+        [
+            {"name": "src_geom", "type": "text", "source_name": "geom"},
+            {"name": "some_field", "type": "text"},
+        ],
+    )
+    # Renamed, the 480-character popup title would be 800 characters, past
+    # its 500-character limit, and the map could no longer be read back.
+    popup = {"enabled": True, "expression": "{geom}" * 80}
+    map_id, layer_id = await _map_with_layer(
+        test_db_session,
+        admin.id,
+        dataset_id,
+        paint={"circle-color": ["get", "Some_Field"]},
+        popup_config=popup,
+    )
+
+    report = await repair_stored_layers(test_db_session)
+
+    entry = {entry.layer_id: entry for entry in report.layers}[layer_id]
+    assert entry.status == "skipped"
+    assert "popup_config.expression" in entry.reason
+    assert entry.repaired == {}
+    assert entry.unrepaired == {"geom": "invalid", "Some_Field": "invalid"}
+    row = await _layer_row(test_db_session, layer_id)
+    assert row.paint == {"circle-color": ["get", "Some_Field"]}
+    assert row.popup_config == popup
+    assert (await _audit_events(test_db_session, map_id)) == []
+
+
 async def test_dry_run_reports_the_repair_without_writing_anything(
     test_db_session, clean_tables
 ):

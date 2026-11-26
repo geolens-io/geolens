@@ -304,6 +304,26 @@ def test_repair_keeps_one_popup_field_when_two_references_resolve_to_it():
     PopupConfig.model_validate(repaired.popup_config.model_dump())
 
 
+def test_repair_leaves_a_layer_alone_when_the_renames_would_not_validate():
+    # 80 placeholders fit the popup's 500-character limit as "{geom}" (480)
+    # and overflow it as "{src_geom}" (800).
+    layer = _layer(
+        paint={"circle-color": ["get", "Some_Field"]},
+        popup_config={"enabled": True, "expression": "{geom}" * 80},
+    )
+
+    repaired, report = repair_layer_columns(
+        layer,
+        [{"name": "src_geom", "source_name": "geom"}, {"name": "some_field"}],
+    )
+
+    assert repaired is layer
+    assert report.repaired == {}
+    assert report.unrepaired == {"geom": "invalid", "Some_Field": "invalid"}
+    assert report.refused is not None
+    assert "popup_config.expression" in report.refused
+
+
 def test_repair_leaves_a_layer_with_no_recorded_columns_alone():
     layer = _layer(paint={"circle-color": ["get", "Some_Field"]})
 

@@ -8,8 +8,9 @@ It loads each vector layer with its dataset's recorded ``column_info``,
 rewrites the layer's column references to the stored names with
 ``repair_layer_columns``, saves the layers that changed, and prints what it
 changed and what it skipped: a layer whose dataset recorded no columns, a
-layer that no longer reads as a layer, and a map another change holds are
-all skipped. Each map is repaired in a transaction of its own: the map's
+layer that no longer reads as a layer, a layer the renames would leave
+invalid (a longer stored name can push the popup title past its limit), and
+a map another change holds are all skipped. Each map is repaired in a transaction of its own: the map's
 row lock is taken before the layers are read, so the rows are the ones
 committed when the lock was taken, and a save that starts after cannot
 commit ahead of the repair, because advancing the map's ``updated_at``
@@ -165,6 +166,11 @@ def _repair_layer(
     repaired_layer, result = repair_layer_columns(layer_in, column_info)
     entry.repaired = dict(result.repaired)
     entry.unrepaired = dict(result.unrepaired)
+    if result.refused is not None:
+        entry.status = "skipped"
+        entry.reason = f"the repaired layer would not be valid ({result.refused})"
+        report.layers.append(entry)
+        return
     if not result.repaired:
         entry.status = "unchanged"
         report.layers.append(entry)

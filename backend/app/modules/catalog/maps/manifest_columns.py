@@ -16,6 +16,8 @@ from collections.abc import Callable, Generator, Mapping, Sequence
 from dataclasses import dataclass
 from typing import Any
 
+from pydantic import ValidationError
+
 from app.modules.catalog.maps.arcgis_webmap.fields import FieldNames
 from app.modules.catalog.maps.schemas import MapLayerInput
 
@@ -544,11 +546,14 @@ class ColumnRepair:
     ``repaired`` maps each referenced name that changed to the stored name it
     now reads. ``unrepaired`` maps each referenced name left as it was to why
     it stayed: ``"missing"`` when no stored column resolves it, ``"ambiguous"``
-    when more than one stored column matches it ignoring case.
+    when more than one stored column matches it ignoring case, ``"invalid"``
+    when the renamed layer would not validate. ``refused`` says why the
+    renamed layer would not validate, and is None otherwise.
     """
 
     repaired: dict[str, str]
     unrepaired: dict[str, str]
+    refused: str | None = None
 
 
 def repair_layer_columns(
@@ -570,6 +575,13 @@ def repair_layer_columns(
     case, when it is ``"ambiguous"``, so a repair never guesses between two
     columns. With no columns recorded the names cannot be judged, so the
     layer is left as it was. ``layer`` itself is left as it was.
+
+    The renamed layer is validated as a stored layer is read back. A stored
+    name can be longer than the name it replaces, so a rename can push a
+    bounded field such as the popup title past its limit; when the renamed
+    layer would not validate, ``layer`` is returned as it was, every name
+    the repair would have changed is reported ``"invalid"``, and
+    ``refused`` says why.
     """
     if not columns:
         return layer, ColumnRepair(repaired={}, unrepaired={})
@@ -604,6 +616,20 @@ def repair_layer_columns(
             )
         return name
 
-    return rename_layer_columns(layer, rename), ColumnRepair(
-        repaired=repaired, unrepaired=unrepaired
-    )
+    renamed = rename_layer_columns(layer, rename)
+    if not repaired:
+        return renamed, ColumnRepair(repaired=repaired, unrepaired=unrepaired)
+    try:
+        # ``rename_layer_columns`` copies without validating.
+        MapLayerInput.model_validate(renamed.model_dump())
+    except ValidationError as exc:
+        refused = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors(include_input=False)[:3]
+        )
+        return layer, ColumnRepair(
+            repaired={},
+            unrepaired={**unrepaired, **dict.fromkeys(repaired, "invalid")},
+            refused=refused,
+        )
+    return renamed, ColumnRepair(repaired=repaired, unrepaired=unrepaired)
