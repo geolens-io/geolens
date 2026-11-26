@@ -1,44 +1,138 @@
-"""The maps section of a publish manifest: what a dry run checks and reports.
+"""The maps section of a publish manifest: what a dry run reports and an apply writes.
 
-Each map's key is looked up and its writer checked, each layer's dataset must
-be one the caller can read, and each layer's styling goes through the map
-layer schema. Nothing is written.
+One check serves both. Each map's key is looked up and its writer checked,
+each layer's dataset must be one the caller can read and one a map can show,
+each layer's styling goes through the map layer schema with its column names
+rewritten to the stored ones, and the map's visibility is judged as a
+dataset's is. A dry run writes nothing. An apply writes each map whose check
+found no error in a transaction of its own, under a lock on its key, through
+the map create and update services.
 """
 
 from __future__ import annotations
 
-import re
 import uuid
+from datetime import UTC, datetime
 from collections.abc import Collection, Iterable, Mapping, Sequence
-from typing import Any
+from dataclasses import dataclass, field
+from typing import Any, NamedTuple
 
 import structlog
 from fastapi import HTTPException
 from pydantic import ValidationError
-from sqlalchemy import select
+from sqlalchemy import select, text
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
-from app.modules.catalog.authorization import apply_visibility_filter, get_user_roles
+from app.core.permissions import EDIT_METADATA
+from app.core.processing_port import MINTED_SHARE_KEY
+from app.core.record_types import capabilities
+from app.modules.auth import permissions as auth_permissions
+from app.modules.auth.schemas import GroupRef
+from app.modules.catalog.authorization import (
+    ANONYMOUS_MAP_VISIBILITIES,
+    apply_visibility_filter,
+    check_public_visibility_allowed,
+    get_user_roles,
+)
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.maps.arcgis_webmap.fields import FieldNames
-from app.modules.catalog.maps.models import Map
+from app.modules.catalog.maps.manifest_columns import (
+    expression_icons,
+    named_columns,
+    rename_layer_columns,
+)
+from app.modules.catalog.maps.manifest_layers import plan_layer_stack
+from app.modules.catalog.maps.manifest_republish import (
+    ManagedNotes,
+    clear_map_images,
+    loss_lines,
+    managed_notes,
+    publish_line,
+    store_manifest_thumbnail,
+    styling_applies,
+    styling_edited_since_publish,
+    styling_kept_message,
+    written_notes_digests,
+)
+from app.modules.catalog.maps.manifest_messages import (
+    NO_MAP_PERMISSION,
+    TABLE_LAYER,
+    STYLING_KEPT,
+    NOTES_NOT_WRITTEN,
+    THUMBNAIL_NOT_STORED,
+    SHARE_LINK_NOT_CREATED,
+    SHARE_LINK_WITHHELD,
+    KEY_NOT_WRITABLE,
+    DATASET_NOT_READY,
+    LAYER_REMOVED,
+    STYLE_KEY_DROPPED,
+    COLUMN_MISSING,
+    OTHER_REFUSAL,
+    MAX_ERROR_LENGTH as _MAX_ERROR_LENGTH,
+    MAX_REPORTED_ERRORS as _MAX_REPORTED_ERRORS,
+    error_result as _error_result,
+    listed as _listed,
+    message as _message,
+    problem as _problem,
+    short as _short,
+)
+from app.modules.catalog.maps.manifest_moves import (
+    Target,
+    move_kept_layers,
+    widening_moves,
+)
+from app.modules.catalog.maps.manifest_share import ShareMint, mint_share_link
+from app.modules.catalog.maps.manifest_visibility import (
+    judge_visibility,
+    planned_public,
+)
+from app.modules.catalog.maps.manifest_sharing import (
+    group_messages,
+    layer_sharing_gaps,
+    lock_entry_groups,
+    more_visible,
+    plan_map_groups,
+    share_map,
+    with_groups,
+)
+from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.catalog.group_sharing import SharePlan
 from app.modules.catalog.maps.publish_vocabulary import (
     LABEL_METADATA_KEYS,
     STYLE_METADATA_KEYS,
 )
-from app.modules.catalog.maps.schemas import MapLayerInput
-from app.modules.catalog.maps.service import check_map_ownership
+from app.modules.catalog.maps.schemas import (
+    _MAX_LAYERS_PER_MAP,
+    MapCreate,
+    MapLayerInput,
+    MapUpdate,
+)
+from app.modules.catalog.maps.service import (
+    bulk_check_dataset_access,
+    discard_map_asset_objects,
+    lock_map_for_asset_write,
+    check_map_ownership,
+    links_retired_last,
+    lock_map_layers,
+    record_map_history_event,
+)
+from app.modules.catalog.maps.service_groups import map_groups
+from app.modules.catalog.maps.service_update import apply_map_create, apply_map_update
 from app.modules.settings.basemaps import list_public_basemaps
-
-KEY_NOT_WRITABLE = "A050"
-DATASET_NOT_READY = "A052"
-STYLE_KEY_DROPPED = "A062"
-COLUMN_MISSING = "A063"
-OTHER_REFUSAL = "A099"
+from app.platform.catalog_locks import CatalogLockConflict
+from app.platform.extensions import get_catalog_port, get_permission_extension
+from app.platform.jobs.in_flight import (
+    datasets_with_jobs_in_flight,
+    manifest_keys_with_jobs_in_flight,
+)
+from app.platform.record_audience import widens_audience
+from app.platform.request_credential import is_publish_key
 
 MAP_KEY_NOT_WRITABLE = "This map key belongs to a map you can't edit."
 MAP_CHECK_FAILED = "This map could not be checked. Try again."
+MAP_APPLY_FAILED = "This map could not be published. Try again."
+MAP_BUSY = "Another change to this map is in progress. Try again shortly."
 
 log = structlog.get_logger()
 # One answer for a dataset that doesn't exist, isn't ready and can't be read,
@@ -48,123 +142,119 @@ DATASET_UNAVAILABLE = (
     "or you can't read it."
 )
 
+KEY_THUMBNAIL_REFUSED = (
+    "The thumbnail wasn't stored: A publish key can't replace a map's thumbnail"
+)
+
 # Shape-checks a layer whose dataset didn't resolve; never stored.
 _NO_DATASET = uuid.UUID(int=0)
-_BUILDER_COLUMN_KEYS = ("heatmap_weight_column", "height_column")
-# The builder keys, as stored, that the style export emits as paint values,
-# so each may be an expression or a legacy property function.
-_BUILDER_STYLE_VALUE_KEYS = ("outline_color", "outline_width", "arrow_color")
-# The other builder keys the style export reads. None can name a column: the
-# export takes numbers, flags, enum names or a plain colour string from them.
-_BUILDER_NON_COLUMN_KEYS = frozenset(
-    {
-        "stroke_disabled",
-        "fill_color_saved",
-        "height_scale",
-        "extrusion_min_zoom",
-        "extrusion_opacity",
-        "arrow_size",
-        "arrow_spacing",
-        "hypso_enabled",
-        "hypso_ramp",
-        "hypso_reversed",
-        # Read in both spellings; the camelCase ones aren't renamed on save.
-        "hypsoEnabled",
-        "hypsoRamp",
-        "hypsoReversed",
-        "lineGradient",
-    }
-)
-_COMPARISON_OPERATORS = frozenset({"==", "!=", "<", ">", "<=", ">="})
-# The layout properties whose plain strings expand `{name}` tokens from the
-# feature, as the style spec marks them `tokens: true`, and MapLibre's token
-# pattern.
-_TOKEN_LAYOUT_PROPERTIES = ("text-field", "icon-image")
-_LAYOUT_TOKEN = re.compile(r"\{([^{}]+)\}")
-# Operators whose operands are data, never expressions: a literal value,
-# and the GeoJSON `within` and `distance` take.
-_DATA_OPERATORS = frozenset({"literal", "within", "distance"})
-_OPTION_OBJECT_OPERATORS = frozenset({"format", "collator", "number-format"})
-# The symbol settings the style export writes into the layout unchanged, so
-# each may be an expression.
-_SYMBOL_LAYOUT_KEYS = (
-    "iconImage",
-    "icon_image",
-    "iconSize",
-    "iconRotation",
-    "iconAnchor",
-    "iconOffset",
-)
-# Read by the renderer from the feature itself, not from its properties.
-_LEGACY_PSEUDO_FIELDS = frozenset({"$type", "$id"})
-# The popup title's placeholders, as the viewer substitutes them.
-_POPUP_PLACEHOLDER = re.compile(r"\{([A-Za-z_][A-Za-z0-9_]*)\}")
-_MAX_REPORTED_ERRORS = 5
-# Names in a message come from the caller, so a message lists only so many.
-_MAX_LISTED_NAMES = 20
-_MAX_LISTED_NAME_LENGTH = 64
-# A schema error may quote the caller's keys too.
-_MAX_ERROR_LENGTH = 300
 
 
-def _short(name: object, limit: int = _MAX_LISTED_NAME_LENGTH) -> str:
-    text = str(name)
-    if len(text) <= limit:
-        return text
-    return text[: limit - 3] + "..."
+class _Dataset(NamedTuple):
+    """What the checks read of a dataset the caller can read."""
+
+    columns: list[dict[str, Any]] | None
+    record_type: str | None
+    visibility: str
+    record_status: str
+    geometry_type: str | None
+    # A raster's, None for any other dataset.
+    is_dem: bool | None
+    band_count: int | None
+    # The columns its vector tiles carry; None for the per-zoom default.
+    tile_columns: list[str] | None
+    title: str = ""
+
+    @property
+    def public(self) -> bool:
+        return (self.visibility, self.record_status) == ("public", "published")
 
 
-def _problem(error: Mapping[str, Any]) -> str:
-    where = ".".join(_short(part) for part in error["loc"]) or "layer"
-    return f"{where}: {_short(error['msg'], _MAX_ERROR_LENGTH)}"
+@dataclass(frozen=True)
+class _Request:
+    """What every map of one request is checked against."""
+
+    user: Identity
+    dry_run: bool
+    dataset_ids_by_key: Mapping[str, uuid.UUID]
+    pending_datasets: Mapping[str | uuid.UUID, tuple[str | None, str]]
+    unsettled_dataset_ids: Collection[uuid.UUID]
+    datasets: Mapping[uuid.UUID, _Dataset]
+    basemap_ids: set[str]
+    may_edit_maps: bool
+    may_set_public: bool
+    is_key: bool
+    public_fallback: str | None
+    client: Any
+    ip_address: str | None
 
 
-def _listed(names: Sequence[str]) -> str:
-    shown = ", ".join(_short(name) for name in names[:_MAX_LISTED_NAMES])
-    rest = len(names) - _MAX_LISTED_NAMES
-    return f"{shown} and {rest} more" if rest > 0 else shown
+@dataclass
+class _Plan:
+    """One map's check, and what an apply writes when it found no error."""
+
+    result: dict[str, Any]
+    map_obj: Map | None = None
+    layers: list[MapLayerInput] = field(default_factory=list)
+    layer_keys: list[str | None] = field(default_factory=list)
+    # None keeps the map's.
+    write_visibility: str | None = None
+    styling_applied: bool = True
+    notes: ManagedNotes | None = None
+    # The map's updated_at as the apply committed it.
+    published_at: datetime | None = None
+    # Stored rows the apply leaves out of its layer list and must not delete.
+    keep_layer_ids: list[uuid.UUID] = field(default_factory=list)
+    # The groups the apply shares the map with; None keeps its groups.
+    share: SharePlan | None = None
+    # Whether the caller shares as an admin, read in the map's transaction:
+    # never through a publish key.
+    is_admin: bool = False
+    # Moved layers whose dashboard widgets fit their new dataset.
+    keep_widgets_of: list[uuid.UUID] = field(default_factory=list)
+    # Whether a layer the map keeps shows another dataset after the apply.
+    moves_dataset: bool = False
 
 
-def _message(
-    code: str,
-    severity: str,
-    message: str,
-    *,
-    fix: str | None = None,
-    layer: str | None = None,
-) -> dict[str, Any]:
-    return {
-        "code": code,
-        "severity": severity,
-        "message": message,
-        "fix": fix,
-        "layer": layer,
-    }
-
-
-async def _readable_columns(
+async def _readable_datasets(
     session: AsyncSession,
     dataset_ids: Iterable[uuid.UUID],
     user: Identity,
-) -> dict[uuid.UUID, list[dict[str, Any]] | None]:
-    """The stored columns of each dataset the caller can read, in one query.
+) -> dict[uuid.UUID, _Dataset]:
+    """What the checks read of each dataset the caller can read, in one query.
 
-    None means the dataset's columns were never recorded; an empty list is a
-    dataset with no attribute columns, such as a geometry-only table. A
-    dataset the caller can't read is left out exactly like a missing one.
-    The query runs even with no ids, so a dataset key that resolved costs the
-    same queries as one that didn't.
+    Columns None means they were never recorded; an empty list is a dataset
+    with no attribute columns, such as a geometry-only table. A dataset the
+    caller can't read is left out exactly like a missing one. The query runs
+    even with no ids, so a dataset key that resolved costs the same queries
+    as one that didn't.
     """
     wanted = sorted(set(dataset_ids))
+    RasterAsset = get_catalog_port().raster_asset_orm_class()
     stmt = (
-        select(Dataset.id, Dataset.column_info)
+        select(
+            Dataset.id,
+            Dataset.column_info,
+            Record.record_type,
+            Record.visibility,
+            Record.record_status,
+            Dataset.geometry_type,
+            RasterAsset.is_dem,
+            RasterAsset.band_count,
+            Dataset.tile_columns,
+            Record.title,
+        )
         .join(Record, Dataset.record_id == Record.id)
+        .outerjoin(RasterAsset, RasterAsset.dataset_id == Dataset.id)
         .where(Dataset.id.in_(wanted))
     )
     roles = await get_user_roles(session, user)
     stmt = apply_visibility_filter(stmt, user, roles, Record, DatasetGrant)
     rows = await session.execute(stmt)
-    return {row[0]: list(row[1]) if isinstance(row[1], list) else None for row in rows}
+    return {
+        row[0]: _Dataset(list(row[1]) if isinstance(row[1], list) else None, *row[2:])
+        for row in rows
+    }
 
 
 async def _known_basemap_ids(session: AsyncSession) -> set[str]:
@@ -174,12 +264,52 @@ async def _known_basemap_ids(session: AsyncSession) -> set[str]:
     }
 
 
-async def _writable_map_id(
-    session: AsyncSession, key: str, user: Identity
-) -> tuple[uuid.UUID | None, bool]:
+async def _may_edit_maps(session: AsyncSession, user: Identity) -> bool:
+    """The check ``require_permission("edit_metadata")`` makes on the map
+    routes, recorded the same way so the map row lock makes it again.
+
+    It reads the caller's full roles: a publish key narrows which maps its
+    owner's admin role reaches, which the ownership check applies, not which
+    capabilities the owner holds.
+    """
+    matrix = await auth_permissions.get_effective_permissions(session)
+    granted = await get_permission_extension().check_permission(
+        session,
+        user,
+        EDIT_METADATA,
+        user_roles=await auth_permissions.get_user_roles(session, user),
+        permission_matrix=matrix,
+    )
+    if granted:
+        auth_permissions.admit_capabilities(session, user.id, (EDIT_METADATA,), matrix)
+    return granted
+
+
+async def _may_set_public(session: AsyncSession, user: Identity) -> bool:
+    """Whether the gate every visibility write goes through lets ``user``
+    make something public."""
+    try:
+        await check_public_visibility_allowed(session, user, "public")
+    except HTTPException as exc:
+        if exc.status_code != 403:
+            raise
+        return False
+    return True
+
+
+async def _writable_map(
+    session: AsyncSession, key: str, user: Identity, *, lock: bool = False
+) -> tuple[Map | None, bool]:
     """The map ``key`` names and whether the caller may write it.
 
-    ``(None, True)`` when no map has the key.
+    ``(None, True)`` when no map has the key, and ``(None, False)`` for a map
+    the caller can't write or doesn't own, so nothing of it reaches the
+    caller. Keys are global, so an admin's write access alone would let a key
+    someone else created steer the admin's publish into that person's map;
+    only the owner writes a map through its key, as for dataset keys. With
+    ``lock`` the writer's map is returned as read under its row lock, which
+    the builder and sharing writes take too, held until the transaction
+    ends.
     """
     map_obj = (
         await session.execute(select(Map).where(Map.manifest_key == key))
@@ -190,7 +320,49 @@ async def _writable_map_id(
         await check_map_ownership(map_obj, user, session)
     except HTTPException:
         return None, False
-    return map_obj.id, True
+    if lock:
+        await lock_map_layers(session, map_obj.id)
+        map_obj = (
+            await session.execute(
+                select(Map)
+                .where(Map.id == map_obj.id)
+                .execution_options(populate_existing=True)
+            )
+        ).scalar_one()
+    if map_obj.created_by != user.id:
+        return None, False
+    return map_obj, True
+
+
+async def _stored_layers(
+    session: AsyncSession, map_id: uuid.UUID, user: Identity
+) -> list[tuple[MapLayer, _Dataset | None]]:
+    """The map's layers in draw order, each with its dataset when the caller
+    can read it, as stored now rather than as the session last loaded them."""
+    layers = (
+        (
+            await session.execute(
+                select(MapLayer)
+                .where(MapLayer.map_id == map_id)
+                .order_by(MapLayer.sort_order, MapLayer.id)
+                .execution_options(populate_existing=True)
+            )
+        )
+        .scalars()
+        .all()
+    )
+    datasets = await _readable_datasets(
+        session, (layer.dataset_id for layer in layers), user
+    )
+    return [(layer, datasets.get(layer.dataset_id)) for layer in layers]
+
+
+async def _lock_map_key(session: AsyncSession, key: str) -> None:
+    """Serialize the applies of one map key until the transaction ends."""
+    await session.execute(
+        text("SELECT pg_advisory_xact_lock(hashtextextended(:lock_key, 0))"),
+        {"lock_key": f"manifest_map:{key}"},
+    )
 
 
 def _known_keys(
@@ -202,196 +374,48 @@ def _known_keys(
     return {k: v for k, v in value.items() if k in known}, dropped
 
 
-def _walk_expression(node: Any, names: set[str]) -> None:
-    """Collect the feature properties a MapLibre expression reads.
-
-    Operands are walked by position. ``literal``, ``within`` and ``distance``
-    operands and ``match`` labels are data. A ``get`` or ``has`` reads the
-    feature with one operand or with ``["properties"]`` as the second, and
-    another object otherwise; its name may be a string or a literal string. ``semiliteral`` evaluates its array's items, and
-    ``format``, ``collator`` and ``number-format`` evaluate the values of
-    their option objects; any other object operand is data.
-    """
-    if not isinstance(node, list) or not node or not isinstance(node[0], str):
-        return
-    operator, operands = node[0], node[1:]
-    if operator in _DATA_OPERATORS:
-        return
-    key = operands[0] if operands else None
-    if isinstance(key, list) and len(key) == 2 and key[0] == "literal":
-        key = key[1]
-    if operator in ("get", "has") and isinstance(key, str):
-        reads_feature = len(operands) == 1 or operands[1:] == [["properties"]]
-        if reads_feature:
-            names.add(key)
-        operands = operands[1:]
-    elif operator == "semiliteral" and operands and isinstance(operands[0], list):
-        operands = operands[0]
-    elif operator == "match" and operands:
-        branches = operands[1:]
-        # Label and output pairs, then the fallback.
-        operands = [operands[0]] + [
-            branch
-            for index, branch in enumerate(branches)
-            if index % 2 == 1 or index == len(branches) - 1
-        ]
-    for operand in operands:
-        if isinstance(operand, dict) and operator in _OPTION_OBJECT_OPERATORS:
-            for value in operand.values():
-                _walk_expression(value, names)
-        else:
-            _walk_expression(operand, names)
-
-
-def _walk_style_value(value: Any, names: set[str]) -> None:
-    """A paint or layout value: an expression, or a legacy property function."""
-    if isinstance(value, dict):
-        if isinstance(value.get("property"), str) and value["property"]:
-            names.add(value["property"])
-        return
-    _walk_expression(value, names)
-
-
-def _walk_filter(node: Any, names: set[str]) -> None:
-    """Collect the properties a filter reads, in its legacy or expression form.
-
-    A filter is legacy or an expression by the same tests MapLibre's
-    ``isExpressionFilter`` applies, so ``["==", ["get", "a"], "b"]`` is an
-    expression while ``["==", "a", "b"]`` names the field ``a``.
-    """
-    if not isinstance(node, list) or not node or not isinstance(node[0], str):
-        return
-    operator, operands = node[0], node[1:]
-    if operator in ("all", "any", "none"):
-        for operand in operands:
-            _walk_filter(operand, names)
-        return
-    field = operands[0] if operands and isinstance(operands[0], str) else None
-    legacy = field is not None and (
-        operator in ("!has", "!in")
-        or (operator == "has" and field in _LEGACY_PSEUDO_FIELDS)
-        or (
-            operator == "in"
-            and not (len(operands) >= 2 and isinstance(operands[1], list))
-        )
-        or (
-            operator in _COMPARISON_OPERATORS
-            and len(operands) == 2
-            and not isinstance(operands[1], list)
-        )
-    )
-    if not legacy:
-        _walk_expression(node, names)
-    elif field not in _LEGACY_PSEUDO_FIELDS:
-        names.add(field)
-
-
-def _merged_symbol(style_config: dict[str, Any]) -> dict[str, Any]:
-    """The symbol settings, ``symbol`` over ``builder.symbol``, as the style export merges them."""
-    builder = style_config.get("builder")
-    builder_symbol = builder.get("symbol") if isinstance(builder, dict) else None
-    symbol = style_config.get("symbol")
-    return {
-        **(builder_symbol if isinstance(builder_symbol, dict) else {}),
-        **(symbol if isinstance(symbol, dict) else {}),
+def _layout(layer: Any) -> dict[str, Any] | None:
+    """The layer's layout with its zoom range where the builder keeps it."""
+    zooms = {
+        key: value
+        for key, value in (("_minzoom", layer.min_zoom), ("_maxzoom", layer.max_zoom))
+        if value is not None
     }
-
-
-def _symbol_category_column(style_config: dict[str, Any]) -> Any:
-    """The column a symbol layer picks its icons by, read as the style export does."""
-    symbol = _merged_symbol(style_config)
-    # With no surviving category the export writes the fallback icon alone.
-    if not _symbol_category_icons(symbol):
+    if layer.layout is None and not zooms:
         return None
-    return symbol.get("categoryColumn") or symbol.get("category_column")
+    return {**(layer.layout or {}), **zooms}
 
 
-def _symbol_category_icons(symbol: dict[str, Any]) -> list[Any]:
-    """The category icons the style export writes into the icon match.
-
-    The export keeps an entry only with a category column, a ``categories``
-    list, and an entry whose ``value`` and ``icon`` are both set, and it
-    passes the icon through unchanged, an expression included.
-    """
-    categories = symbol.get("categories")
-    if not (symbol.get("categoryColumn") or symbol.get("category_column")):
-        return []
-    if not isinstance(categories, list):
-        return []
-    return [
-        entry["icon"]
-        for entry in categories
-        if isinstance(entry, dict)
-        and entry.get("icon") is not None
-        and entry.get("value") is not None
-    ]
-
-
-def _named_columns(layer: MapLayerInput) -> set[str]:
-    """Every column the layer's style, labels, popup and filter name."""
-    names: set[str] = set()
-    style_config = layer.style_config or {}
-    builder = style_config.get("builder")
-    popup = layer.popup_config
-    candidates = [
-        style_config.get("column"),
-        _symbol_category_column(style_config),
-        (layer.label_config or {}).get("column"),
-        *(
-            builder.get(key) if isinstance(builder, dict) else None
-            for key in _BUILDER_COLUMN_KEYS
-        ),
-        *((popup.visible_fields or []) if popup else []),
-        *(_POPUP_PLACEHOLDER.findall(popup.expression or "") if popup else []),
-    ]
-    names.update(c for c in candidates if isinstance(c, str) and c)
-    builder_values = [
-        builder.get(key) if isinstance(builder, dict) else None
-        for key in _BUILDER_STYLE_VALUE_KEYS
-    ]
-    for value in [
-        *(layer.paint or {}).values(),
-        *(layer.layout or {}).values(),
-        *builder_values,
-    ]:
-        _walk_style_value(value, names)
-    token_values = [(layer.layout or {}).get(prop) for prop in _TOKEN_LAYOUT_PROPERTIES]
-    symbol = _merged_symbol(style_config)
-    for key in _SYMBOL_LAYOUT_KEYS:
-        _walk_style_value(symbol.get(key), names)
-    category_icons = _symbol_category_icons(symbol)
-    for icon in category_icons:
-        _walk_expression(icon, names)
-    # Tokens expand only in a plain `icon-image` string. With categories the
-    # export writes a match, where the icons and the fallback are literal names.
-    if not category_icons:
-        token_values += [symbol.get("iconImage") or symbol.get("icon_image")]
-    for value in token_values:
-        if isinstance(value, str):
-            names.update(_LAYOUT_TOKEN.findall(value))
-    for value in (layer.label_config or {}).values():
-        _walk_expression(value, names)
-    _walk_filter(layer.filter, names)
-    return names
+def _layer_refused(layer: Any, exc: ValidationError) -> dict[str, Any]:
+    problems = "; ".join(
+        _problem(error)
+        for error in exc.errors(include_input=False)[:_MAX_REPORTED_ERRORS]
+    )
+    return _message(
+        OTHER_REFUSAL,
+        "error",
+        f"Layer {layer.key} can't be saved: {problems}",
+        layer=layer.key,
+    )
 
 
 def _check_layer(
     layer: Any,
     dataset_id: uuid.UUID | None,
-    columns: list[dict[str, Any]] | None,
+    dataset: _Dataset | None,
     *,
-    readable: bool,
     pending: bool,
-) -> list[dict[str, Any]]:
-    """The messages for one layer.
+) -> tuple[list[dict[str, Any]], MapLayerInput | None]:
+    """The messages for one layer, and the layer as it is stored.
 
-    ``columns`` are the readable dataset's stored columns, None when they were
-    never recorded, which leaves the names unchecked. A ``pending`` layer
-    names a dataset the same request publishes, so an unreadable dataset is
-    no error for it, and there are no columns to check.
+    ``dataset`` is the readable dataset, None when the caller can't read it.
+    A ``pending`` layer names a dataset the same request publishes, so an
+    unreadable dataset is no error for it, and there are no columns to check.
+    Column names are rewritten to the stored ones; a name the dataset lacks,
+    or a dataset whose columns were never recorded, keeps the name it had.
     """
     messages: list[dict[str, Any]] = []
-    if not readable and not pending:
+    if dataset is None and not pending:
         messages.append(
             _message(
                 DATASET_NOT_READY,
@@ -401,9 +425,43 @@ def _check_layer(
                 layer=layer.key,
             )
         )
+    elif (
+        dataset is not None and capabilities(dataset.record_type).map_layer_type is None
+    ):
+        messages.append(
+            _message(
+                OTHER_REFUSAL,
+                "error",
+                f"Layer {layer.key}: its dataset is a kind a map can't show, "
+                "such as 3D Tiles or a point cloud.",
+                fix="Remove the layer.",
+                layer=layer.key,
+            )
+        )
+    elif dataset is not None and dataset.record_type == "table":
+        messages.append(
+            _message(
+                TABLE_LAYER,
+                "info",
+                f"Layer {layer.key}: its dataset is a table without geometry, "
+                "so the layer draws nothing on the map.",
+                layer=layer.key,
+            )
+        )
     style_config, dropped_style = _known_keys(layer.style_config, STYLE_METADATA_KEYS)
+    if expression_icons(style_config):
+        messages.append(
+            _message(
+                OTHER_REFUSAL,
+                "error",
+                f"Layer {layer.key}: a symbol icon must be an icon name, not an "
+                "expression.",
+                fix="Send the name of an icon in the GeoLens sprite.",
+                layer=layer.key,
+            )
+        )
     label_config, dropped_label = _known_keys(layer.label_config, LABEL_METADATA_KEYS)
-    for field, dropped in (
+    for name, dropped in (
         ("style_config", dropped_style),
         ("label_config", dropped_label),
     ):
@@ -412,7 +470,7 @@ def _check_layer(
                 _message(
                     STYLE_KEY_DROPPED,
                     "info",
-                    f"Unknown {field} keys were dropped: {_listed(dropped)}.",
+                    f"Unknown {name} keys were dropped: {_listed(dropped)}.",
                     layer=layer.key,
                 )
             )
@@ -422,7 +480,7 @@ def _check_layer(
             visible=layer.visible,
             opacity=layer.opacity,
             paint=layer.paint,
-            layout=layer.layout,
+            layout=_layout(layer),
             display_name=layer.display_name,
             filter=layer.filter,
             label_config=label_config,
@@ -430,21 +488,10 @@ def _check_layer(
             style_config=style_config,
             show_in_legend=layer.show_in_legend,
         )
-        named = _named_columns(checked)
+        named = named_columns(checked)
     except ValidationError as exc:
-        problems = "; ".join(
-            _problem(error)
-            for error in exc.errors(include_input=False)[:_MAX_REPORTED_ERRORS]
-        )
-        messages.append(
-            _message(
-                OTHER_REFUSAL,
-                "error",
-                f"Layer {layer.key} can't be saved: {problems}",
-                layer=layer.key,
-            )
-        )
-        return messages
+        messages.append(_layer_refused(layer, exc))
+        return messages, None
     except RecursionError:
         messages.append(
             _message(
@@ -454,9 +501,10 @@ def _check_layer(
                 layer=layer.key,
             )
         )
-        return messages
-    if not readable or columns is None:
-        return messages
+        return messages, None
+    if dataset is None or dataset.columns is None:
+        return messages, checked
+    columns = dataset.columns
     # FieldNames reads an empty list as "columns unknown" and accepts every
     # name; a recorded empty list has none.
     stored = FieldNames(columns)
@@ -473,20 +521,112 @@ def _check_layer(
                 layer=layer.key,
             )
         )
-    return messages
+    renamed = rename_layer_columns(checked, lambda name: stored.stored(name) or name)
+    try:
+        # The stored names can be longer than the source names the size caps
+        # were checked against.
+        return messages, MapLayerInput.model_validate(renamed.model_dump())
+    except ValidationError as exc:
+        messages.append(_layer_refused(layer, exc))
+        return messages, None
 
 
-async def _check_map(
+def _shown_datasets(
+    plan: _Plan,
+    datasets: Mapping[uuid.UUID, _Dataset],
+    stored: Sequence[tuple[MapLayer, _Dataset | None]],
+    unsettled: Collection[uuid.UUID],
+    request: _Request,
+) -> list[tuple[str | None, uuid.UUID, _Dataset]]:
+    """Each layer the planned map shows, by key (None for one added in
+    GeoLens), with its dataset when the caller reads it and this request
+    doesn't publish it: those keep their own audience whatever the map's. A
+    layer the apply keeps shows its stored dataset."""
+    readable = {
+        **{layer.dataset_id: dataset for layer, dataset in stored if dataset},
+        **datasets,
+    }
+    shown = []
+    for layer, key in zip(plan.layers, plan.layer_keys, strict=False):
+        dataset = readable.get(layer.dataset_id)
+        if (
+            dataset is not None
+            and layer.dataset_id not in request.pending_datasets
+            and layer.dataset_id not in unsettled
+        ):
+            shown.append((key, layer.dataset_id, dataset))
+    return shown
+
+
+async def _plan_sharing(
     session: AsyncSession,
     entry: Any,
-    user: Identity,
-    dataset_ids_by_key: Mapping[str, uuid.UUID],
-    pending_dataset_keys: Collection[str],
-    columns_by_dataset: Mapping[uuid.UUID, list[dict[str, Any]] | None],
-    basemap_ids: set[str],
-) -> dict[str, Any]:
-    map_id, writable = await _writable_map_id(session, entry.key, user)
+    request: _Request,
+    plan: _Plan,
+    shows_non_public: bool,
+    shown: Sequence[tuple[str | None, uuid.UUID, _Dataset]],
+    messages: list[dict[str, Any]],
+) -> tuple[str, list[GroupRef]]:
+    """Plan who reads the map: the visibility it stores and its groups,
+    with the sharing messages added to ``messages``. Only a dry run warns
+    that the map reaches more people (A057); the apply that follows it
+    widens the map as the dry run said."""
+    map_obj = plan.map_obj
+    now = map_obj.visibility if map_obj is not None else None
+    plan.write_visibility, visibility_messages = judge_visibility(
+        entry,
+        now,
+        shows_non_public,
+        public_fallback=request.public_fallback,
+        may_set_public=request.may_set_public,
+        is_key=request.is_key,
+    )
+    messages.extend(visibility_messages)
+    plan.is_admin = "admin" in await get_user_roles(session, request.user)
+    groups, plan.share = await plan_map_groups(
+        session,
+        entry,
+        map_obj,
+        request.user,
+        is_admin=plan.is_admin,
+        is_key=request.is_key,
+        level=plan.write_visibility or now or "private",
+    )
+    messages.extend(group_messages(entry, plan.share))
+    visibility = with_groups(plan.write_visibility or now or "private", groups)
+    shares = plan.share is not None and not plan.share.unchanged
+    if now is not None and plan.write_visibility in (None, now) and not shares:
+        # Nothing writes the level or the grants, so a private map stays
+        # private whatever grants it kept from before.
+        visibility = now
+    if request.dry_run and widens_audience(
+        now, visibility, added_groups=bool(plan.share and plan.share.added)
+    ):
+        messages.append(more_visible(entry, visibility, groups))
+    messages.extend(await layer_sharing_gaps(session, shown, visibility, groups))
+    return visibility, groups
+
+
+async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _Plan:
+    """Check one map and plan its apply. Writes nothing.
+
+    An apply takes the map's row lock before it reads anything else of the
+    map, and plans from what it reads under the lock.
+    """
+    user = request.user
+    map_obj, writable = await _writable_map(
+        session, entry.key, user, lock=not request.dry_run
+    )
     messages: list[dict[str, Any]] = []
+    if not request.may_edit_maps:
+        messages.append(
+            _message(
+                NO_MAP_PERMISSION,
+                "error",
+                "Publishing a map needs the edit_metadata permission.",
+                fix="Ask an admin.",
+            )
+        )
     if not writable:
         messages.append(
             _message(
@@ -496,7 +636,33 @@ async def _check_map(
                 fix="Publish as a new map.",
             )
         )
-    if entry.basemap_style is not None and entry.basemap_style not in basemap_ids:
+    styling_applied = True
+    if map_obj is not None:
+        edited = await styling_edited_since_publish(
+            session,
+            map_obj.id,
+            view=entry.view is not None,
+            basemap=entry.basemap_style is not None,
+            bookmarks=entry.bookmarks is not None,
+        )
+        styling_applied = styling_applies(entry.styling, edited=edited is not None)
+        if not styling_applied and entry.styling == "replace_if_unedited":
+            messages.append(
+                _message(
+                    STYLING_KEPT,
+                    "info",
+                    styling_kept_message(
+                        # The history route's own gate: edit_metadata on a map
+                        # the caller owns or administers.
+                        edited if request.may_edit_maps else None
+                    ),
+                    fix='Send styling "replace" to replace it.',
+                )
+            )
+    if (
+        entry.basemap_style is not None
+        and entry.basemap_style not in request.basemap_ids
+    ):
         messages.append(
             _message(
                 OTHER_REFUSAL,
@@ -505,56 +671,451 @@ async def _check_map(
                 fix="Choose a basemap from GET /capabilities.",
             )
         )
+    layers: list[MapLayerInput] = []
+    keys: list[str] = []
+    non_public_by_key: dict[str, bool] = {}
+    targets: dict[str, Target] = {}
+    datasets, unsettled = request.datasets, request.unsettled_dataset_ids
+    if not request.dry_run:
+        dataset_ids = _layer_dataset_ids([entry], request.dataset_ids_by_key)
+        datasets = await _readable_datasets(session, dataset_ids, user)
+        # Read again under this map's locks: a replacement queued while the
+        # apply waited for them is not the dataset the publish describes.
+        unsettled = {
+            *unsettled,
+            *await _settling_now(session, entry, set(datasets), request),
+        }
     for layer in entry.layers:
         dataset_id = (
             layer.dataset_id
             if layer.dataset_id is not None
-            else dataset_ids_by_key.get(layer.dataset_key)
+            else request.dataset_ids_by_key.get(layer.dataset_key)
         )
-        messages.extend(
-            _check_layer(
-                layer,
-                dataset_id,
-                columns_by_dataset.get(dataset_id) if dataset_id else None,
-                readable=dataset_id in columns_by_dataset,
-                pending=layer.dataset_key in pending_dataset_keys,
+        planned = request.pending_datasets.get(
+            layer.dataset_key if layer.dataset_key is not None else layer.dataset_id
+        )
+        # A dataset a job is still replacing isn't the one the publish
+        # describes yet, by key or by id.
+        dataset = (
+            datasets.get(dataset_id)
+            if dataset_id and (planned is not None or dataset_id not in unsettled)
+            else None
+        )
+        layer_messages, stored_layer = _check_layer(
+            layer, dataset_id, dataset, pending=planned is not None
+        )
+        messages.extend(layer_messages)
+        if dataset is not None or planned is not None:
+            non_public_by_key[layer.key] = not planned_public(dataset, planned)
+        if stored_layer is not None:
+            layers.append(stored_layer)
+            keys.append(layer.key)
+            targets[layer.key] = Target(dataset_id, dataset, stored_layer)
+    plan = _Plan(result={}, map_obj=map_obj, styling_applied=styling_applied)
+    plan.notes = managed_notes(
+        map_obj.notes if map_obj is not None else None,
+        [
+            publish_line(request.client, datetime.now(UTC).date()),
+            *(loss_lines(entry.loss_report) if styling_applied else ()),
+        ],
+        (
+            await written_notes_digests(session, map_obj.id, map_obj.notes)
+            if map_obj is not None
+            else frozenset()
+        ),
+    )
+    if plan.notes.digest is None:
+        messages.append(_no_room_for_notes(plan.notes))
+    removed: list[MapLayer] = []
+    stored: list[tuple[MapLayer, _Dataset | None]] = []
+    retained_non_public = False
+    if map_obj is not None:
+        stored = await _stored_layers(session, map_obj.id, user)
+        listed = {layer.key for layer in entry.layers}
+        # The stored layers the map goes on showing with their own dataset; a
+        # listed one shows the manifest's, counted below.
+        retained_non_public = any(
+            not planned_public(dataset, request.pending_datasets.get(layer.dataset_id))
+            for layer, dataset in stored
+            if dataset is not None
+            and (
+                layer.manifest_key is None
+                or (layer.manifest_key not in listed and entry.styling == "keep")
             )
         )
-    if any(message["severity"] == "error" for message in messages):
-        action = "error"
+        try:
+            moves = move_kept_layers(
+                stored,
+                targets,
+                map_obj.dashboard_config,
+                kept=not styling_applied,
+                widening=await widening_moves(
+                    session,
+                    stored,
+                    targets,
+                    map_obj.dashboard_config,
+                    kept=not styling_applied,
+                ),
+            )
+            messages.extend([*moves.errors, *moves.warnings])
+            if not styling_applied:
+                taking_manifest = {
+                    layer.manifest_key
+                    for layer, _ in stored
+                    if layer.id in moves.layers
+                    and layer.id not in moves.keep_widgets_of
+                }
+                keeping = {
+                    layer.manifest_key for layer, _ in stored if layer.manifest_key
+                } - taking_manifest
+                # These layers keep the styling they have, not the one the
+                # manifest sent, which the two checks read.
+                messages[:] = [
+                    m
+                    for m in messages
+                    if not (
+                        m["code"] in (STYLE_KEY_DROPPED, COLUMN_MISSING)
+                        and m["layer"] in keeping
+                    )
+                ]
+            plan.keep_widgets_of = moves.keep_widgets_of
+            (
+                plan.layers,
+                plan.layer_keys,
+                removed,
+                total,
+                plan.keep_layer_ids,
+            ) = plan_layer_stack(
+                entry,
+                stored,
+                layers,
+                keys,
+                keep_styling=not styling_applied,
+                remove_missing=entry.styling != "keep",
+                moved=moves.layers,
+            )
+            plan.moves_dataset = _moves_a_dataset(stored, plan.layers)
+        except ValidationError:
+            messages.append(
+                _message(
+                    OTHER_REFUSAL,
+                    "error",
+                    "A layer added to this map in GeoLens can't be saved as it "
+                    "is, so the map can't be republished.",
+                    fix="Open the map in GeoLens and save it once.",
+                )
+            )
+            total = 0
     else:
-        action = "create" if map_id is None else "update"
-    return {
+        plan.layers, plan.layer_keys = plan_layer_stack(entry, [], layers, keys)[:2]
+        total = len(entry.layers)
+    if total > _MAX_LAYERS_PER_MAP:
+        messages.append(
+            _message(
+                OTHER_REFUSAL,
+                "error",
+                f"The map would have {total} layers, more than {_MAX_LAYERS_PER_MAP}.",
+                fix="Remove layers from the map in GeoLens, or publish fewer.",
+            )
+        )
+    # A manifest layer counts only where the map takes it; a kept layer on a
+    # dataset the caller can't read stays there.
+    unmoved = {layer.manifest_key for layer, dataset in stored if dataset is None}
+    shows_non_public = retained_non_public or any(
+        non_public
+        for key, non_public in non_public_by_key.items()
+        if styling_applied or key not in unmoved
+    )
+    shown = _shown_datasets(plan, datasets, stored, unsettled, request)
+    stored_visibility, groups = await _plan_sharing(
+        session, entry, request, plan, shows_non_public, shown, messages
+    )
+    messages.extend(
+        _message(
+            LAYER_REMOVED,
+            "info",
+            f"Layer {_short(layer.manifest_key)} is no longer in the map. Its "
+            "dataset stays on the server.",
+            fix="Open the dataset in GeoLens to delete it.",
+            layer=layer.manifest_key,
+        )
+        for layer in removed
+    )
+    failed = any(message["severity"] == "error" for message in messages)
+    plan.result = {
         "map_key": entry.key,
-        "action": action,
-        "map_id": map_id,
+        "action": "error" if failed else "create" if map_obj is None else "update",
+        "map_id": map_obj.id if map_obj is not None else None,
         "messages": messages,
+        "visibility": None if failed else stored_visibility,
+        "groups": [] if failed else [group.name for group in groups],
+        "styling": None if failed else "applied" if styling_applied else "kept",
+        "removed_layers": []
+        if failed
+        else [
+            {
+                "key": layer.manifest_key,
+                "dataset_id": layer.dataset_id,
+                "layer_id": layer.id,
+            }
+            for layer in removed
+        ],
+    }
+    return plan
+
+
+def _moves_a_dataset(
+    stored: Iterable[tuple[MapLayer, Any]], layers: Iterable[MapLayerInput]
+) -> bool:
+    before = {layer.id: layer.dataset_id for layer, _ in stored}
+    return any(
+        layer.id in before and before[layer.id] != layer.dataset_id for layer in layers
+    )
+
+
+def _no_room_for_notes(notes: ManagedNotes) -> dict[str, Any]:
+    removed = (
+        ", and an earlier publish's notes at the top were removed. The rest "
+        "of the notes is kept as it was."
+        if notes.replaced
+        else ". The notes in GeoLens are kept as they were."
+    )
+    return _message(
+        NOTES_NOT_WRITTEN,
+        "info",
+        "The map's notes leave no room for the publish notes, so none were "
+        f"written{removed}",
+    )
+
+
+async def _settling_now(
+    session: AsyncSession,
+    entry: Any,
+    readable_ids: set[uuid.UUID],
+    request: _Request,
+) -> set[uuid.UUID]:
+    """Which of ``readable_ids``, the map's layer datasets the caller can
+    read, a pending or running job writes into now, by the dataset or by the
+    key that names it. No job is returned."""
+    keys = {layer.dataset_key for layer in entry.layers if layer.dataset_key}
+    busy_keys = await manifest_keys_with_jobs_in_flight(session, keys)
+    busy = await datasets_with_jobs_in_flight(session, readable_ids)
+    busy |= {
+        request.dataset_ids_by_key[key]
+        for key in busy_keys
+        if key in request.dataset_ids_by_key
+    } & readable_ids
+    return busy
+
+
+async def _refuse_unreadable_layers(
+    session: AsyncSession, layers: Sequence[MapLayerInput], user: Identity
+) -> None:
+    wanted = [layer.dataset_id for layer in layers]
+    readable = await bulk_check_dataset_access(
+        session, wanted, user, await get_user_roles(session, user)
+    )
+    if any(dataset_id not in readable for dataset_id in wanted):
+        raise HTTPException(
+            status_code=403, detail="Cannot access one or more layer datasets"
+        )
+
+
+async def _write_map(
+    session: AsyncSession, entry: Any, request: _Request, plan: _Plan
+) -> dict[str, Any]:
+    """Write a map whose check passed, through the map services, and give a
+    map it leaves public a share link through the share service. Flushes."""
+    user = request.user
+    map_obj = plan.map_obj
+    created = map_obj is None
+    if map_obj is None:
+        # Every layer's dataset is checked before the map row exists.
+        await _refuse_unreadable_layers(session, plan.layers, user)
+        map_obj = await apply_map_create(
+            session,
+            MapCreate(name=entry.name, description=entry.description),
+            user,
+            record_history=False,
+            ip_address=request.ip_address,
+            manifest_key=entry.key,
+        )
+        await check_map_ownership(map_obj, user, session)
+    before = map_obj.visibility
+    # The view, basemap and bookmarks are styling; a kept publish leaves them.
+    view = entry.view if plan.styling_applied else None
+    bookmarks = entry.bookmarks if plan.styling_applied else None
+    basemap_style = entry.basemap_style if plan.styling_applied else None
+    body = MapUpdate(
+        name=entry.name,
+        layers=plan.layers,
+        notes=plan.notes.text,
+        **({} if entry.description is None else {"description": entry.description}),
+        **(
+            {}
+            if view is None
+            else {
+                "center_lng": view.center[0],
+                "center_lat": view.center[1],
+                "zoom": view.zoom,
+                "bearing": view.bearing,
+                "pitch": view.pitch,
+            }
+        ),
+        **({} if basemap_style is None else {"basemap_style": basemap_style}),
+        **({} if bookmarks is None else {"bookmarks": bookmarks}),
+        **(
+            {}
+            if plan.write_visibility in (None, before)
+            else {"visibility": plan.write_visibility}
+        ),
+    )
+    map_obj, _, _, _ = await apply_map_update(
+        session,
+        map_obj,
+        body,
+        user,
+        record_history=False,
+        ip_address=request.ip_address,
+        layer_keys=plan.layer_keys,
+        keep_layer_ids=plan.keep_layer_ids,
+        keep_widgets_of=plan.keep_widgets_of,
+    )
+    if plan.share is not None:
+        await share_map(
+            session,
+            map_obj,
+            plan.share,
+            user,
+            is_admin=plan.is_admin,
+            ip_address=request.ip_address,
+            audience_before=None if created else before,
+        )
+    after = map_obj.visibility
+    await record_map_history_event(
+        session,
+        map_id=map_obj.id,
+        actor=user,
+        target_type="map",
+        target_id=map_obj.id,
+        target_name=map_obj.name,
+        action="manifest.publish",
+        summary=f"Published from {request.client.id} {request.client.version}",
+        details={
+            "client_id": request.client.id,
+            "client_version": request.client.version,
+            "styling_applied": plan.styling_applied,
+            "view_written": view is not None,
+            "basemap_written": basemap_style is not None,
+            "bookmarks_written": bookmarks is not None,
+            "notes_digest": plan.notes.digest,
+            "layer_keys": [layer.key for layer in entry.layers],
+            **(
+                {}
+                if after == before
+                else {"visibility": {"previous": before, "current": after}}
+            ),
+        },
+    )
+    plan.published_at = map_obj.updated_at
+    share = (
+        await mint_share_link(session, map_obj.id, user, request.ip_address)
+        if after in ANONYMOUS_MAP_VISIBILITIES
+        else ShareMint(None)
+    )
+    withheld = [_message(SHARE_LINK_NOT_CREATED, "info", SHARE_LINK_WITHHELD)]
+    return {
+        **plan.result,
+        "messages": [*plan.result["messages"], *(withheld if share.withheld else ())],
+        "map_id": map_obj.id,
+        "visibility": after,
+        "groups": [group.name for group in await map_groups(session, map_obj.id)],
+        **(
+            {}
+            if share.token is None
+            else {MINTED_SHARE_KEY: {"token": share.token, "title": map_obj.name}}
+        ),
     }
 
 
-async def apply_manifest_maps(
-    session: AsyncSession,
-    maps: Sequence[Any],
-    user: Identity,
-    *,
-    dry_run: bool,
-    dataset_ids_by_key: Mapping[str, uuid.UUID],
-    pending_dataset_keys: Collection[str],
-) -> list[dict[str, Any]]:
-    """Check each manifest map and report what applying it would do.
+def _refusal(exc: HTTPException) -> str:
+    detail = exc.detail
+    if isinstance(detail, dict):
+        detail = detail.get("message", "")
+    return f"This map could not be published: {_short(detail, _MAX_ERROR_LENGTH)}"
 
-    Only a dry run is supported. ``dataset_ids_by_key`` holds the dataset each
-    layer's ``dataset_key`` names; an absent key reads like a missing dataset.
-    ``pending_dataset_keys`` are the keys of the request's own datasets
-    whose entries can supply a dataset: a layer naming one whose dataset it
-    can't read is checked without columns instead of refused, since the
-    publish provides that dataset. A map whose check fails unexpectedly is
-    reported as that map's error alone. Writes nothing; the caller rolls the
-    session back.
-    """
-    if not dry_run:
-        raise NotImplementedError("manifest maps apply is not implemented yet")
-    layer_dataset_ids = {
+
+async def _dry_run_map(session: AsyncSession, entry: Any, request: _Request) -> dict:
+    try:
+        # A database error inside one map's checks rolls back to here and
+        # leaves the transaction usable for the next map.
+        async with session.begin_nested():
+            plan = await _check_map(session, entry, request)
+        return plan.result
+    except Exception:  # broad: one map's failure must not fail the other maps
+        log.exception("manifest_map_check_failed", map_key=entry.key)
+        return _error_result(entry.key, MAP_CHECK_FAILED)
+
+
+async def _apply_map(session: AsyncSession, entry: Any, request: _Request) -> dict:
+    """Check and write one map in a transaction of its own, which commits
+    only when everything for the map was written."""
+    try:
+        await _lock_map_key(session, entry.key)
+        await lock_entry_groups(session, entry)
+        plan = await _check_map(session, entry, request)
+        if plan.result["action"] == "error":
+            await session.rollback()
+            return plan.result
+        # The share step and the image lock can refuse after the map narrows.
+        async with links_retired_last(session):
+            result = await _write_map(session, entry, request, plan)
+            cleared: list[str] = []
+            had_thumbnail = False
+            if plan.moves_dataset:
+                locked = await lock_map_for_asset_write(session, result["map_id"])
+                had_thumbnail = locked.thumbnail_uri is not None
+                cleared = await clear_map_images(session, result["map_id"], locked)
+        await session.commit()
+    except HTTPException as exc:
+        await session.rollback()
+        return _error_result(entry.key, _refusal(exc))
+    except CatalogLockConflict:
+        await session.rollback()
+        return _error_result(entry.key, MAP_BUSY)
+    except Exception:  # broad: one map's failure must not fail the other maps
+        await session.rollback()
+        log.exception("manifest_map_apply_failed", map_key=entry.key)
+        return _error_result(entry.key, MAP_APPLY_FAILED)
+    try:
+        await discard_map_asset_objects(session, result["map_id"], cleared)
+    except Exception:  # broad: the map is written; its old images are only orphaned
+        await session.rollback()
+        log.exception("manifest_map_image_cleanup_failed", map_key=entry.key)
+    # A thumbnail shows the manifest's styling, so it goes with it. A publish
+    # key may not replace a thumbnail, judged on the one the move cleared.
+    if entry.thumbnail is not None and plan.styling_applied:
+        refused = (
+            KEY_THUMBNAIL_REFUSED
+            if request.is_key and had_thumbnail
+            else await store_manifest_thumbnail(
+                session,
+                result["map_id"],
+                entry.thumbnail,
+                request.user,
+                plan.published_at,
+            )
+        )
+        if refused is not None:
+            warning = _message(THUMBNAIL_NOT_STORED, "warning", refused)
+            result = {**result, "messages": [*result["messages"], warning]}
+    return result
+
+
+def _layer_dataset_ids(
+    maps: Iterable[Any], dataset_ids_by_key: Mapping[str, uuid.UUID]
+) -> set[uuid.UUID]:
+    return {
         dataset_id
         for entry in maps
         for layer in entry.layers
@@ -567,36 +1128,67 @@ async def apply_manifest_maps(
         )
         is not None
     }
-    columns_by_dataset = await _readable_columns(session, layer_dataset_ids, user)
-    basemap_ids = (
-        await _known_basemap_ids(session)
-        if any(entry.basemap_style is not None for entry in maps)
-        else set()
-    )
-    results = []
-    for entry in maps:
-        try:
-            # A database error inside one map's checks rolls back to here and
-            # leaves the transaction usable for the next map.
-            async with session.begin_nested():
-                result = await _check_map(
-                    session,
-                    entry,
-                    user,
-                    dataset_ids_by_key,
-                    pending_dataset_keys,
-                    columns_by_dataset,
-                    basemap_ids,
-                )
-            results.append(result)
-        except Exception:  # broad: one map's failure must not fail the other maps
-            log.exception("manifest_map_check_failed", map_key=entry.key)
-            results.append(
-                {
-                    "map_key": entry.key,
-                    "action": "error",
-                    "map_id": None,
-                    "messages": [_message(OTHER_REFUSAL, "error", MAP_CHECK_FAILED)],
-                }
+
+
+async def apply_manifest_maps(
+    session: AsyncSession,
+    maps: Sequence[Any],
+    user: Identity,
+    *,
+    dry_run: bool,
+    dataset_ids_by_key: Mapping[str, uuid.UUID],
+    pending_datasets: Mapping[str | uuid.UUID, tuple[str | None, str]],
+    unsettled_dataset_ids: Collection[uuid.UUID],
+    public_fallback: str | None,
+    client: Any,
+    ip_address: str | None,
+) -> list[dict[str, Any]]:
+    """Check each manifest map, and outside a dry run create or update it.
+
+    ``dataset_ids_by_key`` holds the dataset each layer's ``dataset_key``
+    names; an absent key reads like a missing dataset. ``pending_datasets``
+    are the request's own dataset entries that will change their dataset, by
+    key and by the dataset's id, each with the visibility (None keeps the
+    dataset's) and status it publishes: a layer naming one whose dataset it
+    can't read is checked without columns instead of refused, and the map's
+    visibility is judged on what the entry publishes. A layer on a dataset in
+    ``unsettled_dataset_ids`` and not pending reads like a missing dataset.
+    ``client`` is the request's ``ManifestClient``.
+
+    A dry run writes nothing; the caller rolls the session back. An apply
+    commits each map that checked clean, and rolls back a map with an error
+    or one whose write failed, so nothing of it is written. A map whose
+    check or write fails unexpectedly is that map's error alone.
+    """
+    request = _Request(
+        user=user,
+        dry_run=dry_run,
+        dataset_ids_by_key=dataset_ids_by_key,
+        pending_datasets=pending_datasets,
+        unsettled_dataset_ids=unsettled_dataset_ids,
+        # An apply reads each map's datasets again in the map's transaction.
+        datasets=(
+            await _readable_datasets(
+                session, _layer_dataset_ids(maps, dataset_ids_by_key), user
             )
-    return results
+            if dry_run
+            else {}
+        ),
+        basemap_ids=(
+            await _known_basemap_ids(session)
+            if any(entry.basemap_style is not None for entry in maps)
+            else set()
+        ),
+        may_edit_maps=await _may_edit_maps(session, user),
+        may_set_public=(
+            await _may_set_public(session, user)
+            if any(entry.visibility == "public" for entry in maps)
+            else False
+        ),
+        is_key=is_publish_key(session),
+        public_fallback=public_fallback,
+        client=client,
+        ip_address=ip_address,
+    )
+    run = _dry_run_map if dry_run else _apply_map
+    return [await run(session, entry, request) for entry in maps]

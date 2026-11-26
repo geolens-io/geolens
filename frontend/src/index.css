@@ -668,6 +668,67 @@ html [data-sonner-toaster][data-sonner-theme] {
   transform: scaleX(-1);
 }
 
+/* ── Forced colors ─────────────────────────────────── */
+
+/* Forced colors drops box shadows, so a focus ring alone leaves keyboard focus
+   invisible in Windows high contrast mode. Unlayered, so it outranks the
+   `outline-none` utilities; inset, so an overflow-hidden parent can't clip it.
+   MapLibre's controls set `outline: none` with a more specific selector.
+   Transparent lets the browser pick the system colour for each element. */
+@media (forced-colors: active) {
+  :focus-visible,
+  .maplibregl-ctrl :is(button, summary):focus-visible {
+    outline: 2px solid transparent;
+    outline-offset: -2px;
+  }
+  /* MapLibre ships zoom, compass, fullscreen and geolocate icons for both high
+     contrast palettes, and the app's own buttons draw with currentColor; the dark
+     theme's invert filter would flip both (and the focus outline). */
+  .dark .maplibregl-ctrl-group button {
+    filter: none;
+  }
+  /* The dark theme's translucent divider would otherwise take a system border colour. */
+  .dark .maplibregl-ctrl-group button + button {
+    border-top-color: ButtonText;
+  }
+  /* MapLibre's attribution icon rules target a pseudo-element it no longer
+     draws, so the button keeps a black icon; pick the filter by palette, not theme. */
+  @media (prefers-color-scheme: light) {
+    :root .maplibregl-map summary.maplibregl-ctrl-attrib-button {
+      filter: none;
+    }
+  }
+  @media (prefers-color-scheme: dark) {
+    :root .maplibregl-map summary.maplibregl-ctrl-attrib-button {
+      filter: invert(1);
+    }
+    /* The filter inverts the outline too. */
+    :root .maplibregl-map summary.maplibregl-ctrl-attrib-button:focus-visible {
+      outline-color: Canvas;
+    }
+  }
+  /* MapLibre's terrain and globe icons are fixed #333 (off) and #33b5e5 (on)
+     images with no high contrast variant. Off follows the palette like the
+     attribution button; on is darkened for a light palette and left blue for a dark one. */
+  @media (prefers-color-scheme: light) {
+    :root .maplibregl-ctrl-group button:is(.maplibregl-ctrl-terrain-enabled, .maplibregl-ctrl-globe-enabled) {
+      filter: brightness(0.6);
+    }
+  }
+  @media (prefers-color-scheme: dark) {
+    :root .maplibregl-ctrl-group button:is(.maplibregl-ctrl-terrain, .maplibregl-ctrl-globe) {
+      filter: invert(1);
+    }
+    :root .maplibregl-ctrl-group button:is(.maplibregl-ctrl-terrain, .maplibregl-ctrl-globe):focus-visible {
+      outline-color: Canvas;
+    }
+  }
+  /* A selected toggle keeps its Highlight background. */
+  [data-slot="toggle-group-item"][data-state="on"]:focus-visible {
+    outline-color: HighlightText;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;

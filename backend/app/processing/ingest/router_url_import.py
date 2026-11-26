@@ -198,8 +198,8 @@ async def upload_from_url(
                 detail=refusal_detail(exc),
             ) from exc
 
-        # Refuse at the dataset-count cap before queueing anything. The byte
-        # half runs in the worker with the size that actually landed, since
+        # Refuse a caller already over the storage cap before queueing
+        # anything. The worker charges the size that actually landed, since
         # Content-Length may be absent or dishonest.
         await check_upload_quota(db, user.id, 0, request)
 

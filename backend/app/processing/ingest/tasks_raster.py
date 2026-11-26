@@ -51,7 +51,10 @@ from app.processing.ingest.publish_followups import (
     run_publish_followups,
 )
 from app.processing.ingest.manifest_dataset_fields import apply_dataset_fields
-from app.processing.ingest.manifest_publication import settle_stored_publication
+from app.processing.ingest.manifest_publication import (
+    settle_created_publication,
+    settle_stored_publication,
+)
 from app.processing.ingest.tasks_common import (
     _bind_task_log_context,
     cleanup_step,
@@ -572,6 +575,7 @@ async def ingest_raster(
             )
 
             await apply_dataset_fields(session, job, dataset, um)
+            await settle_created_publication(session, job, record, um)
 
             # 12. Finalize job. ``rows_processed`` stays NULL: a raster has no
             # rows.

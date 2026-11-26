@@ -8,7 +8,7 @@
   "delete": "Eliminar",
   "confirm": "Confirmar",
   "newVersion": {
-    "message": "Hay una nueva versión de GeoLens disponible",
+    "message": "Este sitio se ha actualizado. Recarga para usar la nueva versión.",
     "reload": "Recargar"
   },
   "close": "Cerrar",
@@ -163,6 +163,7 @@
     "jobFailureMissingCrsRaster": "Falta el CRS: el ráster no tiene sistema de referencia de coordenadas. Proporciona una anulación de CRS (código EPSG) al importar.",
     "jobFailureMissingCrsReupload": "Falta el CRS: no se detectó ningún sistema de coordenadas. Asegúrate de que el archivo incluya la información del CRS (por ejemplo, un archivo .prj para Shapefiles) o proporciona una anulación de SRID.",
     "jobFailureMixedSridDatabase": "Las geometrías de la tabla usan más de un SRID, por lo que ningún sistema de coordenadas único las describe. Dales un único SRID en una vista e importa esa vista.",
+    "jobFailurePublicVisibilityRestricted": "La visibilidad pública está restringida a los administradores en esta instancia, así que este trabajo no cambió nada. Elige una visibilidad más limitada o pide a un administrador que haga público este contenido.",
     "jobFailureRefreshAbandoned": "La tarea de actualización nunca fue tomada por un proceso de trabajo, o este desapareció antes de registrar un resultado.",
     "jobFailureRefreshOriginUnsupported": "Esta actualización no se inició: solo los conjuntos de datos de servicio se actualizan de esta forma.",
     "jobFailureReviewRequired": "Este reemplazo cambia el conjunto de datos de formas que requieren revisión, así que no se publicó. Revise los cambios en la pestaña Fuentes del conjunto de datos y acéptelos allí.",
@@ -427,6 +428,7 @@
     "storyVisibilityUnsupported": "Las historias aún no se pueden publicar con esta visibilidad.",
     "dashboardTooNew": "Este panel se guardó con una versión más reciente de GeoLens y no se puede cambiar aquí.",
     "dashboardTooManyWidgets": "Un panel admite como máximo 50 widgets. Quita algunos antes de guardar.",
+    "dashboardLayerMoveRefused": "El panel de este mapa tiene widgets que esta versión de GeoLens no puede leer, así que esta capa no puede pasar a un conjunto de datos compartido más ampliamente que el actual. Quita los widgets de la capa en la versión de GeoLens que los añadió o mantén la capa en su conjunto de datos.",
     "dashboardWidgetsRefused": "Algunos widgets del panel usan capas que no están en este mapa o que no puedes leer. Quítalos o elige otras capas.",
     "dashboardWidgetFilterRefused": "No se puede usar el filtro de un widget del panel en su capa: el servidor rechazó una de sus condiciones, o es demasiado grande junto con el filtro de la capa. Revísalo en Panel.",
     "storyImageUnreadable": "El archivo no es una imagen legible.",
@@ -906,6 +908,9 @@
     "zoomOut": "Alejar",
     "terrainEnable": "Activar el terreno 3D",
     "terrainDisable": "Desactivar el terreno 3D",
+    "cooperativeGesturesWindows": "Usa Ctrl + desplazamiento para hacer zoom en el mapa",
+    "cooperativeGesturesMac": "Usa ⌘ + desplazamiento para hacer zoom en el mapa",
+    "cooperativeGesturesMobile": "Usa dos dedos para mover el mapa",
     "title": "Mapa"
   }
 }

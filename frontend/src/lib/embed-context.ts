@@ -44,3 +44,15 @@ export function isEmbedViewer(): boolean {
     return false;
   }
 }
+
+/**
+ * Is this document inside another page's frame? A cross-origin `top` can throw
+ * on access, which also means the page is framed.
+ */
+export function isFramed(): boolean {
+  try {
+    return window.self !== window.top;
+  } catch {
+    return true;
+  }
+}

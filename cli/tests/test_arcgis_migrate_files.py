@@ -370,6 +370,26 @@ def test_a_quota_refusal_fails_the_item_with_the_quota(
     assert entry["status"] == "failed" and "Storage quota exceeded" in entry["error"]
 
 
+@pytest.mark.parametrize("layer_names", [None, ["Roads", "Parcels"]])
+def test_a_dataset_cap_refusal_at_the_commit_is_reported_as_quota(
+    runner, tmp_path, geolens, portal, layer_names
+):
+    files = FakeFiles(geolens, layer_names=layer_names)
+    refusal = (422, _problem(422, "Dataset quota exceeded: 5 of 5 datasets used"))
+    files.commit = lambda job, seen: refusal
+    files.fan_out = lambda job, seen: refusal
+    plan_file = _plan(tmp_path)
+
+    result, _ = _migrate(runner, plan_file, "--only", D3)
+
+    assert result.exit_code == 1
+    assert len(files.uploads) == 1
+    entry = _state(plan_file)["items"][D3]
+    assert entry["status"] == "failed" and "5 of 5 datasets used" in entry["error"]
+    assert _follow_ups(plan_file, "quota") == [D3]
+    assert _follow_ups(plan_file, "failed") == []
+
+
 def test_a_multi_layer_file_becomes_one_dataset_per_layer(
     runner, tmp_path, geolens, portal
 ):

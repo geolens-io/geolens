@@ -4,7 +4,9 @@
 This module gathers its inputs at each door that writes or reuses a manifest
 job: the apply, a held or in-flight job the apply would reuse, and the worker
 that publishes the job. Version 1 jobs, which store no ``manifest_version``,
-take none of this.
+and jobs no manifest created take none of this: their worker only refuses a
+public visibility the restriction no longer lets their submitter set
+(``refuse_restricted_public``).
 """
 
 from __future__ import annotations
@@ -23,6 +25,7 @@ from app.platform.jobs.models import (
     ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY,
     ADMITTED_PUBLISH_KEY_METADATA_KEY,
     IngestJob,
+    publication_owner,
 )
 from app.platform.record_audience import (
     Publication,
@@ -34,15 +37,19 @@ from app.platform.record_audience import (
 from app.platform.request_credential import is_publish_key, stamp_publish_key
 from app.processing.ingest.manifest_dataset_fields import (
     COLLECTION_METADATA_KEY,
+    GROUPS_METADATA_KEY,
     MANIFEST_VERSION_METADATA_KEY,
     PUBLIC_FALLBACK_METADATA_KEY,
     REQUESTED_VISIBILITY_METADATA_KEY,
+    WIDENING_KEPT_KIND,
     ManifestEntryFields,
     ManifestEntryRefused,
     append_job_warning,
     check_job_capabilities,
     load_submitter,
     public_refused_message,
+    resolve_entry_groups,
+    widening_kept_message,
 )
 from app.processing.ingest.manifest_schemas import ManifestDataset
 from app.processing.ingest.manifest_sources import (
@@ -56,7 +63,12 @@ PUBLIC_FALLBACK_KIND = "manifest_public_fallback"
 # What a job publishes besides its source, which depends on who applies and
 # when, and so can differ for an unchanged entry: the decision and the policy
 # a later door judges it by again.
-_POLICY_KEYS = ("visibility", "record_status", PUBLIC_FALLBACK_METADATA_KEY)
+_POLICY_KEYS = (
+    "visibility",
+    "record_status",
+    PUBLIC_FALLBACK_METADATA_KEY,
+    GROUPS_METADATA_KEY,
+)
 # And what a held job, which the apply reserved in full, records besides.
 _HELD_KEYS = (COLLECTION_METADATA_KEY, ADMITTED_PUBLIC_VISIBILITY_METADATA_KEY)
 
@@ -66,10 +78,21 @@ def _same_policy(stored: dict, effective: dict, keys: tuple[str, ...] = ()) -> b
     policy: the same fallback, and a publish key's limits when, and only
     when, a key applies."""
     return all(
-        stored.get(key) == effective.get(key) for key in (*_POLICY_KEYS, *keys)
+        _policy_value(stored, key) == _policy_value(effective, key)
+        for key in (*_POLICY_KEYS, *keys)
     ) and bool(stored.get(ADMITTED_PUBLISH_KEY_METADATA_KEY)) == bool(
         effective.get(ADMITTED_PUBLISH_KEY_METADATA_KEY)
     )
+
+
+def _policy_value(metadata: dict, key: str) -> object:
+    """What a job publishes under ``key``. Groups compare as a set, since a
+    plan lists them by name and a group can be renamed while its job waits;
+    no groups entry stays distinct from an empty one."""
+    value = metadata.get(key)
+    if key == GROUPS_METADATA_KEY and isinstance(value, list):
+        return frozenset(str(group_id) for group_id in value)
+    return value
 
 
 def is_version_2(metadata: dict) -> bool:
@@ -139,8 +162,9 @@ async def decide_publication(
     existing: Any,
 ) -> None:
     """Decide what a version 2 entry that writes will publish: the visibility
-    its job stores, and warning A020 when public fell back to internal. A
-    refusal fails the entry."""
+    its job stores, warning A020 when public fell back to internal, and A056
+    when a publish key keeps a level it may not widen. A refusal fails the
+    entry."""
     if fields is None:
         return
     record = existing.record if existing is not None else None
@@ -157,6 +181,9 @@ async def decide_publication(
             ]
         ) from refused
     fields.visibility = result.visibility
+    if result.widening_refused:
+        level = "internal" if dataset.visibility == "public" else dataset.visibility
+        fields.messages.append(widening_kept_message(dataset, str(level)))
     if result.fell_back_for is not None:
         fields.messages.append(
             public_refused_message(
@@ -187,13 +214,14 @@ async def judge_update(
 
 async def in_flight_job_matches(
     db: AsyncSession,
+    user: Identity,
     fields: ManifestEntryFields | None,
     dataset: ManifestDataset,
     job: IngestJob,
 ) -> bool:
     """Whether an in-flight job of an unchanged entry publishes what this
-    apply would, by the same policy. A version 1 apply reuses only a
-    version 1 job."""
+    apply would, by the same policy and to the same groups, which ``fields``
+    then holds. A version 1 apply reuses only a version 1 job."""
     metadata = job.user_metadata or {}
     if fields is None:
         return not is_version_2(metadata)
@@ -209,6 +237,12 @@ async def in_flight_job_matches(
     except ManifestSourceError:
         fields.messages.clear()
         return False
+    try:
+        await resolve_entry_groups(db, dataset, user, fields, existing)
+    except ManifestEntryRefused:
+        # A group change this apply would be refused is not the job's.
+        fields.messages.clear()
+        return False
     _, record_status = publication_to_catalog_fields(dataset.publication)
     effective = {
         "visibility": fields.visibility,
@@ -216,6 +250,8 @@ async def in_flight_job_matches(
         PUBLIC_FALLBACK_METADATA_KEY: fields.public_fallback,
         ADMITTED_PUBLISH_KEY_METADATA_KEY: is_publish_key(db),
     }
+    if fields.groups is not None:
+        effective[GROUPS_METADATA_KEY] = [str(group_id) for group_id in fields.groups]
     return _same_policy(metadata, effective)
 
 
@@ -245,18 +281,25 @@ async def settle_stored_publication(
 ) -> dict:
     """Judge a version 2 job's publication again against ``record`` as
     committed now, holding its rows (None for a create), with its submitter's
-    standing and the restriction as they are now.
+    standing and the restriction as they are now. Any other job goes through
+    ``refuse_restricted_public`` and publishes its metadata as stored.
 
     The publish writes the narrower of the stored and the recomputed
     visibility (``settled_visibility``). A recompute whose refused public
-    fell back to internal by the stored fallback adds an A020 job warning; a
-    refused one raises ``WideningRefused``. Returns the metadata to publish
+    fell back to internal by the stored fallback adds an A020 job warning, a
+    publish key's widening that keeps the level an A056 one; a public refused
+    by the restriction raises ``PublicVisibilityRefused`` and any other
+    refusal ``WideningRefused``. Returns the metadata to publish
     from.
     """
     from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
-    from app.processing.ingest.publication import WideningRefused
+    from app.processing.ingest.publication import (
+        PublicVisibilityRefused,
+        WideningRefused,
+    )
 
     if not is_version_2(user_metadata):
+        await refuse_restricted_public(session, job, record, user_metadata)
         return user_metadata
     if isinstance(job, uuid.UUID):
         job = await session.get(IngestJob, job)
@@ -281,9 +324,22 @@ async def settle_stored_publication(
             is_key=is_key,
             now=now,
         )
-    except PublicationRefused:
+    except PublicationRefused as refused:
+        if refused.reason == "restriction":
+            raise PublicVisibilityRefused from None
         raise WideningRefused from None
     stored = user_metadata.get("visibility")
+    if result.widening_refused:
+        requested = user_metadata.get(REQUESTED_VISIBILITY_METADATA_KEY)
+        append_job_warning(
+            job,
+            {
+                "kind": WIDENING_KEPT_KIND,
+                "details": {
+                    "visibility": "internal" if requested == "public" else requested
+                },
+            },
+        )
     if result.fell_back_for is not None and result.visibility != stored:
         append_job_warning(
             job,
@@ -296,3 +352,51 @@ async def settle_stored_publication(
     if visibility is not None:
         settled["visibility"] = visibility
     return settled
+
+
+async def refuse_restricted_public(
+    session: AsyncSession, job: IngestJob | uuid.UUID, record: Any, user_metadata: dict
+) -> None:
+    """Raise ``PublicVisibilityRefused`` when a job that is not a version 2
+    manifest job would make its dataset public while public visibility is
+    restricted to admins now and the account it publishes for
+    (``publication_owner``, the one admission judged) is not one now,
+    whatever its admission recorded.
+
+    ``record`` is the dataset's record, held, or None for a create. An update
+    applies a visibility only from a manifest job, and one whose record is
+    already public widens nothing, so neither is refused.
+    """
+    from app.core.persistent_config import RESTRICT_PUBLIC_VISIBILITY
+    from app.processing.ingest.publication import PublicVisibilityRefused
+
+    if user_metadata.get("visibility") != "public":
+        return
+    if record is not None:
+        if "manifest_key" not in user_metadata:
+            return
+        await session.refresh(record, attribute_names=["visibility"])
+        if record.visibility == "public":
+            return
+    if not await RESTRICT_PUBLIC_VISIBILITY.get_uncached(session):
+        return
+    if isinstance(job, uuid.UUID):
+        job = await session.get(IngestJob, job)
+    owner = await load_submitter(session, publication_owner(job) if job else None)
+    if owner is None or not any(role.name == "admin" for role in owner.roles):
+        raise PublicVisibilityRefused
+
+
+async def settle_created_publication(
+    session: AsyncSession, job: IngestJob, record: Any, user_metadata: dict
+) -> None:
+    """Judge a create's publication once more as the last step before it
+    commits, after the waits, scans and storage writes since
+    ``settle_stored_publication`` first decided it, and narrow the new
+    ``record`` to the result. A private record the create already shared
+    with its groups stays restricted. Raises as that does."""
+    settled = await settle_stored_publication(session, job, None, user_metadata)
+    visibility = settled.get("visibility", "private")
+    if visibility == "private" and record.visibility == "restricted":
+        return
+    record.visibility = visibility

@@ -16,6 +16,7 @@ from typing import cast
 from uuid import UUID
 
 if TYPE_CHECKING:
+    from ..models.manifest_dataset_links import ManifestDatasetLinks
     from ..models.manifest_message import ManifestMessage
 
 
@@ -37,6 +38,14 @@ class ManifestApplyEntryResult:
         review_reasons (list[str] | Unset): Why the blocked run needs review, when action is `blocked`.
         errors (list[str] | Unset):
         messages (list[ManifestMessage] | None | Unset): Coded messages for the entry. Left out in manifest version 1.
+        visibility (None | str | Unset): Who can see the dataset once the entry's job finishes: the level the entry
+            writes, or the stored one when it writes none. Null when the entry failed or the dataset can't be read. Left out
+            in manifest version 1.
+        links (ManifestDatasetLinks | None | Unset): Links to the dataset. Null when there is no dataset yet or the
+            caller can't read it. Left out in manifest version 1.
+        groups (list[str] | None | Unset): Names of the groups the dataset is shared with once the entry's job finishes.
+            Empty for a private dataset, whose earlier grants admit nobody until it is shared again. Null when the entry
+            failed or the caller can't see the dataset's groups. Left out in manifest version 1.
     """
 
     dataset_key: str
@@ -48,9 +57,14 @@ class ManifestApplyEntryResult:
     review_reasons: list[str] | Unset = UNSET
     errors: list[str] | Unset = UNSET
     messages: list[ManifestMessage] | None | Unset = UNSET
+    visibility: None | str | Unset = UNSET
+    links: ManifestDatasetLinks | None | Unset = UNSET
+    groups: list[str] | None | Unset = UNSET
     additional_properties: dict[str, Any] = _attrs_field(init=False, factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
+        from ..models.manifest_dataset_links import ManifestDatasetLinks
+
         dataset_key = self.dataset_key
 
         action: str = self.action
@@ -101,6 +115,29 @@ class ManifestApplyEntryResult:
         else:
             messages = self.messages
 
+        visibility: None | str | Unset
+        if isinstance(self.visibility, Unset):
+            visibility = UNSET
+        else:
+            visibility = self.visibility
+
+        links: dict[str, Any] | None | Unset
+        if isinstance(self.links, Unset):
+            links = UNSET
+        elif isinstance(self.links, ManifestDatasetLinks):
+            links = self.links.to_dict()
+        else:
+            links = self.links
+
+        groups: list[str] | None | Unset
+        if isinstance(self.groups, Unset):
+            groups = UNSET
+        elif isinstance(self.groups, list):
+            groups = self.groups
+
+        else:
+            groups = self.groups
+
         field_dict: dict[str, Any] = {}
         field_dict.update(self.additional_properties)
         field_dict.update(
@@ -122,11 +159,18 @@ class ManifestApplyEntryResult:
             field_dict["errors"] = errors
         if messages is not UNSET:
             field_dict["messages"] = messages
+        if visibility is not UNSET:
+            field_dict["visibility"] = visibility
+        if links is not UNSET:
+            field_dict["links"] = links
+        if groups is not UNSET:
+            field_dict["groups"] = groups
 
         return field_dict
 
     @classmethod
     def from_dict(cls: type[T], src_dict: Mapping[str, Any]) -> T:
+        from ..models.manifest_dataset_links import ManifestDatasetLinks
         from ..models.manifest_message import ManifestMessage
 
         d = dict(src_dict)
@@ -215,6 +259,49 @@ class ManifestApplyEntryResult:
 
         messages = _parse_messages(d.pop("messages", UNSET))
 
+        def _parse_visibility(data: object) -> None | str | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            return cast(None | str | Unset, data)
+
+        visibility = _parse_visibility(d.pop("visibility", UNSET))
+
+        def _parse_links(data: object) -> ManifestDatasetLinks | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, dict):
+                    raise TypeError()
+                links_type_0 = ManifestDatasetLinks.from_dict(data)
+
+                return links_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(ManifestDatasetLinks | None | Unset, data)
+
+        links = _parse_links(d.pop("links", UNSET))
+
+        def _parse_groups(data: object) -> list[str] | None | Unset:
+            if data is None:
+                return data
+            if isinstance(data, Unset):
+                return data
+            try:
+                if not isinstance(data, list):
+                    raise TypeError()
+                groups_type_0 = cast(list[str], data)
+
+                return groups_type_0
+            except (TypeError, ValueError, AttributeError, KeyError):
+                pass
+            return cast(list[str] | None | Unset, data)
+
+        groups = _parse_groups(d.pop("groups", UNSET))
+
         manifest_apply_entry_result = cls(
             dataset_key=dataset_key,
             action=action,
@@ -225,6 +312,9 @@ class ManifestApplyEntryResult:
             review_reasons=review_reasons,
             errors=errors,
             messages=messages,
+            visibility=visibility,
+            links=links,
+            groups=groups,
         )
 
         manifest_apply_entry_result.additional_properties = d

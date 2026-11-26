@@ -9,6 +9,7 @@
 /** Canonical key builders — the one place these strings are spelled. */
 export const storageKeys = {
   mapsView: 'geolens-maps-view',
+  searchView: 'geolens-search-view',
   mapNotes: (mapId: string) => `geolens-map-notes-${mapId}`,
   dashboardCollapsed: (mapId: string) => `geolens-dashboard-collapsed-${mapId}`,
   dashboardRailClosed: (mapId: string) => `geolens-dashboard-rail-closed-${mapId}`,

@@ -990,12 +990,20 @@ class TestDashboardConfigApi:
         assert resp.status_code == 409, resp.text
         assert await _stored(test_db_session, map_id) == newer
 
+    @pytest.mark.parametrize(
+        ("was", "now"), [("public", "public"), ("private", "public")]
+    )
     async def test_a_repointed_layer_loses_its_widgets(
-        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        was,
+        now,
     ):
         admin_id = await get_user_id(test_db_session, "admin")
-        a = await create_dataset(test_db_session, created_by=admin_id)
-        b = await create_dataset(test_db_session, created_by=admin_id)
+        a = await create_dataset(test_db_session, created_by=admin_id, visibility=was)
+        b = await create_dataset(test_db_session, created_by=admin_id, visibility=now)
         map_id, (layer_id,) = await _map_with_layers(client, admin_auth_header, a)
         resp = await client.put(
             f"/maps/{map_id}",
@@ -1013,6 +1021,47 @@ class TestDashboardConfigApi:
         assert [layer["id"] for layer in resp.json()["layers"]] == [layer_id]
         assert resp.json()["dashboard_config"] is None
         assert (await _stored(test_db_session, map_id))["widgets"] == []
+
+    @pytest.mark.parametrize(
+        ("was", "now", "refused"),
+        [
+            ("private", "public", True),
+            ("public", "private", False),
+            ("public", "public", False),
+        ],
+    )
+    async def test_a_widening_repoint_under_a_newer_dashboard_is_refused(
+        self,
+        client: AsyncClient,
+        admin_auth_header: dict,
+        test_db_session,
+        was,
+        now,
+        refused,
+    ):
+        """This server can't remove a newer dashboard's widgets, which may
+        hold the old dataset's values, so it doesn't show them to readers of
+        the new dataset who can't read the old one."""
+        admin_id = await get_user_id(test_db_session, "admin")
+        a = await create_dataset(test_db_session, created_by=admin_id, visibility=was)
+        b = await create_dataset(test_db_session, created_by=admin_id, visibility=now)
+        map_id, (layer_id,) = await _map_with_layers(client, admin_auth_header, a)
+        newer = {"version": 2, "widgets": [_widget("indicator", layer_id)]}
+        await _store(test_db_session, map_id, newer)
+
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"layers": [{"id": layer_id, "dataset_id": str(b.id)}]},
+            headers=admin_auth_header,
+        )
+
+        assert resp.status_code == (409 if refused else 200), resp.text
+        layer_dataset = await test_db_session.scalar(
+            text("SELECT dataset_id FROM catalog.map_layers WHERE id = :id"),
+            {"id": uuid.UUID(layer_id)},
+        )
+        assert layer_dataset == (a.id if refused else b.id)
+        assert await _stored(test_db_session, map_id) == newer
 
     async def test_an_embed_token_shows_widgets_on_layers_in_its_scope(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session

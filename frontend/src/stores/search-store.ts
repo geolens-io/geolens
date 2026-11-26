@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { DEFAULT_PAGE_SIZE } from '@/lib/constants';
+import { storedPageSize } from '@/lib/search-view';
 
 /** Valid keys for setFilter — excludes methods and non-filter state fields. */
 type SearchFilterKey =
@@ -78,7 +79,7 @@ const initialState = {
   vintage_end: '',
   sort_by: 'relevance',
   offset: 0,
-  limit: DEFAULT_PAGE_SIZE,
+  limit: storedPageSize(),
   exclude_synthetic: true,
   geometry: '',
   spatial_predicate: 'intersects',
@@ -99,11 +100,13 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
   ...initialState,
   resetEpoch: 0,
 
-  setQuery: (q) => set({ q, offset: 0 }),
+  // The search box writes its text back after a debounce, on load too, so
+  // an unchanged query must leave a page restored from the URL where it is.
+  setQuery: (q) => set((state) => (state.q === q ? state : { q, offset: 0 })),
 
   setFilter: (key, value) => set({ [key]: value, offset: 0 }),
 
-  resetFilters: () => set({ ...initialState }),
+  resetFilters: () => set({ ...initialState, limit: storedPageSize() }),
 
   setPage: (offset) => set({ offset }),
 
@@ -140,7 +143,8 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
     if (state.spatial_predicate && state.spatial_predicate !== 'intersects') params.spatial_predicate = state.spatial_predicate;
     if (state.sort_by && state.sort_by !== 'relevance') params.sort_by = state.sort_by;
     if (state.offset > 0) params.offset = String(state.offset);
-    if (state.limit !== DEFAULT_PAGE_SIZE) params.limit = String(state.limit);
+    // A compact view always writes its limit so a shared or reloaded link keeps the page size.
+    if (state.limit !== DEFAULT_PAGE_SIZE || storedPageSize() !== DEFAULT_PAGE_SIZE) params.limit = String(state.limit);
     if (!state.exclude_synthetic) params.exclude_synthetic = 'false';
 
     return params;
@@ -166,7 +170,12 @@ export const useSearchStore = create<SearchState>()((set, get) => ({
       spatial_predicate: params.spatial_predicate || 'intersects',
       sort_by: params.sort_by || 'relevance',
       offset: params.offset ? parseInt(params.offset, 10) || 0 : 0,
-      limit: params.limit ? parseInt(params.limit, 10) || DEFAULT_PAGE_SIZE : DEFAULT_PAGE_SIZE,
+      // A limit or offset in the URL wins over the remembered view's page size.
+      limit: params.limit
+        ? parseInt(params.limit, 10) || DEFAULT_PAGE_SIZE
+        : params.offset
+          ? DEFAULT_PAGE_SIZE
+          : storedPageSize(),
       exclude_synthetic: params.exclude_synthetic !== 'false',
     }),
 }));

@@ -63,6 +63,7 @@ from app.processing.ingest.tasks_url_fetch import (  # noqa: F401
     fetch_url,
 )
 from app.processing.ingest.tasks_raster_replace import (  # noqa: F401
+    reupload_manifest_raster,
     reupload_raster,
 )
 from app.processing.ingest.tasks_postgis_refresh import (  # noqa: F401

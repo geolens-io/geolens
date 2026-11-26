@@ -1246,7 +1246,7 @@ async def test_a_publish_key_narrows_a_public_draft_as_it_publishes_it(
     assert await _record(test_db_session, dataset_id) == ("private", "published")
 
 
-async def test_a_publish_key_cannot_widen_through_a_manifest(
+async def test_a_publish_keys_widening_keeps_the_level_with_a056(
     client, test_db_session, admin_auth_header, clean_tables
 ):
     _stage_fixture()
@@ -1266,10 +1266,12 @@ async def test_a_publish_key_cannot_widen_through_a_manifest(
                 publication={"intent": "draft"},
             ),
         )
+    assert result.action == "update", result
+    assert [(m.code, m.severity) for m in result.messages] == [("A056", "warning")]
+    assert "everyone in your organization" in result.messages[0].message
+    job = await _run_update(test_db_session, result, task)
 
-    assert result.action == "error", result
-    assert result.errors == ["A publish key can't widen a dataset's visibility"]
-    task.defer_async.assert_not_awaited()
+    assert (job.status, job.error_message) == ("complete", None)
     assert await _record(test_db_session, dataset_id) == ("private", "draft")
 
 
@@ -1356,10 +1358,12 @@ async def test_public_fallback_never_widens_a_publish_keys_private_dataset(
             public_fallback="internal",
         )
 
-    assert result.action == "error", result
-    assert result.errors == ["A publish key can't widen a dataset's visibility"]
-    task.defer_async.assert_not_awaited()
-    assert await _record(test_db_session, dataset_id) == ("private", "draft")
+    assert result.action == "update", result
+    assert [(m.code, m.severity) for m in result.messages] == [("A056", "warning")]
+    job = await _run_update(test_db_session, result, task)
+
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("private", "published")
 
 
 @pytest.mark.usefixtures("_restricted_public")
@@ -1944,7 +1948,7 @@ async def test_a_create_by_an_admin_demoted_before_it_runs_is_judged_again(
     """Admitted public as an admin while public was restricted; no longer an
     admin when the create runs."""
     import app.core.persistent_config as pc
-    from app.processing.ingest.publication import WideningRefused
+    from app.processing.ingest.publication import PublicVisibilityRefused
     from tests.write_recheck_races import _commit, _move_to_role
 
     class _On:
@@ -1974,7 +1978,7 @@ async def test_a_create_by_an_admin_demoted_before_it_runs_is_judged_again(
     await _commit(_move_to_role(admin.id, "editor"))
 
     if fallback is None:
-        with pytest.raises(WideningRefused):
+        with pytest.raises(PublicVisibilityRefused):
             await _finalize(test_db_session, admin, job)
         return
     dataset = await _finalize(test_db_session, admin, job)
@@ -2077,6 +2081,7 @@ async def test_a_feature_edit_between_publishes_warns_a053_on_the_dry_run(
     assert (untouched.action, untouched.messages) == ("update", [])
     assert edited.action == "update"
     assert [(m.code, m.severity) for m in edited.messages] == [("A053", "warning")]
+    assert "stays restorable once" in edited.messages[0].message
 
 
 async def test_a053_is_left_to_the_dry_run(test_db_session, clean_tables):
@@ -2103,3 +2108,79 @@ async def test_a053_is_left_to_the_dry_run(test_db_session, clean_tables):
 
     assert response.results[0].action == "update"
     assert response.results[0].messages == []
+
+
+async def test_a_retried_queued_public_create_reports_public(
+    test_db_session, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    entry = _entry("audience-retry-create", visibility="public")
+    await _in_flight(
+        test_db_session,
+        user,
+        entry,
+        manifest_version="2",
+        manifest_requested_visibility="public",
+        visibility="public",
+    )
+
+    response, _ = await _apply(test_db_session, user, _request(entry))
+
+    result = response.results[0]
+    assert (result.action, result.dataset_id, result.visibility) == (
+        "skip",
+        None,
+        "public",
+    )
+
+
+async def test_a_retried_queued_update_reports_the_level_it_changes_to(
+    test_db_session, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    dataset = await create_dataset(
+        test_db_session, created_by=user.id, visibility="private"
+    )
+    entry = _entry("audience-retry-update", visibility="internal")
+    job = await _in_flight(
+        test_db_session,
+        user,
+        entry,
+        manifest_version="2",
+        manifest_requested_visibility="internal",
+        visibility="internal",
+    )
+    job.dataset_id = dataset.id
+    await test_db_session.commit()
+
+    response, _ = await _apply(test_db_session, user, _request(entry))
+
+    result = response.results[0]
+    assert (result.action, result.visibility) == ("skip", "internal")
+
+
+async def test_a_retried_queued_create_with_a_refused_public_reports_internal(
+    test_db_session, clean_tables
+):
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    entry = _entry("audience-retry-fallback", visibility="public")
+    await _in_flight(
+        test_db_session,
+        user,
+        entry,
+        manifest_version="2",
+        manifest_requested_visibility="public",
+        visibility="internal",
+        manifest_public_fallback="internal",
+    )
+
+    with _forbid_public():
+        response, _ = await _apply(
+            test_db_session, user, _request(entry, public_fallback="internal")
+        )
+
+    result = response.results[0]
+    assert (result.action, result.visibility) == ("skip", "internal")

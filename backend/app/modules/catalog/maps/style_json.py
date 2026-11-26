@@ -8,12 +8,9 @@ import math
 import re
 from collections.abc import Iterable
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
-from app.modules.catalog.maps.filter_grammar import (
-    FilterValidationError,
-    validate_filter,
-)
+from app.modules.catalog.maps.manifest_columns import emitted_columns
 from app.modules.catalog.maps.models import Map
 from app.modules.catalog.maps.schemas import (
     BUILDER_SNAKE_TO_CAMEL_KEYS,
@@ -91,6 +88,9 @@ _BUILDER_KEY_ALIASES = BUILDER_SNAKE_TO_CAMEL_KEYS
 # it. Not `Exception`: `_tile_url_for_layer`'s RuntimeError (no tenant
 # context) must stay fail-closed, not degrade.
 _MALFORMED_STYLE_ERRORS = (AttributeError, IndexError, KeyError, TypeError, ValueError)
+# The bundled proxy answers 414 to a request line over 16 KiB; the margin
+# covers a path prefix that a proxy in front of it adds.
+_TILE_REQUEST_LINE_BUDGET = 16 * 1024 - 256
 logger = logging.getLogger(__name__)
 
 
@@ -275,79 +275,17 @@ def _source_type_for_layer(layer: MapLayerResponse) -> str:
     return "vector"
 
 
-def _walk_get_has_columns(node: Any, cols: set[str]) -> None:
-    """Collect ``["get", col]`` / ``["has", col]`` column references from a
-    MapLibre expression (paint value or filter), recursing into operands.
-
-    ``literal`` operands and ``match`` labels are data, not expressions, so a
-    ``["get", "x"]`` inside either is a value to compare, not a column read.
-    """
-    if not isinstance(node, list) or not node:
-        return
-    head = node[0]
-    if head == "literal":
-        return
-    if head in ("get", "has") and len(node) >= 2 and isinstance(node[1], str):
-        cols.add(node[1])
-    last = len(node) - 1
-    for index, child in enumerate(node):
-        if head == "match" and index >= 2 and index % 2 == 0 and index < last:
-            continue
-        _walk_get_has_columns(child, cols)
-
-
-def _data_driven_columns_for_layer(layer: MapLayerResponse) -> list[str]:
-    """Return the SORTED set of feature-property columns a vector layer references.
-
-    Ports the runtime ``getDataDrivenColumnsForLayer`` collector so exported
-    tile URLs can request these columns via ``cols=``: the tile server
-    projects no attribute columns at z<10 unless asked, which would break
-    categorical/graduated styling, labels, heatmap weights and 3D heights at
-    low zoom. Sources:
-    ``style_config.column``; builder ``heatmapWeightColumn``/``heightColumn``
-    (and their legacy paint-key forms); ``label_config.column`` (invisible
-    to the paint walk); paint ``["get", col]`` refs; and ``layer.filter``
-    ``["get"/"has", col]`` refs (else filter-only columns drop at low zoom).
-    """
-    cols: set[str] = set()
-    style_config = layer.style_config or {}
-    style_col = style_config.get("column")
-    if isinstance(style_col, str) and style_col:
-        cols.add(style_col)
-
-    builder = _builder_style_config(style_config)
-    for builder_key in ("heatmapWeightColumn", "heightColumn"):
-        value = builder.get(builder_key)
-        if isinstance(value, str) and value:
-            cols.add(value)
-
-    paint = layer.paint or {}
-    for legacy_key in ("_heatmap-weight-column", "_height_column"):
-        value = paint.get(legacy_key)
-        if isinstance(value, str) and value:
-            cols.add(value)
-
-    label_col = (layer.label_config or {}).get("column")
-    if isinstance(label_col, str) and label_col:
-        cols.add(label_col)
-
-    for value in paint.values():
-        _walk_get_has_columns(value, cols)
-
-    # Normalize through the shared validator first, so legacy bare-field
-    # comparisons rewrite to expression form before the get/has walk;
-    # otherwise a filter-only column drops at low zoom.
-    try:
-        normalized_filter = validate_filter(layer.filter)
-    except FilterValidationError:
-        normalized_filter = layer.filter
-    _walk_get_has_columns(normalized_filter, cols)
-
-    return sorted(cols)
-
-
 def _absolute(base_url: str | None, path: str) -> str:
     return join_public_url(base_url, path) if base_url else path
+
+
+def _tile_request_line_bytes(tile_url: str) -> int:
+    """Return the size of the longest request line a tile URL template yields."""
+    parts = urlsplit(tile_url)
+    target = f"{parts.path}?{parts.query}"
+    for token, longest in (("{z}", "22"), ("{x}", "4194303"), ("{y}", "4194303")):
+        target = target.replace(token, longest)
+    return len(f"GET {target} HTTP/1.1\r\n".encode())
 
 
 def _tile_url_for_layer(
@@ -379,15 +317,23 @@ def _tile_url_for_layer(
         "scope": scope,
         **tile_template_params(None, layer.publication_version),
     }
-    # Stable attribute projection that data-driven styles need at z<10.
-    cols = sorted(cols) if cols is not None else _data_driven_columns_for_layer(layer)
+    path = f"/tiles/data.{layer.dataset_table_name}/{{z}}/{{x}}/{{y}}.pbf"
     if cols:
-        params["cols"] = ",".join(cols)
-    query = urlencode(params)
-    return _absolute(
-        api_url,
-        f"/tiles/data.{layer.dataset_table_name}/{{z}}/{{x}}/{{y}}.pbf?{query}",
-    )
+        # Stable attribute projection that data-driven styles need at z<10.
+        url = _absolute(
+            api_url, f"{path}?{urlencode({**params, 'cols': ','.join(sorted(cols))})}"
+        )
+        if _tile_request_line_bytes(url) <= _TILE_REQUEST_LINE_BUDGET:
+            return url
+        # A proxy would refuse every tile of this source. Without `cols` the
+        # tiles still carry each column the caller may read from zoom 10 up.
+        logger.warning(
+            "Exported tile URL for dataset %s leaves out its column list, which "
+            "would not fit a request line; its layers lose data-driven styling "
+            "below zoom 10",
+            layer.dataset_id,
+        )
+    return _absolute(api_url, f"{path}?{urlencode(params)}")
 
 
 def _raster_dem_source(
@@ -1427,13 +1373,10 @@ def _validate_emitted_layer(layer: dict[str, Any]) -> None:
     _strip_wrong_typed_values(layer, "paint")
 
 
-def _validate_emitted_style(style: dict[str, Any]) -> None:
-    """Strip non-spec paint/layout properties from every emitted layer in place."""
-    layers = style.get("layers")
-    if not isinstance(layers, list):
-        return
+def _validated_layers(layers: list[Any]) -> list[Any]:
+    """``layers`` with the non-spec paint/layout properties stripped in place
+    and any layer that can't be validated dropped."""
     kept: list[Any] = []
-    dropped = False
     for layer in layers:
         if isinstance(layer, dict):
             try:
@@ -1448,10 +1391,18 @@ def _validate_emitted_style(style: dict[str, Any]) -> None:
                     layer.get("id"),
                     exc_info=True,
                 )
-                dropped = True
                 continue
         kept.append(layer)
-    if dropped:
+    return kept
+
+
+def _validate_emitted_style(style: dict[str, Any]) -> None:
+    """Strip non-spec paint/layout properties from every emitted layer in place."""
+    layers = style.get("layers")
+    if not isinstance(layers, list):
+        return
+    kept = _validated_layers(layers)
+    if len(kept) != len(layers):
         style["layers"] = kept
 
 
@@ -1472,6 +1423,23 @@ def project_terrain_config(
     if str(source_id) in {str(dataset_id) for dataset_id in visible_dataset_ids}:
         return terrain_config
     return None
+
+
+def _column_names(layer: MapLayerResponse) -> set[str]:
+    return {
+        column["name"]
+        for column in layer.dataset_column_info or []
+        if isinstance(column, dict) and isinstance(column.get("name"), str)
+    }
+
+
+def _warn_dropped(layer: MapLayerResponse) -> None:
+    logger.warning(
+        "Dropping map layer %s from the exported style: its stored "
+        "paint/layout could not be serialized",
+        layer.id,
+        exc_info=True,
+    )
 
 
 def build_maplibre_style(
@@ -1496,42 +1464,49 @@ def build_maplibre_style(
     """
     sources: dict[str, Any] = {}
     style_layers: list[dict[str, Any]] = []
-    # A dataset's layers share one source, whose tiles must carry every
-    # column any of them reads, whichever layer creates it.
-    shared_cols: dict[str, set[str]] = {}
-    for layer in layers:
-        try:
-            found = _data_driven_columns_for_layer(layer)
-        except _MALFORMED_STYLE_ERRORS:
-            continue
-        source_id = f"geolens-{_safe_id(str(layer.dataset_id))}"
-        shared_cols.setdefault(source_id, set()).update(found)
     # MapLibre draws later layers on top; sort_order 0 draws on top in GeoLens.
+    emitted_by_layer: list[tuple[MapLayerResponse, str, list[dict[str, Any]]]] = []
+    # A dataset's layers share one source, whose tiles must carry every
+    # column any emitted layer of it keeps after validation, whichever layer
+    # creates it.
+    shared_cols: dict[str, set[str]] = {}
+    known_cols: dict[str, set[str]] = {}
     for layer in sorted(layers, key=lambda item: item.sort_order, reverse=True):
         source_id = f"geolens-{_safe_id(str(layer.dataset_id))}"
         # Same bound as `_validate_emitted_style`, one stage earlier. A
         # malformed layer is dropped and its source stays unregistered until
         # it serializes, so no orphan is left behind.
         try:
-            emitted = _style_layer_for_map_layer(
-                layer, source_id, mvt_source_layer_prefix
+            emitted = _validated_layers(
+                _style_layer_for_map_layer(layer, source_id, mvt_source_layer_prefix)
             )
+        except _MALFORMED_STYLE_ERRORS:
+            _warn_dropped(layer)
+            continue
+        emitted_by_layer.append((layer, source_id, emitted))
+        if layer.dataset_column_info is not None:
+            known_cols.setdefault(source_id, set()).update(_column_names(layer))
+        for style_layer in emitted:
+            shared_cols.setdefault(source_id, set()).update(
+                emitted_columns(style_layer)
+            )
+    for layer, source_id, emitted in emitted_by_layer:
+        try:
             # A layer that draws nothing, such as a mesh-only terrain DEM,
             # registers no source for the dataset's drawn layers to inherit.
             new_source = None
             if source_id in sources:
                 _append_cluster_source_metadata(sources[source_id], layer)
             elif emitted:
-                new_source = _source_for_layer(
-                    layer, api_url, app_url, shared_cols.get(source_id)
-                )
+                cols = shared_cols.get(source_id)
+                if cols is not None and source_id in known_cols:
+                    # The static keys a style reads include data, such as a
+                    # literal object's; only the dataset's columns can be asked
+                    # for.
+                    cols = cols & known_cols[source_id]
+                new_source = _source_for_layer(layer, api_url, app_url, cols)
         except _MALFORMED_STYLE_ERRORS:
-            logger.warning(
-                "Dropping map layer %s from the exported style: its stored "
-                "paint/layout could not be serialized",
-                layer.id,
-                exc_info=True,
-            )
+            _warn_dropped(layer)
             continue
         if new_source is not None:
             sources[source_id] = new_source

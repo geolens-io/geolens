@@ -21,6 +21,7 @@ from pydantic import (
     field_validator,
 )
 
+from app.modules.catalog.widgets.filter_shapes import widget_filter_cql2
 from app.modules.catalog.widgets.schemas import (
     BarChartWidget,
     CategorySelectorWidget,
@@ -262,6 +263,52 @@ def stored_widgets(stored: Any) -> list[Any]:
     return [widget for widget in widgets if isinstance(widget, _ACCEPTED)]
 
 
+# What a widget needs of a column it reads, as the viewer's widget
+# definitions and the aggregate endpoint require it.
+NUMBER, DATE, LISTABLE, SORTABLE = "number", "date", "listable", "sortable"
+
+
+def widget_columns(widget: Any) -> list[tuple[str, frozenset[str]]]:
+    """The layer columns a parsed dashboard widget reads, each with what it
+    needs of the column (``NUMBER``, ``DATE``, ``LISTABLE``, ``SORTABLE``;
+    none takes any column), as the viewer's ``readsColumns`` declares them.
+    A widget filter's columns need nothing more than to exist."""
+    config = getattr(widget, "config", None)
+    reads: list[tuple[str | None, frozenset[str]]] = []
+    number, anything = frozenset({NUMBER}), frozenset()
+    if isinstance(widget, IndicatorWidget):
+        reads = [(config.column, number)]
+    elif isinstance(widget, BarChartWidget):
+        if config.mode == "by_feature":
+            reads = [
+                (config.label_column, frozenset({LISTABLE})),
+                (config.value_column, frozenset({NUMBER, SORTABLE})),
+            ]
+        elif config.mode == "by_fields":
+            reads = [(name, number) for name in config.fields]
+        else:
+            grouped = frozenset({DATE}) if config.mode == "date" else anything
+            reads = [(config.column, grouped), (config.stat_column, number)]
+    elif isinstance(widget, PieChartWidget):
+        reads = [(config.column, anything), (config.stat_column, number)]
+    elif isinstance(widget, FeatureListWidget):
+        reads = [
+            (config.title_column, frozenset({LISTABLE})),
+            (config.subtitle_column, frozenset({LISTABLE})),
+            (config.sort_column, frozenset({SORTABLE})),
+        ]
+    elif isinstance(widget, TableWidget):
+        reads = [(config.group_column, anything)]
+        reads += [(stat.column, number) for stat in config.stats]
+    elif isinstance(widget, HistogramWidget):
+        reads = [(config.column, number)]
+    elif isinstance(widget, CategorySelectorWidget):
+        reads = [(config.column, anything)]
+    filtered = widget_filter_cql2(getattr(widget, "filter", None)).columns
+    reads += [(name, anything) for name in sorted(filtered)]
+    return [(name, needs) for name, needs in reads if name is not None]
+
+
 def refuse_widgets(refused: list[dict[str, str | None]]) -> None:
     """Raise 422 naming each widget a save can't keep (``id``, ``layer_id``, ``reason``)."""
     if not refused:
@@ -363,6 +410,18 @@ def merge_dashboard(
             detail=f"A dashboard holds at most {MAX_DASHBOARD_WIDGETS} widgets",
         )
     return _stored_dashboard(stored, widgets, sent)
+
+
+def can_drop_widgets(stored: Any) -> bool:
+    """Whether ``drop_repointed`` can remove the widgets on any layer of
+    ``stored``: not when a newer server saved it or it holds a widget this
+    server can't parse, since it can't tell which layer that widget names."""
+    widgets = _stored_widgets(stored)
+    if not widgets:
+        return True
+    return _stored_version(stored) <= DASHBOARD_CONFIG_VERSION and all(
+        _parsed(raw) is not None for raw in widgets
+    )
 
 
 def drop_repointed(stored: Any, repointed_layer_ids: Collection[uuid.UUID]) -> Any:

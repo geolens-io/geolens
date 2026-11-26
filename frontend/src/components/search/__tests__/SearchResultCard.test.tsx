@@ -1,7 +1,10 @@
-import { render, screen, within } from '@/test/test-utils';
+import { fireEvent, render, screen, waitFor, within } from '@/test/test-utils';
+import { getDataset } from '@/api/datasets';
 import type { OGCRecordResponse } from '@/types/api';
 import { useQuicklook } from '@/components/maps/hooks/use-quicklook';
 import { SearchResultCard } from '../SearchResultCard';
+
+vi.mock('@/api/datasets', () => ({ getDataset: vi.fn(() => Promise.resolve({})) }));
 
 vi.mock('@/components/maps/hooks/use-quicklook', () => ({
   useQuicklook: vi.fn(() => ({ url: null, status: 'idle' })),
@@ -85,6 +88,12 @@ describe('SearchResultCard', () => {
       expect(specs).toHaveTextContent('Polygon');
       expect(specs).toHaveTextContent('195');
       expect(specs).toHaveTextContent('EPSG:4326');
+    });
+
+    it('groups the digits of large counts for the reader', () => {
+      render(<SearchResultCard feature={makeFeature({ feature_count: 32186 })} />);
+
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('32,186 features');
     });
 
     it('renders Vector type badge', () => {
@@ -323,6 +332,47 @@ describe('SearchResultCard', () => {
       expect(link).toHaveAttribute('href', '/collections/coll-1');
     });
 
+    it('dates a collection by its update time, not its creation time', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'My Collection',
+              record_type: 'collection',
+              created: '2020-01-15T12:00:00Z',
+              updated: '2024-06-15T12:00:00Z',
+            },
+            { id: 'coll-1', geometry: null },
+          )}
+        />,
+      );
+
+      const attribution = screen.getByTestId('dataset-card-updated-attribution');
+      expect(attribution).toHaveTextContent('Updated');
+      expect(attribution.title).toContain('2024');
+      expect(attribution.title).not.toContain('2020');
+    });
+
+    it('shows no update time for a collection that reports none', () => {
+      render(
+        <SearchResultCard
+          feature={makeFeature(
+            {
+              type: 'collection',
+              title: 'My Collection',
+              record_type: 'collection',
+              created: '2020-01-15T12:00:00Z',
+              updated: undefined,
+            },
+            { id: 'coll-1', geometry: null },
+          )}
+        />,
+      );
+
+      expect(screen.queryByTestId('dataset-card-updated-attribution')).not.toBeInTheDocument();
+    });
+
     it('renders dataset count badge and Collection type badge', () => {
       render(
         <SearchResultCard
@@ -540,6 +590,47 @@ describe('SearchResultCard', () => {
       );
 
       expect(screen.queryByText(/cols/i)).not.toBeInTheDocument();
+    });
+
+    describe('unknown row count', () => {
+      const renderTable = (feature_count: number | null, column_count: number | null) => {
+        render(
+          <SearchResultCard
+            feature={makeFeature({
+              record_type: 'table',
+              geometry_type: null,
+              description: undefined,
+              feature_count,
+              column_count,
+              crs: null,
+            })}
+          />,
+        );
+        const thumb = screen.getByTestId('table-thumbnail-icon').parentElement as HTMLElement;
+        return { thumb, text: thumb.textContent ?? '' };
+      };
+
+      it('null count with columns shows columns only', () => {
+        const { thumb, text } = renderTable(null, 5);
+        expect(text).toBe('5 cols');
+        expect(thumb).toHaveAttribute('aria-label', 'Table with 5 columns');
+        expect(screen.queryByText(/Table with 0 rows/)).not.toBeInTheDocument();
+        expect(screen.getByText('Geospatial dataset')).toBeInTheDocument();
+      });
+
+      it('null count without columns shows no counts', () => {
+        const { thumb, text } = renderTable(null, null);
+        expect(text).toBe('');
+        expect(thumb).toHaveAttribute('aria-label', 'Table');
+        expect(screen.getByText('Geospatial dataset')).toBeInTheDocument();
+      });
+
+      it('a real zero count still reads 0 rows', () => {
+        const { thumb, text } = renderTable(0, 5);
+        expect(text).toBe('0 rows · 5 cols');
+        expect(thumb).toHaveAttribute('aria-label', 'Table with 0 rows and 5 columns');
+        expect(screen.getByText('Table with 0 rows')).toBeInTheDocument();
+      });
     });
 
     it('does NOT render ImageOff for table records', () => {
@@ -828,6 +919,262 @@ describe('SearchResultCard', () => {
       );
 
       expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+    });
+  });
+
+  describe('Compact density', () => {
+    const compact = (feature: OGCRecordResponse) =>
+      render(<SearchResultCard feature={feature} density="compact" />);
+
+    it('shows type, title, spec, source and updated date on one row, without description or tags', () => {
+      compact(makeFeature());
+
+      const link = screen.getByTestId('search-result-card');
+      expect(link).toHaveAttribute('data-density', 'compact');
+      expect(link).toHaveAttribute('href', '/datasets/dataset-1');
+      const title = within(link).getByRole('heading', { level: 3, name: 'World Countries' });
+      expect(title).toHaveAttribute('title', 'World Countries');
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('195 features');
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('Polygon');
+      expect(screen.getByTestId('dataset-card-source')).toHaveTextContent('Natural Earth');
+      expect(screen.queryByTestId('dataset-card-description')).not.toBeInTheDocument();
+      expect(screen.queryByText('boundaries')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('table-thumbnail-icon')).not.toBeInTheDocument();
+    });
+
+    it('names the link by its title first, then the type', () => {
+      compact(makeFeature());
+
+      expect(screen.getByRole('link', { name: /^World Countries.*Vector/ })).toBeInTheDocument();
+    });
+
+    it('shows a dash for a dataset with no update metadata and keeps the words for assistive tech', () => {
+      compact(makeFeature({ never_edited: true, updated_by_display: null, created: null }));
+
+      expect(screen.getByTestId('dataset-card-updated-visible')).toHaveTextContent('—');
+      expect(screen.getByTestId('dataset-card-updated-attribution')).toHaveTextContent('No update metadata');
+    });
+
+    it.each([
+      ['missing', 'Source missing'],
+      ['inaccessible', 'Source inaccessible'],
+    ] as const)('marks a source that is %s with an icon named for it', (state, label) => {
+      compact(makeFeature({ source_health: state }));
+
+      const chip = screen.getByTestId('source-health-chip');
+      expect(chip).toHaveAttribute('data-state', state);
+      expect(within(chip).getByText(label)).toHaveClass('sr-only');
+      expect(chip).toHaveAttribute('title', expect.stringContaining(label));
+      expect(screen.getByRole('link', { name: new RegExp(label) })).toBeInTheDocument();
+    });
+
+    it('marks an overdue refresh and leaves a healthy, fresh or due source unmarked', () => {
+      const { unmount } = compact(makeFeature({ source_freshness: 'overdue', source_health: 'healthy' }));
+      expect(screen.getByTestId('source-freshness-chip')).toHaveAttribute('data-state', 'overdue');
+      expect(within(screen.getByTestId('source-freshness-chip')).getByText('Source refresh overdue')).toHaveClass('sr-only');
+      expect(screen.queryByTestId('source-health-chip')).not.toBeInTheDocument();
+      unmount();
+
+      compact(makeFeature({ source_freshness: 'due', source_health: 'healthy' }));
+      expect(screen.queryByTestId('source-freshness-chip')).not.toBeInTheDocument();
+      expect(screen.queryByTestId('source-health-chip')).not.toBeInTheDocument();
+    });
+
+    it('shows the type as an icon-only badge named by the type', () => {
+      compact(makeFeature({ record_type: 'raster_dataset', geometry_type: null }));
+
+      const badge = screen.getByTitle('Raster');
+      expect(badge).toHaveTextContent('Raster');
+      expect(within(badge).getByText('Raster')).toHaveClass('sr-only');
+      expect(badge.querySelector('svg')).toHaveAttribute('aria-hidden', 'true');
+    });
+
+    it('shows the source inside the title cell only when there is one', () => {
+      const { unmount } = render(<SearchResultCard feature={makeFeature()} density="compact" />);
+      const title = screen.getByRole('heading', { level: 3, name: 'World Countries' });
+      const source = screen.getByTestId('dataset-card-source');
+      expect(title.parentElement).toContainElement(source);
+      expect(source).toHaveAttribute('title', 'Natural Earth');
+      unmount();
+
+      compact(makeFeature({ source_organization: null }));
+      expect(screen.queryByTestId('dataset-card-source')).not.toBeInTheDocument();
+    });
+
+    it('shows only the relative time, keeping the full sentence for assistive tech', () => {
+      compact(makeFeature());
+
+      const cell = screen.getByTestId('dataset-card-updated-attribution');
+      const visible = within(cell).getByTestId('dataset-card-updated-visible');
+      expect(visible).toHaveAttribute('aria-hidden', 'true');
+      expect(visible.textContent).not.toMatch(/updated/i);
+      expect(visible.textContent).not.toBe('');
+      expect(cell.querySelector('.sr-only')?.textContent).toMatch(/^Updated /);
+    });
+
+    it('defaults to the comfortable layout', () => {
+      render(<SearchResultCard feature={makeFeature()} />);
+
+      expect(screen.getByTestId('search-result-card')).toHaveAttribute('data-density', 'comfortable');
+      expect(screen.getByTestId('dataset-card-description')).toBeInTheDocument();
+    });
+
+    it('shows the status badge only when the record is not published', () => {
+      const { unmount } = render(
+        <SearchResultCard feature={makeFeature({ record_status: 'published' })} density="compact" />,
+      );
+      expect(screen.queryByText('Published')).not.toBeInTheDocument();
+      expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+      unmount();
+
+      compact(makeFeature({ record_status: 'draft' }));
+      expect(screen.getByText('Draft')).toBeInTheDocument();
+    });
+
+    it('omits the source line when the dataset has no source organization', () => {
+      compact(makeFeature({ source_organization: null }));
+
+      expect(screen.queryByTestId('dataset-card-source')).not.toBeInTheDocument();
+    });
+
+    it('shows rows and columns for a table', () => {
+      compact(makeFeature({ record_type: 'table', geometry_type: null, feature_count: 42, column_count: 6 }));
+
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('42 rows');
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('6 cols');
+    });
+
+    it.each([
+      ['an unknown row count with columns', { feature_count: null, column_count: 6 }, '6 cols'],
+      ['an unknown row count without columns', { feature_count: null, column_count: null }, ''],
+      ['a real zero row count', { feature_count: 0, column_count: null }, '0 rows'],
+    ])('reads %s correctly for a table', (_name, overrides, expected) => {
+      compact(makeFeature({ record_type: 'table', geometry_type: null, ...overrides }));
+
+      const spec = screen.getByTestId('dataset-card-specs');
+      expect(spec.textContent).toBe(expected);
+      expect(spec.textContent).not.toContain(expected === '6 cols' ? 'rows' : 'zzz');
+    });
+
+    it('shows raster bands in the spec', () => {
+      compact(makeFeature({ record_type: 'raster_dataset', geometry_type: null, band_count: 3, feature_count: null }));
+
+      expect(screen.getByTestId('dataset-card-specs')).toHaveTextContent('3 bands');
+    });
+
+    it('shows a collection as badge, title and dataset count', () => {
+      compact(
+        makeFeature(
+          {
+            type: 'collection',
+            title: 'My Collection',
+            record_type: 'collection',
+            dataset_count: 7,
+            description: 'A set of datasets',
+            source_organization: 'Ignored',
+            record_status: 'draft',
+          },
+          { id: 'coll-1', geometry: null },
+        ),
+      );
+
+      const link = screen.getByTestId('search-result-card');
+      expect(link).toHaveAttribute('href', '/collections/coll-1');
+      expect(within(link).getByRole('heading', { name: 'My Collection' })).toBeInTheDocument();
+      expect(within(link).getByText('7 datasets')).toBeInTheDocument();
+      expect(screen.queryByText('A set of datasets')).not.toBeInTheDocument();
+      expect(screen.queryByText('Draft')).not.toBeInTheDocument();
+    });
+
+    it('dates a collection by its update time', () => {
+      compact(
+        makeFeature(
+          {
+            type: 'collection',
+            title: 'My Collection',
+            record_type: 'collection',
+            dataset_count: 7,
+            created: '2020-01-15T12:00:00Z',
+            updated: '2024-06-15T12:00:00Z',
+            never_edited: undefined,
+          },
+          { id: 'coll-1', geometry: null },
+        ),
+      );
+
+      const cell = screen.getByTestId('dataset-card-updated-attribution');
+      expect(screen.getByTestId('dataset-card-updated-visible')).not.toHaveTextContent('—');
+      expect(cell).toHaveTextContent(/Updated/);
+      expect(cell.title).toContain('2024');
+      expect(cell.title).not.toContain('2020');
+    });
+
+    it('dates a collection by its update time even when the result says it was never edited', () => {
+      compact(
+        makeFeature(
+          {
+            type: 'collection',
+            title: 'My Collection',
+            record_type: 'collection',
+            created: '2020-01-15T12:00:00Z',
+            updated: '2024-06-15T12:00:00Z',
+            never_edited: true,
+            updated_by_display: null,
+          },
+          { id: 'coll-1', geometry: null },
+        ),
+      );
+
+      const cell = screen.getByTestId('dataset-card-updated-attribution');
+      expect(cell.title).toContain('2024');
+      expect(cell.title).not.toContain('2020');
+      expect(cell).toHaveTextContent(/Updated/);
+    });
+
+    it('shows a long source whole or not at all, and lets a phone title take two lines', () => {
+      compact(makeFeature({ source_organization: 'Department of Environmental Protection, Bureau of GIS' }));
+
+      const link = screen.getByTestId('search-result-card');
+      const source = screen.getByTestId('dataset-card-source');
+      expect(source.className).toContain('whitespace-nowrap');
+      expect(source.className).not.toMatch(/(^|\s)(truncate|max-w-\S+)(\s|$)/);
+      const title = within(link).getByRole('heading');
+      expect(title.className).toContain('line-clamp-2');
+      expect(title.className).toContain('md:line-clamp-1');
+    });
+
+    it('gives a collection that reports no update time a dash, not its creation time', () => {
+      compact(
+        makeFeature(
+          {
+            type: 'collection',
+            title: 'My Collection',
+            record_type: 'collection',
+            dataset_count: 7,
+            created: '2020-01-15T12:00:00Z',
+            updated: undefined,
+          },
+          { id: 'coll-1', geometry: null },
+        ),
+      );
+
+      const cell = screen.getByTestId('dataset-card-updated-attribution');
+      expect(screen.getByTestId('dataset-card-updated-visible')).toHaveTextContent('—');
+      expect(cell).not.toHaveTextContent(/Updated/);
+      expect(cell).not.toHaveAttribute('title');
+    });
+
+    it('prefetches the dataset on hover and does not fetch a quicklook', async () => {
+      // Earlier cards in this file also call the hook, so only this row's calls count.
+      vi.mocked(useQuicklook).mockClear();
+      compact(makeFeature({ has_quicklook: true }));
+
+      fireEvent.mouseEnter(screen.getByTestId('search-result-card'));
+
+      await waitFor(() => expect(getDataset).toHaveBeenCalledWith('dataset-1'));
+      const quicklookIds = vi.mocked(useQuicklook).mock.calls.map(([id]) => id);
+      expect(quicklookIds.length).toBeGreaterThan(0);
+      expect(quicklookIds.every((id) => id === null)).toBe(true);
     });
   });
 });

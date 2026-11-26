@@ -31,6 +31,7 @@ from app.modules.catalog.group_sharing import (
 from app.modules.catalog.maps.service import (
     check_map_ownership,
     get_map,
+    links_retired_last,
     record_map_groups_change,
     set_map_groups,
 )
@@ -169,7 +170,8 @@ async def sharing_blocking_maps(
 
     Shares nothing, and re-raises, unless every blocking map is named and
     ``can_share``. Does not commit: a caller whose second attempt raises
-    leaves the maps unshared.
+    leaves the maps unshared, and the links of a map that became restricted
+    are revoked only once that attempt passes.
     """
     try:
         return await attempt(), []
@@ -182,8 +184,10 @@ async def sharing_blocking_maps(
         )
         if not fixable:
             raise
-        shared = await share_blocking_maps(db, exc, actor)
-    return await attempt(), shared
+        reach = exc
+    async with links_retired_last(db):
+        shared = await share_blocking_maps(db, reach, actor)
+        return await attempt(), shared
 
 
 async def set_story_groups(

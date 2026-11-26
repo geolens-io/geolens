@@ -50,11 +50,16 @@ from app.platform.jobs.models import (
 )
 from app.processing.ingest.manifest_dataset_fields import (
     ManifestEntryFields,
+    ManifestEntryRefused,
     attach_unchanged_entry,
+    raster_not_replaced_message,
+    note_more_visible,
+    resolve_entry_groups,
     report_entry,
     resolve_entry_collection,
 )
-from app.processing.ingest.manifest_maps import check_manifest_maps
+from app.processing.ingest.manifest_links import describe_results
+from app.processing.ingest.manifest_maps import run_manifest_maps
 from app.processing.ingest.manifest_publication import (
     decide_publication,
     is_version_2,
@@ -442,40 +447,39 @@ async def _preflight_quota(
     db: AsyncSession,
     user: Identity,
     *,
-    creates_dataset: bool,
+    replaces: uuid.UUID | None,
     quota: _ManifestQuotaReservation,
 ) -> int | None:
     """Refuse an over-quota caller, and derive the streaming byte budget.
 
     Runs before the reservation is inserted, so a refused entry leaves no
-    row behind. The same snapshot supplies a hard byte budget for
+    row behind and its upload unclaimed, for the same apply to use once the
+    account has room. The same snapshot supplies a hard byte budget for
     streaming, so a caller near quota can't force a full download just to
-    discover it can't be admitted. Returns None when uncapped.
+    discover it can't be admitted. A replacement's budget counts the credit
+    its admission takes. Returns None when uncapped.
     """
-    from app.modules.quota.service import get_user_quota_usage
+    from app.modules.quota.service import (
+        check_dataset_count_quota,
+        get_user_quota_usage,
+        replacement_credit_bytes,
+    )
 
+    if replaces is None:
+        await check_dataset_count_quota(
+            db, user.id, None, admitted=quota.datasets_admitted
+        )
     usage = await get_user_quota_usage(db, user.id)
-    if (
-        creates_dataset
-        and usage.count_cap > 0
-        and usage.dataset_count + quota.datasets_admitted >= usage.count_cap
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                "Dataset quota exceeded: "
-                f"{usage.dataset_count + quota.datasets_admitted} of "
-                f"{usage.count_cap} datasets used"
-            ),
-        )
-
-    return (
-        max(
-            usage.storage_cap - usage.bytes_used - quota.bytes_admitted,
-            0,
-        )
-        if usage.storage_cap > 0
-        else None
+    if usage.storage_cap <= 0:
+        return None
+    credited = (
+        0
+        if replaces is None
+        else await replacement_credit_bytes(db, replaces, owned_by=user.id)
+    )
+    return max(
+        usage.storage_cap - usage.bytes_used - quota.bytes_admitted + credited,
+        0,
     )
 
 
@@ -486,20 +490,42 @@ async def _admit_staged_source(
     request: Request,
     *,
     file_path: str,
-    creates_dataset: bool,
+    replaces: uuid.UUID | None,
     quota: _ManifestQuotaReservation,
 ) -> _StagedManifestSource:
-    """Size a staged manifest source and admit it against live quota."""
-    from app.modules.quota.service import get_user_quota_usage
+    """Size a staged manifest source and admit it against live quota.
+
+    A replacement takes the re-upload doors' credit, while the caller still
+    owns the dataset: ownership is rechecked under the row lock only after
+    this, and a transfer during staging must not lend the caller its bytes.
+    """
+    # Lazy import preserves the processing -> modules layering boundary.
+    from app.modules.quota.service import (
+        check_dataset_count_quota,
+        check_replacement_quota,
+        check_upload_quota,
+        get_user_quota_usage,
+    )
 
     incoming_bytes = await _manifest_source_size_bytes(prepared, file_path)
+    if replaces is not None:
+        credited = await check_replacement_quota(
+            db,
+            user.id,
+            incoming_bytes,
+            request,
+            dataset_id=replaces,
+            admitted=quota.bytes_admitted,
+            owned_by=user.id,
+        )
+        # A smaller file frees nothing until its job publishes, so it lends
+        # no room to the manifest's later entries.
+        charged = max(0, incoming_bytes - credited)
+        quota.reserve(incoming_bytes=charged, creates_dataset=False)
+        return _StagedManifestSource(file_path=file_path, incoming_bytes=charged)
+
     fresh_usage = await get_user_quota_usage(db, user.id)
     projected_bytes = fresh_usage.bytes_used + quota.bytes_admitted + incoming_bytes
-    projected_count = (
-        fresh_usage.dataset_count
-        + quota.datasets_admitted
-        + (1 if creates_dataset else 0)
-    )
     if fresh_usage.storage_cap > 0 and projected_bytes > fresh_usage.storage_cap:
         raise HTTPException(
             status_code=413,
@@ -509,37 +535,17 @@ async def _admit_staged_source(
                 f"{fresh_usage.storage_cap} bytes (adding {incoming_bytes} bytes)"
             ),
         )
-    if (
-        creates_dataset
-        and fresh_usage.count_cap > 0
-        and projected_count > fresh_usage.count_cap
-    ):
-        raise HTTPException(
-            status_code=422,
-            detail=(
-                f"Dataset quota exceeded: "
-                f"{fresh_usage.dataset_count + quota.datasets_admitted} of "
-                f"{fresh_usage.count_cap} datasets used"
-            ),
-        )
 
-    # Lazy import preserves the processing -> modules layering boundary.
-    if creates_dataset:
-        from app.modules.quota.service import check_upload_quota
-
-        await check_upload_quota(db, user.id, incoming_bytes, request)
+    await check_upload_quota(db, user.id, incoming_bytes, request)
+    # Asked again: staging can take as long as a download, and the
+    # preflight's answer is that old.
+    await check_dataset_count_quota(
+        db, user.id, request, admitted=quota.datasets_admitted
+    )
     await enforce_limit(request, "storage_bytes", projected_bytes)
-    if creates_dataset:
-        await enforce_limit(request, "dataset_count", projected_count)
 
-    quota.reserve(
-        incoming_bytes=incoming_bytes,
-        creates_dataset=creates_dataset,
-    )
-    return _StagedManifestSource(
-        file_path=file_path,
-        incoming_bytes=incoming_bytes,
-    )
+    quota.reserve(incoming_bytes=incoming_bytes, creates_dataset=True)
+    return _StagedManifestSource(file_path=file_path, incoming_bytes=incoming_bytes)
 
 
 # One wording for every refusal of a key the caller doesn't own, so the answer
@@ -676,9 +682,10 @@ async def _admit_refresh_run(
     catalog rows, the order a re-upload commit takes them in.
 
     Raises ``DatasetBusyError`` while the dataset has another active run or
-    another writer holds its catalog rows past the lock budget, and
+    another writer holds its catalog rows past the lock budget;
     ``WriteAccessRevoked`` when the caller has lost the dataset, or is no
-    longer the admin a raw seed source needs. ``trigger`` is ``api``.
+    longer the admin a raw seed source needs; and ``ManifestSourceError``
+    when the dataset has passed to another owner. ``trigger`` is ``api``.
     """
     from app.modules.catalog.authorization import lock_dataset_rows_for_write
 
@@ -704,11 +711,14 @@ async def _admit_refresh_run(
         raise DatasetBusyError(str(exc)) from exc
     except HTTPException as exc:
         raise WriteAccessRevoked from exc
-    # Rechecked under the lock: the binding may have changed while the source
-    # was being staged.
+    # Rechecked under the lock: the owner and the binding may have changed
+    # while the source was being staged, and a key stays its owner's alone.
     await db.refresh(dataset, attribute_names=["source_format"])
+    await db.refresh(dataset.record, attribute_names=["created_by"])
+    if dataset.record.created_by != user.id:
+        raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED)
     try:
-        _refuse_publish_key_remote_origin(db, dataset)
+        _refuse_publish_key_irreversible_replace(db, dataset)
     except HTTPException as exc:
         raise ManifestSourceError(exc.detail["message"]) from exc
     if raw_source and "admin" not in await get_processing_port().get_user_roles(
@@ -737,11 +747,16 @@ async def _queue_reupload_job(
     prepared: ManifestPreparedSource,
 ) -> None:
     port = get_catalog_port()
-    task = (
-        port.manifest_v2_reupload_task()
-        if is_version_2(job.user_metadata or {})
-        else port.reupload_file_task()
-    )
+    if prepared.file_type == "raster":
+        # Under a name earlier workers lack: their raster replacement skips
+        # the manifest's record fields.
+        from app.processing.ingest.tasks import reupload_manifest_raster
+
+        task = reupload_manifest_raster
+    elif is_version_2(job.user_metadata or {}):
+        task = port.manifest_v2_reupload_task()
+    else:
+        task = port.reupload_file_task()
     file_path = job.file_path
     if not file_path:
         raise ManifestSourceError("Manifest reupload job is missing file_path")
@@ -764,9 +779,14 @@ async def _queue_reupload_job(
     )
 
 
-def _refuse_publish_key_remote_origin(db: AsyncSession, existing_dataset) -> None:
-    # The update replaces the source binding, and a restore can bring back only
-    # an upload's or a drawn layer's.
+def _refuse_publish_key_irreversible_replace(
+    db: AsyncSession, existing_dataset
+) -> None:
+    # A replaced raster keeps no previous version. A vector update replaces the
+    # source binding, and a restore can bring back only an upload's or a drawn
+    # layer's.
+    if existing_dataset.record.record_type == "raster_dataset":
+        refuse_publish_key(db, "A publish key can't replace a raster dataset")
     origin = classify_origin(
         existing_dataset.source_format, existing_dataset.record.record_type
     )
@@ -774,6 +794,24 @@ def _refuse_publish_key_remote_origin(db: AsyncSession, existing_dataset) -> Non
         refuse_publish_key(
             db, "A publish key can't replace a dataset bound to a remote origin"
         )
+
+
+def _refuse_unreplaceable_update(
+    db: AsyncSession,
+    dataset: ManifestDataset,
+    existing_dataset,
+    prepared: ManifestPreparedSource,
+    fields: ManifestEntryFields | None,
+) -> None:
+    """Refuse an update whose source can't replace the dataset's data, or one
+    a publish key may not make. A version 2 raster refusal is error A054."""
+    _validate_existing_dataset_update(existing_dataset, prepared)
+    try:
+        _refuse_publish_key_irreversible_replace(db, existing_dataset)
+    except HTTPException as exc:
+        if fields is None or prepared.file_type != "raster":
+            raise ManifestSourceError(exc.detail["message"]) from exc
+        raise ManifestEntryRefused([raster_not_replaced_message(dataset)]) from exc
 
 
 def _job_metadata(
@@ -818,11 +856,10 @@ async def _reserve_entry(
     The row goes in before the fetch, so a retry during the download
     sees `skip_in_flight`. The commit releases the key lock and the connection.
     """
-    creates_dataset = dataset_id is None
     quota_byte_limit = await _preflight_quota(
         db,
         user,
-        creates_dataset=creates_dataset,
+        replaces=dataset_id,
         quota=quota,
     )
     max_size_bytes = await _upload_max_size_bytes(db)
@@ -1062,7 +1099,7 @@ async def _finalize_reserved_entry(
                     user,
                     request,
                     file_path=file_path,
-                    creates_dataset=reserved.creates_dataset,
+                    replaces=reserved.dataset_id,
                     quota=quota,
                 )
                 admitted = True
@@ -1172,11 +1209,13 @@ async def _reserve_or_settle_entry(
         raise ManifestSourceError("Manifest source could not be prepared")
 
     if classification == "skip_in_flight" and job is not None:
-        if not await in_flight_job_matches(db, fields, dataset, job):
+        if not await in_flight_job_matches(db, user, fields, dataset, job):
             raise DatasetBusyError(
                 "The key's in-flight apply publishes otherwise than this one."
             )
         result = _skip_result_for_in_flight(dataset, job)
+        # The match above settled the level the queued job publishes.
+        result.mark_pending(fields.visibility if fields else None)
         await db.commit()
         return result
 
@@ -1208,8 +1247,7 @@ async def _reserve_or_settle_entry(
             return held
         # Run after authorization (to avoid leaking another user's dataset
         # type) but before dry-run reporting, staging, or queue creation.
-        _validate_existing_dataset_update(existing_dataset, prepared)
-        _refuse_publish_key_remote_origin(db, existing_dataset)
+        _refuse_unreplaceable_update(db, dataset, existing_dataset, prepared, fields)
         update_dataset_id = existing_dataset.id
         await judge_update(
             db,
@@ -1226,6 +1264,9 @@ async def _reserve_or_settle_entry(
 
     await decide_publication(db, fields, dataset, existing_dataset)
     await resolve_entry_collection(db, dataset, user, fields, dry_run=request.dry_run)
+    await resolve_entry_groups(db, dataset, user, fields, existing_dataset)
+    if request.dry_run:
+        note_more_visible(dataset, fields, existing_dataset)
     if fields is not None and await held_job_matches(
         db,
         held,
@@ -1234,6 +1275,8 @@ async def _reserve_or_settle_entry(
             db, dataset, prepared, fingerprint, user, fields, update_dataset_id
         ),
     ):
+        # The held replacement publishes what this apply just decided.
+        held.mark_pending(fields.visibility)
         await db.commit()
         return held
     refuse_used_upload(prepared)
@@ -1242,6 +1285,11 @@ async def _reserve_or_settle_entry(
         # found it.
         result = None
         if classification == "create":
+            # The apply's own check, so a preview never promises a dataset
+            # the apply would refuse. The ledger counts this manifest's
+            # earlier creates.
+            await _preflight_quota(db, user, replaces=None, quota=quota)
+            quota.reserve(incoming_bytes=0, creates_dataset=True)
             result = ManifestApplyEntryResult(
                 dataset_key=dataset.key,
                 action="create",
@@ -1330,7 +1378,9 @@ async def apply_manifest(
 
     for result in results if request.manifest_version == "2" else ():
         result.messages = result.messages or []
-    maps = await check_manifest_maps(db, request, caller, results)
+    maps = await run_manifest_maps(db, request, caller, results, http_request)
+    if request.manifest_version == "2":
+        await describe_results(db, request, caller, http_request, results, maps)
     return ManifestApplyResponse(
         accepted=any(r.action != "error" for r in [*results, *(maps or ())]),
         dry_run=request.dry_run,

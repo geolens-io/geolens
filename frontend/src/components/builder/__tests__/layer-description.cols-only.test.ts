@@ -146,7 +146,7 @@ describe('the object operand of get', () => {
 });
 
 describe('a projection too long for the request line', () => {
-  const wide = Array.from({ length: 400 }, (_, index) => ({ name: `Mixed_Case_Column_${String(index).padStart(4, '0')}_x`, type: 'text' }));
+  const wide = Array.from({ length: 800 }, (_, index) => ({ name: `Mixed_Case_Column_${String(index).padStart(4, '0')}_x`, type: 'text' }));
   const urlFor = (layer: typeof SAVED_LAYERS.polygon, columns: typeof wide) => {
     const { sources, layers } = describeLayers(
       [toSyncInput({ ...layer, dataset_column_info: columns })],
@@ -190,8 +190,8 @@ describe('a projection too long for the request line', () => {
   });
 
   it('drops the held columns before it drops a cluster layer filter', () => {
-    // 285 held columns fit the request line without the filter but not with it.
-    const columns = [...wide.slice(0, 1), ...Array.from({ length: 284 }, (_, i) => ({ name: `Mixed_Case_Column_${String(i + 1).padStart(4, '0')}_x`, type: 'text' })), { name: 'kind', type: 'text' }];
+    // 583 held columns fit the request line without the filter but not with it.
+    const columns = [...wide.slice(0, 583), { name: 'kind', type: 'text' }];
     const filter = ['==', ['get', 'kind'], 'a'];
     const { sources, layers } = describeLayers(
       [toSyncInput({ ...SAVED_LAYERS.serverCluster, filter: filter as never, dataset_column_info: columns })],
@@ -204,6 +204,72 @@ describe('a projection too long for the request line', () => {
 
   it('stays lean when the held columns fit', () => {
     expect(urlFor(SAVED_LAYERS.polygon, wide.slice(0, 3))).toContain('cols_only=true');
+  });
+});
+
+describe('the column list as the request line fills', () => {
+  const wide = Array.from({ length: 800 }, (_, index) => ({ name: `Mixed_Case_Column_${String(index).padStart(4, '0')}_x`, type: 'text' }));
+  const describeWith = (layer: Record<string, unknown>) => {
+    const { sources, layers } = describeLayers([toSyncInput(layer as never)], { ...RENDER_CONTEXTS.builder, colsOnly: true });
+    return (sources.get(layers[0].sourceId) as { tiles: string[] }).tiles[0];
+  };
+
+  it('keeps the columns the styling and filters read when the held columns would not fit', () => {
+    const url = describeWith({
+      ...SAVED_LAYERS.polygon,
+      filter: ['==', ['get', 'kind'], 'a'],
+      dataset_column_info: [...wide, { name: 'kind', type: 'text' }],
+    });
+    expect(new URL(url.replace(/[{}]/g, '0')).searchParams.get('cols')).toBe('kind');
+    expect(url).not.toContain('cols_only');
+  });
+
+  it('leaves the list out, and warns once, when the columns the map reads would not fit either', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const url = describeWith({
+      ...SAVED_LAYERS.polygon,
+      filter: ['any', ...wide.map((column) => ['==', ['get', column.name], 'a'])],
+      dataset_column_info: wide,
+    });
+    expect(url).not.toContain('cols=');
+    expect(url).not.toContain('cols_only');
+    expect(warn).toHaveBeenCalledTimes(1);
+    expect(warn.mock.calls[0][0]).toContain(SAVED_LAYERS.polygon.dataset_table_name);
+    warn.mockRestore();
+  });
+
+  it('keeps the columns the map reads on a cluster layer whose filter is over the route\'s limits', () => {
+    const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+    const url = describeWith({
+      ...SAVED_LAYERS.serverCluster,
+      filter: ['in', ['get', 'kind'], ['literal', Array.from({ length: 1001 }, (_, i) => `k${i}`)]],
+      dataset_column_info: [...wide, { name: 'kind', type: 'text' }],
+    });
+    expect(new URL(url.replace(/[{}]/g, '0')).searchParams.get('cols')).toBe('kind');
+    expect(url).not.toContain('cols_only');
+    expect(url).not.toContain('filter=');
+    expect(warn).not.toHaveBeenCalled();
+    warn.mockRestore();
+  });
+
+  it('counts an apostrophe in a cluster filter as the three bytes the browser sends', () => {
+    const urlFor = (value: (i: number) => string) => describeWith({
+      ...SAVED_LAYERS.serverCluster,
+      filter: ['in', ['get', 'kind'], ['literal', Array.from({ length: 200 }, (_, i) => value(i))]],
+      dataset_column_info: [...wide.slice(0, 400), { name: 'kind', type: 'text' }],
+    });
+    // Same raw length either way; only the apostrophes grow once serialized.
+    expect(urlFor((i) => `k${String(i).padStart(3, '0')}-abcdefg`)).toContain('Mixed_Case_Column_0399_x');
+    const url = urlFor((i) => `k${String(i).padStart(3, '0')}-'''''''`);
+    expect(url).not.toContain('Mixed_Case');
+    expect(new URL(url.replace(/[{}]/g, '0')).searchParams.get('cols')).toBe('kind');
+  });
+
+  it('keeps a list longer than 8 KiB that the proxy still accepts', () => {
+    const url = describeWith({ ...SAVED_LAYERS.polygon, dataset_column_info: wide.slice(0, 400) });
+    expect(url.length).toBeGreaterThan(8 * 1024);
+    expect(url).toContain('Mixed_Case_Column_0399_x');
+    expect(url).toContain('cols_only=true');
   });
 });
 

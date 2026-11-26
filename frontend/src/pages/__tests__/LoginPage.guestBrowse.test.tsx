@@ -56,6 +56,7 @@ vi.mock('@/api/auth', async (importOriginal) => {
 
 import { getAuthConfig, getOAuthProviders } from '@/api/auth';
 import { LandingFirstGuard } from '@/components/auth/LandingFirstGuard';
+import { landDotsPath, restLongitude } from '@/lib/login-globe';
 import { LoginPage } from '../LoginPage';
 
 const LANDING_FIRST_CONFIG = {
@@ -144,14 +145,105 @@ describe('LoginPage accessibility', () => {
         </TooltipProvider>
       </QueryClientProvider>,
     );
-    expect(await screen.findByRole('alert')).toHaveTextContent(/authentication settings/i);
+    expect(await screen.findByRole('alert')).toHaveTextContent(/sign-in settings/i);
   });
 
-  it('draws the decorative globe once instead of animating it forever', () => {
-    const raf = vi.spyOn(window, 'requestAnimationFrame');
+  it('shows the page while the sign-in settings load, with only the form waiting', () => {
+    vi.mocked(getAuthConfig).mockReturnValue(new Promise(() => {}));
+    render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <TooltipProvider>
+          <MemoryRouter initialEntries={['/login']}>
+            <Routes>
+              <Route path="/login" element={<LoginPage />} />
+            </Routes>
+          </MemoryRouter>
+        </TooltipProvider>
+      </QueryClientProvider>,
+    );
+    expect(screen.getByRole('heading', { name: 'Sign In' })).toBeInTheDocument();
+    expect(screen.getAllByRole('button', { name: /browse the catalog/i }).length).toBeGreaterThan(0);
+    expect(screen.getByRole('status')).toHaveTextContent('Loading...');
+    expect(screen.queryByLabelText(/username/i)).not.toBeInTheDocument();
+  });
+});
+
+describe('LoginPage decorative globe', () => {
+  const landPath = (container: HTMLElement) =>
+    container.querySelector('svg[viewBox="0 0 800 800"] path[stroke-linecap="round"]')?.getAttribute('d');
+
+  /** Pins the browser's UTC offset so no test depends on the machine's time zone. */
+  const setUtcOffset = (minutes: number) =>
+    vi.spyOn(Date.prototype, 'getTimezoneOffset').mockReturnValue(minutes);
+
+  function stubMedia({ reducedMotion = false, wide = true } = {}) {
+    vi.stubGlobal('matchMedia', (query: string) => ({
+      matches: query.includes('prefers-reduced-motion') ? reducedMotion : wide,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+    }));
+  }
+
+  beforeEach(() => {
+    vi.clearAllMocks();
     vi.mocked(getAuthConfig).mockResolvedValue(LANDING_FIRST_CONFIG);
+    vi.mocked(getOAuthProviders).mockResolvedValue([]);
+    useAuthStore.setState({ token: null, user: null });
+    setUtcOffset(300);
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
+
+  it('turns into the pose for the browser time zone and stops well inside five seconds', () => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
+    const { container } = renderApp();
+    expect(landPath(container)).not.toBe(landDotsPath(restLongitude(300)));
+
+    vi.advanceTimersByTime(3000);
+    expect(landPath(container)).toBe(landDotsPath(restLongitude(300)));
+    // A frame still queued here would mean the motion never ends (WCAG 2.2.2).
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('faces a different part of the world for a different time zone', () => {
+    setUtcOffset(-330);
+    stubMedia({ reducedMotion: true });
+    const { container } = renderApp();
+    expect(landPath(container)).toBe(landDotsPath(restLongitude(-330)));
+    expect(landPath(container)).not.toBe(landDotsPath(restLongitude(300)));
+  });
+
+  it('cancels the turn when the page unmounts', () => {
+    vi.useFakeTimers({ toFake: ['requestAnimationFrame', 'cancelAnimationFrame', 'performance'] });
+    const { unmount } = renderApp();
+    expect(vi.getTimerCount()).toBeGreaterThan(0);
+    unmount();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it('stays still for people who asked their system for less motion', () => {
+    stubMedia({ reducedMotion: true });
+    const raf = vi.spyOn(window, 'requestAnimationFrame');
+    const { container } = renderApp();
+    expect(landPath(container)).toBe(landDotsPath(restLongitude(300)));
+    expect(raf).not.toHaveBeenCalled();
+  });
+
+  it('does not animate where the brand panel is hidden', () => {
+    stubMedia({ wide: false });
+    const raf = vi.spyOn(window, 'requestAnimationFrame');
     renderApp();
     expect(raf).not.toHaveBeenCalled();
-    raf.mockRestore();
+  });
+
+  it('hides the decoration from assistive technology and prints no coordinate', () => {
+    stubMedia({ reducedMotion: true });
+    const { container } = renderApp();
+    expect(container.querySelector('svg[viewBox="0 0 800 800"]')).toHaveAttribute('aria-hidden', 'true');
+    expect(container.textContent).not.toContain('°');
   });
 });

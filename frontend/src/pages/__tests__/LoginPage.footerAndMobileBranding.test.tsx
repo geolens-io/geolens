@@ -120,7 +120,7 @@ describe('LoginPage footer and mobile branding (#1852)', () => {
     // width via CSS — jsdom does not evaluate media queries, so both are
     // present in the DOM; a regression that drops the mobile block back to
     // zero occurrences would fail this).
-    expect(screen.getAllByText('Your spatial data, all in one workspace.')).toHaveLength(2);
+    expect(screen.getAllByText("One catalog for your organization's spatial data.")).toHaveLength(2);
   });
 
   it('routes the wordmark through the guest-browse escape hatch, not a bare Link to "/"', async () => {

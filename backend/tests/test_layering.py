@@ -661,6 +661,30 @@ def test_no_external_imports_of_dataset_domain_submodules() -> None:
 
 
 @pytest.mark.architecture
+def test_maps_reach_the_dataset_domain_through_its_facade() -> None:
+    """Map code reads the dataset domain through the service facade, its
+    models and its helpers, never another of its modules or a private name."""
+    allowed = {
+        f"app.modules.catalog.datasets.domain.{name}"
+        for name in ("service", "models", "helpers")
+    }
+    offenders = []
+    for path in sorted((BACKEND_ROOT / "app/modules/catalog/maps").rglob("*.py")):
+        for node in ast.walk(ast.parse(path.read_text(encoding="utf-8"))):
+            if not isinstance(node, ast.ImportFrom):
+                continue
+            module = _resolve_relative_import(path, node) or ""
+            if not module.startswith("app.modules.catalog.datasets.domain"):
+                continue
+            offenders += [
+                f"{_repo_style_rel(path)}:{node.lineno} imports {module}.{alias.name}"
+                for alias in node.names
+                if module not in allowed or alias.name.startswith("_")
+            ]
+    assert not offenders, "\n".join(offenders)
+
+
+@pytest.mark.architecture
 def test_no_external_imports_of_maps_private_service_modules() -> None:
     """Map callers use the public service facade; split implementation modules remain private."""
     private_modules = {
@@ -1194,9 +1218,9 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 132,
+        "backend/app/modules/catalog/maps/service.py": 134,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 138,
+        "backend/app/modules/catalog/datasets/domain/service.py": 150,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1210,15 +1234,24 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Page search and its counts share one candidate and semantic-window selection.
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,
-        # restricted maps' group members and embed tokens included.
-        "backend/app/modules/catalog/maps/service_public.py": 1156,
+        # restricted maps' group members and embed tokens included, beside the
+        # share-link lifecycle they gate.
+        "backend/app/modules/catalog/maps/service_public.py": 1171,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 662,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
         "backend/app/modules/catalog/search/service_semantic.py": 521,
         # A layer diff checks a changed filter against the caller's access and its widgets,
-        # and stacks a map_author key's added layers on top.
-        "backend/app/modules/catalog/maps/service_diff.py": 462,
+        # and stacks a map_author key's added layers on top; a full replace
+        # carries a publish manifest's layer keys and the rows it keeps.
+        "backend/app/modules/catalog/maps/service_diff.py": 545,
+        # A layer write takes the map row, then the datasets it adds layers on, before any layer row.
+        "backend/app/modules/catalog/maps/service_layers.py": 379,
+        # Map creates and updates hold the route policy a publish manifest
+        # reuses, with its layer keys, the rows it keeps and the moved layers
+        # whose widgets it keeps, and record which view fields a save moved
+        # beyond the builder's rounding.
+        "backend/app/modules/catalog/maps/service_update.py": 493,
         # Layer rows are shaped for the reader: visible datasets and VRT extents.
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
@@ -1238,7 +1271,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 624,
+        "backend/app/platform/extensions/defaults_processing_port.py": 720,
         "backend/app/platform/extensions/defaults_extensions.py": 436,
         "backend/app/modules/catalog/search/service_filters.py": 376,
     }
@@ -1310,9 +1343,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # Manifest reservation, staging, run admission and fenced settlement share one
     # apply workflow, including the settlement of a contended or refused admission,
     # the records of an admin's raw seed source, restricted public intent and a
-    # publish key, where a version 2 entry's publication is decided and a held or
-    # in-flight job is reused, and the maps section's results beside the datasets'.
-    "backend/app/processing/ingest/manifest_service.py": 1339,
+    # publish key, where a version 2 entry's publication and groups are decided and
+    # a held or in-flight job is reused, the updates a publish key may not make,
+    # the maps section's results beside the datasets', and quota admission that
+    # credits a replacement with the bytes it supersedes.
+    "backend/app/processing/ingest/manifest_service.py": 1389,
+    # One map's check, plan and write: the styling decision, layer matching, the
+    # history event, the share link and the result's visibility, groups and
+    # removed layers share the row lock the apply holds, which is also where its
+    # groups are planned and its moved layers are judged.
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1194,
+    # The publish manifest's request and response models in one place, which
+    # the vendored wire schema, the contract snapshot and both SDKs are held to.
+    "backend/app/processing/ingest/manifest_schemas.py": 1036,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,
@@ -1343,17 +1386,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # The app object, its middleware and exception handlers, route registration
     # and the lifespan stay together to keep their order; the capability 401
     # mapping stays here because this module is already reviewed for embed tokens.
-    "backend/app/api/main.py": 1286,
+    "backend/app/api/main.py": 1296,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1622,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
-    # Ingest API router debt, including the commit door's token scheme check; split
-    # upload, import and registration endpoints before raising further. Each upload
-    # door branches once per 3D upload kind: a 3D Tiles tileset and a COPC point cloud.
-    "backend/app/processing/ingest/router.py": 1690,
+    # Ingest API router debt, including the commit door's token scheme check and the
+    # commit doors' dataset-count check; split upload, import and registration
+    # endpoints before raising further. Each upload door branches once per 3D upload
+    # kind: a 3D Tiles tileset and a COPC point cloud.
+    "backend/app/processing/ingest/router.py": 1698,
     # One reader for untrusted COPC files: header, VLRs, hierarchy lookups,
     # chunk table, the checks before the decode child and the published extent.
     "backend/app/processing/ingest/pointcloud.py": 1085,
@@ -1362,8 +1406,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # honours, plus settling the archive flags of jobs that owe no follow-up.
     "backend/app/processing/ingest/publish_followups.py": 1477,
     # What every ingest strategy shares: the task app, job lifecycle and phase
-    # sessions, finalization, and the reupload table swap and catalog write.
-    "backend/app/processing/ingest/tasks_common.py": 1452,
+    # sessions, finalization, the reupload table swap and catalog write, and
+    # the manifest fields every replacement applies.
+    "backend/app/processing/ingest/tasks_common.py": 1524,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
@@ -1371,7 +1416,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # that lets a refresh or file re-upload of unchanged data publish nothing,
     # the rebuild of geometry from the columns a dataset's was built from, and
     # the task names that keep earlier workers off newer replacements.
-    "backend/app/processing/ingest/tasks_reupload.py": 2025,
+    "backend/app/processing/ingest/tasks_reupload.py": 2015,
     # Refresh strategies share access, admission and dispatch rules at this API
     # boundary, including task-capability selection and accepting a held run
     # by the door it came through, which records the capability it admitted under.
@@ -1380,8 +1425,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # rebuild an applied width needs share one import workflow.
     "backend/app/platform/config_ops/service.py": 1465,
     # One settlement pass, its precheck and its reapers serve startup recovery, the
-    # lifespan sweep, admin cleanup, the job status poll and manifest expiry.
-    "backend/app/platform/jobs/sweep.py": 1818,
+    # lifespan sweep, admin cleanup, the job status poll and manifest expiry. The
+    # pass and a manifest's upload claim share its rule for an unclaimed upload.
+    "backend/app/platform/jobs/sweep.py": 1922,
     # Refresh admission, claim fencing, terminal transitions and the job-scoped
     # abandoned-run sweep stay domain-neutral.
     "backend/app/platform/refresh/service.py": 1201,
@@ -1397,13 +1443,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/embeddings/backfill.py": 909,
     # Reupload preview, compatibility, the file and service review, and staged
     # commit share an endpoint lifecycle and the capability its jobs record.
-    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1759,
+    "backend/app/modules/catalog/datasets/api/router_reupload.py": 1758,
     # VRT creation and regeneration share publication, member and submitter
     # re-authorization and its refusal, owed-object records and superseded-object
     # cleanup; regeneration's claim, build and store phases are functions here.
-    "backend/app/processing/ingest/tasks_vrt.py": 1992,
-    # Raster replacement owns conversion, read-back and published-object cleanup.
-    "backend/app/processing/ingest/tasks_raster_replace.py": 608,
+    "backend/app/processing/ingest/tasks_vrt.py": 1994,
+    # Raster replacement owns conversion, read-back, published-object cleanup
+    # and the task name that keeps earlier workers off a manifest's replacement.
+    "backend/app/processing/ingest/tasks_raster_replace.py": 626,
     # File and remote-source imports own publication fencing, heartbeat phases
     # and failure settlement, and the task name that keeps earlier workers off
     # a manifest version 2 create.
@@ -1419,7 +1466,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/oauth/service.py": 1130,
     # Admin mutations share locking and audit outcomes; the catalog stats measure
     # live and kept-version storage.
-    "backend/app/modules/admin/service.py": 1057,
+    "backend/app/modules/admin/service.py": 1090,
     # Ingest admission, staging, job settlement and table registration share one
     # orchestration boundary. Registration creates geom_4326 as a stored
     # generated column rather than filling it with a full-table UPDATE.
@@ -1437,10 +1484,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/processing/analysis/tasks.py": 1427,
     # Every credential lane resolves here, with each key scope's route rule at
     # the one chokepoint that refuses it.
-    "backend/app/modules/auth/dependencies.py": 1008,
+    "backend/app/modules/auth/dependencies.py": 1012,
     # Map endpoints share response assembly, visibility and ownership checks,
     # and the map_author key's limits on the routes it may write.
-    "backend/app/modules/catalog/maps/router.py": 1349,
+    "backend/app/modules/catalog/maps/router.py": 1326,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
@@ -1483,11 +1530,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # when every function the expression depends on is built in or an
     # extension's.
     "backend/app/modules/catalog/features/service.py": 1898,
-    # Dataset visibility, and the VRT member counts and extents each requester
-    # may see, and which groups can't read a dataset, share the permission
+# Dataset visibility, the VRT member counts and extents each requester may
+  # see, which groups can't read a dataset, and whether one dataset's readers
+  # reach past another's, today or by its sharing rules, share the permission
     # extension's one audience; map reads, and which groups can't read a map,
     # share the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1400,
+    "backend/app/modules/catalog/authorization.py": 1507,
 }
 
 

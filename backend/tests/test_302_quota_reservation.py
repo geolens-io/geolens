@@ -1,8 +1,8 @@
 """Atomic dataset-count reservation tests (fix #302).
 
-The upload-time check_upload_quota is a non-atomic pre-check: the Record
+The door's check_dataset_count_quota is a non-atomic pre-check: the Record
 rows it counts are created later by the ingest worker, so concurrent
-uploads could overshoot max_datasets_per_user. reserve_dataset_slot is the
+creates could overshoot max_datasets_per_user. reserve_dataset_slot is the
 authoritative check at Record-creation time, under a per-user advisory
 lock.
 
@@ -17,6 +17,7 @@ Run: cd backend && set -a && source ../.env.test && set +a &&
 from __future__ import annotations
 
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
@@ -167,6 +168,131 @@ class TestFacadeEnforcement:
 
         assert "Dataset quota exceeded: 1 of 1" in str(exc_info.value)
         await test_db_session.rollback()
+
+
+def _raster(session, owner: uuid.UUID):
+    from app.processing.ingest.tasks_raster_common import create_raster_dataset
+
+    return create_raster_dataset(
+        session,
+        meta={
+            "driver": "GTiff",
+            "epsg": 4326,
+            "band_count": 1,
+            "dtype": "uint8",
+            "width": 64,
+            "height": 64,
+        },
+        source_sha256="a" * 64,
+        asset_sha256="b" * 64,
+        cog_status="verified",
+        cog_size=2048,
+        source_filename="second.tif",
+        created_by=owner,
+        title="Second raster",
+        summary=None,
+        visibility="private",
+    )
+
+
+def _vrt(session, owner: uuid.UUID):
+    from app.processing.ingest.tasks_vrt import create_vrt_dataset
+
+    return create_vrt_dataset(
+        session,
+        meta={
+            "epsg": 4326,
+            "band_count": 1,
+            "dtype": "uint8",
+            "width": 256,
+            "height": 256,
+        },
+        asset_sha256="a" * 64,
+        vrt_size=512,
+        source_filename="second.vrt",
+        created_by=owner,
+        title="Second mosaic",
+        summary=None,
+        visibility="private",
+        vrt_type="mosaic",
+        resolution_strategy="finest",
+        source_dataset_ids=[],
+    )
+
+
+def _tileset(session, owner: uuid.UUID):
+    from app.processing.ingest.tasks_tileset import create_tileset_dataset
+
+    return create_tileset_dataset(
+        session,
+        dataset_id=uuid.uuid4(),
+        # The refusal comes before the tileset is read.
+        tileset=SimpleNamespace(
+            layout=SimpleNamespace(unpacked_bytes=1), facts=None, contents=None
+        ),
+        attempt_prefix="tiles3d/second/a1/",
+        source_filename="second.3tz",
+        created_by=owner,
+        user_metadata={},
+    )
+
+
+def _pointcloud(session, owner: uuid.UUID):
+    from app.processing.ingest.tasks_pointcloud import create_pointcloud_dataset
+
+    return create_pointcloud_dataset(
+        session,
+        dataset_id=uuid.uuid4(),
+        # The refusal comes before the point cloud is read.
+        cloud=SimpleNamespace(size_bytes=1, srid=4326),
+        attempt_id=uuid.uuid4(),
+        source_filename="second.copc.laz",
+        created_by=owner,
+        user_metadata={},
+    )
+
+
+def _pointcloud_before_the_copy(session, owner: uuid.UUID):
+    from app.processing.ingest.tasks_pointcloud import refuse_before_the_copy
+
+    return refuse_before_the_copy(owner, SimpleNamespace(size_bytes=1, srid=4326))
+
+
+class TestTypedCreatorEnforcement:
+    """Each record creator outside the datasets facade reserves its own slot."""
+
+    @pytest.mark.parametrize(
+        "create",
+        [_raster, _vrt, _tileset, _pointcloud, _pointcloud_before_the_copy],
+        ids=["raster", "vrt", "tileset", "pointcloud", "pointcloud-before-the-copy"],
+    )
+    async def test_a_creator_refuses_at_the_cap(
+        self,
+        create,
+        client: AsyncClient,
+        editor_auth_header: dict,
+        test_db_session,
+        clean_tables,
+    ) -> None:
+        from tests.factories import create_dataset
+
+        owner = uuid.UUID(
+            (await client.get("/auth/me/", headers=editor_auth_header)).json()["id"]
+        )
+        await create_dataset(test_db_session, created_by=owner)
+
+        p_count, p_storage = _patch_caps(1)
+        try:
+            with (
+                p_count,
+                p_storage,
+                pytest.raises(DatasetQuotaExceededError) as refused,
+            ):
+                await create(test_db_session, owner)
+        finally:
+            await test_db_session.rollback()
+
+        assert "Dataset quota exceeded: 1 of 1" in str(refused.value)
 
 
 class TestStacImportEnforcement:

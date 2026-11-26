@@ -207,7 +207,7 @@ export function MapDataPanel({
           value={value}
           size="sm"
           title={label}
-          className="h-6 gap-1 px-1.5 pointer-coarse:min-h-11"
+          className="h-6 gap-1 px-1.5"
         >
           <Icon className="h-3.5 w-3.5" aria-hidden="true" />
           <span className="max-[399px]:sr-only">{label}</span>

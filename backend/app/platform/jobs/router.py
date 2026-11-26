@@ -55,6 +55,8 @@ from app.platform.jobs.schemas import (
     ManifestAttributeUnmatchedWarning,
     ManifestPublicFallbackWarning,
     ManifestCollectionRefusedWarning,
+    ManifestGroupsLeftOffWarning,
+    ManifestWideningKeptWarning,
     ZmDroppedWarning,
 )
 from app.platform.refresh.job_runs import latest_runs_for_jobs, stored_review_reasons
@@ -669,6 +671,8 @@ _WARNING_MODELS: dict[str, Any] = {
     "manifest_collection_refused": ManifestCollectionRefusedWarning,
     "manifest_attribute_unmatched": ManifestAttributeUnmatchedWarning,
     "manifest_public_fallback": ManifestPublicFallbackWarning,
+    "manifest_groups_left_off": ManifestGroupsLeftOffWarning,
+    "manifest_widening_kept": ManifestWideningKeptWarning,
 }
 
 
@@ -705,6 +709,8 @@ async def _job_to_status_response(
         | ManifestCollectionRefusedWarning
         | ManifestAttributeUnmatchedWarning
         | ManifestPublicFallbackWarning
+        | ManifestGroupsLeftOffWarning
+        | ManifestWideningKeptWarning
     ] = []
     archive_failed = False
     temporal_parse_errors: dict[TemporalParseKey, str] = {}
@@ -880,10 +886,13 @@ async def retry_job(
     """Retry a failed ingestion job by re-queuing.
 
     Only callable on jobs with status 'failed'. The staging file must
-    still exist (preserved on failure for retry).
+    still exist (preserved on failure for retry). A retry imports a new
+    dataset, so an account at its dataset-count cap gets a 422 and the job
+    stays failed.
     """
     # Deferred by design to preserve the platform -> modules layer boundary.
     from app.modules.audit.service import AuditEvent, audit_emit
+    from app.modules.quota.service import check_dataset_count_quota
 
     result = await db.execute(select(IngestJob).where(IngestJob.id == job_id))
     job = result.scalar_one_or_none()
@@ -943,6 +952,11 @@ async def retry_job(
     conflict = await retry_conflict(db, user, job)
     if conflict is not None:
         raise conflict
+
+    # Every job that gets this far imports a new dataset; a replacement or a
+    # refresh was refused above. An upload that failed before it was ever
+    # committed has met no dataset-count check until this one.
+    await check_dataset_count_quota(db, owner, request)
 
     # Reset the job to pending and commit before re-queueing so the
     # orphan guard in queue_ingest_job can flip it back to failed if

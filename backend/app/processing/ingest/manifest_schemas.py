@@ -7,6 +7,8 @@ from typing import Annotated, Any, Literal
 from urllib.parse import urlparse
 
 from pydantic import (
+    AfterValidator,
+    PrivateAttr,
     BaseModel,
     ConfigDict,
     EmailStr,
@@ -20,6 +22,7 @@ from pydantic import (
 from pydantic_core import PydanticCustomError
 
 from app.core.text import normalize_nfc, reject_html_markup
+from app.platform.map_bookmarks import MAX_MAP_BOOKMARKS, MapBookmark
 from app.platform.value_labels import is_storable_text
 
 NonEmptyString100 = Annotated[str, Field(min_length=1, max_length=100)]
@@ -93,9 +96,6 @@ ManifestCrs = Annotated[str, Field(pattern=r"^EPSG:[0-9]{1,6}$")]
 # pydantic-core anchors at the true end. Without the bound here and in the
 # OpenAPI schema, a trailing-newline checksum could pass one validator and not
 # the other. test_manifest_apply_api.py pins both.
-#
-# On a raster_cog source a changed checksum makes
-# _validate_existing_dataset_update reject the update rather than skip it.
 ManifestChecksum = Annotated[
     str,
     Field(
@@ -108,16 +108,13 @@ ManifestChecksum = Annotated[
             "`upload:` source, where apply checks it against the uploaded "
             "file and refuses the entry when they differ. On any other source "
             "apply uses it only as a change-detection input alongside the rest "
-            "of the entry; it is not verified against the fetched bytes. For a "
-            "vector source, "
-            "bump it when the file under a stable URI changes, to force "
-            "apply to reclassify the entry as an update instead of "
-            "skipping it. Manifest raster updates are not supported: once a "
-            "raster_cog entry has published, a changed checksum, a new "
-            "upload's included, makes apply report that entry as an error "
-            "('Manifest raster updates are not supported; create a new "
-            "raster dataset instead.'), not a skip. An unchanged raster "
-            "entry, checksum included, still skips normally."
+            "of the entry; it is not verified against the fetched bytes. Bump "
+            "it when the file under a stable URI changes, to force apply to "
+            "reclassify the entry as an update instead of skipping it. An "
+            "update of a raster_cog entry replaces the raster's data on the "
+            "same dataset. A publish key can't replace a raster, because a "
+            "replaced raster can't be restored: apply reports that entry as "
+            "an error (A054 in version 2) and queues nothing."
         ),
     ),
 ]
@@ -319,6 +316,35 @@ class ManifestAttribute(_ManifestBaseModel):
         return value
 
 
+MAX_MANIFEST_GROUPS = 100
+
+
+def _distinct_groups(groups: list[uuid.UUID] | None) -> list[uuid.UUID] | None:
+    # In one order, so the same groups give an entry the same fingerprint.
+    return None if groups is None else sorted(set(groups), key=str)
+
+
+ManifestGroups = Annotated[
+    list[uuid.UUID] | None,
+    Field(max_length=MAX_MANIFEST_GROUPS),
+    AfterValidator(_distinct_groups),
+]
+_GROUPS_DESCRIPTION = (
+    "Version 2 only. Share with exactly these groups, by id from "
+    "`capabilities.me.groups`; omitted keeps the current groups, and an "
+    "empty list removes them all. A dataset's new data is never published "
+    "while a group outside the list still has it shared: if such a group "
+    "can't be removed, the entry or its job fails and the dataset keeps its "
+    "data and groups. A private item with groups is restricted: "
+    "its owner, admins and the groups' members read it. A group that "
+    "doesn't exist, or that the caller isn't a member of (an admin may use "
+    "any), is left off with warning A058 and the publish goes ahead. A "
+    "publish key can't add groups to an existing private or restricted item, "
+    "which is warning A056 and keeps the item's groups; an item that "
+    "would then keep a group the list leaves out is refused with error A056."
+)
+
+
 class ManifestDataset(_ManifestBaseModel):
     key: ManifestDatasetKey
     title: NonEmptyString500
@@ -354,6 +380,7 @@ class ManifestDataset(_ManifestBaseModel):
             "text; a name matching no column is warning A092."
         ),
     )
+    groups: ManifestGroups = Field(default=None, description=_GROUPS_DESCRIPTION)
 
 
 class ManifestClient(_ManifestBaseModel):
@@ -436,7 +463,8 @@ class ManifestMapLayer(_ManifestBaseModel):
         default=None,
         description=(
             "The builder's style description. Unknown top-level keys are "
-            "dropped with info A062."
+            "dropped with info A062. A symbol's icon and its categories' "
+            "icons are icon names; any other value is refused with A099."
         ),
     )
     paint: dict[str, Any] | None = None
@@ -470,7 +498,30 @@ class ManifestMap(_ManifestBaseModel):
     )
     styling: Literal["replace_if_unedited", "replace", "keep"] = Field(
         default="replace_if_unedited",
-        description="Whether a republish replaces the map's styling.",
+        description=(
+            "Whether a republish replaces the map's styling: its view, "
+            "basemap, bookmarks and its keyed layers' paint, layout, style, labels, "
+            "popup, filter, opacity, visible flag and name. `replace` always "
+            "does. `keep` never does, and keeps keyed layers the manifest no "
+            "longer lists. `replace_if_unedited` does unless styling it would "
+            "write was edited in GeoLens since the last publish that replaced "
+            "it, and answers info A070 when it keeps it. A view or basemap "
+            "edit counts only when the manifest sends a `view` or "
+            "`basemap_style` that would overwrite it, and a bookmarks edit "
+            "only when it sends `bookmarks`. A kept layer the manifest points "
+            "at another dataset moves to it and keeps its styling when that "
+            "fits there: by the datasets' sharing rules, everyone who can "
+            "read the new dataset can read the old one, the same geometry "
+            "type (for a raster, the same DEM "
+            "kind and one band under a colormap), and every column its "
+            "styling and dashboard widgets read, in the type family it had "
+            "and of the type each use needs. A move clears the map's "
+            "thumbnail and social card image. "
+            "Otherwise it takes the manifest's styling, with warning "
+            "A073 naming what didn't fit. "
+            "Name, description, notes, visibility and new layers are applied "
+            "in every mode, and a new map takes the manifest's styling."
+        ),
     )
     thumbnail: (
         Annotated[
@@ -482,8 +533,31 @@ class ManifestMap(_ManifestBaseModel):
             ),
         ]
         | None
-    ) = Field(default=None, description="A PNG or JPEG data URI.")
-    loss_report: ManifestLossReport | None = None
+    ) = Field(
+        default=None,
+        description=(
+            "A PNG or JPEG data URI, stored as the map's thumbnail once the "
+            "map is written, with the thumbnail upload's checks, when the "
+            "manifest's styling is applied. A publish that keeps the styling "
+            "leaves the map's thumbnail as it is unless it moves a layer to "
+            "another dataset, which clears it. One the storage step "
+            "refuses or can't store is warning A072, and the map stays "
+            "published."
+        ),
+    )
+    loss_report: ManifestLossReport | None = Field(
+        default=None,
+        description=(
+            "Written, one line per item, in a block at the top of the map's "
+            "notes, above a `---` line. A republish replaces the leading "
+            "block only when it is exactly a block some publish of this map "
+            "wrote; all other text is kept whole. Left out when the styling "
+            "is kept, and cut to what fits the notes limit. When the notes "
+            "leave no room for the block, none is written, and an earlier "
+            "publish's block is removed if the notes start with one; the "
+            "rest of the notes is untouched (info A071)."
+        ),
+    )
     visibility: Literal["private", "internal", "public"] | None = Field(
         default=None,
         description=(
@@ -494,6 +568,17 @@ class ManifestMap(_ManifestBaseModel):
     layers: list[ManifestMapLayer] = Field(
         min_length=1, max_length=MAX_MANIFEST_MAP_LAYERS
     )
+    bookmarks: list[MapBookmark] | None = Field(
+        default=None,
+        max_length=MAX_MAP_BOOKMARKS,
+        description=(
+            f"Named areas, in display order (max {MAX_MAP_BOOKMARKS}). Part of "
+            "the map's styling: a republish that applies styling replaces the "
+            "map's bookmarks with these, and an empty list removes them. Left "
+            "out, the map's bookmarks are kept."
+        ),
+    )
+    groups: ManifestGroups = Field(default=None, description=_GROUPS_DESCRIPTION)
 
     _storable = field_validator("name", "description")(_storable_text)
 
@@ -557,9 +642,14 @@ class ManifestApplyRequest(_ManifestBaseModel):
         default=None,
         max_length=100,
         description=(
-            "Version 2 only. Maps built from datasets the caller can read. "
-            "For now maps are only checked: a request with maps must set "
-            "`dry_run` to true, or it is refused before anything is applied."
+            "Version 2 only, which is a preview. Maps built from datasets "
+            "the caller can read, created or updated by key after the "
+            "request's datasets. A dry run answers for the whole publish, so "
+            "a layer may name a dataset the same request publishes. An apply "
+            "writes a layer only once its dataset's job is complete: a layer, "
+            "by dataset key or id, on a dataset the request creates, replaces "
+            "or holds, or on one with a job still running, answers A052, and "
+            "the map is sent again once the jobs finish."
         ),
     )
 
@@ -656,11 +746,6 @@ class ManifestApplyRequest(_ManifestBaseModel):
                 raise ValueError(
                     "manifest_version '2' requires at least one dataset or map"
                 )
-            if self.maps and not self.dry_run:
-                raise ValueError(
-                    "maps can only be checked for now: send them with dry_run "
-                    "true, and send the datasets in a request of their own"
-                )
             return self
         # Supplied at all, null included: version 1 had no such field.
         if "client" in self.model_fields_set:
@@ -668,11 +753,12 @@ class ManifestApplyRequest(_ManifestBaseModel):
         if "maps" in self.model_fields_set:
             raise ValueError("maps require manifest_version '2'")
         if "public_fallback" in self.model_fields_set or any(
-            {"visibility", "collection", "attributes"} & dataset.model_fields_set
+            {"visibility", "collection", "attributes", "groups"}
+            & dataset.model_fields_set
             for dataset in self.datasets
         ):
             raise ValueError(
-                "visibility, collection, attributes and public_fallback "
+                "visibility, collection, attributes, groups and public_fallback "
                 "require manifest_version '2'"
             )
         if any(
@@ -702,6 +788,26 @@ class ManifestMessage(BaseModel):
         return data
 
 
+class ManifestDatasetLinks(BaseModel):
+    """Absolute links to a dataset, each one a route the server serves."""
+
+    page: str = Field(description="The dataset's page in the web app.")
+    items: str | None = Field(
+        default=None,
+        description="The OGC API Features items. Null for a dataset with no items.",
+    )
+    tiles: str | None = Field(
+        default=None,
+        description=(
+            "The vector tile URL template, with {z}, {x} and {y}. Null for a "
+            "dataset with no vector tiles, and while a job is still writing "
+            "the dataset (queued, running or held): read the template again "
+            "once it completes. A private dataset's tiles need the caller's "
+            "API key header."
+        ),
+    )
+
+
 class ManifestApplyEntryResult(BaseModel):
     dataset_key: str
     action: Literal["create", "update", "skip", "blocked", "error"] = Field(
@@ -729,14 +835,136 @@ class ManifestApplyEntryResult(BaseModel):
         default=None,
         description="Coded messages for the entry. Left out in manifest version 1.",
     )
+    visibility: str | None = Field(
+        default=None,
+        description=(
+            "Who can see the dataset once the entry's job finishes: the level "
+            "the entry writes, or the stored one when it writes none. Null "
+            "when the entry failed or the dataset can't be read. Left out in "
+            "manifest version 1."
+        ),
+    )
+    links: ManifestDatasetLinks | None = Field(
+        default=None,
+        description=(
+            "Links to the dataset. Null when there is no dataset yet or the "
+            "caller can't read it. Left out in manifest version 1."
+        ),
+    )
+    groups: list[str] | None = Field(
+        default=None,
+        description=(
+            "Names of the groups the dataset is shared with once the entry's "
+            "job finishes. Empty for a private dataset, whose earlier grants "
+            "admit nobody until it is shared again. Null when the entry "
+            "failed or the caller can't see the dataset's groups. Left out "
+            "in manifest version 1."
+        ),
+    )
+
+    # Set when the entry matched a job still queued or running, or a held
+    # replacement, whose publication this entry answers for. Not part of the
+    # response.
+    _pending: bool = PrivateAttr(default=False)
+    _pending_visibility: str | None = PrivateAttr(default=None)
+    # What a version 2 entry decided, once it has: the visibility its job
+    # writes (None keeps the dataset's), the group names it shares with (None
+    # keeps the dataset's groups), and whether a role grant keeps the dataset
+    # restricted without groups. Not part of the response.
+    _decided: bool = PrivateAttr(default=False)
+    _decided_visibility: str | None = PrivateAttr(default=None)
+    _planned_groups: list[str] | None = PrivateAttr(default=None)
+    _role_granted: bool = PrivateAttr(default=False)
+
+    def mark_pending(self, visibility: str | None) -> None:
+        """Record the visibility the matched job publishes."""
+        self._pending = True
+        self._pending_visibility = visibility
+
+    @property
+    def pending(self) -> bool:
+        return self._pending
+
+    @property
+    def pending_visibility(self) -> str | None:
+        return self._pending_visibility
+
+    def decide(
+        self, visibility: str | None, groups: list[str] | None, role_granted: bool
+    ) -> None:
+        """Record what the entry decided its job publishes."""
+        self._decided = True
+        self._decided_visibility = visibility
+        self._planned_groups = groups
+        self._role_granted = role_granted
+
+    @property
+    def decided(self) -> bool:
+        return self._decided
+
+    @property
+    def decided_visibility(self) -> str | None:
+        return self._decided_visibility
+
+    @property
+    def planned_groups(self) -> list[str] | None:
+        return self._planned_groups
+
+    @property
+    def role_granted(self) -> bool:
+        return self._role_granted
 
     @model_serializer(mode="wrap")
-    def _leave_out_absent_messages(self, handler: SerializerFunctionWrapHandler):
-        # A version 1 response stays as it was.
+    def _leave_out_absent_version_2_fields(
+        self, handler: SerializerFunctionWrapHandler
+    ):
+        # A version 1 response stays as it was. A version 2 entry sets all of
+        # them, null included, so a client can tell "none" from "not sent".
         data = handler(self)
         if self.messages is None:
             data.pop("messages", None)
+        for name in ("visibility", "links", "groups"):
+            if name not in self.model_fields_set:
+                data.pop(name, None)
         return data
+
+
+class ManifestRemovedLayer(BaseModel):
+    key: str = Field(description="The removed layer's key.")
+    dataset_id: uuid.UUID = Field(description="Its dataset, which stays on the server.")
+    layer_id: uuid.UUID | None = Field(
+        default=None,
+        description="The removed layer's id, which no longer names a layer.",
+    )
+    link: str | None = Field(
+        default=None,
+        description="The dataset's page in the web app, to delete it there.",
+    )
+
+
+class ManifestMapLinks(BaseModel):
+    """Absolute links to a map."""
+
+    viewer: str = Field(description="The map in the web app.")
+    share: str | None = Field(
+        default=None,
+        description=(
+            "The public map's share link, sent once, by the publish that "
+            "created it. Share links are stored hashed and can't be read back, "
+            "so keep it: later publishes send null, as does a publish of a map "
+            "that isn't public, a dry run and a map in error. When no web app "
+            "address is configured (PUBLIC_APP_URL, or a hosted tenant's own "
+            "origin), no link is created, this is null, and the map answers "
+            "info A074."
+        ),
+    )
+    embed: str | None = Field(
+        default=None,
+        description=(
+            "An iframe snippet that embeds the share link, sent with `share` "
+            "and null whenever it is."
+        ),
+    )
 
 
 class ManifestMapResult(BaseModel):
@@ -744,13 +972,50 @@ class ManifestMapResult(BaseModel):
     action: Literal["create", "update", "skip", "error"] = Field(
         description=(
             "What apply did, or in a dry run would do, with the map. A map "
-            "with an error message is `error`."
+            "with an error message is `error`, and nothing was written for it."
         )
     )
     map_id: uuid.UUID | None = Field(
-        default=None, description="The map the key names, when the caller may edit it."
+        default=None,
+        description=(
+            "The map the key names, when the caller may edit it, or the map "
+            "an apply created."
+        ),
     )
     messages: list[ManifestMessage] = Field(default_factory=list)
+    visibility: str | None = Field(
+        default=None,
+        description=(
+            "Who can see the map after the apply, or in a dry run would. Null "
+            "for a map in error."
+        ),
+    )
+    styling: Literal["applied", "kept"] | None = Field(
+        default=None,
+        description=(
+            "`applied` when the manifest's styling replaced the map's, `kept` "
+            "when the map kept its own. Null for a map in error."
+        ),
+    )
+    groups: list[str] = Field(
+        default_factory=list,
+        description="Names of the groups the map is shared with.",
+    )
+    links: ManifestMapLinks | None = Field(
+        default=None,
+        description="Links to the map. Null while the map doesn't exist yet.",
+    )
+    removed_layers: list[ManifestRemovedLayer] = Field(
+        default_factory=list,
+        description=(
+            "Keyed layers the manifest no longer lists and the caller can read, "
+            "removed from the map (info A059). Their datasets stay. One on a "
+            "dataset the caller can't read stays on the map."
+        ),
+    )
+    # The links of a share link this apply minted, built as soon as the apply
+    # returned, since the raw token can't be read back.
+    _minted_links: ManifestMapLinks | None = PrivateAttr(default=None)
 
 
 class ManifestApplyResponse(BaseModel):

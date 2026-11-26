@@ -40,9 +40,11 @@ class ManifestApplyRequest:
         client (ManifestClient | None | Unset): The publishing client. Required in version 2, refused in 1.
         public_fallback (Literal['internal'] | None | Unset): Version 2 only. When public visibility is refused for an
             entry, write it as internal with warning A020 instead of failing it.
-        maps (list[ManifestMap] | None | Unset): Version 2 only. Maps built from datasets the caller can read. For now
-            maps are only checked: a request with maps must set `dry_run` to true, or it is refused before anything is
-            applied.
+        maps (list[ManifestMap] | None | Unset): Version 2 only, which is a preview. Maps built from datasets the caller
+            can read, created or updated by key after the request's datasets. A dry run answers for the whole publish, so a
+            layer may name a dataset the same request publishes. An apply writes a layer only once its dataset's job is
+            complete: a layer, by dataset key or id, on a dataset the request creates, replaces or holds, or on one with a
+            job still running, answers A052, and the map is sent again once the jobs finish.
     """
 
     manifest_version: ManifestApplyRequestManifestVersion

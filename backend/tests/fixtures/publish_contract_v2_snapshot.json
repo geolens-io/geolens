@@ -1,0 +1,597 @@
+{
+  "contract_version": 2,
+  "job_message_kinds": [
+    "manifest_attribute_unmatched",
+    "manifest_collection_refused",
+    "manifest_groups_left_off",
+    "manifest_public_fallback",
+    "manifest_widening_kept"
+  ],
+  "loss_item_kind": {
+    "required": true,
+    "type": "string"
+  },
+  "message_codes": [
+    "A003",
+    "A020",
+    "A032",
+    "A033",
+    "A050",
+    "A052",
+    "A053",
+    "A054",
+    "A056",
+    "A057",
+    "A058",
+    "A059",
+    "A062",
+    "A063",
+    "A070",
+    "A071",
+    "A072",
+    "A073",
+    "A074",
+    "A092",
+    "A099"
+  ],
+  "models": {
+    "ManifestApplyEntryResult": {
+      "action": {
+        "required": true,
+        "type": "enum:create,update,skip,blocked,error"
+      },
+      "dataset_id": {
+        "required": false,
+        "type": "null|string:uuid"
+      },
+      "dataset_key": {
+        "required": true,
+        "type": "string"
+      },
+      "errors": {
+        "required": false,
+        "type": "array<string>"
+      },
+      "groups": {
+        "required": false,
+        "type": "array<string>|null"
+      },
+      "job_id": {
+        "required": false,
+        "type": "null|string:uuid"
+      },
+      "links": {
+        "required": false,
+        "type": "ManifestDatasetLinks|null"
+      },
+      "message": {
+        "required": true,
+        "type": "string"
+      },
+      "messages": {
+        "required": false,
+        "type": "array<ManifestMessage>|null"
+      },
+      "review_reasons": {
+        "required": false,
+        "type": "array<string>"
+      },
+      "run_id": {
+        "required": false,
+        "type": "null|string:uuid"
+      },
+      "visibility": {
+        "required": false,
+        "type": "null|string"
+      }
+    },
+    "ManifestApplyRequest": {
+      "catalog": {
+        "required": true,
+        "type": "ManifestCatalog"
+      },
+      "client": {
+        "required": false,
+        "type": "ManifestClient|null"
+      },
+      "datasets": {
+        "required": false,
+        "type": "array<ManifestDataset>"
+      },
+      "dry_run": {
+        "required": false,
+        "type": "boolean"
+      },
+      "manifest_version": {
+        "required": true,
+        "type": "enum:1,2"
+      },
+      "maps": {
+        "required": false,
+        "type": "array<ManifestMap>|null"
+      },
+      "public_fallback": {
+        "required": false,
+        "type": "const:internal|null"
+      }
+    },
+    "ManifestApplyResponse": {
+      "accepted": {
+        "required": true,
+        "type": "boolean"
+      },
+      "dry_run": {
+        "required": true,
+        "type": "boolean"
+      },
+      "maps": {
+        "required": false,
+        "type": "array<ManifestMapResult>|null"
+      },
+      "results": {
+        "required": true,
+        "type": "array<ManifestApplyEntryResult>"
+      }
+    },
+    "ManifestAttribute": {
+      "description": {
+        "required": false,
+        "type": "null|string"
+      },
+      "source_name": {
+        "required": true,
+        "type": "string"
+      },
+      "title": {
+        "required": false,
+        "type": "null|string"
+      },
+      "units": {
+        "required": false,
+        "type": "null|string"
+      }
+    },
+    "ManifestCatalog": {
+      "contact": {
+        "required": false,
+        "type": "ManifestContact|null"
+      },
+      "description": {
+        "required": false,
+        "type": "null|string"
+      },
+      "organization": {
+        "required": false,
+        "type": "null|string"
+      },
+      "title": {
+        "required": true,
+        "type": "string"
+      }
+    },
+    "ManifestClient": {
+      "app": {
+        "required": false,
+        "type": "null|string"
+      },
+      "id": {
+        "required": true,
+        "type": "string"
+      },
+      "project": {
+        "required": false,
+        "type": "null|string"
+      },
+      "version": {
+        "required": true,
+        "type": "string"
+      }
+    },
+    "ManifestCollectionRef": {
+      "id": {
+        "required": false,
+        "type": "null|string:uuid"
+      },
+      "name": {
+        "required": false,
+        "type": "null|string"
+      }
+    },
+    "ManifestContact": {
+      "email": {
+        "required": false,
+        "type": "null|string:email"
+      },
+      "name": {
+        "required": false,
+        "type": "null|string"
+      },
+      "url": {
+        "required": false,
+        "type": "null|string"
+      }
+    },
+    "ManifestDataset": {
+      "attributes": {
+        "required": false,
+        "type": "array<ManifestAttribute>|null"
+      },
+      "collection": {
+        "required": false,
+        "type": "ManifestCollectionRef|null"
+      },
+      "description": {
+        "required": false,
+        "type": "null|string"
+      },
+      "groups": {
+        "required": false,
+        "type": "array<string:uuid>|null"
+      },
+      "key": {
+        "required": true,
+        "type": "string"
+      },
+      "metadata": {
+        "required": false,
+        "type": "ManifestMetadata|null"
+      },
+      "publication": {
+        "required": true,
+        "type": "ManifestPublication"
+      },
+      "sources": {
+        "required": true,
+        "type": "array<ManifestSource>"
+      },
+      "title": {
+        "required": true,
+        "type": "string"
+      },
+      "visibility": {
+        "required": false,
+        "type": "enum:private,internal,public|null"
+      }
+    },
+    "ManifestDatasetLinks": {
+      "items": {
+        "required": false,
+        "type": "null|string"
+      },
+      "page": {
+        "required": true,
+        "type": "string"
+      },
+      "tiles": {
+        "required": false,
+        "type": "null|string"
+      }
+    },
+    "ManifestLossItem": {
+      "detail": {
+        "required": false,
+        "type": "null|string"
+      },
+      "kind": {
+        "required": true,
+        "type": "string"
+      },
+      "path": {
+        "required": true,
+        "type": "string"
+      }
+    },
+    "ManifestLossReport": {
+      "items": {
+        "required": false,
+        "type": "array<ManifestLossItem>"
+      },
+      "summary": {
+        "required": false,
+        "type": "map<integer>"
+      }
+    },
+    "ManifestMap": {
+      "basemap_style": {
+        "required": false,
+        "type": "null|string"
+      },
+      "bookmarks": {
+        "required": false,
+        "type": "array<MapBookmark>|null"
+      },
+      "description": {
+        "required": false,
+        "type": "null|string"
+      },
+      "groups": {
+        "required": false,
+        "type": "array<string:uuid>|null"
+      },
+      "key": {
+        "required": true,
+        "type": "string"
+      },
+      "layers": {
+        "required": true,
+        "type": "array<ManifestMapLayer>"
+      },
+      "loss_report": {
+        "required": false,
+        "type": "ManifestLossReport|null"
+      },
+      "name": {
+        "required": true,
+        "type": "string"
+      },
+      "styling": {
+        "required": false,
+        "type": "enum:replace_if_unedited,replace,keep"
+      },
+      "thumbnail": {
+        "required": false,
+        "type": "null|string"
+      },
+      "view": {
+        "required": false,
+        "type": "ManifestMapView|null"
+      },
+      "visibility": {
+        "required": false,
+        "type": "enum:private,internal,public|null"
+      }
+    },
+    "ManifestMapLayer": {
+      "dataset_id": {
+        "required": false,
+        "type": "null|string:uuid"
+      },
+      "dataset_key": {
+        "required": false,
+        "type": "null|string"
+      },
+      "display_name": {
+        "required": false,
+        "type": "null|string"
+      },
+      "filter": {
+        "required": false,
+        "type": "array<any>|null"
+      },
+      "key": {
+        "required": true,
+        "type": "string"
+      },
+      "label_config": {
+        "required": false,
+        "type": "map<True>|null"
+      },
+      "layout": {
+        "required": false,
+        "type": "map<True>|null"
+      },
+      "max_zoom": {
+        "required": false,
+        "type": "null|number"
+      },
+      "min_zoom": {
+        "required": false,
+        "type": "null|number"
+      },
+      "opacity": {
+        "required": false,
+        "type": "number"
+      },
+      "paint": {
+        "required": false,
+        "type": "map<True>|null"
+      },
+      "popup_config": {
+        "required": false,
+        "type": "map<True>|null"
+      },
+      "show_in_legend": {
+        "required": false,
+        "type": "boolean"
+      },
+      "style_config": {
+        "required": false,
+        "type": "map<True>|null"
+      },
+      "visible": {
+        "required": false,
+        "type": "boolean"
+      }
+    },
+    "ManifestMapLinks": {
+      "embed": {
+        "required": false,
+        "type": "null|string"
+      },
+      "share": {
+        "required": false,
+        "type": "null|string"
+      },
+      "viewer": {
+        "required": true,
+        "type": "string"
+      }
+    },
+    "ManifestMapResult": {
+      "action": {
+        "required": true,
+        "type": "enum:create,update,skip,error"
+      },
+      "groups": {
+        "required": false,
+        "type": "array<string>"
+      },
+      "links": {
+        "required": false,
+        "type": "ManifestMapLinks|null"
+      },
+      "map_id": {
+        "required": false,
+        "type": "null|string:uuid"
+      },
+      "map_key": {
+        "required": true,
+        "type": "string"
+      },
+      "messages": {
+        "required": false,
+        "type": "array<ManifestMessage>"
+      },
+      "removed_layers": {
+        "required": false,
+        "type": "array<ManifestRemovedLayer>"
+      },
+      "styling": {
+        "required": false,
+        "type": "enum:applied,kept|null"
+      },
+      "visibility": {
+        "required": false,
+        "type": "null|string"
+      }
+    },
+    "ManifestMapView": {
+      "bearing": {
+        "required": false,
+        "type": "number"
+      },
+      "center": {
+        "required": true,
+        "type": "tuple<number,number>"
+      },
+      "pitch": {
+        "required": false,
+        "type": "number"
+      },
+      "zoom": {
+        "required": true,
+        "type": "number"
+      }
+    },
+    "ManifestMessage": {
+      "code": {
+        "required": true,
+        "type": "string"
+      },
+      "fix": {
+        "required": false,
+        "type": "null|string"
+      },
+      "layer": {
+        "required": false,
+        "type": "null|string"
+      },
+      "message": {
+        "required": true,
+        "type": "string"
+      },
+      "severity": {
+        "required": true,
+        "type": "enum:error,warning,info"
+      }
+    },
+    "ManifestMetadata": {
+      "attribution": {
+        "required": false,
+        "type": "null|string"
+      },
+      "bbox": {
+        "required": false,
+        "type": "array<number>|null"
+      },
+      "crs": {
+        "required": false,
+        "type": "null|string"
+      },
+      "license": {
+        "required": false,
+        "type": "null|string"
+      },
+      "organization": {
+        "required": false,
+        "type": "null|string"
+      },
+      "tags": {
+        "required": false,
+        "type": "array<string>|null"
+      }
+    },
+    "ManifestPublication": {
+      "intent": {
+        "required": true,
+        "type": "string"
+      }
+    },
+    "ManifestRemovedLayer": {
+      "dataset_id": {
+        "required": true,
+        "type": "string:uuid"
+      },
+      "key": {
+        "required": true,
+        "type": "string"
+      },
+      "layer_id": {
+        "required": false,
+        "type": "null|string:uuid"
+      },
+      "link": {
+        "required": false,
+        "type": "null|string"
+      }
+    },
+    "ManifestSource": {
+      "checksum": {
+        "required": false,
+        "type": "null|string"
+      },
+      "description": {
+        "required": false,
+        "type": "null|string"
+      },
+      "format": {
+        "required": false,
+        "type": "null|string"
+      },
+      "layer": {
+        "required": false,
+        "type": "null|string"
+      },
+      "title": {
+        "required": false,
+        "type": "null|string"
+      },
+      "type": {
+        "required": true,
+        "type": "enum:vector,raster_cog"
+      },
+      "uri": {
+        "required": true,
+        "type": "string"
+      }
+    },
+    "MapBookmark": {
+      "bearing": {
+        "required": false,
+        "type": "null|number"
+      },
+      "extent": {
+        "required": true,
+        "type": "array<number>"
+      },
+      "name": {
+        "required": true,
+        "type": "string"
+      },
+      "pitch": {
+        "required": false,
+        "type": "null|number"
+      }
+    }
+  }
+}

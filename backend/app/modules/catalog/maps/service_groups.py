@@ -22,13 +22,14 @@ from app.core.identity import Identity
 from app.modules.audit.service import AuditEvent, audit_emit
 from app.modules.auth.schemas import GroupRef
 from app.modules.catalog.authorization import (
-    ANONYMOUS_MAP_VISIBILITIES,
     RESTRICTED_MAP_VISIBILITY,
     answers_audience_questions,
 )
 from app.modules.catalog.group_sharing import (
     group_refs,
+    CURRENT_LEVEL,
     lock_share_groups,
+    refuse_publish_key_widening_share,
     refuse_unjoined_groups,
     unshare_sole_group_items,
     write_group_grants,
@@ -42,16 +43,17 @@ from app.modules.catalog.maps.service_group_gaps import (
     share_layer_datasets,
 )
 from app.modules.catalog.maps.service_history import record_map_history_event
-from app.modules.catalog.maps.service_layers import lock_map_layers, touch_map
-from app.modules.catalog.maps.service_public import revoke_share_token_by_map
+from app.modules.catalog.maps.service_layers import (
+    DATASET_BUSY,
+    lock_map_layers,
+    touch_map,
+)
+from app.modules.catalog.maps.service_links import retire_map_links
 from app.modules.catalog.write_recheck import refuse_stale_write
-from app.modules.embed_tokens.service import revoke_embed_tokens_by_map
 from app.platform.catalog_locks import bounded_row_lock
 from app.platform.extensions import get_permission_extension
 
 RESTRICTED_NEEDS_GROUPS = "Share the map with a group before making it restricted."
-
-_DATASET_BUSY = "A dataset on this map is being changed. Retry shortly."
 
 # Each visibility reaches every reader of the ones ranked below it.
 _MAP_REACH = {"private": 0, RESTRICTED_MAP_VISIBILITY: 1, "internal": 2, "public": 3}
@@ -126,53 +128,52 @@ async def lock_layer_datasets(
         .where(wanted)
         .order_by(Dataset.id)
         .with_for_update(read=True, key_share=True),
-        message=_DATASET_BUSY,
+        message=DATASET_BUSY,
     )
 
 
-async def _retire_links(
-    session: AsyncSession, map_id: uuid.UUID, current: str, new: str
-) -> None:
-    """Revoke the map's share and embed tokens when moving from ``current`` to
-    ``new`` leaves public or enters restricted."""
-    leaves_public = (
-        current in ANONYMOUS_MAP_VISIBILITIES and new not in ANONYMOUS_MAP_VISIBILITIES
+async def map_has_groups(session: AsyncSession, map_id: uuid.UUID) -> bool:
+    return bool(
+        await session.scalar(select(exists().where(MapGroupGrant.map_id == map_id)))
     )
-    enters_restricted = (
-        new == RESTRICTED_MAP_VISIBILITY and current != RESTRICTED_MAP_VISIBILITY
-    )
-    if leaves_public or enters_restricted:
-        await revoke_share_token_by_map(session, map_id)
-        await revoke_embed_tokens_by_map(session, map_id)
+
+
+def map_visibility_for(requested: str, has_groups: bool) -> str:
+    """The visibility a write of ``requested`` stores on a map with or without
+    groups: restricted wherever it would be private on a map with groups.
+
+    Raises ``RestrictedWithoutGroupsError`` for ``restricted`` with no group.
+    """
+    if requested in ("private", RESTRICTED_MAP_VISIBILITY) and has_groups:
+        return RESTRICTED_MAP_VISIBILITY
+    if requested == RESTRICTED_MAP_VISIBILITY:
+        raise RestrictedWithoutGroupsError(RESTRICTED_NEEDS_GROUPS)
+    return requested
 
 
 async def prepare_map_visibility(
     session: AsyncSession, map_id: uuid.UUID, requested: str
-) -> str:
-    """Return the visibility a write of ``requested`` gives the map: a map
-    with groups is restricted wherever it would be private. Locks the map,
-    revokes its links when the write narrows it, and takes its layers'
-    datasets with ``lock_layer_datasets`` when the write opens it to more
-    readers.
+) -> tuple[str, str]:
+    """Return the map's stored visibility and the one a write of
+    ``requested`` gives it: a map with groups is restricted wherever it would
+    be private. Locks the map, and takes its layers' datasets with
+    ``lock_layer_datasets`` when the write opens it to more readers. The
+    caller retires the map's links (``retire_map_links``) once nothing can
+    refuse the write.
 
     Raises ``RestrictedWithoutGroupsError`` for ``restricted`` on a map with
     no group.
     """
     await lock_map_layers(session, map_id)
-    current = await session.scalar(select(Map.visibility).where(Map.id == map_id))
+    current = str(await session.scalar(select(Map.visibility).where(Map.id == map_id)))
     visibility = requested
     if requested in ("private", RESTRICTED_MAP_VISIBILITY):
-        has_groups = await session.scalar(
-            select(exists().where(MapGroupGrant.map_id == map_id))
+        visibility = map_visibility_for(
+            requested, await map_has_groups(session, map_id)
         )
-        if has_groups:
-            visibility = RESTRICTED_MAP_VISIBILITY
-        elif requested == RESTRICTED_MAP_VISIBILITY:
-            raise RestrictedWithoutGroupsError(RESTRICTED_NEEDS_GROUPS)
-    if _MAP_REACH[visibility] > _MAP_REACH.get(str(current), 0):
+    if _MAP_REACH[visibility] > _MAP_REACH.get(current, 0):
         await lock_layer_datasets(session, map_id)
-    await _retire_links(session, map_id, str(current), visibility)
-    return visibility
+    return current, visibility
 
 
 async def record_map_groups_change(
@@ -239,6 +240,7 @@ async def set_map_groups(
     confirm: Literal["share_datasets", "map_only"] | None = None,
     keep_current: bool = False,
     expected_updated_at: datetime | None = None,
+    audience_before: str | None = CURRENT_LEVEL,
 ) -> MapShareResult:
     """Share ``map_obj`` with exactly ``group_ids``, or with them besides its
     current groups when ``keep_current``.
@@ -254,7 +256,11 @@ async def set_map_groups(
     ``check_map_ownership``. Raises
     ``UnknownGroupsError`` for a group that doesn't exist or belongs to
     another tenant, ``GroupNotJoinedError`` when a non-admin adds a group
-    they aren't in, and ``LayersHiddenFromGroupsError`` for an unconfirmed
+    they aren't in, 403 ``api_key_scope`` when a publish key's change lets
+    more people read the map than at ``audience_before`` (its stored
+    visibility, the level before a publish that just wrote one, or None for
+    a map this transaction created), and ``LayersHiddenFromGroupsError`` for
+    an unconfirmed
     gap. Dataset shares raise as ``set_dataset_groups`` does. Does not commit.
     """
     wanted = set(group_ids)
@@ -275,6 +281,12 @@ async def set_map_groups(
         visibility = RESTRICTED_MAP_VISIBILITY
     elif visibility == RESTRICTED_MAP_VISIBILITY and not wanted:
         visibility = "private"
+    refuse_publish_key_widening_share(
+        session,
+        previous if audience_before == CURRENT_LEVEL else audience_before,
+        visibility,
+        added,
+    )
     if not (added or removed) and visibility == previous:
         return MapShareResult(previous=None, group_ids=sorted(wanted))
 
@@ -309,5 +321,5 @@ async def set_map_groups(
     map_obj.visibility = visibility
     await session.flush()
     # Last: an embed token's revocation is cached outside this transaction.
-    await _retire_links(session, map_obj.id, previous, visibility)
+    await retire_map_links(session, map_obj.id, previous, visibility)
     return result

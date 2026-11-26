@@ -4,9 +4,32 @@ import { useSearchStore } from '@/stores/search-store';
 // The search workspace lives at the root path.
 const SEARCH_WORKSPACE_PATH = '/';
 
+function writeAddress() {
+  const storeParams = useSearchStore.getState().toParams();
+  const urlParams = new URLSearchParams();
+  for (const [key, value] of Object.entries(storeParams)) {
+    if (key === 'keywords' && value) {
+      // Repeated params match the API format and keep URLs bookmarkable.
+      for (const kw of value.split(',')) {
+        if (kw) urlParams.append('keywords', kw);
+      }
+    } else {
+      urlParams.set(key, value);
+    }
+  }
+  const search = urlParams.toString();
+
+  window.history.replaceState(
+    null,
+    '',
+    search ? `${SEARCH_WORKSPACE_PATH}?${search}` : SEARCH_WORKSPACE_PATH,
+  );
+}
+
 /**
  * Two-way sync between the search store and URL search params.
- * On mount: restores store state from URL params.
+ * On mount: restores store state from URL params, then writes the address
+ * from the store, so a search the store kept across a navigation shows in it.
  * On store change: pushes state to URL via replaceState.
  */
 export function useUrlSearchSync() {
@@ -36,31 +59,13 @@ export function useUrlSearchSync() {
         isRestoringRef.current = false;
       });
     }
+    writeAddress();
   }, []);
 
   useEffect(() => {
     const unsub = useSearchStore.subscribe(() => {
       if (isRestoringRef.current) return;
-
-      const storeParams = useSearchStore.getState().toParams();
-      const urlParams = new URLSearchParams();
-      for (const [key, value] of Object.entries(storeParams)) {
-        if (key === 'keywords' && value) {
-          // Repeated params match the API format and keep URLs bookmarkable.
-          for (const kw of value.split(',')) {
-            if (kw) urlParams.append('keywords', kw);
-          }
-        } else {
-          urlParams.set(key, value);
-        }
-      }
-      const search = urlParams.toString();
-
-      window.history.replaceState(
-        null,
-        '',
-        search ? `${SEARCH_WORKSPACE_PATH}?${search}` : SEARCH_WORKSPACE_PATH,
-      );
+      writeAddress();
     });
 
     return unsub;

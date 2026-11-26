@@ -242,6 +242,15 @@ def test_manifest_apply_routes_through_the_gate() -> None:
         f"{_GATE_NAME}; a manifest with intent 'published' would create "
         "public datasets past the restrict_public_visibility setting."
     )
+    from app.modules.catalog.maps import manifest_apply
+
+    # A manifest map's visibility is judged before anything is written, and
+    # the write goes through the map update, which gates it again.
+    assert _calls_gate(_source_of(manifest_apply._may_set_public)), (
+        f"manifest_apply._may_set_public no longer calls {_GATE_NAME}; a "
+        "manifest map would be judged public past the restriction."
+    )
+    assert "apply_map_update(" in _source_of(manifest_apply._write_map)
 
 
 @pytest.mark.architecture

@@ -77,7 +77,10 @@ from app.platform.cache.provider import get_tile_cache, notify_table_invalidated
 from app.platform.cache.scope import is_publicly_cacheable, public_cache_control
 from app.platform.http.ranges import if_none_match_matches
 from app.platform.cache.tiles import invalidate_catalog_cache
-from app.modules.catalog.collections.service import get_dataset_collections
+from app.modules.catalog.collections.service import (
+    get_dataset_collections,
+    stamp_collections_after_member_delete,
+)
 from app.modules.catalog.features.service import lock_catalog_rows_for_write
 from app.modules.catalog.write_recheck import refuse_stale_write
 from app.modules.catalog.ownership import (
@@ -736,6 +739,12 @@ async def bulk_delete_datasets_endpoint(
     # Last, so no storage round trip can delay or skip the
     # invalidations above for any item in the batch.
     await _reap_after_commit(*pending_reaps)
+    # Again once stamped: a read since the first invalidation may have cached
+    # the collections' old times.
+    if await stamp_collections_after_member_delete(
+        db, sorted({c for d in pending_reaps for c in d.collection_ids})
+    ):
+        await invalidate_catalog_cache()
 
     return BulkDeleteResponse(
         deleted=deleted, errors=len(results) - deleted, results=results
@@ -829,6 +838,10 @@ async def delete_dataset_endpoint(
     # backend or cancellation would delay or skip them and leave search and the
     # tile map serving a deleted dataset until TTL.
     await _reap_after_commit(deletion)
+    # Again once stamped: a read since the first invalidation may have cached
+    # the collections' old times.
+    if await stamp_collections_after_member_delete(db, deletion.collection_ids):
+        await invalidate_catalog_cache()
 
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 

@@ -36,9 +36,8 @@ test.describe('Keyboard navigation — public routes', () => {
     await expect(passwordField).toBeFocused();
     await page.keyboard.type('keyboard-nav-smoke');
 
-    // With the form filled the submit button is enabled and reachable. A disabled
-    // submit (empty form) is correctly skipped in the tab order, so we fill first,
-    // then Tab forward until it receives focus (tolerates an intervening control).
+    // Tab forward until the submit button has focus, which tolerates an
+    // intervening control such as the show-password toggle.
     for (let i = 0; i < 4; i++) {
       await page.keyboard.press('Tab');
       if (await submitButton.evaluate((el) => el === document.activeElement)) break;

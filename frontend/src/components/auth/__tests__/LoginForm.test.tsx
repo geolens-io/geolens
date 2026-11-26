@@ -51,19 +51,76 @@ describe('LoginForm', () => {
   it('shows the support hint while sign-up is closed', () => {
     render(<LoginForm />);
 
-    expect(screen.getByText(/contact a geolens administrator/i)).toBeInTheDocument();
+    expect(screen.getByText(/ask a geolens administrator/i)).toBeInTheDocument();
   });
 
   it('hides the support hint while sign-up is open', () => {
     render(<LoginForm signupOpen />);
 
-    expect(screen.queryByText(/contact a geolens administrator/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/ask a geolens administrator/i)).not.toBeInTheDocument();
   });
 
   it('renders sign in button', () => {
     render(<LoginForm />);
 
     expect(screen.getByRole('button', { name: /sign in/i })).toBeInTheDocument();
+  });
+
+  it('keeps the sign-in button enabled on an empty form and lets the browser ask for the fields', async () => {
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    const submit = screen.getByRole('button', { name: /sign in/i });
+    expect(submit).toBeEnabled();
+    expect(screen.getByLabelText(/username/i)).toBeRequired();
+    expect(screen.getByLabelText('Password', { exact: true })).toBeRequired();
+
+    await user.click(submit);
+    expect(mockLogin).not.toHaveBeenCalled();
+  });
+
+  it('sends what the fields show when autofill filled them before React saw it', async () => {
+    mockLogin.mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    // Setting .value directly fires no input event, as with autofill.
+    (screen.getByLabelText(/username/i) as HTMLInputElement).value = 'filled-user';
+    (screen.getByLabelText('Password', { exact: true }) as HTMLInputElement).value = 'filled-pass';
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledWith('filled-user', 'filled-pass'));
+  });
+
+  it('keeps autofilled credentials in the fields after a failed attempt', async () => {
+    mockLogin.mockRejectedValueOnce(new Error('Service unavailable')).mockResolvedValue(undefined);
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    const username = screen.getByLabelText(/username/i) as HTMLInputElement;
+    const password = screen.getByLabelText('Password', { exact: true }) as HTMLInputElement;
+    username.value = 'filled-user';
+    password.value = 'filled-pass';
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+    await screen.findByText('Service unavailable');
+
+    expect(username).toHaveValue('filled-user');
+    expect(password).toHaveValue('filled-pass');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+    await waitFor(() => expect(mockLogin).toHaveBeenCalledTimes(2));
+    expect(mockLogin).toHaveBeenLastCalledWith('filled-user', 'filled-pass');
+  });
+
+  it('treats a username of only spaces as empty', async () => {
+    const user = userEvent.setup();
+    render(<LoginForm />);
+
+    await user.type(screen.getByLabelText(/username/i), '   ');
+    await user.type(screen.getByLabelText('Password', { exact: true }), 'secret');
+    await user.click(screen.getByRole('button', { name: /sign in/i }));
+
+    expect(mockLogin).not.toHaveBeenCalled();
+    expect(screen.getByLabelText(/username/i)).toHaveFocus();
   });
 
   it('accepts user input in fields', async () => {

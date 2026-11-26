@@ -37,9 +37,13 @@ const TYPE_CONFIG = {
 interface RecordTypeBadgeProps {
   recordType: string;
   className?: string;
+  /** Icon only; the type name stays as the accessible name. */
+  iconOnly?: boolean;
+  /** Icon only and hidden from assistive technology, for beside a visible type name. */
+  decorative?: boolean;
 }
 
-export function RecordTypeBadge({ recordType, className }: RecordTypeBadgeProps) {
+export function RecordTypeBadge({ recordType, className, iconOnly = false, decorative = false }: RecordTypeBadgeProps) {
   const { t } = useTranslation('search');
 
   const config = TYPE_CONFIG[recordType as keyof typeof TYPE_CONFIG];
@@ -48,13 +52,28 @@ export function RecordTypeBadge({ recordType, className }: RecordTypeBadgeProps)
   const Icon = config.icon;
   const colorClass = recordTypeColors[recordType] ?? recordTypeColors.unknown;
 
+  const label = t(config.labelKey);
+
+  if (decorative) {
+    return (
+      <Badge
+        variant="outline"
+        aria-hidden="true"
+        className={`px-1.5 forced-colors:border-[currentColor] forced-colors:bg-transparent forced-colors:text-[inherit] ${colorClass}${className ? ` ${className}` : ''}`}
+      >
+        <Icon className="size-3" />
+      </Badge>
+    );
+  }
+
   return (
     <Badge
       variant="outline"
       className={`text-xs font-mono uppercase tracking-wider ${colorClass}${className ? ` ${className}` : ''}`}
+      title={iconOnly ? label : undefined}
     >
-      <Icon className="size-3" />
-      {t(config.labelKey)}
+      <Icon className="size-3" aria-hidden={iconOnly ? true : undefined} />
+      {iconOnly ? <span className="sr-only">{label}</span> : label}
     </Badge>
   );
 }

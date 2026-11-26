@@ -11,6 +11,10 @@ from app.modules.catalog.datasets.domain._sql_safety import (
     _safe_column_ref,  # noqa: F401 -- re-exported for features/retention.py
     _safe_table_ref,  # noqa: F401 -- re-exported for tests/test_sql_safety.py
 )
+from app.modules.catalog.datasets.domain.column_stats import (
+    is_aggregate_number_type,
+    is_date_type,
+)
 from app.modules.catalog.datasets.domain.service_analysis import (
     PREVIEW_FEATURE_CAP,
     build_preview_sql,
@@ -66,7 +70,10 @@ from app.modules.catalog.datasets.domain.service_query import (
 from app.modules.catalog.datasets.domain.service_sharing import (
     GroupNotJoinedError,
     UnknownGroupsError,
+    apply_manifest_dataset_groups,
     dataset_groups,
+    manifest_dataset_group_names,
+    plan_manifest_dataset_groups,
     set_dataset_groups,
 )
 from app.modules.catalog.datasets.domain.service_relationships import (
@@ -119,6 +126,8 @@ __all__ = [
     "list_datasets",
     "preview_slot_bound",
     "is_sortable_column",
+    "is_aggregate_number_type",
+    "is_date_type",
     "nulls_last_keyset",
     "sortable_columns",
     "list_relationships",
@@ -128,6 +137,9 @@ __all__ = [
     "reset_attribute",
     "sample_example_values",
     "set_dataset_groups",
+    "manifest_dataset_group_names",
+    "apply_manifest_dataset_groups",
+    "plan_manifest_dataset_groups",
     "resolve_source_feature_count",
     "run_analysis_preview",
     "UnknownGroupsError",

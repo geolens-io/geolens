@@ -24,7 +24,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.identity import Identity, IdentityRole, IdentitySnapshot
 from app.modules.auth.permissions import admitted_capabilities, user_standing_columns
 from app.platform.extensions import get_permission_extension
-from app.platform.record_audience import publish_key_widening
+from app.platform.record_audience import (
+    PUBLIC_VISIBILITY_DENIED as PUBLIC_VISIBILITY_DENIED,
+    publish_key_widening,
+)
 from app.platform.request_credential import api_key_scope_refusal, is_publish_key
 
 
@@ -137,11 +140,6 @@ async def _recheck_capabilities(
                 detail=f"Missing permission: {capability}",
             )
 
-
-PUBLIC_VISIBILITY_DENIED = (
-    "Public visibility is restricted to administrators on this instance. "
-    "Choose a narrower visibility or ask an admin to make this content public."
-)
 
 _ADMITTED_PUBLIC_VISIBILITY = "admitted_public_visibility"
 

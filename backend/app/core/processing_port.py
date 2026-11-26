@@ -19,7 +19,9 @@ subsequent requests.
 from __future__ import annotations
 
 import uuid
-from collections.abc import Collection, Mapping, Sequence
+from collections.abc import Collection, Iterator, Mapping, Sequence
+from contextlib import contextmanager
+from dataclasses import dataclass, field
 from datetime import date, datetime
 from typing import Any, Protocol, runtime_checkable
 
@@ -27,6 +29,57 @@ from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
+
+# An apply_manifest_maps result key: ``{"token": <raw share token>, "title":
+# <map name>}`` for the map whose share link the apply minted. The raw token
+# exists nowhere else, so this result is its only way to the caller.
+MINTED_SHARE_KEY = "minted_share"
+_SHARE_LINKS_WITHHELD = "geolens.manifest_share_links_withheld"
+
+
+@contextmanager
+def withholding_share_links(session: AsyncSession, withheld: bool) -> Iterator[None]:
+    """With ``withheld``, tell an apply_manifest_maps run in the block that a
+    share link it mints could not be returned, so it must mint none."""
+    if not withheld:
+        yield
+        return
+    session.info[_SHARE_LINKS_WITHHELD] = True
+    try:
+        yield
+    finally:
+        session.info.pop(_SHARE_LINKS_WITHHELD, None)
+
+
+def share_links_withheld(session: AsyncSession) -> bool:
+    """Whether a share link minted on ``session`` now could not be returned."""
+    return bool(session.info.get(_SHARE_LINKS_WITHHELD))
+
+
+@dataclass(frozen=True)
+class ManifestGroupsPlan:
+    """The groups a manifest entry shares its dataset with.
+
+    ``group_ids`` and ``names`` are the groups it ends with. ``left_off`` are
+    wanted groups that don't exist or that the caller may not add, by id
+    only, since their names aren't the caller's to see. ``held_back`` names
+    the groups the dataset may not gain without reaching more people, and
+    ``held_back_ids`` holds their ids. ``added`` says whether it gains any
+    group. ``unchanged`` means the dataset keeps its groups as they are,
+    since the share was held back, and ``role_granted`` that a role grant
+    keeps it restricted without groups.
+    """
+
+    group_ids: list[uuid.UUID]
+    names: list[str]
+    left_off: list[uuid.UUID]
+    held_back: list[str]
+    added: bool
+    unchanged: bool = False
+    role_granted: bool = False
+    held_back_ids: list[uuid.UUID] = field(default_factory=list)
+    # The dataset's groups when planned.
+    granted: list[uuid.UUID] = field(default_factory=list)
 
 
 @runtime_checkable
@@ -492,6 +545,43 @@ class ProcessingPort(Protocol):
         user: Identity,
     ) -> str | None: ...
 
+    # The groups a manifest entry would share its dataset with, None for one
+    # it creates, once the entry writes ``level`` (None keeps the dataset's),
+    # as the caller's roles and a publish key allow. Writes nothing.
+    async def plan_manifest_groups(
+        self,
+        session: AsyncSession,
+        dataset_id: uuid.UUID | None,
+        group_ids: Sequence[uuid.UUID],
+        user: Identity,
+        *,
+        level: str | None,
+    ) -> ManifestGroupsPlan: ...
+
+    # Shares a dataset a manifest job publishes with the groups it may, in the
+    # publish transaction. ``audience_before`` is its visibility before the
+    # publish, None when the job created it, ``planned_from`` its visibility
+    # and ``granted_at_plan`` its groups when the apply planned the share.
+    # Returns the plan and, when the share was refused, the refusal as a
+    # sentence to show, else None. A refused share leaves the groups as they
+    # were, as a held-back one does, and fails nothing here.
+    async def apply_manifest_groups(
+        self,
+        session: AsyncSession,
+        dataset_id: uuid.UUID,
+        group_ids: Sequence[uuid.UUID],
+        user: Identity,
+        *,
+        audience_before: str | None,
+        planned_from: str | None,
+        granted_at_plan: Sequence[uuid.UUID] | None,
+    ) -> tuple[ManifestGroupsPlan, str | None]: ...
+
+    # The names of a dataset's groups, None when ``user`` may not see them.
+    async def manifest_dataset_group_names(
+        self, session: AsyncSession, dataset_id: uuid.UUID, user: Identity
+    ) -> list[str] | None: ...
+
     # Returns the ``source_name`` of every entry that matched no column.
     async def apply_manifest_attributes(
         self,
@@ -505,9 +595,18 @@ class ProcessingPort(Protocol):
     # ``maps`` are the request's ``ManifestMap`` entries and
     # ``dataset_ids_by_key`` the dataset each layer ``dataset_key`` names,
     # resolved by the caller; a key it couldn't resolve is absent.
-    # ``pending_dataset_keys`` are the keys of the request's own datasets,
-    # which a dry run may not find yet. Returns one ``ManifestMapResult``-shaped
-    # dict per map, in order.
+    # ``pending_datasets`` are the request's own dataset entries that change
+    # their dataset, by key and by dataset id, each with the visibility (None
+    # keeps the dataset's) and record status it publishes; a dry run judges a
+    # map on them. ``unsettled_dataset_ids`` are datasets a job is still
+    # replacing, which a layer may not use yet. ``public_fallback`` and
+    # ``client`` are the request's. Outside a dry run each map that checks
+    # clean is written and committed on its own. Returns one
+    # ``ManifestMapResult``-shaped dict per map, in order. A map whose apply
+    # minted its share link may also carry ``MINTED_SHARE_KEY``, which the
+    # caller removes before the result reaches a response model. Under
+    # ``withholding_share_links`` a map that would mint one mints none and
+    # answers info A074 instead.
     async def apply_manifest_maps(
         self,
         session: AsyncSession,
@@ -516,5 +615,9 @@ class ProcessingPort(Protocol):
         *,
         dry_run: bool,
         dataset_ids_by_key: Mapping[str, uuid.UUID],
-        pending_dataset_keys: Collection[str],
+        pending_datasets: Mapping[str | uuid.UUID, tuple[str | None, str]],
+        unsettled_dataset_ids: Collection[uuid.UUID],
+        public_fallback: str | None,
+        client: Any,
+        ip_address: str | None,
     ) -> list[dict[str, Any]]: ...

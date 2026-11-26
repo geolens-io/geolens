@@ -219,6 +219,20 @@ def test_coordinate_arrays_have_a_fixed_length(path, size):
     assert not VALIDATOR.is_valid(with_length(size + 1))
 
 
+@pytest.mark.parametrize("item", ["datasets", "maps"])
+def test_groups_are_at_most_100_uuids(item):
+    def with_groups(groups):
+        manifest = copy.deepcopy(_valid("create"))
+        manifest[item][0]["groups"] = groups
+        return manifest
+
+    ids = [f"6c1e0b52-0d0f-4f5a-9a52-{i:012x}" for i in range(101)]
+    assert VALIDATOR.is_valid(with_groups([]))
+    assert VALIDATOR.is_valid(with_groups(ids[:100]))
+    assert not VALIDATOR.is_valid(with_groups(ids))
+    assert not VALIDATOR.is_valid(with_groups(["Parks staff"]))
+
+
 def test_popup_visible_fields_hold_at_most_100_entries():
     def with_fields(count):
         manifest = copy.deepcopy(_valid("create"))
@@ -233,11 +247,15 @@ def test_popup_visible_fields_hold_at_most_100_entries():
 _BOUNDS = ("maxLength", "minLength", "maxItems", "minItems", "minimum", "maximum")
 # Bounded strings whose pattern fixes their shape, so a filler of "a" cannot
 # sit at the limit. Their patterns have their own invalid examples.
-MIN_BOUNDS = 89
+MIN_BOUNDS = 91
 MIN_REQUIRED = 27
 _PATTERN_PINNED = {
     ("datasets", 0, "sources", 0, "checksum"),
+    ("datasets", 0, "sources", 0, "uri"),
     ("maps", 0, "thumbnail"),
+    # Group ids are uuids; test_groups_are_at_most_100_uuids pins them.
+    ("datasets", 0, "groups"),
+    ("maps", 0, "groups"),
 }
 
 

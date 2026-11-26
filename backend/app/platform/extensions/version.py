@@ -173,7 +173,14 @@ logger = logging.getLogger(__name__)
 # keyword-only ``dataset_ids_by_key`` and ``pending_dataset_keys``; it is now
 # ``apply_manifest_maps(session, maps, user, *, dry_run, dataset_ids_by_key,
 # pending_dataset_keys)``.
-EXTENSION_API_VERSION: int = 26
+# 26 -> 27: ``ProcessingPort.apply_manifest_maps`` writes maps outside a dry
+# run. Its ``pending_dataset_keys`` became the required ``pending_datasets``
+# mapping, and it gained the required keyword-only ``unsettled_dataset_ids``,
+# ``public_fallback``, ``client`` and ``ip_address``.
+# 27 -> 28: ProcessingPort gained the required ``plan_manifest_groups``,
+# ``apply_manifest_groups`` and ``manifest_dataset_group_names`` methods for
+# manifest groups.
+EXTENSION_API_VERSION: int = 28
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

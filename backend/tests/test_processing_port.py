@@ -332,15 +332,47 @@ class FakeProcessingPort:
     ):
         return "A033"
 
+    async def plan_manifest_groups(
+        self, session, dataset_id, group_ids, user, *, level
+    ):
+        return None
+
+    async def apply_manifest_groups(
+        self,
+        session,
+        dataset_id,
+        group_ids,
+        user,
+        *,
+        audience_before,
+        planned_from,
+        granted_at_plan,
+    ):
+        return None, False
+
+    async def manifest_dataset_group_names(self, session, dataset_id, user):
+        return None
+
     async def apply_manifest_attributes(
         self, session, dataset_id, attributes, *, actor_id
     ):
         return [a["source_name"] for a in attributes]
 
     async def apply_manifest_maps(
-        self, session, maps, user, *, dry_run, dataset_ids_by_key, pending_dataset_keys
+        self,
+        session,
+        maps,
+        user,
+        *,
+        dry_run,
+        dataset_ids_by_key,
+        pending_datasets,
+        unsettled_dataset_ids,
+        public_fallback,
+        client,
+        ip_address,
     ):
-        raise NotImplementedError
+        return []
 
 
 # =============================================================================

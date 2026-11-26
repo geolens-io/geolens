@@ -2,7 +2,7 @@
 
 import re
 import uuid
-from collections.abc import Iterable, Sequence
+from collections.abc import Collection, Iterable, Sequence
 from datetime import datetime
 from typing import cast
 
@@ -27,6 +27,10 @@ from app.modules.catalog.maps.dashboard import (
     fork_dashboard,
     merge_dashboard,
     shows_widgets,
+)
+from app.modules.catalog.maps.dashboard_moves import (
+    STRANDED_WIDGETS,
+    stranding_moves,
 )
 from app.modules.catalog.maps.dashboard_filters import (
     refuse_layer_filter_past_limits,
@@ -100,7 +104,7 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
     """
     result = await bounded_row_lock(
         session,
-        select(Map.thumbnail_uri, Map.og_image_uri)
+        select(Map.thumbnail_uri, Map.og_image_uri, Map.updated_at)
         .where(Map.id == map_id)
         .with_for_update(),
         message=_ASSETS_BUSY,
@@ -160,6 +164,9 @@ async def discard_map_asset_objects(
         logger.warning(
             "map_asset_liveness_read_failed", map_id=str(map_id), exc_info=True
         )
+        # A failed statement leaves the transaction aborted for whatever the
+        # caller runs next on this session; this read is all it holds.
+        await session.rollback()
         return
 
     await delete_objects_best_effort(
@@ -198,6 +205,7 @@ async def create_map(
     basemap_config: dict | None = None,
     bookmarks: list[dict] | None = None,
     created_by_api_key_id: uuid.UUID | None = None,
+    manifest_key: str | None = None,
 ) -> Map:
     """Create a map. Does NOT commit."""
     map_obj = Map(
@@ -209,6 +217,7 @@ async def create_map(
         bookmarks=bookmarks,
         created_by=created_by,
         created_by_api_key_id=created_by_api_key_id,
+        manifest_key=manifest_key,
     )
     session.add(map_obj)
     await session.flush()
@@ -470,18 +479,25 @@ async def update_map(
     layers: list[dict] | None = None,
     user: Identity | None = None,
     expected_updated_at: datetime | None = None,
+    keep_layer_ids: Sequence[uuid.UUID] = (),
+    keep_widgets_of: Collection[uuid.UUID] = (),
 ) -> tuple[Map, list[LayerRow], str | None, str | None]:
     """Update map fields. If 'layers' key present, replace all layers.
 
     ``user`` is the caller the save acts for (None reads as anonymous). Layers
-    whose dataset map reads hide from it survive a replacement, and a stored
+    whose dataset map reads hide from it, and those in ``keep_layer_ids``,
+    survive a replacement, and a stored
     terrain binding to a DEM hidden from it survives a request naming no DEM.
     A ``dashboard_config`` is checked against the layers the map has after the
     save (``merge_dashboard``), and a layer filter the save changes against the
-    widgets on its layer (``refuse_layer_filter_past_limits``).
+    widgets on its layer (``refuse_layer_filter_past_limits``). A layer the
+    replacement moves to another dataset loses its widgets, unless it is in
+    ``keep_widgets_of``, for a caller that checked they fit the new dataset.
 
     A ``visibility`` goes through ``prepare_map_visibility``, which may make it
-    restricted, revoke the map's links, or raise ``RestrictedWithoutGroupsError``.
+    restricted or raise ``RestrictedWithoutGroupsError``. A save that narrows
+    the map revokes its links (``retire_map_links``) after every check that
+    can refuse it.
 
     With ``expected_updated_at``, the map is locked first and a map changed
     since that value raises 409 ``stale_write`` before anything is written.
@@ -508,10 +524,13 @@ async def update_map(
     if map_obj is None:
         raise ValueError(f"Map {map_id} not found")
     refuse_stale_write(map_obj.updated_at, expected_updated_at)
+    stored_visibility = None
     if visibility is not None:
         from app.modules.catalog.maps.service_groups import prepare_map_visibility
 
-        visibility = await prepare_map_visibility(session, map_id, visibility)
+        stored_visibility, visibility = await prepare_map_visibility(
+            session, map_id, visibility
+        )
 
     # Update scalar fields (skip None values, except explicit notes=null which
     # clears private builder notes, and explicit plugins=null which restores
@@ -556,17 +575,25 @@ async def update_map(
         before = {}
         if map_obj.dashboard_config is not None or isinstance(dashboard_config, dict):
             before = await _stored_layers(session, map_id)
-        created_ids = await _replace_layers(session, map_id, layers, user)
+        created_ids = await _replace_layers(
+            session, map_id, layers, user, keep_layer_ids
+        )
         await touch_map(session, map_id)
         dashboard_config = _with_created_layer_ids(dashboard_config, created_ids)
     if dashboard_config is not _UNSET or before:
         map_obj.dashboard_config = await _saved_dashboard(
-            session, map_obj, dashboard_config, user, before
+            session, map_obj, dashboard_config, user, before, keep_widgets_of
         )
 
     await session.flush()
     # The flush's UPDATE holds the map row when there was one to write.
     await recheck_map_ownership(session, map_id)
+    if stored_visibility is not None and visibility is not None:
+        from app.modules.catalog.maps.service_links import retire_map_links
+
+        # After every refusal: an embed token's revocation is cached outside
+        # this transaction.
+        await retire_map_links(session, map_id, stored_visibility, visibility)
     # One LEFT JOIN reads forked_name, owner_username and the DB-side
     # updated_at, so no ``session.refresh(map_obj)`` is needed.
     layer_rows = await _fetch_layer_rows_ordered(session, map_obj.id)
@@ -617,12 +644,16 @@ async def _saved_dashboard(
     sent: object,
     user: Identity | None,
     before: dict[uuid.UUID, tuple[uuid.UUID, object]] | None,
+    keep_widgets_of: Collection[uuid.UUID] = (),
 ) -> dict | None:
     """The dashboard after a save that sent one (``sent`` is a dict or None),
     or that replaced the layers (``sent`` is ``_UNSET``).
 
     ``before`` holds each layer's dataset and filter before a replacement, and
-    is None when the save left the layers alone.
+    is None when the save left the layers alone. Widgets on a layer moved to
+    another dataset are dropped unless the layer is in ``keep_widgets_of``;
+    a move whose widgets can't be dropped and that widens who reads the
+    layer (``stranding_moves``) raises 409.
     """
     layers = list(
         (
@@ -630,11 +661,18 @@ async def _saved_dashboard(
         ).all()
     )
     stored_layers = before or {}
-    repointed = {
-        layer.id
+    moves = {
+        layer.id: (stored_layers[layer.id][0], layer.dataset_id)
         for layer in layers
-        if stored_layers.get(layer.id, (layer.dataset_id,))[0] != layer.dataset_id
+        if layer.id in stored_layers
+        and stored_layers[layer.id][0] != layer.dataset_id
+        and layer.id not in keep_widgets_of
     }
+    if await stranding_moves(session, map_obj.dashboard_config, moves.values()):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=STRANDED_WIDGETS
+        )
+    repointed = set(moves)
     saved = drop_repointed(map_obj.dashboard_config, repointed)
     if sent is not _UNSET:
         config = None if sent is None else DashboardConfigInput.model_validate(sent)

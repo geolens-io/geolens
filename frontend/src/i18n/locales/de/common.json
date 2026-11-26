@@ -8,7 +8,7 @@
   "delete": "Löschen",
   "confirm": "Bestätigen",
   "newVersion": {
-    "message": "Eine neue Version von GeoLens ist verfügbar",
+    "message": "Diese Website wurde aktualisiert. Laden Sie die Seite neu, um die neue Version zu verwenden.",
     "reload": "Neu laden"
   },
   "close": "Schließen",
@@ -163,6 +163,7 @@
     "jobFailureMissingCrsRaster": "CRS fehlt: Das Raster hat kein Koordinatenreferenzsystem. Geben Sie beim Import eine CRS-Überschreibung (EPSG-Code) an.",
     "jobFailureMissingCrsReupload": "CRS fehlt: Es wurde kein Koordinatensystem erkannt. Stellen Sie sicher, dass die Datei CRS-Informationen enthält (z. B. eine .prj-Datei bei Shapefiles), oder geben Sie eine SRID-Überschreibung an.",
     "jobFailureMixedSridDatabase": "Die Geometrien der Tabelle verwenden mehr als eine SRID, daher beschreibt kein einzelnes Koordinatensystem sie. Geben Sie ihnen in einer Ansicht eine einzige SRID und importieren Sie diese.",
+    "jobFailurePublicVisibilityRestricted": "Öffentliche Sichtbarkeit ist auf dieser Instanz Administratoren vorbehalten, daher hat dieser Auftrag nichts geändert. Wählen Sie eine engere Sichtbarkeit oder bitten Sie einen Administrator, diesen Inhalt öffentlich zu machen.",
     "jobFailureRefreshAbandoned": "Die Aktualisierungsaufgabe wurde nie von einem Worker übernommen, oder der Worker ist verschwunden, bevor er ein Ergebnis melden konnte.",
     "jobFailureRefreshOriginUnsupported": "Diese Aktualisierung wurde nicht gestartet: Nur Dienst-Datensätze werden auf diese Weise aktualisiert.",
     "jobFailureReviewRequired": "Dieser Austausch ändert den Datensatz auf eine Weise, die geprüft werden muss, und wurde daher nicht veröffentlicht. Prüfen Sie die Änderungen auf der Registerkarte „Quellen“ des Datensatzes und akzeptieren Sie sie dort.",
@@ -427,6 +428,7 @@
     "storyVisibilityUnsupported": "Storys können mit dieser Sichtbarkeit noch nicht veröffentlicht werden.",
     "dashboardTooNew": "Dieses Dashboard wurde mit einer neueren GeoLens-Version gespeichert und kann hier nicht geändert werden.",
     "dashboardTooManyWidgets": "Ein Dashboard enthält höchstens 50 Widgets. Entfernen Sie vor dem Speichern einige.",
+    "dashboardLayerMoveRefused": "Das Dashboard dieser Karte enthält Widgets, die diese GeoLens-Version nicht lesen kann. Daher kann dieser Layer nicht zu einem Datensatz wechseln, der breiter geteilt ist als der aktuelle. Entfernen Sie die Widgets des Layers in der GeoLens-Version, die sie hinzugefügt hat, oder belassen Sie den Layer bei seinem Datensatz.",
     "dashboardWidgetsRefused": "Einige Dashboard-Widgets nutzen Layer, die nicht auf dieser Karte liegen oder die Sie nicht lesen können. Entfernen Sie sie oder wählen Sie andere Layer.",
     "dashboardWidgetFilterRefused": "Der Filter eines Dashboard-Widgets lässt sich auf seinen Layer nicht anwenden: Der Server hat eine seiner Bedingungen abgelehnt, oder er ist zusammen mit dem Filter des Layers zu groß. Prüfen Sie ihn im Bereich Dashboard.",
     "storyImageUnreadable": "Die Datei ist kein lesbares Bild.",
@@ -906,6 +908,9 @@
     "zoomOut": "Verkleinern",
     "terrainEnable": "3D-Gelände aktivieren",
     "terrainDisable": "3D-Gelände deaktivieren",
+    "cooperativeGesturesWindows": "Mit Strg + Scrollen zoomen Sie die Karte",
+    "cooperativeGesturesMac": "Mit ⌘ + Scrollen zoomen Sie die Karte",
+    "cooperativeGesturesMobile": "Mit zwei Fingern verschieben Sie die Karte",
     "title": "Karte"
   }
 }

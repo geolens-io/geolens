@@ -55,10 +55,8 @@ from app.modules.catalog.maps.schemas import (
     ThumbnailUploadRequest,
 )
 from app.modules.catalog.maps.author_key import (
-    map_author_key_id,
     refuse_map_author_key,
 )
-from app.modules.catalog.maps.bookmarks import stored_bookmarks
 from app.modules.catalog.maps.router_assets import router as assets_router
 from app.modules.catalog.maps.router_groups import router as groups_router
 from app.modules.catalog.maps.router_sharing import router as sharing_router
@@ -87,8 +85,12 @@ from app.modules.catalog.maps.service import (
 )
 from app.modules.catalog.maps.models import Map, MapLayer
 from app.modules.catalog.maps.service import remove_layers_bulk
-from app.modules.catalog.maps.service_update import apply_map_update
+from app.modules.catalog.maps.service_update import (
+    apply_map_create,
+    apply_map_update,
+)
 from app.modules.embed_tokens.service import revoke_embed_tokens_for_dropped_datasets
+from app.modules.catalog.write_recheck import refuse_stale_write
 from app.platform.request_credential import api_key_audit_details, refuse_publish_key
 from app.platform.binary_response import binary_response
 from app.platform.storage.titiler_url import (
@@ -156,50 +158,12 @@ async def create_map_endpoint(
     db: AsyncSession = Depends(get_db),
 ) -> MapResponse:
     """Create a new map."""
-    refuse_map_author_key(db, user.id, body)
-    terrain_config = (
-        body.terrain_config.model_dump(mode="json")
-        if body.terrain_config is not None
-        else None
-    )
-    await _readable_terrain(db, user, terrain_config)
-    basemap_config = (
-        body.basemap_config.model_dump(mode="json")
-        if body.basemap_config is not None
-        else None
-    )
-    map_obj = await create_map(
+    map_obj = await apply_map_create(
         db,
-        body.name,
-        body.description,
-        user.id,
-        notes=body.notes,
-        terrain_config=terrain_config,
-        basemap_config=basemap_config,
-        bookmarks=stored_bookmarks(body.bookmarks),
-        created_by_api_key_id=map_author_key_id(db),
-    )
-    await audit_emit(
-        db,
-        AuditEvent(
-            user_id=user.id,
-            action="map.create",
-            resource_type="map",
-            resource_id=map_obj.id,
-            details={"name": body.name, **api_key_audit_details(db)},
-            ip_address=request.client.host if request.client else None,
-        ),
-    )
-    await record_map_history_event(
-        db,
-        map_id=map_obj.id,
-        actor=user,
-        target_type="map",
-        target_id=map_obj.id,
-        target_name=map_obj.name,
-        action="map.create",
-        summary=f"Created map {map_obj.name}",
-        details={"name": map_obj.name},
+        body,
+        user,
+        record_history=True,
+        ip_address=request.client.host if request.client else None,
     )
     await db.commit()
     await db.refresh(map_obj)
@@ -850,6 +814,9 @@ class _MapImageKind:
     publish_key_target: str
 
 
+# Pillow names a JPEG that carries a multi-picture segment MPO.
+_MAP_IMAGE_EXTENSIONS = {"PNG": "png", "JPEG": "jpg", "MPO": "jpg"}
+
 _MAP_IMAGE_KINDS = {
     "thumbnail": _MapImageKind(
         storage_prefix="maps/thumbnails",
@@ -872,8 +839,13 @@ async def store_map_image(
     data_uri: str,
     kind: Literal["thumbnail", "og_image"],
     user: Identity,
+    *,
+    expected_updated_at: datetime | None = None,
 ) -> None:
     """Decode, verify and store one map image, then point the map at it.
+
+    With ``expected_updated_at``, a map written since that value, read under
+    the asset lock, is refused with 409 ``stale_write`` and nothing is stored.
 
     Shared by the thumbnail and social-card uploads: data-URI parse, base64,
     image verification, storage write and publication all behave the same;
@@ -916,11 +888,11 @@ async def store_map_image(
             detail="Invalid data URI or base64 encoding",
         )
 
-    # Image.verify() rejects random bytes, truncated images and mismatched
-    # MIME before anything is stored. It runs on the story decode threads,
+    # Image.verify() rejects random bytes, truncated images and unreadable
+    # headers before anything is stored. It runs on the story decode threads,
     # never on the event loop.
     try:
-        await verify_image_bytes(image_bytes)
+        image_format = await verify_image_bytes(image_bytes)
     except (UnidentifiedImageError, OSError, SyntaxError, ValueError) as exc:
         logger.warning(
             f"{kind}_upload_invalid_image",
@@ -933,7 +905,11 @@ async def store_map_image(
             detail=f"{spec.label} payload is not a valid image",
         )
 
-    ext = "jpg" if "jpeg" in header else "png"
+    # PNG and JPEG are stored under the extension of the format the bytes
+    # carry; any other format keeps the one its declared media type gives.
+    ext = _MAP_IMAGE_EXTENSIONS.get(
+        image_format or "", "jpg" if "jpeg" in header else "png"
+    )
     # A fresh key per write, never one of two names per map.
     storage_key = new_map_asset_key(spec.storage_prefix, map_id, ext)
 
@@ -960,6 +936,7 @@ async def store_map_image(
         # about to point at. Taken after the storage write: holding it across
         # the PUT would let a stalled backend block every other writer.
         locked = await lock_map_for_asset_write(db, map_id)
+        refuse_stale_write(locked.updated_at, expected_updated_at)
         previous_key = getattr(locked, spec.uri_field)
         if previous_key:
             refuse_publish_key(
