@@ -481,6 +481,7 @@ async def export_dataset(
             numeric_columns=numeric_column_names(column_info),
             layer_name=dataset_name,
             xy=xy,
+            tileset_name=os.path.splitext(filename)[0],
         )
         if format_key == "gpkg":
             # Off the event loop: a SQLite write over a file that can be

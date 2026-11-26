@@ -398,6 +398,7 @@ async def run_ogr2ogr_export(
     spatial_index: bool = True,
     layer_name: str | None = None,
     xy: bool = False,
+    tileset_name: str | None = None,
 ) -> None:
     """Run ogr2ogr to export a PostGIS table to a file.
 
@@ -419,6 +420,7 @@ async def run_ogr2ogr_export(
         spatial_index: FlatGeobuf only. GDAL refuses null or empty geometries
             while writing the packed index; on that refusal the export reruns
             once with False so those rows are kept.
+        tileset_name: PMTiles only; the tileset's embedded ``name``.
         layer_name: GeoJSON only; the collection's top-level ``name``, which
             GDAL reads as the layer name.
         xy: CSV only; adds WGS 84 ``longitude`` and ``latitude`` columns after
@@ -512,6 +514,9 @@ async def run_ogr2ogr_export(
                 f"MAXZOOM={min(max(maxzoom, 0), _PMTILES_MAXZOOM_CEILING)}",
             ]
         )
+        # The driver names the tileset after the output file, which carries a
+        # fixed name rather than the dataset's.
+        cmd.extend(["-dsco", f"NAME={tileset_name}"] if tileset_name else [])
 
     # Kill-on-timeout bounds the subprocess wall-clock; libpq statement_timeout
     # caps the query so it stops when the child is killed. The bound is the

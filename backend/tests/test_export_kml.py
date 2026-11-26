@@ -213,3 +213,25 @@ async def test_export_of_a_very_long_title_still_writes_and_keeps_the_download_n
     assert len(os.path.basename(path).encode()) <= 255
     assert os.path.getsize(path) > 0
     assert filename.startswith("東京都")
+
+
+@pytest.mark.anyio
+async def test_pmtiles_export_names_the_tileset_after_the_dataset(
+    test_db_session, monkeypatch, tmp_path
+):
+    from app.processing.export import service as export_service
+
+    monkeypatch.setattr(export_service.settings, "upload_staging_dir", str(tmp_path))
+    table = await _make_table(test_db_session, "Point", 3857, _ROWS)
+    try:
+        path, filename, _media = await export_service.export_dataset(
+            table, "Seeds", "pmtiles", schema="data"
+        )
+    finally:
+        await _drop_table(test_db_session, table)
+
+    assert filename == "Seeds.pmtiles"
+    info = subprocess.run(
+        ["ogrinfo", "-so", "-al", path], check=True, capture_output=True, text=True
+    ).stdout
+    assert "name=Seeds" in info
