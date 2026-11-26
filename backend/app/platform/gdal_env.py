@@ -59,6 +59,7 @@ _SERVICE_KEPT_DRIVERS = frozenset({"WFS", "OAPIF"})
 # At YES the GML driver fetches every `xs:import` location of a
 # schema, and the schema a GetFeature response points at, credential header
 # attached. Both are NO by value here so an operator's env cannot flip them.
+# Neither stops an `xs:include`; for a local file `_NO_EGRESS_PROXY` refuses it.
 _SCHEMA_FETCH_CLAMP: dict[str, str] = {
     "GML_USE_SCHEMA_IMPORT": "NO",
     "GML_DOWNLOAD_SCHEMA": "NO",
@@ -71,6 +72,32 @@ def _gdal_skip_env(drivers: tuple[str, ...]) -> dict[str, str]:
     return {**os.environ, "GDAL_SKIP": " ".join(drivers), **_SCHEMA_FETCH_CLAMP}
 
 
+# A refusing proxy. Drivers allowed to read a local file still fetch some URLs
+# the file names (a GeoJSON `crs` of type link or url, a GML schema's
+# xs:include), and GDAL has no option that turns its HTTP client off. Every
+# such fetch goes through libcurl with GDAL's proxy setting, so a proxy on a
+# closed loopback port fails each one before it leaves the process.
+_NO_EGRESS_PROXY = "http://127.0.0.1:9"
+
+
+def _proxied_env(env: dict[str, str], proxy: str) -> dict[str, str]:
+    """``env`` with every HTTP request GDAL makes sent to ``proxy``.
+
+    Inherited proxy settings are dropped: libcurl honours ``NO_PROXY`` even
+    with a proxy set, and ``GDAL_HTTPS_PROXY`` wins for https. No GDAL config
+    file is read either, since one can tell GDAL to ignore the environment,
+    and pointing ``GDAL_CONFIG_FILE`` at an empty file also skips the default
+    ``$HOME/.gdal/gdalrc``.
+    """
+    env = {key: value for key, value in env.items() if "proxy" not in key.lower()}
+    return {
+        **env,
+        "GDAL_HTTP_PROXY": proxy,
+        "GDAL_HTTPS_PROXY": proxy,
+        "GDAL_CONFIG_FILE": os.devnull,
+    }
+
+
 def gdal_vector_safe_env() -> dict[str, str]:
     """Subprocess env for a vector GDAL CLI reading a LOCAL staged file.
 
@@ -78,12 +105,14 @@ def gdal_vector_safe_env() -> dict[str, str]:
     ``local_input_driver_args`` from ``processing/ingest/gdal_drivers.py``:
     that allowlist decides what MAY open the file, this decides what never
     can, and the two are independent so a gap in either isn't a way through.
+    Any HTTP request GDAL still makes goes to a proxy that refuses it, so
+    reading the file makes no outbound connection.
 
     Deliberately omits the raster ``_VRT_SAFE_ENV`` clamps: they gate the
     ``/vsicurl`` handler, which the OGR service drivers do not go through, so
     carrying them here would read as protection on paths that have none.
     """
-    return _gdal_skip_env(_NETWORK_AND_POINTER_DRIVERS)
+    return _proxied_env(_gdal_skip_env(_NETWORK_AND_POINTER_DRIVERS), _NO_EGRESS_PROXY)
 
 
 def gdal_service_safe_env(egress: ServiceEgress) -> dict[str, str]:
@@ -92,22 +121,12 @@ def gdal_service_safe_env(egress: ServiceEgress) -> dict[str, str]:
     Same clamp minus the two drivers the service importers exist to use, with
     every HTTP request sent through ``egress``, which connects only to hosts
     ``validate_url_for_ssrf`` would allow. Run the subprocess while ``egress``
-    is open. Inherited proxy settings are dropped: libcurl honours
-    ``NO_PROXY`` even with a proxy set, and ``GDAL_HTTPS_PROXY`` wins for https.
-    No GDAL config file is read either, since one can tell GDAL to ignore the
-    environment, and pointing ``GDAL_CONFIG_FILE`` at an empty file also skips
-    the default ``$HOME/.gdal/gdalrc``.
+    is open.
     """
     env = _gdal_skip_env(
         tuple(d for d in _NETWORK_AND_POINTER_DRIVERS if d not in _SERVICE_KEPT_DRIVERS)
     )
-    env = {key: value for key, value in env.items() if "proxy" not in key.lower()}
-    return {
-        **env,
-        "GDAL_HTTP_PROXY": egress.address,
-        "GDAL_HTTPS_PROXY": egress.address,
-        "GDAL_CONFIG_FILE": os.devnull,
-    }
+    return _proxied_env(env, egress.address)
 
 
 def gdal_database_safe_env(
