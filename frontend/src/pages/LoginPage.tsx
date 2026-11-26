@@ -161,7 +161,7 @@ export function LoginPage() {
   useEffect(() => {
     if (oauthError) {
       toast.error(getOAuthErrorMessage(oauthError, t));
-      window.history.replaceState({}, '', '/login');
+      window.history.replaceState(window.history.state, '', '/login');
     }
   }, [oauthError, t]);
 
