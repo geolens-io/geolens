@@ -557,3 +557,56 @@ async def test_column_rename_and_drop_follow_the_tile_allowlist(
     resp = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
     assert resp.status_code == 200, resp.text
     assert resp.json()["tile_columns"] == ["name"]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("method", "path", "body"),
+    [
+        ("POST", "columns/", {"column": {"name": "extra", "type": "text"}}),
+        ("PATCH", "columns/value/name", {"new_name": "amount"}),
+        ("PATCH", "columns/value/type", {"new_type": "integer"}),
+        ("DELETE", "columns/value", None),
+    ],
+)
+async def test_column_ddl_gives_up_behind_a_reader(
+    client: AsyncClient, admin_auth_header: dict, method: str, path: str, body
+):
+    """Column DDL behind an open reader answers 503 and leaves the reader and table as they were."""
+    import app.core.db as db_module
+    from sqlalchemy import select, text
+
+    from app.modules.catalog.datasets.domain.models import Dataset
+    from app.platform.extensions import get_catalog_port
+
+    dataset_id = await _create_layer(client, admin_auth_header, title="DDL Lock Wait")
+    before = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+    assert before.status_code == 200, before.text
+
+    async with db_module.async_session() as holder:
+        table_name = await holder.scalar(
+            select(Dataset.table_name).where(Dataset.id == dataset_id)
+        )
+        # Ends the holder if the DDL waits it out, so a missing bound shows as a
+        # change that went through rather than a hung test.
+        await holder.execute(
+            text("SET LOCAL idle_in_transaction_session_timeout = '60s'")
+        )
+        read_sql = f"SELECT 1 FROM {get_catalog_port().quote_table(table_name)} LIMIT 1"
+        # codeql[py/sql-injection] table name from the catalog row, quoted by quote_table
+        await holder.execute(text(read_sql))
+        try:
+            resp = await client.request(
+                method,
+                f"/layers/{dataset_id}/{path}",
+                json=body,
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 503, resp.text
+            assert (await holder.scalar(text("SELECT 1"))) == 1
+        finally:
+            await holder.rollback()
+
+    after = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+    assert after.status_code == 200, after.text
+    assert after.json()["column_info"] == before.json()["column_info"]

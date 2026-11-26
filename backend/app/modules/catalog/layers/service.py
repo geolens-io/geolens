@@ -21,6 +21,7 @@ from app.modules.catalog.layers.schemas import (
     COLUMN_NAME_RE,
     RESERVED_COLUMNS,
 )
+from app.platform.catalog_locks import REQUEST_LOCK_TIMEOUT
 from app.platform.extensions import get_catalog_port
 from app.modules.catalog.features.retention import refuse_retention_column_change
 from app.modules.catalog.features.service import lock_catalog_rows_for_write
@@ -69,6 +70,19 @@ async def _keep_source_names(
         .values(column_info=column_info)
     )
     return column_info
+
+
+async def _bound_ddl_lock_wait(session: AsyncSession) -> None:
+    """Make the next ALTER give up on the data table's lock after the request budget.
+
+    The ALTER queues for ACCESS EXCLUSIVE behind any open reader, such as a
+    streamed OGC page or an export, and every later read of the layer queues
+    behind the ALTER, each holding a pooled connection. Lasts the transaction.
+    """
+    await session.execute(
+        text("SELECT set_config('lock_timeout', :value, true)"),
+        {"value": REQUEST_LOCK_TIMEOUT},
+    )
 
 
 async def _follow_tile_columns(
@@ -272,6 +286,7 @@ async def add_column(
 
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} ADD COLUMN {_qcol(column_name)} {pg_type}"
+    await _bound_ddl_lock_wait(session)
     # codeql[py/sql-injection] column matches COLUMN_NAME_RE, is not reserved, and is quoted by _qcol; pg_type comes from ALLOWED_COLUMN_TYPES; table via quote_table
     await session.execute(text(ddl))
     await refuse_retention_column_change(session, dataset, column_name)
@@ -377,6 +392,7 @@ async def rename_column(
 
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} RENAME COLUMN {_qcol(column_name)} TO {_qcol(new_name)}"
+    await _bound_ddl_lock_wait(session)
     # codeql[py/sql-injection] both names match COLUMN_NAME_RE, are not reserved, and are quoted by _qcol; the old one exists on the layer; table via quote_table
     await session.execute(text(ddl))
     await refuse_retention_column_change(session, dataset, column_name, new_name)
@@ -459,6 +475,7 @@ async def alter_column_type(
         f"ALTER TABLE {table_ref} ALTER COLUMN {_qcol(column_name)} TYPE {pg_type} "
         f"USING {_qcol(column_name)}::{pg_type}"
     )
+    await _bound_ddl_lock_wait(session)
     # codeql[py/sql-injection] column exists on the layer and is quoted by _qcol; pg_type comes from ALLOWED_COLUMN_TYPES; table via quote_table
     await session.execute(text(ddl))
     await refuse_retention_column_change(session, dataset, column_name)
@@ -517,6 +534,7 @@ async def drop_column(
 
     table_ref = get_catalog_port().quote_table(dataset.table_name)
     ddl = f"ALTER TABLE {table_ref} DROP COLUMN {_qcol(column_name)}"
+    await _bound_ddl_lock_wait(session)
     # codeql[py/sql-injection] column matches COLUMN_NAME_RE, is not reserved, exists on the layer, and is quoted by _qcol; table via quote_table
     await session.execute(text(ddl))
     await refuse_retention_column_change(session, dataset, column_name)
