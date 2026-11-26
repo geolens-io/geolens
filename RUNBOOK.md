@@ -765,7 +765,7 @@ out to the host, then extract:
 
 ```bash
 # Replace <project> with your Compose project name (see `docker volume ls`).
-mkdir -p ./restore
+mkdir -p ./restore && chmod 700 ./restore && \
 docker run --rm \
   -v <project>_backup_data:/backups:ro \
   -v "$(pwd)/restore":/out \

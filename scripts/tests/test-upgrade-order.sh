@@ -397,6 +397,11 @@ DOCKERFILE_TARGET_FOR_TESTS='FROM --platform=linux/amd64 postgis/postgis:17-3.6
 run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
   _mode="$1"; shift
   make_stubs "$_mode"
+  # Runs a second apart reuse a dump name, which upgrade.sh refuses; drop
+  # earlier dumps but keep anything a test planted on purpose (symlinks).
+  for _d in "$FAKE"/backups/pre-upgrade/*.dump; do
+    [ -f "$_d" ] && [ ! -L "$_d" ] && rm -f "$_d"
+  done
   ( env "PATH=$SHIM:$PATH" GEOLENS_REPO_URL="file:///fake" \
       DOCKER_LOG="$CALLLOG" DOCKER_MIGRATE_MODE="$_mode" GIT_LOG="$GITLOG" \
       DOCKER_STOP_MODE="${STOP_MODE:-ok}" \
@@ -1667,6 +1672,74 @@ if [ -n "$(pos_of restore_app)" ]; then
 else
   bad "no restore was attempted after the missing migrate container: calls=$(tr '\n' ',' < "$WORK/calls.log")"
 fi
+
+# ============================================================================
+# The pre-upgrade dump holds password hashes and encrypted credentials: the
+# backup directory is 0700 and the dump 0600 under the usual umask 022, and a
+# directory an earlier upgrade left at 0755 is tightened.
+# ============================================================================
+seed_prod_env
+BK="$FAKE/backups/pre-upgrade"
+rm -rf "$FAKE/backups"
+mkdir -p "$BK"
+chmod 755 "$BK"
+(umask 022; run_upgrade ok 1.2.4)
+dump="$(ls "$BK"/*.dump 2>/dev/null | head -n 1)"
+if [ -n "$dump" ] \
+   && [ "$(ls -ld "$BK" | cut -c1-10)" = "drwx------" ] \
+   && [ "$(ls -l "$dump" | cut -c1-10)" = "-rw-------" ]; then
+  ok "pre-upgrade backup dir is 0700 and the dump 0600, tightening a looser existing dir"
+else
+  bad "backup perms wrong: dir=$(ls -ld "$BK" | cut -c1-10) dump=$(ls -l "$dump" 2>/dev/null | cut -c1-10)"
+fi
+if grep -qF "tightening" "$WORK/out.txt"; then
+  ok "tightening an existing looser backup dir is announced"
+else
+  bad "no tightening notice for a 0755 backup dir"
+fi
+
+# A symlinked backup dir is refused before anything is stopped, so a plain
+# chmod can't be steered at the link's target.
+seed_prod_env
+rm -rf "$FAKE/backups"
+mkdir -p "$FAKE/backups" "$WORK/elsewhere"
+chmod 755 "$WORK/elsewhere"
+ln -s "$WORK/elsewhere" "$FAKE/backups/pre-upgrade"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ] \
+   && grep -qF "is a symlink" "$WORK/out.txt" \
+   && [ -z "$(pos_of stop_app)" ] \
+   && [ "$(ls -ld "$WORK/elsewhere" | cut -c1-10)" = "drwxr-xr-x" ]; then
+  ok "a symlinked backup dir is refused before the app is stopped, target untouched"
+else
+  bad "symlinked backup dir not refused cleanly (exit=$(cat "$WORK/code.txt"))"
+fi
+rm -rf "$FAKE/backups"
+
+# A dump name planted before the run (it is predictable to the second) is
+# refused before anything is stopped, so the dump can't follow a symlink.
+seed_prod_env
+rm -rf "$FAKE/backups"
+mkdir -p "$FAKE/backups/pre-upgrade"
+printf 'keep\n' > "$WORK/planted-target"
+cat > "$SHIM/date" <<'SH'
+#!/bin/sh
+[ "$1" = "+%Y%m%d_%H%M%S" ] && { echo 20261126_120000; exit 0; }
+exec /bin/date "$@"
+SH
+chmod +x "$SHIM/date"
+ln -s "$WORK/planted-target" "$FAKE/backups/pre-upgrade/geolens_pre_1.2.3_to_1.2.4_20261126_120000.dump"
+run_upgrade ok 1.2.4
+rm -f "$SHIM/date"
+if [ "$(cat "$WORK/code.txt")" != "0" ] \
+   && grep -qF "already exists" "$WORK/out.txt" \
+   && [ -z "$(pos_of stop_app)" ] \
+   && [ "$(cat "$WORK/planted-target")" = "keep" ]; then
+  ok "a planted dump name is refused before the app is stopped, target untouched"
+else
+  bad "planted dump name not refused cleanly (exit=$(cat "$WORK/code.txt"))"
+fi
+rm -rf "$FAKE/backups" "$WORK/planted-target"
 
 echo "1..$((PASS + FAIL))"
 echo "# $PASS passed, $FAIL failed"
