@@ -194,9 +194,10 @@ logger = logging.getLogger(__name__)
 # ``ProcessingPort.plan_manifest_groups`` gained the optional keyword-only
 # ``planned_from`` and ``granted_at_plan``, with which it answers for a job
 # still to publish. A port without them gets a TypeError when an entry with
-# groups is sent again while its replacement is queued. ``ManifestGroupsPlan``
-# gained ``refused``, default None, which a job's plan sets when its write
-# would strand one of the owner's shared maps.
+# groups is sent again while its replacement is queued. It also gained the
+# optional keyword-only ``record_status``, and ``ManifestGroupsPlan`` gained
+# ``refused``, default None, which a job's plan sets when its write would
+# strand one of the owner's shared maps at that ``level`` and status.
 EXTENSION_API_VERSION: int = 29
 
 

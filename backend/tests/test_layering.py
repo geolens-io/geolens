@@ -1273,7 +1273,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 740,
+        "backend/app/platform/extensions/defaults_processing_port.py": 747,
         "backend/app/platform/extensions/defaults_extensions.py": 443,
         "backend/app/modules/catalog/search/service_filters.py": 376,
     }
@@ -1410,7 +1410,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # What every ingest strategy shares: the task app, job lifecycle and phase
     # sessions, finalization, the reupload table swap and catalog write, and
     # the manifest fields every replacement applies.
-    "backend/app/processing/ingest/tasks_common.py": 1524,
+    "backend/app/processing/ingest/tasks_common.py": 1519,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's

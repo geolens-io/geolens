@@ -571,7 +571,8 @@ class ProcessingPort(Protocol):
     # and ``granted_at_plan``, the dataset's visibility and groups when a job
     # still to publish planned the share, the answer is what that job would
     # share now, as ``apply_manifest_groups`` judges it, including whether
-    # its write would strand a shared map (``refused``). Writes nothing.
+    # its write would strand a shared map (``refused``) once the dataset is at
+    # ``level`` and ``record_status`` (None keeps its own). Writes nothing.
     async def plan_manifest_groups(
         self,
         session: AsyncSession,
@@ -582,6 +583,7 @@ class ProcessingPort(Protocol):
         level: str | None,
         planned_from: str | None = None,
         granted_at_plan: Sequence[uuid.UUID] | None = None,
+        record_status: str | None = None,
     ) -> ManifestGroupsPlan: ...
 
     # Shares a dataset a manifest job publishes with the groups it may, in the

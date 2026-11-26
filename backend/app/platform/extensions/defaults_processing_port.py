@@ -630,6 +630,7 @@ class DefaultProcessingPort:
         level,
         planned_from=None,
         granted_at_plan=None,
+        record_status=None,
     ):
         from app.modules.catalog.datasets.domain.service import (
             dataset_share_refusal,
@@ -651,7 +652,13 @@ class DefaultProcessingPort:
         )
         refused = None
         if dataset is not None and granted_at_plan is not None and not plan.unchanged:
-            refused = await dataset_share_refusal(session, dataset, plan.group_ids)
+            refused = await dataset_share_refusal(
+                session,
+                dataset,
+                plan.group_ids,
+                level=level,
+                record_status=record_status,
+            )
         return _groups_plan(plan, role_granted, refused)
 
     async def apply_manifest_groups(  # type: ignore[no-untyped-def]

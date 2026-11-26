@@ -405,8 +405,10 @@ async def settle_job_groups(
     (``_stored_share``, the port's planner, ``_share_outcome``): against the
     visibility and groups its own apply planned it from, so a group taken
     off the dataset since is not restored and a share planned for a wider
-    dataset is held back whole. A write the shared-map guard would refuse
-    keeps the dataset's groups, as the worker's refused share does. Its
+    dataset is held back whole. Both are judged at the visibility and status
+    the dataset has when the job shares it (``level_at_share``), and a write
+    the shared-map guard would refuse there keeps the dataset's groups, as
+    the worker's refused share does. Its
     replacement is then held to the entry's groups as
     ``hold_to_entry_groups`` holds it. A job creating its dataset shares
     what is planned now.
@@ -421,14 +423,19 @@ async def settle_job_groups(
         left_with = await _granted_now(db, existing.id)
     else:
         wanted, granted = stored
+        # The job writes the publication it stores, which matched this entry's.
+        level, record_status = level_at_share(
+            job_metadata, job_metadata, existing.record
+        )
         plan = await get_processing_port().plan_manifest_groups(
             db,
             existing.id,
             wanted,
             user,
-            level=fields.visibility,
+            level=level,
             planned_from=job_metadata.get(GROUPS_PLANNED_FROM_METADATA_KEY),
             granted_at_plan=granted,
+            record_status=record_status,
         )
         fields.job_held_back = []
         if plan.refused:
@@ -815,6 +822,28 @@ def shares_groups(user_metadata: dict) -> bool:
     """Whether the job shares its dataset with at least one group."""
     wanted = _stored_ids(user_metadata, GROUPS_METADATA_KEY)
     return isinstance(wanted, list) and bool(wanted)
+
+
+def shares_first(publication: dict, user_metadata: dict) -> bool:
+    """Whether a replacement's job shares its dataset before it writes
+    ``publication``. Private with groups is restricted: the share is written
+    first, so the shared-map checks judge the audience the publish leaves,
+    not a private moment between the two writes."""
+    return publication.get("visibility") == "private" and shares_groups(user_metadata)
+
+
+def level_at_share(
+    publication: dict, user_metadata: dict, record: Any
+) -> tuple[str, str]:
+    """The visibility and status ``record`` has when its replacement's job
+    shares it, ``publication`` being what the job writes: its own for a
+    share written first, else the publication's where it sets them."""
+    if shares_first(publication, user_metadata):
+        return record.visibility, record.record_status
+    return (
+        publication.get("visibility") or record.visibility,
+        publication.get("record_status") or record.record_status,
+    )
 
 
 def _groups_warning(job: Any, group_ids: list[uuid.UUID], reason: str) -> None:

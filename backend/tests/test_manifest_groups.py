@@ -2009,6 +2009,44 @@ async def test_a_replacement_whose_group_removal_is_refused_publishes_nothing(
     assert await _record(test_db_session, dataset_id) == ("restricted", "published")
 
 
+async def test_a_queued_widening_that_removes_a_maps_group_is_answered_as_a_publish(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """The job makes the dataset internal before it removes the group, so
+    the owner's map keeps its readers and the replacement publishes; the same
+    manifest sent again while the job is queued answers as that publish."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, member = await _editor(client, test_db_session, admin_auth_header)
+    key = "groups-widening-removal"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "restricted", "published"
+    )
+    await _shared_through(test_db_session, user, member, dataset_id)
+    entry = await _uploaded(
+        client, admin_auth_header, key, groups=[], visibility="internal"
+    )
+    result, task = await _queue_update(test_db_session, user, entry)
+    assert result.action == "update", result
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True)
+    )
+    [previewed] = response.results
+    assert (previewed.action, previewed.job_id) == ("skip", result.job_id)
+    assert "A056" not in _codes(previewed)
+    user = await _admin_user(test_db_session)
+    response, _ = await _apply_entries(test_db_session, user, _entries_request(entry))
+    [applied] = response.results
+    assert (applied.action, applied.job_id) == ("skip", result.job_id)
+    assert _job_refusals(applied) == []
+
+    job = await _run_update(test_db_session, result, task)
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("internal", "published")
+    assert await _dataset_grants(test_db_session, dataset_id) == set()
+
+
 async def test_a_replacement_whose_added_group_is_refused_still_publishes(
     client, admin_auth_header, test_db_session, clean_tables
 ):

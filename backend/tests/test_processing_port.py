@@ -342,6 +342,7 @@ class FakeProcessingPort:
         level,
         planned_from=None,
         granted_at_plan=None,
+        record_status=None,
     ):
         return None
 

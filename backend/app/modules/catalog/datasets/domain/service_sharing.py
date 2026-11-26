@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
+from types import SimpleNamespace
 
 import structlog
 from sqlalchemy import exists, select
@@ -34,6 +35,7 @@ from app.modules.catalog.group_sharing import (
     group_refs,
     hold_back_revoked,
     hold_back_widening,
+    level_with_groups,
     lock_share_groups,
     plan_share_groups,
     refuse_publish_key_widening_share,
@@ -106,8 +108,10 @@ async def set_dataset_groups(
         wanted |= current
     added, removed = wanted - current, current - wanted
     await refuse_unjoined_groups(session, added, actor, is_admin=is_admin)
-    visibility = await _level_shared_with(
-        session, dataset.id, record.visibility, wanted
+    visibility = level_with_groups(
+        record.visibility,
+        bool(wanted),
+        role_granted=await role_granted(session, dataset.id),
     )
     refuse_publish_key_widening_share(
         session,
@@ -157,32 +161,31 @@ async def set_dataset_groups(
     return True
 
 
-async def _level_shared_with(
-    session: AsyncSession, dataset_id: uuid.UUID, level: str, wanted: set[uuid.UUID]
-) -> str:
-    """The visibility a dataset at ``level`` ends at once shared with exactly
-    ``wanted``: grants make a private dataset restricted, and a restricted one
-    left with none, and no role grant, becomes private."""
-    if level == "private" and wanted:
-        return "restricted"
-    if level == "restricted" and not wanted:
-        if not await role_granted(session, dataset_id):
-            return "private"
-    return level
-
-
 async def dataset_share_refusal(
-    session: AsyncSession, dataset: Dataset, group_ids: Iterable[uuid.UUID]
+    session: AsyncSession,
+    dataset: Dataset,
+    group_ids: Iterable[uuid.UUID],
+    *,
+    level: str | None = None,
+    record_status: str | None = None,
 ) -> str | None:
-    """What would refuse sharing ``dataset`` with exactly ``group_ids`` now
-    because it strands one of its owner's shared maps, the guard
-    ``set_dataset_groups`` runs, as a sentence; None when nothing would. The
-    grants are stated to the guard, not written."""
-    record = dataset.record
+    """Why ``set_dataset_groups``'s shared-map guard would refuse sharing
+    ``dataset`` with exactly ``group_ids`` at ``level`` and ``record_status``
+    (None keeps its own), or None. The grants are stated, not written."""
+    stored = dataset.record
+    # The record as the share finds it, after the publish wrote its level.
+    record = SimpleNamespace(
+        id=stored.id,
+        created_by=stored.created_by,
+        visibility=level or stored.visibility,
+        record_status=record_status or stored.record_status,
+    )
     wanted = set(group_ids)
     current = set(await session.scalars(_granted(dataset.id)))
-    visibility = await _level_shared_with(
-        session, dataset.id, record.visibility, wanted
+    visibility = level_with_groups(
+        record.visibility,
+        bool(wanted),
+        role_granted=await role_granted(session, dataset.id),
     )
     # The guard runs only where grants decide who reads, as the share's own.
     if record.visibility not in ("private", "restricted") or (
