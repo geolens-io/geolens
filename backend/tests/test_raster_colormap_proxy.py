@@ -527,6 +527,57 @@ class TestRasterColormapProxy:
             f"Expected exactly 1 rescale= fragment for 1-band input, got: {tile_url.count('rescale=')} in {tile_url}"
         )
 
+    async def test_two_band_stretch_ignores_the_unrendered_band(self, client):
+        """Only band 1 of a two-band raster is rendered, so a flat band 2 must
+        not discard band 1's stretch."""
+        self._auth_band_count = 2
+        self._auth_render_params = "bidx=1&rescale=0,65535"
+        self._stats_payload = {
+            "b1": _BAND_STATS["b1"],
+            "b2": {**_BAND_STATS["b2"], "percentile_2": 0.0, "percentile_98": 0.0},
+        }
+        resp = await client.get(_TILE_PATH, params={"stretch": "percentile"})
+        assert resp.status_code in (200, 204)
+        tile_url = self._tile_titiler_calls[0]
+        assert "rescale=512.66,1304.31" in tile_url, tile_url
+        assert "rescale=0,65535" not in tile_url, tile_url
+
+    async def test_remote_grayscale_alpha_raster_stretches_from_band_one(self, client):
+        """A two-band raster with no bidx selection has band 1 statistics only."""
+        self._auth_band_count = 2
+        self._auth_render_params = "rescale=0,65535"
+        self._stats_payload = {"b1": _BAND_STATS["b1"]}
+        resp = await client.get(_TILE_PATH, params={"stretch": "percentile"})
+        assert resp.status_code in (200, 204)
+        tile_url = self._tile_titiler_calls[0]
+        assert "rescale=512.66,1304.31" in tile_url, tile_url
+
+    async def test_a_collapsed_percentile_band_falls_back_to_the_data_range(
+        self, client
+    ):
+        self._auth_band_count = 3
+        self._auth_data_range_default = True
+        self._auth_render_params = (
+            "bidx=1&bidx=2&bidx=3&rescale=0,1.0&rescale=0,1.0&rescale=0,1.0"
+        )
+        self._stats_payload = {
+            "b1": {**_BAND_STATS["b1"], "min": 100.0, "max": 200.0},
+            "b2": {
+                **_BAND_STATS["b2"],
+                "min": 200.0,
+                "max": 500.0,
+                "percentile_2": 7.0,
+                "percentile_98": 7.0,
+            },
+            "b3": {**_BAND_STATS["b3"], "min": 300.0, "max": 400.0},
+        }
+        resp = await client.get(_TILE_PATH, params={"stretch": "percentile"})
+        assert resp.status_code in (200, 204)
+        tile_url = self._tile_titiler_calls[0]
+        for rng in ("100.0,200.0", "200.0,500.0", "300.0,400.0"):
+            assert f"rescale={rng}" in tile_url, tile_url
+        assert "rescale=0,1.0" not in tile_url, tile_url
+
     async def test_four_band_stretch_capped_at_three_rescale_fragments(self, client):
         """band_count=4 is capped at 3 → exactly 3 rescale= fragments."""
         self._auth_band_count = 4
