@@ -87,7 +87,8 @@ def _proxied_env(env: dict[str, str], proxy: str) -> dict[str, str]:
     with a proxy set, and ``GDAL_HTTPS_PROXY`` wins for https. No GDAL config
     file is read either, since one can tell GDAL to ignore the environment,
     and pointing ``GDAL_CONFIG_FILE`` at an empty file also skips the default
-    ``$HOME/.gdal/gdalrc``.
+    ``$HOME/.gdal/gdalrc``. PROJ's grid download has its own HTTP client that
+    ignores the proxy, so it is switched off.
     """
     env = {key: value for key, value in env.items() if "proxy" not in key.lower()}
     return {
@@ -95,6 +96,7 @@ def _proxied_env(env: dict[str, str], proxy: str) -> dict[str, str]:
         "GDAL_HTTP_PROXY": proxy,
         "GDAL_HTTPS_PROXY": proxy,
         "GDAL_CONFIG_FILE": os.devnull,
+        "PROJ_NETWORK": "OFF",
     }
 
 
