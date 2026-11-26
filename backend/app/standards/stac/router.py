@@ -173,21 +173,6 @@ async def _resolve_urls(db: AsyncSession, request: Request) -> tuple[str, str]:
     return stac_api_url, public_api_url
 
 
-def _without_crs(geometry: Any) -> Any:
-    """The GeoJSON geometry with every ``crs`` member removed.
-
-    STAC ``intersects`` is always WGS 84. PostGIS reads a ``crs`` member, in any letter case: an
-    empty one is a parse error and an EPSG one changes the SRID.
-    """
-    if not isinstance(geometry, dict):
-        return geometry
-    cleaned = {k: v for k, v in geometry.items() if k.lower() != "crs"}
-    members = cleaned.get("geometries")
-    if isinstance(members, list):
-        cleaned["geometries"] = [_without_crs(m) for m in members]
-    return cleaned
-
-
 def _item_collection_response(result: StacItemCollection) -> Response:
     """Serialize one STAC FeatureCollection with matching HTTP navigation."""
     headers = _stac_content_language_headers(result.features)
@@ -1477,9 +1462,11 @@ def _build_search_filters(
                 "FeatureCollection",
             ):
                 raise ValueError("expected a GeoJSON geometry, not a Feature")
-            shapely.from_geojson(intersects_str)
-            check_wrap_turns(parsed)
-            intersects_str = json.dumps(_without_crs(parsed))
+            # PostGIS reads GeoJSON members case-insensitively and honours a
+            # crs member, so it only ever sees what shapely parsed. Doubles and
+            # Z survive the round trip.
+            intersects_str = shapely.to_geojson(shapely.from_geojson(intersects_str))
+            check_wrap_turns(json.loads(intersects_str))
         except (ValueError, TypeError, ShapelyError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,

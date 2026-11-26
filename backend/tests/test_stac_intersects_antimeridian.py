@@ -204,3 +204,19 @@ async def test_intersects_crs_member_is_ignored_as_wgs84(
     found = await _search(client, method, list(seam_rasters.values()), area)
 
     assert _names(seam_rasters, found) == {"east"}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("method", ["GET", "POST"])
+async def test_intersects_competing_mixed_case_members_use_one_reading(
+    client: AsyncClient, seam_rasters: dict[str, str], method: str
+):
+    """PostGIS matches member names without case; the filter must not depend on it."""
+    area = {
+        "type": "Polygon",
+        "Coordinates": [[[0, 0]]],
+        "coordinates": [[[168, 18], [177, 18], [177, 27], [168, 27], [168, 18]]],
+    }
+    found = await _search(client, method, list(seam_rasters.values()), area)
+
+    assert _names(seam_rasters, found) == {"east"}
