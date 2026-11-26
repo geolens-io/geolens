@@ -224,6 +224,7 @@ async def test_a_builder_edit_keeps_every_styling_field_and_answers_a070(
         assert (result.action, result.styling) == ("update", "kept")
         assert _codes(result) == [("A070", "info", None)]
         assert "since the last publish that replaced it" in result.messages[0].message
+        assert f"Updated layer style by {admin.username}," in result.messages[0].message
     assert await _state(test_db_session, created.map_id) == before
     map_obj = await _map_row(test_db_session, created.map_id)
     assert (map_obj.name, map_obj.description) == ("New name", "New description")
@@ -233,6 +234,102 @@ async def test_a_builder_edit_keeps_every_styling_field_and_answers_a070(
         if e.action == "manifest.publish"
     ]
     assert [e.details["styling_applied"] for e in publishes] == [True, False]
+
+
+_MISSING = ["==", ["get", "NO_SUCH_COLUMN"], "x"]
+
+
+def _asking_for_a_missing_column(dataset_id, *, mode, extra=()) -> dict:
+    return _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(dataset_id), **{**_PARKS, "filter": _MISSING}),
+        _layer("names", dataset_id=str(dataset_id)),
+        *extra,
+        styling=mode,
+    )
+
+
+@pytest.mark.parametrize(
+    ("mode", "warned"),
+    [("keep", False), ("replace", True)],
+)
+async def test_a_column_check_reads_the_styling_the_map_ends_with(
+    test_db_session, clean_tables, mode, warned
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    entry = _asking_for_a_missing_column(dataset_id, mode=mode)
+
+    [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
+    [applied] = (await _apply(test_db_session, admin, entry)).maps
+
+    for result in (checked, applied):
+        assert (("A063", "warning", "parks") in _codes(result)) is warned
+
+
+async def test_a_new_layer_on_a_kept_publish_is_still_column_checked(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    entry = _asking_for_a_missing_column(
+        dataset_id,
+        mode="keep",
+        extra=(
+            _layer(
+                "added",
+                dataset_id=str(dataset_id),
+                filter=_MISSING,
+                label_config={"column": "NO_SUCH_COLUMN"},
+            ),
+        ),
+    )
+
+    [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
+
+    assert [c for c in _codes(checked) if c[0] == "A063"] == [
+        ("A063", "warning", "added")
+    ]
+
+
+async def test_a070_shows_the_latest_edit_only_to_a_caller_who_reads_the_history(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    from sqlalchemy import update
+
+    admin = await _admin(test_db_session)
+    viewer, _ = await _person(client, test_db_session, admin_auth_header, "viewer")
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (await _apply(test_db_session, admin, _publish(dataset_id))).maps
+    await service_history.record_map_history_event(
+        test_db_session,
+        map_id=created.map_id,
+        actor=admin,
+        target_type="map",
+        action="layer.rename",
+        summary="Renamed layer to Hidden Wetlands Survey",
+    )
+    await test_db_session.commit()
+    [allowed] = (
+        await _apply(test_db_session, admin, _publish(dataset_id), dry_run=True)
+    ).maps
+    await test_db_session.execute(
+        update(Map).where(Map.id == created.map_id).values(created_by=viewer.id)
+    )
+    await test_db_session.commit()
+    [denied] = (
+        await _apply(test_db_session, viewer, _publish(dataset_id), dry_run=True)
+    ).maps
+
+    [a070] = [m for m in denied.messages if m.code == "A070"]
+    assert "A003" in [m.code for m in denied.messages]
+    assert "Wetlands" not in a070.message
+    assert "UTC" not in a070.message
+    assert "The latest edit: Renamed layer to Hidden Wetlands Survey" in (
+        [m for m in allowed.messages if m.code == "A070"][0].message
+    )
 
 
 async def test_a_republish_after_a_kept_one_still_keeps(
@@ -2856,6 +2953,41 @@ async def test_the_notes_block_is_recognised_whatever_order_the_clocks_give(
     notes = (await _map_row(test_db_session, created.map_id)).notes
     assert notes.count("Published from") == 1
     assert notes.split("\n").count("---") == 1
+
+
+async def test_an_older_publishes_block_is_recognised_among_many_recorded_ones(
+    test_db_session, clean_tables
+):
+    from app.modules.catalog.maps.models import MapEditHistoryEvent
+
+    admin = await _admin(test_db_session)
+    dataset_id = await _dataset(test_db_session, admin.id)
+    [created] = (
+        await _apply(test_db_session, admin, _publish(dataset_id, loss_report=_LOSS))
+    ).maps
+    first_block = (await _map_row(test_db_session, created.map_id)).notes.split(
+        "\n---\n"
+    )[0]
+    await _apply(test_db_session, admin, _publish(dataset_id))
+    test_db_session.add_all(
+        MapEditHistoryEvent(
+            map_id=created.map_id,
+            target_type="map",
+            action="manifest.publish",
+            summary="Published",
+            details={"notes_digest": hashlib.sha256(str(n).encode()).hexdigest()},
+        )
+        for n in range(300)
+    )
+    map_row = await _map_row(test_db_session, created.map_id)
+    map_row.notes = f"{first_block}\n---\nMine"
+    await test_db_session.commit()
+
+    await _apply(test_db_session, admin, _publish(dataset_id))
+
+    notes = (await _map_row(test_db_session, created.map_id)).notes
+    assert notes.count("Published from") == 1
+    assert notes.endswith("\n---\nMine")
 
 
 @pytest.mark.parametrize("case", ["bomb", "parser-raises", "gif"])

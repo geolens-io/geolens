@@ -52,6 +52,7 @@ from app.modules.catalog.maps.manifest_republish import (
     store_manifest_thumbnail,
     styling_applies,
     styling_edited_since_publish,
+    styling_kept_message,
     written_notes_digests,
 )
 from app.modules.catalog.maps.manifest_messages import (
@@ -643,14 +644,17 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             basemap=entry.basemap_style is not None,
             bookmarks=entry.bookmarks is not None,
         )
-        styling_applied = styling_applies(entry.styling, edited=edited)
+        styling_applied = styling_applies(entry.styling, edited=edited is not None)
         if not styling_applied and entry.styling == "replace_if_unedited":
             messages.append(
                 _message(
                     STYLING_KEPT,
                     "info",
-                    "The map's styling was edited in GeoLens since the last "
-                    "publish that replaced it, so its styling was kept.",
+                    styling_kept_message(
+                        # The history route's own gate: edit_metadata on a map
+                        # the caller owns or administers.
+                        edited if request.may_edit_maps else None
+                    ),
                     fix='Send styling "replace" to replace it.',
                 )
             )
@@ -714,7 +718,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             *(loss_lines(entry.loss_report) if styling_applied else ()),
         ],
         (
-            await written_notes_digests(session, map_obj.id)
+            await written_notes_digests(session, map_obj.id, map_obj.notes)
             if map_obj is not None
             else frozenset()
         ),
@@ -751,6 +755,26 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 ),
             )
             messages.extend([*moves.errors, *moves.warnings])
+            if not styling_applied:
+                taking_manifest = {
+                    layer.manifest_key
+                    for layer, _ in stored
+                    if layer.id in moves.layers
+                    and layer.id not in moves.keep_widgets_of
+                }
+                keeping = {
+                    layer.manifest_key for layer, _ in stored if layer.manifest_key
+                } - taking_manifest
+                # These layers keep the styling they have, not the one the
+                # manifest sent, which the two checks read.
+                messages[:] = [
+                    m
+                    for m in messages
+                    if not (
+                        m["code"] in (STYLE_KEY_DROPPED, COLUMN_MISSING)
+                        and m["layer"] in keeping
+                    )
+                ]
             plan.keep_widgets_of = moves.keep_widgets_of
             (
                 plan.layers,
