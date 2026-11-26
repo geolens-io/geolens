@@ -39,6 +39,14 @@ describe('useDataPanelClearance', () => {
     expect(viewport(container).style.getPropertyValue('--viewer-data-panel-height')).toBe('280px');
   });
 
+  it('keeps the active table height when both tables have the same height', () => {
+    const { container, rerender } = render(
+      <div id="map-viewport"><Slot key="out" height={240} /><Slot key="in" height={240} /></div>,
+    );
+    rerender(<div id="map-viewport"><Slot key="in" height={240} /></div>);
+    expect(viewport(container).style.getPropertyValue('--viewer-data-panel-height')).toBe('240px');
+  });
+
   it('resets the height when the only open table closes', () => {
     const { container, rerender } = render(<div id="map-viewport"><Slot height={240} /></div>);
     rerender(<div id="map-viewport" />);
