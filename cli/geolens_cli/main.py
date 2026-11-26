@@ -982,8 +982,8 @@ def logout(ctx: typer.Context) -> None:
     state.output.success(f"Logged out of {instance}")
     if not session_revoked:
         state.output.warn(
-            "Could not reach the server to end the session, so it may still be "
-            "active there. Sign out from the web app or try again when online."
+            "The server did not confirm the session ended, so it may still be "
+            "active there. Sign out from the web app to end it."
         )
 
 
