@@ -586,6 +586,37 @@ async def test_column_rename_onto_a_listed_name_keeps_the_column_out_of_tiles(
 
 
 @pytest.mark.anyio
+async def test_conditional_metadata_save_from_before_a_rename_is_refused(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """A rename that moves a tile allowlist entry advances the dataset's updated_at token."""
+    dataset_id = await _create_layer(client, admin_auth_header, title="Tile Token")
+    resp = await client.patch(
+        f"/datasets/{dataset_id}",
+        json={"tile_columns": ["value", "name"]},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    token = resp.json()["updated_at"]
+
+    resp = await client.patch(
+        f"/layers/{dataset_id}/columns/value/name",
+        json={"new_name": "amount"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = await client.patch(
+        f"/datasets/{dataset_id}",
+        json={"tile_columns": ["value", "name"], "expected_updated_at": token},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 409, resp.text
+    resp = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+    assert resp.json()["tile_columns"] == ["amount", "name"]
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize(
     ("method", "path", "body"),
     [

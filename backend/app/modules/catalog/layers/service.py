@@ -7,7 +7,7 @@ ingestion post-processing pipeline, and registers the layer as a catalog dataset
 import uuid
 
 import structlog
-from sqlalchemy import select, text, update
+from sqlalchemy import func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql.expression import Executable
 
@@ -110,6 +110,9 @@ async def _follow_tile_columns(
             kept.append(name)
     if kept != dataset.tile_columns:
         dataset.tile_columns = kept
+        # Advance the metadata token even for the record's last editor, so a
+        # conditional metadata save holding the old list is refused.
+        dataset.record.updated_at = func.now()
 
 
 async def _compute_quality_detail(
