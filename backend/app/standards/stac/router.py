@@ -28,6 +28,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.modules.catalog.collections.models import Collection, CollectionDataset
+from app.core.temporal import temporal_interval
 from app.core.config import settings
 from app.core.db.pg_ranges import INT8_MAX
 from app.core.identity import Identity
@@ -215,9 +216,7 @@ def _parse_extent_row(
     temporal_extent = None
     spatial_extent = rollup_bbox(ext_row[:6]) if ext_row else None
     if ext_row and (ext_row[6] is not None or ext_row[7] is not None):
-        t_start = ext_row[6].isoformat() + "T00:00:00Z" if ext_row[6] else None
-        t_end = ext_row[7].isoformat() + "T00:00:00Z" if ext_row[7] else None
-        temporal_extent = [t_start, t_end]
+        temporal_extent = temporal_interval(ext_row[6], ext_row[7])[0]
     license = _collapse_licenses(ext_row[8]) if ext_row else None
     return spatial_extent, temporal_extent, license
 

@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.temporal import temporal_interval
 from app.core.identity import Identity
 from app.core.record_types import (
     RASTER_FAMILY_RECORD_TYPES,
@@ -700,12 +701,7 @@ async def _build_collection_metadata(
         row.temporal_start is not None or row.temporal_end is not None
     ):
         temporal_extent = {
-            "interval": [
-                [
-                    row.temporal_start.isoformat() if row.temporal_start else "..",
-                    row.temporal_end.isoformat() if row.temporal_end else "..",
-                ]
-            ]
+            "interval": temporal_interval(row.temporal_start, row.temporal_end)
         }
 
     extent = {}
@@ -908,16 +904,9 @@ async def list_collections(
                 }
         if ds.record.temporal_start is not None or ds.record.temporal_end is not None:
             extent["temporal"] = {
-                "interval": [
-                    [
-                        ds.record.temporal_start.isoformat()
-                        if ds.record.temporal_start
-                        else "..",
-                        ds.record.temporal_end.isoformat()
-                        if ds.record.temporal_end
-                        else "..",
-                    ]
-                ]
+                "interval": temporal_interval(
+                    ds.record.temporal_start, ds.record.temporal_end
+                )
             }
 
         # Raster/VRT have no feature table -> mirror the detail
