@@ -784,6 +784,9 @@ async def read_features_json(
 ) -> list[str]:
     """The features *gids* name, in gid order, each as GeoJSON Feature text.
 
+    *gids* come from the database, so they bind in the column's own type: a
+    legacy table's numeric ``gid`` can lie beyond int8.
+
     Postgres serializes the geometry and properties, which are never parsed
     here. Read under the snapshot that chose *gids*, every row is still there.
     """
@@ -796,7 +799,7 @@ async def read_features_json(
         db,
         table_name,
         with_geometry=with_geometry,
-        where_sql="WHERE gid = ANY(CAST(:gids AS bigint[]))",
+        where_sql="WHERE gid = ANY(:gids)",
     )
     result = await db.execute(
         text(

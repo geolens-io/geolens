@@ -1530,7 +1530,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # expressions, since it runs only PostGIS functions on geom, and only
     # when every function the expression depends on is built in or an
     # extension's.
-    "backend/app/modules/catalog/features/service.py": 1912,
+    "backend/app/modules/catalog/features/service.py": 1915,
     # Dataset visibility, the VRT member counts and extents each requester may
     # see, which groups can't read a dataset, and whether one dataset's readers
     # reach past another's, today or by its sharing rules, share the permission

@@ -390,3 +390,57 @@ async def test_ogc_single_feature_id_beyond_int4_is_a_404(
     resp = await client.get(f"{_items_url(typed_dataset)}/{big}")
 
     assert resp.status_code == 404, resp.text
+
+
+async def test_ogc_items_list_a_numeric_gid_beyond_int8(
+    client: AsyncClient, test_db_session, admin_auth_header
+):
+    """The listed ids come from the table, so they bind as the column's type."""
+    admin_id = await get_user_id(test_db_session, "admin")
+    table_name = f"test_numgid_{uuid.uuid4().hex[:8]}"
+    big = 10**23
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table_name} ("
+            "gid NUMERIC PRIMARY KEY, geom_4326 geometry(Point, 4326))"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table_name} (gid, geom_4326) "
+            f"VALUES ({big}, ST_SetSRID(ST_MakePoint(1, 2), 4326))"
+        )
+    )
+    await test_db_session.execute(
+        text(f"GRANT SELECT ON data.{table_name} TO geolens_reader")
+    )
+    record = Record(
+        title=f"Numeric gid {table_name}",
+        summary="Numeric gid",
+        theme_category=["test"],
+        visibility="public",
+        record_status="published",
+        created_by=admin_id,
+    )
+    test_db_session.add(record)
+    await test_db_session.flush()
+    dataset = Dataset(
+        record_id=record.id,
+        table_name=table_name,
+        srid=4326,
+        geometry_type="POINT",
+        feature_count=1,
+        column_info=[],
+        source_format="created",
+    )
+    test_db_session.add(dataset)
+    await test_db_session.commit()
+    await test_db_session.refresh(dataset)
+    try:
+        resp = await client.get(_items_url(dataset), headers=admin_auth_header)
+    finally:
+        await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table_name}"))
+        await test_db_session.commit()
+
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["numberReturned"] == 1
