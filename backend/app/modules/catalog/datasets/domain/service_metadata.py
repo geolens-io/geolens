@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -267,12 +268,29 @@ async def dataset_publication_refusal(
 ) -> str | None:
     """The sentence a metadata edit moving ``dataset`` to ``visibility`` and
     ``record_status`` (None keeps its own) is refused with for stranding one
-    of its owner's shared maps, while its group grants are ``group_ids``
-    (None keeps the stored ones); None when it isn't. Writes nothing."""
+    of its owner's shared maps; None when it isn't. ``group_ids`` are grants
+    a share wrote just before, None when none did: the edit then starts from
+    the record as that share left it, its grants and the level they give a
+    private dataset. Writes nothing."""
+    from app.modules.catalog.datasets.domain.service_sharing import role_granted
+    from app.modules.catalog.group_sharing import level_with_groups
+
+    record = dataset.record
+    if group_ids is not None:
+        record = SimpleNamespace(
+            id=record.id,
+            created_by=record.created_by,
+            visibility=level_with_groups(
+                record.visibility,
+                bool(group_ids),
+                role_granted=await role_granted(session, dataset.id),
+            ),
+            record_status=record.record_status,
+        )
     try:
         await refuse_stranding_shared_maps(
             session,
-            dataset.record,
+            record,
             dataset.id,
             visibility=visibility,
             record_status=record_status,

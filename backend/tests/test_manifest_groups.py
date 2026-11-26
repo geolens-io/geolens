@@ -2058,12 +2058,9 @@ async def test_a_replacement_swapping_a_maps_group_is_refused_before_it_is_queue
     assert _layer_gaps(checked) == []
 
     user = await _admin_user(test_db_session)
-    applied, queue = await _apply_entries(
-        test_db_session, user, _entries_request(entry)
-    )
-    [refused] = applied.results
+    refused, task = await _queue_update(test_db_session, user, entry)
+    task.defer_async.assert_not_awaited()
     assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
-    queue.assert_not_awaited()
     assert await _dataset_grants(test_db_session, dataset_id) == {needed.id}
 
 
@@ -2115,8 +2112,8 @@ async def test_a_private_replacement_its_publication_would_refuse_is_not_queued(
     assert _layer_gaps(checked) == []
 
     user = await _admin_user(test_db_session)
-    applied, _ = await _apply_entries(test_db_session, user, _entries_request(entry))
-    [refused] = applied.results
+    refused, task = await _queue_update(test_db_session, user, entry)
+    task.defer_async.assert_not_awaited()
     assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
     assert await _record(test_db_session, dataset_id) == ("internal", "published")
     assert await _dataset_grants(test_db_session, dataset_id) == {needed.id}
@@ -2157,6 +2154,8 @@ async def test_a_queued_private_replacement_its_publication_will_refuse_says_so(
     [applied] = response.results
     assert (applied.action, applied.job_id) == ("skip", queued.job_id)
     assert _job_refusals(applied) == [("A056", "warning")]
+    # The job's writes roll back, so the answer is the dataset as it stands.
+    assert (applied.visibility, applied.groups) == ("internal", [needed.name])
 
     with pytest.raises(ValueError, match="used in shared maps"):
         await _run_update(test_db_session, queued, task)
@@ -2209,6 +2208,54 @@ async def test_a_replacement_answers_with_the_groups_its_refused_share_keeps(
     job = await _run_update(test_db_session, queued, task)
     assert (job.status, job.error_message) == ("complete", None)
     assert await _dataset_grants(test_db_session, dataset_id) == {kept.id}
+
+
+@pytest.mark.parametrize("queued", [False, True], ids=["fresh", "queued"])
+async def test_a_private_draft_shared_with_a_maps_group_is_answered_as_its_job_ends(
+    client, admin_auth_header, test_db_session, clean_tables, queued
+):
+    """A private dataset stays private, so its job writes the draft first,
+    which strands nobody, and then shares it with G: the owner's map shared
+    with G loses nothing, and the preview, fresh or of the queued job,
+    answers the publish the job completes."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, member = await _editor(client, test_db_session, admin_auth_header)
+    key = f"groups-private-draft-{'queued' if queued else 'fresh'}"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "private", "published"
+    )
+    shared = await _group(test_db_session, user.id, member.id)
+    await _map_needing(test_db_session, user, shared, dataset_id)
+    entry = await _uploaded(
+        client,
+        admin_auth_header,
+        key,
+        visibility="private",
+        groups=[str(shared.id)],
+        publication={"intent": "draft"},
+    )
+    if not queued:
+        response, _ = await _apply_entries(
+            test_db_session, user, _entries_request(entry, dry_run=True)
+        )
+        [previewed] = response.results
+        assert (previewed.action, _codes(previewed)) == ("update", []), previewed
+        user = await _admin_user(test_db_session)
+    result, task = await _queue_update(test_db_session, user, entry)
+    assert (result.action, _codes(result)) == ("update", []), result
+    if queued:
+        response, _ = await _apply_entries(
+            test_db_session, user, _entries_request(entry, dry_run=True)
+        )
+        [previewed] = response.results
+        assert (previewed.action, previewed.job_id) == ("skip", result.job_id)
+        assert _codes(previewed) == []
+
+    job = await _run_update(test_db_session, result, task)
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("restricted", "draft")
+    assert await _dataset_grants(test_db_session, dataset_id) == {shared.id}
 
 
 async def test_a_queued_widening_that_removes_a_maps_group_is_answered_as_a_publish(
@@ -3085,6 +3132,9 @@ async def test_a_dry_run_over_a_held_replacement_answers_as_its_accept_ends(
     [again] = applied.results
     assert (again.action, again.run_id) == ("blocked", held.run_id)
     assert _job_refusals(again) == ([] if accepted else [("A056", "warning")])
+    if not accepted:
+        # An Accept would roll back, so the answer is the dataset as it stands.
+        assert (again.visibility, again.groups) == ("restricted", [groups["a"].name])
     held = dataclasses.replace(held, user=await _admin_user(test_db_session))
 
     if accepted:

@@ -31,6 +31,7 @@ from app.platform.request_credential import (
 from app.platform.record_audience import (
     audience_phrase,
     readable_level,
+    settled_visibility,
     widens_audience,
 )
 from app.processing.ingest.manifest_schemas import (
@@ -422,6 +423,7 @@ async def settle_job_groups(
     """
     if existing is None:
         return
+    written = _publication_as_written(job_metadata, fields, existing.record)
     shared_groups = None
     stored = _stored_share(job_metadata)
     if isinstance(stored, GroupShare):
@@ -431,10 +433,7 @@ async def settle_job_groups(
         left_with = await _granted_now(db, existing.id)
     else:
         wanted, granted = stored
-        # The job writes the publication it stores, which matched this entry's.
-        level, record_status = level_at_share(
-            job_metadata, job_metadata, existing.record
-        )
+        level, record_status = level_at_share(written, job_metadata, existing.record)
         plan = await get_processing_port().plan_manifest_groups(
             db,
             existing.id,
@@ -471,9 +470,9 @@ async def settle_job_groups(
                 )
     # The job's other write, its publication, comes before the share or,
     # for a share written first, after it and on the grants it left.
-    publication, grants = job_metadata, None
-    if shares_first(job_metadata, job_metadata):
-        publication = publication_after_share(job_metadata, share)
+    publication, grants = written, None
+    if shares_first(written, job_metadata):
+        publication = publication_after_share(written, share)
         if share.shared:
             grants = shared_groups
     refusal = await get_processing_port().manifest_publication_refusal(
@@ -494,6 +493,10 @@ async def settle_job_groups(
     fields.job_refusal = _job_refused_message(
         dataset, fields.job_refused_because, publishing=refusal is not None
     )
+    # The refused job rolls both writes back: the dataset keeps its level and
+    # groups, which the entry then reports.
+    fields.visibility = fields.groups = fields.group_names = None
+    fields.groups_added = False
 
 
 async def refuse_a_share_its_job_refuses(
@@ -922,6 +925,21 @@ def publication_after_share(publication: dict, share: GroupShare) -> dict:
     if share.shared:
         return {**publication, "visibility": "restricted"}
     return publication
+
+
+def _publication_as_written(
+    job_metadata: dict, fields: ManifestEntryFields, record: Any
+) -> dict:
+    """The publication a job's publish writes over ``record`` as it is now,
+    as ``settle_stored_publication`` settles it: a visibility only where it
+    moves the record's, the narrower of the stored one and this entry's."""
+    written = {key: value for key, value in job_metadata.items() if key != "visibility"}
+    visibility = settled_visibility(
+        job_metadata.get("visibility"), fields.visibility, record.visibility
+    )
+    if visibility is not None:
+        written["visibility"] = visibility
+    return written
 
 
 def level_at_share(

@@ -1260,7 +1260,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # manifest saves its per-column text beside the attribute edit it reuses;
         # the shared-map guard also judges stated grants, as a manifest job's
         # publication will meet it.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 718,
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 736,
         # Pointer reads sit beside the detail query that shares them; the row
         # browser's page, count, label-filter and box SQL share its projection, and
         # its NULLS LAST keyset also pages the aggregate feature list.
@@ -1355,7 +1355,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # publish applies them, side by side: an apply or dry run of a replacement
     # predicts its job's share, held-back groups and refusal through the
     # worker's own helpers and guards, fresh, queued or held.
-    "backend/app/processing/ingest/manifest_dataset_fields.py": 1218,
+    "backend/app/processing/ingest/manifest_dataset_fields.py": 1236,
     # One map's check, plan and write: the styling decision, layer matching, the
     # history event, the share link and the result's visibility, groups and
     # removed layers share the row lock the apply holds, which is also where its
