@@ -19,8 +19,9 @@ function writeAddress() {
   }
   const search = urlParams.toString();
 
+  // Keep the router's history entry state; dropping it breaks the unsaved-work guard on Back.
   window.history.replaceState(
-    null,
+    window.history.state,
     '',
     search ? `${SEARCH_WORKSPACE_PATH}?${search}` : SEARCH_WORKSPACE_PATH,
   );

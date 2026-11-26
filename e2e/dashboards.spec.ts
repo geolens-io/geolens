@@ -337,6 +337,52 @@ test.describe('Dashboard widgets and layouts', () => {
     }
   });
 
+  test('a framed embed with a tall dashboard keeps its own page to the frame height', async ({
+    page,
+    browser,
+    request,
+  }) => {
+    const { mapId, shareToken } = await publicMapWithShareLink(request, datasetId);
+    try {
+      await openDashboardEditor(page, mapId, [
+        'Table',
+        'Feature list',
+        'Table',
+        'Feature list',
+        'Table',
+        'Feature list',
+      ]);
+      await save(page, mapId);
+
+      for (const panel of ['right', 'bottom']) {
+        if (panel === 'bottom') {
+          await page.getByRole('combobox', { name: 'Panel position' }).click();
+          await page.getByRole('option', { name: 'Below the map' }).click();
+          await save(page, mapId);
+        }
+
+        const reader = await anonymousPage(browser);
+        try {
+          await reader.setViewportSize({ width: 1000, height: 600 });
+          await reader.goto(`/m/${shareToken}?embed=true`);
+          const dashboardPanel = reader.getByRole('region', { name: 'Dashboard' });
+          await expect(dashboardPanel.getByRole('article')).toHaveCount(6, { timeout: 20_000 });
+          await expect(dashboardPanel.getByRole('table').first()).toBeVisible({ timeout: 15_000 });
+
+          const heights = await reader.evaluate(() => ({
+            scroll: document.scrollingElement?.scrollHeight ?? 0,
+            inner: window.innerHeight,
+          }));
+          expect(heights.scroll, `${panel} panel grew the page`).toBeLessThanOrEqual(heights.inner + 1);
+        } finally {
+          await reader.context().close();
+        }
+      }
+    } finally {
+      await deleteMap(request, mapId);
+    }
+  });
+
   test('a dashboard with a dark reader theme opens dark', async ({ page, browser, request }) => {
     const { mapId } = await publicMapWithShareLink(request, datasetId);
     try {

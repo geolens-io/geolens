@@ -113,7 +113,7 @@ async def test_a_replacement_larger_than_the_room_it_frees_is_refused(
     )
     source = await _source(test_db_session, published, user, version)
     try:
-        before = len(await _jobs_for_key(test_db_session, published.key))
+        before = {job.id for job in await _jobs_for_key(test_db_session, published.key)}
         with _at_the_cap():
             result, defer = await _apply(
                 test_db_session,
@@ -127,7 +127,8 @@ async def test_a_replacement_larger_than_the_room_it_frees_is_refused(
         assert "Storage quota exceeded" in result.message
         defer.assert_not_awaited()
         jobs = await _jobs_for_key(test_db_session, published.key)
-        assert [job.status for job in jobs[before:]] in ([], ["failed"])
+        # The query has no order, so pick out the new jobs by id.
+        assert [job.status for job in jobs if job.id not in before] in ([], ["failed"])
     finally:
         await _drop_upload(test_db_session, source)
         await _cleanup(test_db_session, published)

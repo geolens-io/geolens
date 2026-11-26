@@ -129,41 +129,50 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
   useEffect(() => {
     if (!map) return;
 
-    if (!map.getSource(MEASURE_SOURCE)) {
-      map.addSource(MEASURE_SOURCE, {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      });
-    }
+    // A basemap switch replaces the whole style (BuilderMap turns style
+    // diffing off), which drops this source and its layers with it.
+    const addOverlay = () => {
+      if (!map.getSource(MEASURE_SOURCE)) {
+        map.addSource(MEASURE_SOURCE, {
+          type: 'geojson',
+          data: {
+            type: 'FeatureCollection',
+            features: rebuildMeasurement(pointsRef.current, modeRef.current).features,
+          },
+        });
+      }
 
-    if (!map.getLayer(MEASURE_LINE_LAYER)) {
-      map.addLayer({
-        id: MEASURE_LINE_LAYER,
-        type: 'line',
-        source: MEASURE_SOURCE,
-        filter: ['==', '$type', 'LineString'],
-        paint: {
-          'line-color': MAP_COLORS.measurement.color,
-          'line-width': 2,
-          'line-dasharray': [2, 1],
-        },
-      });
-    }
+      if (!map.getLayer(MEASURE_LINE_LAYER)) {
+        map.addLayer({
+          id: MEASURE_LINE_LAYER,
+          type: 'line',
+          source: MEASURE_SOURCE,
+          filter: ['==', '$type', 'LineString'],
+          paint: {
+            'line-color': MAP_COLORS.measurement.color,
+            'line-width': 2,
+            'line-dasharray': [2, 1],
+          },
+        });
+      }
 
-    if (!map.getLayer(MEASURE_POINTS_LAYER)) {
-      map.addLayer({
-        id: MEASURE_POINTS_LAYER,
-        type: 'circle',
-        source: MEASURE_SOURCE,
-        filter: ['==', '$type', 'Point'],
-        paint: {
-          'circle-radius': 5,
-          'circle-color': MAP_COLORS.measurement.color,
-          'circle-stroke-width': 2,
-          'circle-stroke-color': MAP_COLORS.measurement.pointOutline,
-        },
-      });
-    }
+      if (!map.getLayer(MEASURE_POINTS_LAYER)) {
+        map.addLayer({
+          id: MEASURE_POINTS_LAYER,
+          type: 'circle',
+          source: MEASURE_SOURCE,
+          filter: ['==', '$type', 'Point'],
+          paint: {
+            'circle-radius': 5,
+            'circle-color': MAP_COLORS.measurement.color,
+            'circle-stroke-width': 2,
+            'circle-stroke-color': MAP_COLORS.measurement.pointOutline,
+          },
+        });
+      }
+    };
+    addOverlay();
+    map.on('style.load', addOverlay);
 
     const restoreDoubleClickZoom = map.doubleClickZoom.isEnabled();
     map.doubleClickZoom.disable();
@@ -206,6 +215,7 @@ export function MeasurementPlugin({ ctx }: { ctx: PluginContext }) {
     window.addEventListener('keydown', handleKeyDown);
 
     return () => {
+      map.off('style.load', addOverlay);
       map.off('click', handleClick);
       map.off('dblclick', handleDoubleClick);
       window.removeEventListener('keydown', handleKeyDown);

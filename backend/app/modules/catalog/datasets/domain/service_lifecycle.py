@@ -71,6 +71,9 @@ class DatasetDeletion(NamedTuple):
     # The collections it was in, whose update time the caller moves after its
     # commit.
     collection_ids: tuple[uuid.UUID, ...] = ()
+    # The maps that drew it, whose stored images the caller clears after its
+    # commit.
+    map_ids: tuple[uuid.UUID, ...] = ()
 
 
 async def reap_managed_storage(prefixes: list[str], tenant_id: str | None) -> None:
@@ -343,8 +346,12 @@ async def delete_dataset(
     await _refuse_stranding_shared_maps(session, dataset)
 
     from app.modules.catalog.collections.service import get_dataset_collection_ids
+    from app.modules.catalog.maps.service import map_ids_drawing_dataset
 
     collection_ids = await get_dataset_collection_ids(session, dataset_id)
+    # Read here, under the same locks as the refusal above: the cascade takes
+    # the layers with it.
+    map_ids = await map_ids_drawing_dataset(session, dataset_id)
 
     # Commit name retirement with the DROP and record deletion so rollback cannot
     # leave a freed name without a tombstone. This also applies to a registered
@@ -424,7 +431,9 @@ async def delete_dataset(
         name_retired=name_is_freed,
     )
 
-    return DatasetDeletion(table_name, storage_prefixes, tenant_id, collection_ids)
+    return DatasetDeletion(
+        table_name, storage_prefixes, tenant_id, collection_ids, map_ids
+    )
 
 
 async def get_dataset_versions(
