@@ -23,12 +23,13 @@ The command writes only ``map_layers`` rows. A map layer carries no
 ``updated_at`` of its own and the maps row is not touched, so a map's
 ``updated_at`` does not move. A published map is served from the live layer
 rows, so a repaired layer shows in the published map at once, with no
-republish needed; the publish-time marker is the map's ``updated_at``, so a
-republish after the repair records the same ``updated_at`` it recorded
-before. A repair writes a layer's fields back as they stand after
-validation, so a builder key validation moved out of paint into
-``style_config`` is saved with the repaired paint instead of being lost
-with it.
+republish needed. The repair does not move the map's ``updated_at``, so a
+republish after the repair sees the same publish-time marker as before;
+whether that republish keeps the repaired styling is decided from the
+map's edit history, not from ``updated_at``. A repair writes a layer's
+fields back as they stand after validation, so a builder key validation
+moved out of paint into ``style_config`` is saved with the repaired paint
+instead of being lost with it.
 """
 
 from __future__ import annotations
@@ -295,6 +296,11 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     async def _run() -> None:
+        # Import all ORM models so the SQLAlchemy mapper registry is
+        # complete before the first query: the audit import alone leaves
+        # AuditLog's User relationship unregistered, and a fresh process
+        # running only this module fails on its first query without it.
+        import app.modules.auth.models  # noqa: F401
         from app.core.db import async_session  # late-bound
 
         async with async_session() as session:

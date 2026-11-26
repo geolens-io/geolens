@@ -5,7 +5,11 @@ Requirements: the docker database must be running with migrations applied.
 
 from __future__ import annotations
 
+import os
+import subprocess
+import sys
 import uuid
+from pathlib import Path
 
 import pytest
 from sqlalchemy import event, select
@@ -92,7 +96,10 @@ async def test_command_repairs_a_saved_layer_and_reads_the_row_back(
 
     report = await repair_stored_layers(test_db_session)
 
-    [entry] = report.layers
+    # The command repairs every map in the database, so other tests'
+    # maps can share the report; look this test's layer up by its id.
+    by_layer = {entry.layer_id: entry for entry in report.layers}
+    entry = by_layer[layer_id]
     assert (entry.map_id, entry.layer_id, entry.status) == (
         map_id,
         layer_id,
@@ -118,7 +125,8 @@ async def test_command_repairs_a_saved_layer_and_reads_the_row_back(
 
     # A second run finds nothing left to repair.
     again = await repair_stored_layers(test_db_session)
-    [again_entry] = again.layers
+    again_by_layer = {entry.layer_id: entry for entry in again.layers}
+    again_entry = again_by_layer[layer_id]
     assert again_entry.status == "unchanged"
     assert again_entry.repaired == {}
     assert (await _layer_row(test_db_session, layer_id)).paint == {
@@ -297,7 +305,8 @@ async def test_command_skips_a_map_another_change_holds(test_db_session, clean_t
         report = await repair_stored_layers(test_db_session)
         await other.rollback()
 
-    [entry] = report.layers
+    by_layer = {entry.layer_id: entry for entry in report.layers}
+    entry = by_layer[layer_id]
     assert (entry.map_id, entry.layer_id, entry.status) == (
         map_id,
         layer_id,
@@ -309,7 +318,8 @@ async def test_command_skips_a_map_another_change_holds(test_db_session, clean_t
     }
     # Once the other change releases the map, a rerun repairs the layer.
     again = await repair_stored_layers(test_db_session)
-    [again_entry] = again.layers
+    again_by_layer = {entry.layer_id: entry for entry in again.layers}
+    again_entry = again_by_layer[layer_id]
     assert again_entry.status == "repaired"
 
 
@@ -335,7 +345,8 @@ async def test_command_saves_the_builder_keys_validation_moved_out_of_paint(
 
     report = await repair_stored_layers(test_db_session)
 
-    [entry] = report.layers
+    by_layer = {entry.layer_id: entry for entry in report.layers}
+    entry = by_layer[layer_id]
     assert entry.status == "repaired"
     assert entry.repaired == {"Some_Field": "some_field"}
     row = await _layer_row(test_db_session, layer_id)
@@ -345,7 +356,8 @@ async def test_command_saves_the_builder_keys_validation_moved_out_of_paint(
     }
     # A second run keeps the saved builder keys and finds nothing to repair.
     again = await repair_stored_layers(test_db_session)
-    [again_entry] = again.layers
+    again_by_layer = {entry.layer_id: entry for entry in again.layers}
+    again_entry = again_by_layer[layer_id]
     assert again_entry.status == "unchanged"
     assert (await _layer_row(test_db_session, layer_id)).style_config == {
         "builder": {"outline_color": "#ff0000", "stroke_disabled": True}
@@ -371,7 +383,8 @@ async def test_dry_run_reports_the_repair_without_writing_anything(
     report = await repair_stored_layers(test_db_session, dry_run=True)
 
     assert report.dry_run is True
-    [entry] = report.layers
+    by_layer = {entry.layer_id: entry for entry in report.layers}
+    entry = by_layer[layer_id]
     assert entry.status == "repaired"
     assert entry.repaired == {"Some_Field": "some_field"}
     assert report.format().startswith("Dry run: no changes were written.")
@@ -381,7 +394,8 @@ async def test_dry_run_reports_the_repair_without_writing_anything(
     assert (await _audit_events(test_db_session, map_id)) == []
     # The layer is still broken, so a real run repairs it.
     again = await repair_stored_layers(test_db_session)
-    [again_entry] = again.layers
+    again_by_layer = {entry.layer_id: entry for entry in again.layers}
+    again_entry = again_by_layer[layer_id]
     assert again_entry.status == "repaired"
 
 
@@ -430,3 +444,41 @@ async def test_command_records_one_audit_event_per_repaired_map(
     [second_event] = await _audit_events(test_db_session, second_map_id)
     assert second_event.details["layers_repaired"] == 1
     assert (await _audit_events(test_db_session, unchanged_map_id)) == []
+
+
+def test_command_runs_in_a_fresh_process_without_the_app_imported():
+    """The documented command works from a fresh interpreter.
+
+    A fresh process imports only this module, so AuditLog's User
+    relationship has no registered mapper unless the command imports
+    the auth models itself; without that import the first query fails
+    with InvalidRequestError. The command only reads here, so it is
+    safe to run against the test database whatever other tests left.
+    """
+    from tests.conftest import _db_unavailable_reason
+
+    if _db_unavailable_reason is not None:
+        pytest.skip(f"Postgres unreachable: {_db_unavailable_reason}")
+    backend_dir = Path(__file__).resolve().parents[1]
+    env = dict(os.environ)
+    env["PYTHONPATH"] = str(backend_dir)
+    # The command reads its database from settings.database_url, not
+    # the test URL, so point it at this run's test database, the way
+    # _point_ogr2ogr_at_test_db redirects ogr2ogr.
+    env["POSTGRES_DB"] = os.environ["POSTGRES_DB_TEST"]
+    result = subprocess.run(
+        [
+            sys.executable,
+            "-m",
+            "app.modules.catalog.maps.repair_stored_layers",
+            "--dry-run",
+        ],
+        cwd=backend_dir,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
+    )
+    assert result.returncode == 0, result.stderr
+    assert "InvalidRequestError" not in result.stderr
+    assert "Dry run: no changes were written." in result.stdout

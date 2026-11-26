@@ -221,6 +221,40 @@ def test_repair_resolves_a_source_name_that_differs_from_the_stored_name():
     assert repaired.paint == {"circle-color": ["get", "some_field"]}
 
 
+def test_repair_rewrites_a_case_variant_of_a_stored_name_that_records_a_source_name():
+    layer = _layer(
+        paint={"circle-color": ["get", "Some_Field"]},
+        label_config={"column": "SOME_FIELD"},
+    )
+
+    repaired, report = repair_layer_columns(
+        layer, [{"name": "some_field", "source_name": "Some Field"}]
+    )
+
+    assert report == ColumnRepair(
+        repaired={"Some_Field": "some_field", "SOME_FIELD": "some_field"},
+        unrepaired={},
+    )
+    assert repaired.paint == {"circle-color": ["get", "some_field"]}
+    assert repaired.label_config == {"column": "some_field"}
+
+
+def test_repair_does_not_override_an_ambiguous_source_name_match():
+    layer = _layer(paint={"circle-color": ["get", "ZONE"]})
+
+    repaired, report = repair_layer_columns(
+        layer,
+        [
+            {"name": "Zone", "source_name": "zone"},
+            {"name": "other", "source_name": "Zone"},
+        ],
+    )
+
+    assert report.repaired == {}
+    assert "ZONE" in report.unrepaired
+    assert repaired.paint == {"circle-color": ["get", "ZONE"]}
+
+
 def test_repair_resolves_a_dashed_name_by_laundering():
     layer = _layer(paint={"circle-color": ["get", "Some-Field"]})
 
