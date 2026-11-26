@@ -5,7 +5,7 @@
   - id: CVE-2026-111497
     purls:
       - "pkg:apk/alpine/brotli-libs@1.2.0-r1"
-    expired_at: 2026-11-30
+    expired_at: 2026-12-14
     statement: >-
       brotli out-of-bounds write, fixed in Alpine's brotli-libs 1.2.1-r0. The
       pinned nginxinc/nginx-unprivileged:1.31.7-alpine digest still ships
