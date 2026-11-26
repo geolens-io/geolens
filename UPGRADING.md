@@ -184,12 +184,13 @@ Upgrade the Python SDK and CLI to 1.35 before you read the status of a version
 `manifest_widening_kept` warning, and the 1.34 SDK raises on a warning kind it
 doesn't know.
 
-A finished upload that nothing has imported yet now waits 24 hours on local
-storage before the stale sweep cancels it, as it already does on S3 and Azure
-storage, so the staging directory can hold such files for a day. An API
-instance or worker still on 1.34 keeps the one-hour wait and cancels a
-finished upload after `PENDING_JOB_TIMEOUT_SECONDS`, so finish upgrading every
-instance, API and worker, before you upload a large version 2 batch.
+A finished upload that nothing has imported yet now waits on local storage for
+24 hours, or `PENDING_JOB_TIMEOUT_SECONDS` plus an hour if that is longer,
+before the stale sweep cancels it, as it already does on S3 and Azure storage.
+The staging directory can hold such files for that long. An API instance or
+worker still on 1.34 cancels a finished upload after
+`PENDING_JOB_TIMEOUT_SECONDS` itself, an hour by default, so finish upgrading
+every instance, API and worker, before you upload a large version 2 batch.
 
 A plain upload or URL import at the account's dataset cap is now accepted and
 refused at commit, with the same 422, where it used to be refused at upload.
