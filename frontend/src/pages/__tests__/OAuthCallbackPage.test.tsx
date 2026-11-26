@@ -117,6 +117,18 @@ describe('OAuthCallbackPage', () => {
     expect(mockNavigate).toHaveBeenCalledWith('/', { replace: true });
   });
 
+  it('keeps the router history state when it scrubs the callback fragment', async () => {
+    mockGetMe.mockResolvedValueOnce(userA);
+    setStartedHash('#code=one-time-code');
+    const routerState = { idx: 4, key: 'k', usr: null };
+    window.history.replaceState(routerState, '', window.location.href);
+
+    render(<OAuthCallbackPage />);
+
+    await waitFor(() => expect(useAuthStore.getState().user).toEqual(userA));
+    expect(window.history.state).toEqual(routerState);
+  });
+
   it('installs the exchanged session before the exchange gives up the cookie lock', async () => {
     deferProfile();
     let tokenWhenInstallReturned: string | null = null;

@@ -37,7 +37,7 @@ export function OAuthCallbackPage() {
 
     const error = params.get('error');
     if (error) {
-      window.history.replaceState({}, '', '/oauth/callback');
+      window.history.replaceState(window.history.state, '', '/oauth/callback');
       navigate('/login', { replace: true, state: { oauthError: decodeURIComponent(error) } });
       return;
     }
@@ -49,7 +49,7 @@ export function OAuthCallbackPage() {
     const nonce = params.get('nonce');
 
     // Removes the fragment holding the code or tokens right away.
-    window.history.replaceState({}, '', '/oauth/callback');
+    window.history.replaceState(window.history.state, '', '/oauth/callback');
 
     // Only a sign-in this tab started may complete here. Anything else
     // installs nothing and leaves the current session alone.
