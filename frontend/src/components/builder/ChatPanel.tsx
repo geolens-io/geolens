@@ -20,6 +20,7 @@ import type { MapLayerResponse, ChatAction, ChatHistoryMessage, LabelConfig, Sty
 import type { EphemeralAnalysisHandoff } from '@/components/builder/hooks/use-ephemeral-layers';
 import type { RenderAsId } from '@/components/builder/renderAs';
 import { ChatInput } from './ChatInput';
+import { withPlacementOf } from './folder-groups';
 import { getSmartSuggestions, type ChatSuggestion, type ViewportContext } from './chat-suggestions';
 import { randomId } from '@/lib/random-id';
 import { formatQueryCell } from '@/lib/query-cell';
@@ -570,7 +571,7 @@ export function ChatPanel({
     const restored = snapshot.layers.flatMap((layer) => {
       const now = current.get(layer.id);
       if (!now || !snapshot.touchedLayerIds.has(layer.id)) return [];
-      return [{ ...layer, sort_order: now.sort_order }];
+      return [withPlacementOf(layer, now)];
     });
 
     // Restore each layer's full state in one atomic update.
