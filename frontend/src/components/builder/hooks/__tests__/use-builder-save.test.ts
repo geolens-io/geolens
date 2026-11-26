@@ -1518,6 +1518,11 @@ describe('useBuilderSave', () => {
       ['refused widgets', 422, { message: "Some dashboard widgets can't be saved on this map", widget_ids: ['x'] }],
       ['too many widgets', 422, 'A dashboard holds at most 50 widgets'],
       ['a dashboard from a newer GeoLens', 409, "This dashboard was saved by a newer version of GeoLens and can't be changed here."],
+      [
+        'a layer move its newer dashboard can\'t follow',
+        409,
+        "This map's dashboard holds widgets this version of GeoLens can't read, so a layer can't move to a dataset that people who can't read its current dataset can read. Remove the layer's widgets in the GeoLens that added them, or keep the layer on its dataset.",
+      ],
     ])('says why the server refused %s', async (_label, status, detail) => {
       const { toast } = await import('sonner');
       mockUpdateMapMutateAsync.mockRejectedValueOnce(new ApiError('Localized reason', status, detail));

@@ -41,6 +41,8 @@ const EXACT_ERROR_KEYS: Record<string, ApiErrorDescriptor['key']> = {
   "This dashboard was saved by a newer version of GeoLens and can't be changed here.":
     'errors.dashboardTooNew',
   'A dashboard holds at most 50 widgets': 'errors.dashboardTooManyWidgets',
+  "This map's dashboard holds widgets this version of GeoLens can't read, so a layer can't move to a dataset that people who can't read its current dataset can read. Remove the layer's widgets in the GeoLens that added them, or keep the layer on its dataset.":
+    'errors.dashboardLayerMoveRefused',
   'Another change to this map is in progress. Retry shortly.': 'errors.mapChangeInProgress',
   'Share the map with a group before making it restricted.': 'errors.mapRestrictedNeedsGroups',
   'You can share a dataset only with groups you belong to.': 'errors.groupNotJoined',
