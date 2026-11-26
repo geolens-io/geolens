@@ -96,4 +96,15 @@ describe('LayerLegend squeezed beside the table', () => {
     setRoom(40);
     expect(screen.getByRole('button', { name: 'Show legend' })).toHaveFocus();
   });
+
+  it('puts the overlay away when focus moves on into the page', () => {
+    render(<><Harness /><button>Table control</button></>);
+    setRoom(40);
+    fireEvent.click(screen.getByRole('button', { name: 'Show legend' }));
+    const row = screen.getByRole('region').querySelector('button')!;
+    row.focus();
+    fireEvent.focusOut(row, { relatedTarget: screen.getByRole('button', { name: 'Table control' }) });
+    expect(screen.queryByRole('region')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Show legend' })).toBeInTheDocument();
+  });
 });

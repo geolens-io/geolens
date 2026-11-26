@@ -166,6 +166,12 @@ test.describe('Viewer Map data panel', () => {
           await page.keyboard.press('Escape');
           await expect(legend).toHaveCount(0);
           await expect(toggle).toHaveAttribute('aria-label', 'Show legend');
+
+          // Moving focus on into the table also puts the overlay away.
+          await toggle.click();
+          await expect(legend).toBeVisible();
+          await panel.getByRole('radio', { name: 'Table' }).focus();
+          await expect(legend).toHaveCount(0);
         }
       } finally {
         await deleteMap(request, tallMapId);

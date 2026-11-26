@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { useTranslation } from 'react-i18next';
 import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
@@ -133,6 +133,13 @@ export function LayerLegend({
       if (!isOpen) onToggle();
     }
   }
+  // The overlay sits over the table, so focus moving on into the page (not
+  // between the legend and its toggle) puts it away.
+  function handleBlur(e: FocusEvent<HTMLElement>) {
+    const next = e.relatedTarget as Node | null;
+    if (!overlay || !next || panelRef.current?.contains(next) || toggleRef.current?.contains(next)) return;
+    setPeek(false);
+  }
   // Escape closes the panel only while focus is in the legend, and marks the
   // event handled so FeaturePopup and BasemapToggle's document listeners skip it.
   function handleEscape(e: KeyboardEvent<HTMLElement>) {
@@ -155,6 +162,7 @@ export function LayerLegend({
         type="button"
         onClick={toggle}
         onKeyDown={handleEscape}
+        onBlur={handleBlur}
         aria-expanded={shown}
         aria-controls={panelId}
         aria-label={shown ? t('viewer.legend.hide') : t('viewer.legend.show')}
@@ -171,6 +179,7 @@ export function LayerLegend({
       <div
         ref={panelRef}
         onKeyDown={handleEscape}
+        onBlur={handleBlur}
         onScroll={updateMoreBelow}
         id={panelId}
         role="region"
