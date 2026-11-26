@@ -2465,6 +2465,54 @@ async def test_replace_under_a_newer_dashboard_answers_alike_for_a_hidden_and_a_
     assert "A099" not in {code for code, _, _ in _codes(hidden_applied)}
 
 
+async def test_replace_refuses_moving_a_layer_off_a_dataset_the_caller_cant_read(
+    client, test_db_session, admin_auth_header, clean_tables
+):
+    """Under a dashboard whose widgets can't be removed, a move from a
+    dataset the caller can't read to one it can widens, and a dry run says so."""
+    from sqlalchemy import update
+
+    admin = await _admin(test_db_session)
+    editor, _ = await _person(client, test_db_session, admin_auth_header)
+    own = await _dataset(test_db_session, editor.id)
+    admins = await _dataset(test_db_session, admin.id)
+    first = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(admins)),
+        _layer("names", dataset_id=str(own)),
+    )
+    [created] = (await _apply(test_db_session, editor, first)).maps
+    [parks] = [
+        layer
+        for layer in await _layers(test_db_session, created.map_id)
+        if layer.manifest_key == "parks"
+    ]
+    widget = {**_HISTOGRAM, "v": 2, "id": _WIDGET_ID, "layer_id": str(parks.id)}
+    await test_db_session.execute(
+        update(Map)
+        .where(Map.id == created.map_id)
+        .values(dashboard_config={"version": 2, "widgets": [widget]})
+    )
+    await test_db_session.commit()
+    await _hide(test_db_session, admins)
+    rows = await _rows(test_db_session, created.map_id)
+    entry = _entry(
+        "qgis-map-parks",
+        _layer("parks", dataset_id=str(own)),
+        _layer("names", dataset_id=str(own)),
+        styling="replace",
+    )
+
+    [checked] = (await _apply(test_db_session, editor, entry, dry_run=True)).maps
+    [result] = (await _apply(test_db_session, editor, entry)).maps
+
+    for answer in (checked, result):
+        assert answer.action == "error"
+        assert [m.layer for m in answer.messages if m.code == "A099"] == ["parks"]
+    assert _codes(checked) == _codes(result)
+    assert await _rows(test_db_session, created.map_id) == rows
+
+
 async def test_a_kept_layer_on_a_dataset_the_request_creates_isnt_judged_yet(
     test_db_session, clean_tables
 ):

@@ -289,19 +289,23 @@ class Moves(NamedTuple):
     """Moves the map can't make, which refuse the whole map."""
 
 
+def _repointed(
+    stored: Iterable[tuple[MapLayer, Any]], targets: Mapping[str, Target]
+) -> Iterator[tuple[MapLayer, Any, Target]]:
+    """Each matched keyed layer whose manifest names another dataset."""
+    for layer, was in stored:
+        target = targets.get(layer.manifest_key) if layer.manifest_key else None
+        if target is not None and target.dataset_id not in (None, layer.dataset_id):
+            yield layer, was, target
+
+
 def _moving(
     stored: Iterable[tuple[MapLayer, Any]], targets: Mapping[str, Target]
 ) -> Iterator[tuple[MapLayer, Any, Target]]:
-    """Each matched keyed layer whose manifest dataset is another one the
-    caller can read, on a stored dataset the caller can read."""
-    for layer, was in stored:
-        target = targets.get(layer.manifest_key) if layer.manifest_key else None
-        if (
-            was is not None
-            and target is not None
-            and target.dataset is not None
-            and target.dataset_id != layer.dataset_id
-        ):
+    """Each of those whose manifest dataset the caller can read, on a stored
+    dataset the caller can read."""
+    for layer, was, target in _repointed(stored, targets):
+        if was is not None and target.dataset is not None:
             yield layer, was, target
 
 
@@ -363,15 +367,18 @@ def move_kept_layers(
     ``widening_moves`` found widening who reads the layer; such a move is an
     error when the map's dashboard holds widgets this server can't read,
     since it can't remove them. When the publish replaces the styling, only
-    those errors apply.
+    those errors apply, and a layer it moves from a dataset the caller can't
+    read to one it can is one of them: the caller reads the new dataset and
+    not the old, so the move widens without any audience read.
     """
     moves = Moves({}, [], [], [])
     if not kept:
         if not can_drop_widgets(dashboard):
             moves.errors.extend(
                 _stranded(layer)
-                for layer, _, target in _moving(stored, targets)
-                if (layer.dataset_id, target.dataset_id) in widening
+                for layer, was, target in _repointed(stored, targets)
+                if target.dataset is not None
+                and (was is None or (layer.dataset_id, target.dataset_id) in widening)
             )
         return moves
     widgets = stored_widgets(dashboard)
