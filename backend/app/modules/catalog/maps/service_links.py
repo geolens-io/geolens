@@ -10,7 +10,9 @@ import uuid
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 
+from sqlalchemy import event
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from app.modules.catalog.authorization import (
     ANONYMOUS_MAP_VISIBILITIES,
@@ -65,21 +67,34 @@ async def links_retired_last(session: AsyncSession) -> AsyncIterator[None]:
     in the same transaction, when the block ends without raising.
 
     For a write that can still be refused after it narrows a map or drops a
-    layer: run every refusing step inside the block, and commit after it."""
+    layer: run every refusing step inside the block, and commit after it. A
+    commit while a revocation is held raises ``RuntimeError``."""
     if _HELD_REVOCATIONS in session.info:
         yield
         return
     held: dict[uuid.UUID, bool] = {}
     session.info[_HELD_REVOCATIONS] = held
+    event.listen(session.sync_session, "before_commit", _refuse_commit_while_held)
     try:
         yield
     finally:
+        event.remove(session.sync_session, "before_commit", _refuse_commit_while_held)
         del session.info[_HELD_REVOCATIONS]
     for map_id in sorted(held):
         if held[map_id]:
             await _revoke_links(session, map_id)
         else:
             await revoke_embed_tokens_for_dropped_datasets(session, map_id)
+
+
+def _refuse_commit_while_held(session: Session) -> None:
+    # A savepoint release is not a commit.
+    if session.in_nested_transaction():
+        return
+    if session.info.get(_HELD_REVOCATIONS):
+        raise RuntimeError(
+            "A map's link revocations are held: commit after links_retired_last."
+        )
 
 
 async def _revoke_links(session: AsyncSession, map_id: uuid.UUID) -> None:

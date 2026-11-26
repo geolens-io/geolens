@@ -11,7 +11,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from app.modules.catalog.maps import manifest_apply
-from app.modules.catalog.maps.models import MapLayer
+from app.modules.catalog.maps.models import Map, MapLayer
+from app.modules.catalog.maps.service import links_retired_last, update_map
 from app.modules.catalog.stories.groups import sharing_blocking_maps
 from app.modules.catalog.stories.schemas import BlockingMap
 from app.modules.catalog.stories.service import StoryReachError
@@ -184,3 +185,46 @@ async def test_a_story_attempt_refused_after_sharing_a_map_keeps_its_embed_token
     await test_db_session.commit()
 
     assert await _state(test_db_session, raw, dataset_id, token_id) == (False, False)
+
+
+async def test_a_commit_inside_a_block_holding_a_revocation_is_refused(
+    client: AsyncClient,
+    layered,  # noqa: F811
+    test_db_session,
+):
+    await _narrowable(client, layered, "public")
+    map_id = uuid.UUID(layered["map"])
+    token_id, raw, dataset_id = await _mint(
+        test_db_session, map_id, uuid.UUID(layered["owner_id"])
+    )
+
+    with pytest.raises(RuntimeError):
+        async with links_retired_last(test_db_session):
+            await update_map(test_db_session, map_id, visibility="private")
+            await test_db_session.commit()
+    await test_db_session.rollback()
+
+    assert (
+        await test_db_session.scalar(select(Map.visibility).where(Map.id == map_id))
+        == "public"
+    )
+    assert await _state(test_db_session, raw, dataset_id, token_id) == (True, True)
+
+
+async def test_a_block_holding_nothing_commits(
+    client: AsyncClient,
+    layered,  # noqa: F811
+    test_db_session,
+):
+    await _narrowable(client, layered, "public")
+    map_id = uuid.UUID(layered["map"])
+
+    async with links_retired_last(test_db_session):
+        await update_map(test_db_session, map_id, name="renamed in a block")
+        await test_db_session.commit()
+
+    test_db_session.expire_all()
+    assert (
+        await test_db_session.scalar(select(Map.name).where(Map.id == map_id))
+        == "renamed in a block"
+    )
