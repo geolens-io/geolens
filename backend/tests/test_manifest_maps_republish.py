@@ -1827,6 +1827,7 @@ async def test_a_move_into_an_empty_group_is_wider_for_its_later_members(
     assert (parks.dataset_id, _SECRET_CATEGORY in str(parks.paint)) == (second, False)
 
 
+@pytest.mark.parametrize("styling", ["keep", "replace"])
 @pytest.mark.parametrize(
     ("dashboard_version", "widget_version"),
     [(2, 2), (1, 99)],
@@ -1840,6 +1841,7 @@ async def test_a_widening_move_refuses_a_map_whose_dashboard_it_cant_rewrite(
     monkeypatch,
     dashboard_version,
     widget_version,
+    styling,
 ):
     """A dashboard a newer server saved, or a widget this server can't parse,
     stays through a move, since it can't tell which layer the widget names;
@@ -1866,7 +1868,7 @@ async def test_a_widening_move_refuses_a_map_whose_dashboard_it_cant_rewrite(
     )
     await test_db_session.commit()
     rows = await _rows(test_db_session, created.map_id)
-    entry = _publish(second, styling="keep", visibility="public")
+    entry = _publish(second, styling=styling, visibility="public")
 
     [checked] = (await _apply(test_db_session, admin, entry, dry_run=True)).maps
     [result] = (await _apply(test_db_session, admin, entry)).maps

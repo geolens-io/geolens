@@ -28,6 +28,10 @@ from app.modules.catalog.maps.dashboard import (
     merge_dashboard,
     shows_widgets,
 )
+from app.modules.catalog.maps.dashboard_moves import (
+    STRANDED_WIDGETS,
+    stranding_moves,
+)
 from app.modules.catalog.maps.dashboard_filters import (
     refuse_layer_filter_past_limits,
     widget_filter_refusals,
@@ -636,7 +640,9 @@ async def _saved_dashboard(
 
     ``before`` holds each layer's dataset and filter before a replacement, and
     is None when the save left the layers alone. Widgets on a layer moved to
-    another dataset are dropped unless the layer is in ``keep_widgets_of``.
+    another dataset are dropped unless the layer is in ``keep_widgets_of``;
+    a move whose widgets can't be dropped and that widens who reads the
+    layer (``stranding_moves``) raises 409.
     """
     layers = list(
         (
@@ -644,12 +650,18 @@ async def _saved_dashboard(
         ).all()
     )
     stored_layers = before or {}
-    repointed = {
-        layer.id
+    moves = {
+        layer.id: (stored_layers[layer.id][0], layer.dataset_id)
         for layer in layers
-        if stored_layers.get(layer.id, (layer.dataset_id,))[0] != layer.dataset_id
+        if layer.id in stored_layers
+        and stored_layers[layer.id][0] != layer.dataset_id
         and layer.id not in keep_widgets_of
     }
+    if await stranding_moves(session, map_obj.dashboard_config, moves.values()):
+        raise HTTPException(
+            status_code=status.HTTP_409_CONFLICT, detail=STRANDED_WIDGETS
+        )
+    repointed = set(moves)
     saved = drop_repointed(map_obj.dashboard_config, repointed)
     if sent is not _UNSET:
         config = None if sent is None else DashboardConfigInput.model_validate(sent)
