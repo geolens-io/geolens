@@ -107,5 +107,7 @@ async def embed_frame_policy(
     response.headers["Content-Security-Policy"] = csp
     # Just the directive (possibly empty) for the nginx auth_request_set copy.
     response.headers["X-Embed-Frame-Ancestors"] = frame_ancestors
+    # The answer depends on X-Embed-Query, which a URL-keyed cache would miss.
+    response.headers["Cache-Control"] = "no-store"
     response.status_code = 200
     return response

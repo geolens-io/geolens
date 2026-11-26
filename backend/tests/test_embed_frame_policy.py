@@ -263,6 +263,8 @@ async def test_frame_policy_reads_encoded_et_name_from_shell_query(
         resp.headers["x-embed-frame-ancestors"]
         == "frame-ancestors 'self' https://partner.example"
     )
+    # A plain share sends the same URL, so no cache may reuse either answer.
+    assert resp.headers["cache-control"] == "no-store"
 
 
 @pytest.mark.parametrize(
@@ -300,6 +302,7 @@ async def test_frame_policy_shell_query_without_et_is_open_framing(
     assert resp.status_code == 200
     assert resp.headers.get("x-embed-frame-ancestors", "") == ""
     assert "frame-ancestors" not in resp.headers.get("content-security-policy", "")
+    assert resp.headers["cache-control"] == "no-store"
 
 
 # ---------------------------------------------------------------------------
