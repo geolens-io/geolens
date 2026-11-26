@@ -164,3 +164,44 @@ async def test_the_images_are_cleared_before_the_storage_reap_starts(
         assert seen_at_reap == [(None, None), (None, None)]
     finally:
         await _cleanup_data_table(test_db_session, private.table_name)
+
+
+@pytest.mark.parametrize("bulk", [False, True])
+async def test_an_interrupted_clear_still_reaps_the_datasets_storage(
+    client: AsyncClient, admin_auth_header: dict, test_db_session, monkeypatch, bulk
+):
+    owner_headers, private, *_ = await _maps_around_a_private_dataset(
+        client, admin_auth_header, test_db_session
+    )
+    reaped: list = []
+
+    async def interrupted_clear(session, map_ids):
+        raise RuntimeError("interrupted")
+
+    async def recording_reap(*deletions):
+        reaped.extend(deletions)
+
+    monkeypatch.setattr(
+        datasets_router, "clear_images_after_dataset_delete", interrupted_clear
+    )
+    monkeypatch.setattr(datasets_router, "_reap_after_commit", recording_reap)
+    try:
+        with pytest.raises(RuntimeError, match="interrupted"):
+            if bulk:
+                await client.post(
+                    "/datasets/bulk-delete/",
+                    json={
+                        "datasets": [
+                            {
+                                "dataset_id": str(private.id),
+                                "confirm_title": private.record.title,
+                            }
+                        ]
+                    },
+                    headers=owner_headers,
+                )
+            else:
+                await _delete(client, private, owner_headers)
+        assert [d.table_name for d in reaped] == [private.table_name]
+    finally:
+        await _cleanup_data_table(test_db_session, private.table_name)
