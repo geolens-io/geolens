@@ -226,8 +226,15 @@ export const ViewerMap = memo(function ViewerMap({
   useEffect(() => (shellRef.current ? keepCompactAttributionFolded(shellRef.current) : undefined), []);
   // The legend is a sibling of this map, so it can't see the docked table
   // shrinking the visible map. It reads the table's height from the viewport.
+  const viewportRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const viewport = shellRef.current?.closest<HTMLElement>('#map-viewport') ?? null;
+    viewportRef.current = viewport;
+    // A story keeps the viewport when it swaps maps, so a closing map clears its own value.
+    return () => { viewport?.style.removeProperty('--viewer-data-panel-height'); };
+  }, []);
   const reportDataPanelHeight = useCallback((height: number) => {
-    shellRef.current?.closest<HTMLElement>('#map-viewport')?.style.setProperty('--viewer-data-panel-height', `${height}px`);
+    viewportRef.current?.style.setProperty('--viewer-data-panel-height', `${height}px`);
     onDataPanelHeightChange?.(height);
   }, [onDataPanelHeightChange]);
   const managedSourcesRef = useRef<Set<string>>(new Set());
