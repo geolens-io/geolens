@@ -527,6 +527,21 @@ class TestRasterColormapProxy:
             f"Expected exactly 1 rescale= fragment for 1-band input, got: {tile_url.count('rescale=')} in {tile_url}"
         )
 
+    async def test_two_band_stretch_ignores_the_unrendered_band(self, client):
+        """Only band 1 of a two-band raster is rendered, so a flat band 2 must
+        not discard band 1's stretch."""
+        self._auth_band_count = 2
+        self._auth_render_params = "bidx=1&rescale=0,65535"
+        self._stats_payload = {
+            "b1": _BAND_STATS["b1"],
+            "b2": {**_BAND_STATS["b2"], "percentile_2": 0.0, "percentile_98": 0.0},
+        }
+        resp = await client.get(_TILE_PATH, params={"stretch": "percentile"})
+        assert resp.status_code in (200, 204)
+        tile_url = self._tile_titiler_calls[0]
+        assert "rescale=512.66,1304.31" in tile_url, tile_url
+        assert "rescale=0,65535" not in tile_url, tile_url
+
     async def test_four_band_stretch_capped_at_three_rescale_fragments(self, client):
         """band_count=4 is capped at 3 → exactly 3 rescale= fragments."""
         self._auth_band_count = 4
