@@ -551,7 +551,14 @@ fi
 # keep answering, though the frontend can only return errors for API calls until
 # the new api is running.
 BACKUP_DIR="$PROJECT_ROOT/backups/pre-upgrade"
-mkdir -p "$BACKUP_DIR"
+# The dump holds password hashes, API key hashes and encrypted credentials, so
+# keep it owner-only whatever the umask, and tighten a directory an earlier
+# upgrade left looser.
+if [ -d "$BACKUP_DIR" ] && [ "$(ls -ld "$BACKUP_DIR" | cut -c5-10)" != "------" ]; then
+  say "  tightening $BACKUP_DIR to owner-only (0700)"
+fi
+(umask 077 && mkdir -p "$BACKUP_DIR") && chmod 700 "$BACKUP_DIR" \
+  || fail "Could not create $BACKUP_DIR with owner-only permissions."
 STAMP="$(date '+%Y%m%d_%H%M%S')"
 BACKUP_FILE="$BACKUP_DIR/${POSTGRES_DB}_pre_${CURRENT_VERSION:-unknown}_to_${TARGET_VERSION}_${STAMP}.dump"
 
@@ -627,8 +634,8 @@ APP_DOWN=1
 say "  pre-upgrade database backup -> $BACKUP_FILE"
 # -Fc custom-format dump (the format restore.sh expects via pg_restore). Stream
 # to the host file via `exec -T` so the dump lands outside the container.
-if ! compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
-    -Fc --no-owner --no-acl > "$BACKUP_FILE"; then
+if ! (umask 077; compose exec -T db pg_dump -U "$POSTGRES_USER" -d "$POSTGRES_DB" \
+    -Fc --no-owner --no-acl > "$BACKUP_FILE"); then
   rm -f "$BACKUP_FILE"
   report_restore
   fail "Pre-upgrade backup failed (pg_dump). Aborting before the database was changed."

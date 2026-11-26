@@ -1668,6 +1668,31 @@ else
   bad "no restore was attempted after the missing migrate container: calls=$(tr '\n' ',' < "$WORK/calls.log")"
 fi
 
+# ============================================================================
+# The pre-upgrade dump holds password hashes and encrypted credentials: the
+# backup directory is 0700 and the dump 0600 under the usual umask 022, and a
+# directory an earlier upgrade left at 0755 is tightened.
+# ============================================================================
+seed_prod_env
+BK="$FAKE/backups/pre-upgrade"
+rm -rf "$FAKE/backups"
+mkdir -p "$BK"
+chmod 755 "$BK"
+(umask 022; run_upgrade ok 1.2.4)
+dump="$(ls "$BK"/*.dump 2>/dev/null | head -n 1)"
+if [ -n "$dump" ] \
+   && [ "$(ls -ld "$BK" | cut -c1-10)" = "drwx------" ] \
+   && [ "$(ls -l "$dump" | cut -c1-10)" = "-rw-------" ]; then
+  ok "pre-upgrade backup dir is 0700 and the dump 0600, tightening a looser existing dir"
+else
+  bad "backup perms wrong: dir=$(ls -ld "$BK" | cut -c1-10) dump=$(ls -l "$dump" 2>/dev/null | cut -c1-10)"
+fi
+if grep -qF "tightening" "$WORK/out.txt"; then
+  ok "tightening an existing looser backup dir is announced"
+else
+  bad "no tightening notice for a 0755 backup dir"
+fi
+
 echo "1..$((PASS + FAIL))"
 echo "# $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
