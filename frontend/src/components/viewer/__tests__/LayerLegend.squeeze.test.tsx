@@ -107,4 +107,14 @@ describe('LayerLegend squeezed beside the table', () => {
     expect(screen.queryByRole('region')).not.toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Show legend' })).toBeInTheDocument();
   });
+
+  it('keeps focus on a layer control while an open overlay is resized', () => {
+    render(<Harness />);
+    setRoom(40);
+    fireEvent.click(screen.getByRole('button', { name: 'Show legend' }));
+    const row = screen.getByRole('region').querySelector('button')!;
+    row.focus();
+    setRoom(30);
+    expect(row).toHaveFocus();
+  });
 });

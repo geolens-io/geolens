@@ -88,6 +88,7 @@ export function LayerLegend({
   // of the toggle then opens it over the table until there is room again.
   const roomRef = useRef<HTMLDivElement>(null);
   const [tight, setTight] = useState(false);
+  const tightRef = useRef(false);
   const [peek, setPeek] = useState(false);
   useEffect(() => {
     const el = roomRef.current;
@@ -95,7 +96,10 @@ export function LayerLegend({
     const observer = new ResizeObserver(() => {
       const minRoom = 6 * parseFloat(getComputedStyle(document.documentElement).fontSize || '16');
       const next = el.getBoundingClientRect().height < minRoom;
-      if (next && panelRef.current?.contains(document.activeElement)) toggleRef.current?.focus();
+      // Only the moment the panel disappears moves focus; an overlay the reader
+      // opened keeps it through resizes.
+      if (next && !tightRef.current && panelRef.current?.contains(document.activeElement)) toggleRef.current?.focus();
+      tightRef.current = next;
       setTight(next);
       if (!next) setPeek(false);
     });
