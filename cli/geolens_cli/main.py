@@ -904,48 +904,52 @@ def login(
 
 
 def _revoke_server_session(instance: str) -> bool:
-    """Revoke the stored login's session on the server; False if that failed.
+    """Revoke the stored login's session on the server; False if unconfirmed.
 
-    API-key and anonymous profiles have no session, so nothing is sent and the
-    result is True. A refresh token is used only when it is paired with the
-    stored bearer; otherwise the bearer's own session is revoked. Any answer but
-    204 counts as a failure: a rejected credential does not prove the refresh
-    family it belonged to is gone.
+    Resolves the stored credential the way ``resolve_active_credential()``
+    does, minus GEOLENS_TOKEN. An API-key profile has no session, so nothing is
+    sent and the result is True. An ambiguous or unreadable identity, a
+    refresh token with no bearer, a network error and any answer but 204 are
+    all unconfirmed: a rejected credential does not prove the refresh family it
+    belonged to is gone. A refresh token is used only when it is paired with the
+    stored bearer; otherwise the bearer's own session is revoked.
     """
-    if _auth.load_active_credential_kind(instance) == "api_key":
-        return True
     from geolens.api.auth import logout_current_session_auth_logout_session_post as _logout
     from geolens.models.refresh_request import RefreshRequest
 
     from ._sdk_helpers import make_client
 
     try:
+        marker = _auth._read_active_kind_marker(instance)
+        if marker == "api_key":
+            return True
         bearer = _auth._load_stored_bearer_value(instance)
+        if marker is None and _auth.load_api_key_strict(instance):
+            if bearer:
+                return False
+            return True
         try:
             refresh = _auth.load_refresh_token_strict(instance)
             fingerprint = _auth._load_refresh_fingerprint(instance)
         except _auth.KeyringCredentialUnreadable:
+            if not bearer:
+                return False
             # Without the pairing proof, fall back to the bearer's own session.
             refresh = fingerprint = None
-        paired = bool(
-            refresh
-            and bearer
-            and fingerprint == _auth._fingerprint_bearer(bearer)
-        )
-        if paired:
+        if not bearer:
+            return not refresh
+        if refresh and fingerprint == _auth._fingerprint_bearer(bearer):
             resp = _logout.sync_detailed(
                 client=make_client(instance).client,
                 body=RefreshRequest(refresh_token=refresh),
             )
-            return int(resp.status_code) == 204
-        if bearer:
+        else:
             resp = _logout.sync_detailed(
                 client=make_client(instance, bearer_token=bearer).client
             )
-            return int(resp.status_code) == 204
+        return int(resp.status_code) == 204
     except Exception:  # broad: offline or unreadable storage must not block local logout
         return False
-    return True
 
 
 @app.command()
@@ -979,6 +983,15 @@ def logout(ctx: typer.Context) -> None:
             _config.config_path().unlink()
         except FileNotFoundError:
             pass
+    if state.json_mode:
+        state.output.json(
+            {
+                "message": f"Logged out of {instance}",
+                "ok": True,
+                "session_revoked": session_revoked,
+            }
+        )
+        return
     state.output.success(f"Logged out of {instance}")
     if not session_revoked:
         state.output.warn(

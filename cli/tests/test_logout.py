@@ -177,3 +177,89 @@ class TestLogoutRevokesServerSession:
         assert result.exit_code == 0, result.output
         assert len(calls) == 1
         assert "body" not in calls[0]
+
+    def _record(self, monkeypatch, status=204):
+        calls = []
+
+        class _Resp:
+            status_code = status
+
+        monkeypatch.setattr(self._LOGOUT, lambda **kw: calls.append(kw) or _Resp())
+        return calls
+
+    def test_ambiguous_identity_skips_the_revoke_and_warns(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        inst = "https://prod.example.com/api"
+        mock_keyring[("geolens", inst)] = "tok"
+        mock_keyring[("geolens", f"{inst}:api_key")] = "key"
+        calls = self._record(monkeypatch)
+        result = runner.invoke(app, ["--instance", inst, "logout"])
+        assert result.exit_code == 0, result.output
+        assert calls == []
+        assert "did not confirm" in result.output
+
+    def test_unreadable_marker_skips_the_revoke_and_still_cleans_up(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import auth as _auth
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        runner.invoke(app, ["login", "https://prod.example.com/api", "--token", "tok"])
+
+        def bad(_instance):
+            raise _auth.KeyringCredentialUnreadable("marker", "corrupt")
+
+        monkeypatch.setattr(_auth, "_read_active_kind_marker", bad)
+        calls = self._record(monkeypatch)
+        result = runner.invoke(app, ["logout"])
+        assert result.exit_code == 0, result.output
+        assert calls == []
+        assert "did not confirm" in result.output
+        assert mock_keyring.get(("geolens", "https://prod.example.com/api")) is None
+
+    def test_refresh_only_profile_is_unconfirmed_and_sends_nothing(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import auth as _auth
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        runner.invoke(app, ["login", "https://prod.example.com/api", "--token", "tok"])
+        mock_keyring.pop(("geolens", "https://prod.example.com/api"))
+        _auth.store_refresh_token(
+            "https://prod.example.com/api", "orphan", bearer_token="tok"
+        )
+        calls = self._record(monkeypatch)
+        result = runner.invoke(app, ["logout"])
+        assert result.exit_code == 0, result.output
+        assert calls == []
+        assert "did not confirm" in result.output
+
+    def test_json_output_carries_the_revocation_outcome(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        import json
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        runner.invoke(app, ["login", "https://prod.example.com/api", "--token", "tok"])
+        self._record(monkeypatch, status=500)
+        result = runner.invoke(app, ["--json", "logout"])
+        assert result.exit_code == 0, result.output
+        assert json.loads(result.stdout)["session_revoked"] is False
+
+    def test_malformed_profile_data_still_logs_out_locally(
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
+    ) -> None:
+        from geolens_cli import auth as _auth
+
+        monkeypatch.delenv("GEOLENS_TOKEN", raising=False)
+        runner.invoke(app, ["login", "https://prod.example.com/api", "--token", "tok"])
+        monkeypatch.setattr(
+            _auth, "_read_credentials_file", lambda: {"https://prod.example.com/api": "x"}
+        )
+        calls = self._record(monkeypatch)
+        result = runner.invoke(app, ["logout"])
+        assert result.exit_code == 0, result.output
+        assert calls == []
+        assert "did not confirm" in result.output
