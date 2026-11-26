@@ -1336,11 +1336,13 @@ export function useBuilderSave(state: SaveState) {
     };
     // useUpdateMap only invalidates the detail query, so mapData keeps the
     // pre-save camera until the refetch lands (and forever if it fails). The
-    // dirty check reads mapData, so publish what the server holds.
-    const commitSaved = (savedUpdatedAt?: string) => {
+    // dirty check reads mapData, so publish what the server holds. updated_at
+    // is left for the refetch: an auto capture pairs the cached timestamp with
+    // the cached layers, and the server's layers may differ from those.
+    const commitSaved = () => {
       queryClient.setQueryData<MapResponse>(
         queryKeys.maps.detail(id),
-        (prev) => (prev ? { ...prev, ...camera, ...(savedUpdatedAt ? { updated_at: savedUpdatedAt } : {}) } : prev),
+        (prev) => (prev ? { ...prev, ...camera } : prev),
       );
       commitLayerBaseline();
     };
@@ -1423,8 +1425,8 @@ export function useBuilderSave(state: SaveState) {
             throw new StaleLayerDiffError();
           }
           commitLayerBaseline();
-          const saved = await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
-          commitSaved(saved?.updated_at);
+          await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
+          commitSaved();
           toast.warning(t('toasts.mapSavedAfterRemoteChange'));
           if (!editedDuringSave(state, sentPluginSet, camera)) {
             state.setHasUnsavedChanges(false);
@@ -1437,7 +1439,7 @@ export function useBuilderSave(state: SaveState) {
       const saved = await putMap(withRenamedWidgetLayers(metadataPayload, layerRenames));
       const expectedUpdatedAt = saved?.updated_at;
 
-      commitSaved(saved?.updated_at);
+      commitSaved();
       toast.success(t('toasts.mapSaved'));
       // The baseline is the sent snapshot; clear the dirty flag only when
       // nothing was edited during the await, or the baseline effect would

@@ -3725,6 +3725,55 @@ describe('useBuilderSave', () => {
         expect(mockUploadOgImage).not.toHaveBeenCalled();
         expect(shouldAutoCapture('map-1', null)).toBe(true);
       });
+
+      it('never pairs a save\'s updated_at with an auto capture of the pre-save layers', async () => {
+        vi.useFakeTimers();
+        const savedUpdatedAt = '2026-11-25T08:05:00Z';
+        const sources = new Map<string, object>();
+        const mockMap = createMockMap({ loaded: true });
+        mockMap.getSource.mockImplementation((sourceId: string) => sources.get(sourceId));
+        const localLayer = makeLayer({ id: 'layer-1', dataset_id: 'ds-1' });
+        const remoteLayer = makeLayer({ id: 'layer-2', dataset_id: 'ds-2' });
+
+        const queryClient = new QueryClient({
+          defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+        });
+        queryClient.setQueryData(queryKeys.maps.detail('map-1'), {
+          id: 'map-1',
+          updated_at: '2026-11-25T08:00:00Z',
+          layers: [localLayer],
+        });
+        // Another session replaced the layer, so this metadata save returns a
+        // layer set the canvas never drew.
+        mockUpdateMapMutateAsync.mockResolvedValueOnce({
+          id: 'map-1',
+          updated_at: savedUpdatedAt,
+          layers: [remoteLayer],
+        });
+
+        const state = makeSaveState({
+          hasThumbnail: false,
+          localLayers: [localLayer],
+          mapInstanceRef: { current: mockMap } as unknown as SaveState['mapInstanceRef'],
+        });
+        const { result } = renderHookWithQueryClient(state, queryClient);
+
+        // The auto capture waits for the layer's source while the save runs.
+        act(() => { result.current.maybeAutoCaptureThumbnail(mockMap as never); });
+        act(() => { vi.advanceTimersByTime(500); });
+        await act(async () => { await result.current.handleSave(); });
+
+        act(() => {
+          sources.set('source-data-layer_1', { type: 'vector' });
+          vi.advanceTimersByTime(100);
+        });
+        vi.useRealTimers();
+        await act(async () => { fireRenderCallback(mockMap); await Promise.resolve(); });
+
+        for (const upload of [mockUploadThumbnail, mockUploadOgImage]) {
+          expect(upload).not.toHaveBeenCalledWith('map-1', expect.anything(), savedUpdatedAt);
+        }
+      });
     });
   });
 });
