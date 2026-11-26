@@ -89,18 +89,18 @@ async def _alter_data_table(session: AsyncSession, alter: Executable) -> None:
 
 async def _follow_tile_columns(
     session: AsyncSession, dataset: Dataset, column_name: str, new_name: str | None
-) -> None:
+) -> bool:
     """Carry the column's place in the tile allowlist to ``new_name``, or drop it.
 
     ``new_name`` None removes ``column_name``. A listed ``new_name`` the column
     was not listed under is removed, so a rename never publishes a column.
-    Called with the catalog rows held. A stale entry would drop the column from
-    tiles and embed reads, and would publish a later column created under the
-    old name that nobody chose.
+    Called with the catalog rows held; returns whether the list changed. A stale
+    entry would drop the column from tiles and embed reads, and would publish a
+    later column created under the old name that nobody chose.
     """
     await session.refresh(dataset, ["tile_columns"])
     if dataset.tile_columns is None:
-        return
+        return False
     kept: list[str] = []
     for name in dataset.tile_columns:
         if name == column_name:
@@ -108,11 +108,10 @@ async def _follow_tile_columns(
                 kept.append(new_name)
         elif name != new_name:
             kept.append(name)
-    if kept != dataset.tile_columns:
-        dataset.tile_columns = kept
-        # Advance the metadata token even for the record's last editor, so a
-        # conditional metadata save holding the old list is refused.
-        dataset.record.updated_at = func.now()
+    if kept == dataset.tile_columns:
+        return False
+    dataset.tile_columns = kept
+    return True
 
 
 async def _compute_quality_detail(
@@ -414,7 +413,10 @@ async def rename_column(
         session, dataset, column_info, {column_name: new_name}
     )
     dataset.column_info = column_info
-    await _follow_tile_columns(session, dataset, column_name, new_name)
+    if await _follow_tile_columns(session, dataset, column_name, new_name):
+        # Advance the metadata token even for the record's last editor, so a
+        # conditional metadata save holding the old list is refused.
+        dataset.record.updated_at = func.now()
 
     # Keep the cached sample-values snapshot keyed by the new
     # name; the builder reads this dict and an old-name entry looks like an
@@ -555,7 +557,10 @@ async def drop_column(
     column_info = await _keep_source_names(session, dataset, column_info)
     dataset.column_info = column_info
     dataset.quality_detail = quality_detail
-    await _follow_tile_columns(session, dataset, column_name, None)
+    if await _follow_tile_columns(session, dataset, column_name, None):
+        # Advance the metadata token even for the record's last editor, so a
+        # conditional metadata save holding the old list is refused.
+        dataset.record.updated_at = func.now()
 
     # Drop the removed column's cached sample values too.
     if dataset.sample_values and column_name in dataset.sample_values:

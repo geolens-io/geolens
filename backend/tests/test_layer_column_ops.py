@@ -586,6 +586,30 @@ async def test_column_rename_onto_a_listed_name_keeps_the_column_out_of_tiles(
 
 
 @pytest.mark.anyio
+async def test_dropping_the_last_listed_column_leaves_an_empty_tile_allowlist(
+    client: AsyncClient, admin_auth_header: dict
+):
+    """Dropping the only listed column leaves ``[]``, which publishes no columns, not None."""
+    dataset_id = await _create_layer(
+        client, admin_auth_header, title="Tile Last Column"
+    )
+    resp = await client.patch(
+        f"/datasets/{dataset_id}",
+        json={"tile_columns": ["value"]},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+
+    resp = await client.delete(
+        f"/layers/{dataset_id}/columns/value", headers=admin_auth_header
+    )
+    assert resp.status_code == 200, resp.text
+    resp = await client.get(f"/datasets/{dataset_id}", headers=admin_auth_header)
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["tile_columns"] == []
+
+
+@pytest.mark.anyio
 async def test_conditional_metadata_save_from_before_a_rename_is_refused(
     client: AsyncClient, admin_auth_header: dict
 ):
