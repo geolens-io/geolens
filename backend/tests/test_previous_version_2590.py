@@ -27,7 +27,7 @@ _CITIES = {
 }
 
 
-async def _seed(session, *, visibility: str = "public"):
+async def _seed(session, *, visibility: str = "public", generated_4326: bool = False):
     """A point dataset holding New York, owned by the admin."""
     admin_id = await get_user_id(session, "admin")
     table = f"prev2590_{uuid.uuid4().hex[:10]}"
@@ -43,19 +43,36 @@ async def _seed(session, *, visibility: str = "public"):
     )
     # Plain values: the commits below expire the ORM instance.
     dataset = SimpleNamespace(id=dataset.id, table_name=table)
-    await session.execute(
-        text(
-            f'CREATE TABLE "data"."{table}" (gid serial PRIMARY KEY, '
-            "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326), name text)"
+    if generated_4326:
+        await session.execute(
+            text(
+                f'CREATE TABLE "data"."{table}" (gid serial PRIMARY KEY, '
+                "geom geometry(Point, 4326), name text)"
+            )
         )
-    )
-    await session.execute(
-        text(
-            f'INSERT INTO "data"."{table}" (geom, geom_4326, name) VALUES '
-            "(ST_SetSRID(ST_MakePoint(-74.0, 40.7), 4326), "
-            "ST_SetSRID(ST_MakePoint(-74.0, 40.7), 4326), 'New York')"
+        from app.processing.ingest.metadata_projection import add_4326_column
+
+        await add_4326_column(session, table, 4326, generated=True)
+        await session.execute(
+            text(
+                f'INSERT INTO "data"."{table}" (geom, name) VALUES '
+                "(ST_SetSRID(ST_MakePoint(-74.0, 40.7), 4326), 'New York')"
+            )
         )
-    )
+    else:
+        await session.execute(
+            text(
+                f'CREATE TABLE "data"."{table}" (gid serial PRIMARY KEY, '
+                "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326), name text)"
+            )
+        )
+        await session.execute(
+            text(
+                f'INSERT INTO "data"."{table}" (geom, geom_4326, name) VALUES '
+                "(ST_SetSRID(ST_MakePoint(-74.0, 40.7), 4326), "
+                "ST_SetSRID(ST_MakePoint(-74.0, 40.7), 4326), 'New York')"
+            )
+        )
     await session.commit()
     return admin_id, dataset
 
@@ -456,6 +473,49 @@ async def test_a_restore_publishes_the_previous_version(
         await release_scheduled_refresh_hold(session, dataset.id)
         await session.commit()
         assert (await _dataset_row(session, dataset.id)).scheduled_refresh_hold is None
+    finally:
+        await _cleanup(session, dataset)
+
+
+async def test_a_generated_geom_4326_does_not_block_replace_and_restore(
+    client: AsyncClient, test_db_session, admin_auth_header
+) -> None:
+    """A stored generated geom_4326 is the table's own column, not an outside dependent."""
+    session = test_db_session
+    admin_id, dataset = await _seed(session, generated_4326=True)
+    kept_v1 = previous_version_table(dataset.table_name, dataset.id, 1)
+    kept_v2 = previous_version_table(dataset.table_name, dataset.id, 2)
+    try:
+        await _replace(session, dataset, admin_id, ["paris", "london"])
+        assert await _names(session, dataset.table_name) == ["London", "Paris"]
+        assert await _names(session, kept_v1) == ["New York"]
+        # Release the reads' locks: the restore locks the live table exclusively.
+        await session.commit()
+
+        await _restore(
+            client,
+            admin_auth_header,
+            session,
+            dataset,
+            1,
+            # Leaves the job's follow-up record as the terminal commit wrote it.
+            **{"app.processing.ingest.publication.run_publish_followups": AsyncMock()},
+        )
+        assert await _names(session, dataset.table_name) == ["New York"]
+        assert await _names(session, kept_v2) == ["London", "Paris"]
+        assert await _kept(session, dataset.id) == {2: kept_v2}
+        row = await _dataset_row(session, dataset.id)
+        assert row.current_version == 3
+        assert row.previous_version_number == 2
+        generated = await session.scalar(
+            text(
+                "SELECT is_generated FROM information_schema.columns "
+                "WHERE table_schema = 'data' AND table_name = :t "
+                "AND column_name = 'geom_4326'"
+            ),
+            {"t": dataset.table_name},
+        )
+        assert generated == "ALWAYS"
     finally:
         await _cleanup(session, dataset)
 

@@ -1469,8 +1469,9 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # live and kept-version storage.
     "backend/app/modules/admin/service.py": 1090,
     # Ingest admission, staging, job settlement and table registration share one
-    # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1597,
+    # orchestration boundary. Registration creates geom_4326 as a stored
+    # generated column rather than filling it with a full-table UPDATE.
+    "backend/app/processing/ingest/service.py": 1607,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
     "backend/app/processing/ingest/tasks_postgis_refresh.py": 700,
@@ -1521,8 +1522,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # inserts reuse the single-insert validation, batch deletes the prior-envelope
     # capture, and the create dry run checks the table's kind, insert triggers
     # and rules, and the shapes that run user code on insert, with the same
-    # catalog probes. A streamed page is read in byte-bounded batches.
-    "backend/app/modules/catalog/features/service.py": 1811,
+    # catalog probes. A streamed page is read in byte-bounded batches. Writes
+    # also probe whether geom_4326 is a stored generated column, so the
+    # insert/update pair writes geom only and lets it derive itself, and
+    # name the table when that column is missing outright. The dry-run
+    # probe exempts a geom_4326 generated with one of registration's two
+    # expressions, since it runs only PostGIS functions on geom, and only
+    # when every function the expression depends on is built in or an
+    # extension's.
+    "backend/app/modules/catalog/features/service.py": 1898,
     # Dataset visibility, the VRT member counts and extents each requester may
     # see, which groups can't read a dataset, and whether one dataset's readers
     # reach past another's, today or by its sharing rules, share the permission
