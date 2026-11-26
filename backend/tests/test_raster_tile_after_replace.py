@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+import asyncio
 import uuid
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, patch
 
 import httpx
-from sqlalchemy import text
+from sqlalchemy import event, text
 
 from app.processing.tiles import router as tile_router
 
@@ -16,6 +18,8 @@ from tests.test_perf002_raster_meta_cache import (
     _create_public_raster,
     _swap_raster_pointer,
 )
+from tests.test_remote_raster_relay_db import _REMOTE
+from tests.test_remote_raster_relay_db import _raster as _remote_raster
 
 _OLD_TILE = b"\x89PNG old"
 _NEW_TILE = b"\x89PNG new"
@@ -143,3 +147,96 @@ async def test_the_render_after_a_replace_is_authorized_from_the_fresh_snapshot(
     assert warm.status_code == 200
     assert refused.status_code in (403, 404)
     assert not any(path.endswith(new_uri) for path in titiler.opened())
+
+
+async def test_a_replace_that_also_makes_the_raster_private_is_served_no_store(
+    client, test_db_session, admin_auth_header
+):
+    dataset, old_uri = await _raster(test_db_session)
+    titiler = _Titiler({old_uri: _OLD_TILE})
+    with patch.object(tile_router, "_titiler_client", titiler.client):
+        warm = await _tile(client, dataset.id, headers=admin_auth_header)
+        new_uri = await _swap_raster_pointer(test_db_session, dataset.id)
+        await test_db_session.execute(
+            text("UPDATE catalog.records SET visibility = 'private' WHERE id = :id"),
+            {"id": dataset.record_id},
+        )
+        await test_db_session.commit()
+        titiler.present = {new_uri: _NEW_TILE}
+
+        response = await _tile(client, dataset.id, headers=admin_auth_header)
+
+    assert "public" in warm.headers["cache-control"]
+    assert response.status_code == 200
+    assert response.content == _NEW_TILE
+    assert response.headers["cache-control"] == "private, no-store"
+
+
+async def test_a_relay_failure_is_not_re_read_or_rendered_again(
+    client, test_db_session
+):
+    dataset = await _remote_raster(
+        test_db_session,
+        asset_uri=_REMOTE.format(uuid.uuid4().hex),
+        storage_backend="remote",
+    )
+    titiler = _Titiler({})
+    reread = AsyncMock(wraps=tile_router._reread_raster_meta)
+    with (
+        patch.object(tile_router, "_titiler_client", titiler.client),
+        patch.object(tile_router, "_reread_raster_meta", reread),
+    ):
+        response = await _tile(client, dataset.id)
+
+    assert response.status_code == 500
+    assert len(titiler.opened()) == 3
+    reread.assert_not_awaited()
+
+
+async def test_forced_re_reads_inside_one_interval_reach_the_database_once(
+    test_db_session, monkeypatch
+):
+    """A second forced re-read within the interval waits it out on the cache's clock."""
+    import app.core.db as db_module
+
+    clock = [1000.0]
+
+    async def cooldown(seconds: float) -> None:
+        clock[0] += seconds
+        await asyncio.sleep(0)
+
+    fake_time = SimpleNamespace(monotonic=lambda: clock[0])
+    fake_asyncio = SimpleNamespace(
+        sleep=cooldown,
+        get_running_loop=asyncio.get_running_loop,
+        shield=asyncio.shield,
+    )
+    dataset, _ = await _raster(test_db_session)
+    key = str(dataset.id)
+    reads: list[float] = []
+
+    def on_execute(conn, cursor, statement, parameters, context, executemany):
+        if "raster_assets" in statement and key in str(parameters):
+            reads.append(clock[0])
+
+    async def reread() -> bool:
+        async with db_module.async_session() as session:
+            return await tile_router._reread_raster_meta(session, dataset.id)
+
+    monkeypatch.setattr(tile_router, "time", fake_time)
+    monkeypatch.setattr(tile_router, "asyncio", fake_asyncio)
+    engine = db_module.engine.sync_engine
+    event.listen(engine, "before_cursor_execute", on_execute)
+    try:
+        assert await reread()
+        clock[0] += 5 * tile_router._FORCED_REREAD_INTERVAL
+        assert await reread()
+        assert await reread()
+    finally:
+        event.remove(engine, "before_cursor_execute", on_execute)
+        with tile_router._raster_meta_cache_lock:
+            tile_router._raster_meta_cache.pop(key, None)
+
+    interval = tile_router._FORCED_REREAD_INTERVAL
+    assert len(reads) == 3
+    assert reads[2] - reads[1] >= interval
