@@ -6,8 +6,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 # Every object outside the table, or a partition under it, that records an
 # ordinary dependency on it or its row type by oid: views, routine bodies, foreign keys and
 # row-security policies among them. A rename leaves each reading the renamed
-# table. The table's own rules, constraints, policies and triggers, and its
-# indexes and owned sequences (auto dependencies), move with it.
+# table. The table's own rules, constraints, policies, triggers and column
+# defaults, and its indexes and owned sequences (auto dependencies), move with it.
 _DEPENDENT_RELATIONS = text(
     """
     WITH target AS (
@@ -52,6 +52,9 @@ _DEPENDENT_RELATIONS = text(
         OR (d.classid = 'pg_trigger'::regclass AND EXISTS (
             SELECT 1 FROM pg_trigger g
             WHERE g.oid = d.objid AND g.tgrelid IN (SELECT oid FROM tree)))
+        OR (d.classid = 'pg_attrdef'::regclass AND EXISTS (
+            SELECT 1 FROM pg_attrdef ad
+            WHERE ad.oid = d.objid AND ad.adrelid IN (SELECT oid FROM tree)))
     )
     ORDER BY 1
     """
