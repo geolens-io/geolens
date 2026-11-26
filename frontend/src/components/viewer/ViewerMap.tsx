@@ -62,6 +62,7 @@ import {
 } from '@/components/viewer/layer-identity';
 import { getClusterSourceEligibility, getClusterSourceStrategy, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
 import { MapDataPanel } from '@/components/viewer/MapDataPanel';
+import { useDataPanelClearance } from '@/components/viewer/useDataPanelClearance';
 import { offersTable } from '@/components/viewer/map-data-table';
 import {
   toAccessibleMapFeatures,
@@ -224,19 +225,7 @@ export const ViewerMap = memo(function ViewerMap({
   // each remount opens it again.
   const shellRef = useRef<HTMLDivElement>(null);
   useEffect(() => (shellRef.current ? keepCompactAttributionFolded(shellRef.current) : undefined), []);
-  // The legend is a sibling of this map, so it can't see the docked table
-  // shrinking the visible map. It reads the table's height from the viewport.
-  const viewportRef = useRef<HTMLElement | null>(null);
-  useEffect(() => {
-    const viewport = shellRef.current?.closest<HTMLElement>('#map-viewport') ?? null;
-    viewportRef.current = viewport;
-    // A story keeps the viewport when it swaps maps, so a closing map clears its own value.
-    return () => { viewport?.style.removeProperty('--viewer-data-panel-height'); };
-  }, []);
-  const reportDataPanelHeight = useCallback((height: number) => {
-    viewportRef.current?.style.setProperty('--viewer-data-panel-height', `${height}px`);
-    onDataPanelHeightChange?.(height);
-  }, [onDataPanelHeightChange]);
+  const reportDataPanelHeight = useDataPanelClearance(shellRef, onDataPanelHeightChange);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
