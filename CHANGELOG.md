@@ -32,6 +32,7 @@ and releases use semantic versioning.
 
 ### Fixed
 - Going Back to the catalog, or using the skip link, no longer erases the router's history entry state, so Back from a page with unsaved work asks before dropping the draft, as it does elsewhere.
+- Raster tiles with a percentile or standard-deviation stretch no longer draw with the wrong colors when one band has no usable range. The stretch now applies only when every band has one, and falls back to the default range otherwise.
 - Exporting a dataset with a very long title, about 250 bytes or more, no longer fails in every format. The file is built under a fixed name and the title only names the download.
 - A refresh that finds a registered table's `geom_4326` column missing, for example after `ogr2ogr -overwrite`, now adds it as a stored generated column, as registration does, so later writes to `geom` show without another refresh. A table whose `geom` is itself generated still gets a plain, filled column.
 - A save that moves a map layer to another dataset that people who can't read the old dataset can read is now refused when the map's dashboard was saved by a newer GeoLens or holds widgets this server can't read. This server can't remove those widgets, which may name the old dataset's columns and hold its filter values, and kept them through the move. A builder save answers 409 and writes nothing; a publish manifest with `styling: "replace"` refuses that map with A099, in a dry run too, as a kept-styling move already did. A move that doesn't widen who reads the layer saves as before.

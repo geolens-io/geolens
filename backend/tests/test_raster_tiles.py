@@ -1152,6 +1152,23 @@ def test_stretch_rescale_keeps_extreme_bounds_intact(stretch, band, expected):
     )
 
 
+@pytest.mark.parametrize("stretch", ["percentile", "stddev"])
+def test_stretch_rescale_is_empty_unless_every_band_has_a_range(stretch):
+    from app.processing.tiles.router import _compute_stretch_rescale
+
+    good = {"percentile_2": 10, "percentile_98": 200, "mean": 50, "std": 20}
+    flat = {"percentile_2": 0, "percentile_98": 0, "mean": 5, "std": 0}
+
+    def rescale(bands, n):
+        return _compute_stretch_rescale(
+            bands, stretch, n, pmin=2.0, pmax=98.0, sigma=2.0
+        )
+
+    assert rescale([good, flat, good], 3) == []
+    assert rescale([good, good], 3) == []
+    assert len(rescale([good, good, good], 3)) == 3
+
+
 @pytest.mark.asyncio
 async def test_concurrent_band_stats_lookups_share_one_titiler_call(monkeypatch):
     """Tiles that miss the cache together trigger a single statistics scan."""
