@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
@@ -171,6 +171,7 @@ class ManifestEntryFields:
     # share was planned, the held-back warnings it gives in place of the one
     # above.
     job_refusal: ManifestMessage | None = None
+    job_refused_because: str | None = None
     job_held_back: list[ManifestMessage] | None = None
 
     @classmethod
@@ -462,9 +463,48 @@ async def settle_job_groups(
                 )
     held_to = _groups_held_to(job_metadata)
     if held_to is not None and left_with - held_to[0]:
-        fields.job_refusal = _job_refused_message(
-            dataset, held_to[1] or share.kept_because
-        )
+        fields.job_refused_because = held_to[1] or share.kept_because
+        fields.job_refusal = _job_refused_message(dataset, fields.job_refused_because)
+
+
+async def refuse_a_share_its_job_refuses(
+    db: AsyncSession,
+    user: Identity,
+    dataset: ManifestDataset,
+    fields: ManifestEntryFields | None,
+    existing: Any,
+    job_metadata: dict,
+) -> None:
+    """Refuse, with error A056, a replacement about to be queued whose job,
+    storing ``job_metadata``, would be refused for keeping a group the entry
+    leaves out, judged by ``settle_job_groups`` as a queued job is. Nothing
+    of ``fields`` changes: the job plans its own share when it runs."""
+    if fields is None or existing is None or fields.groups is None:
+        return
+    trial = replace(fields, messages=[])
+    await settle_job_groups(db, user, dataset, trial, existing, job_metadata)
+    if trial.job_refusal is None:
+        return
+    raise ManifestEntryRefused(
+        [
+            ManifestMessage(
+                code=SHARING_KEPT,
+                severity="error",
+                message=" ".join(
+                    part
+                    for part in (
+                        f"{dataset.title!r} was not updated: its dataset is "
+                        "shared with groups this publish leaves out, which "
+                        "would read the new data.",
+                        trial.job_refused_because,
+                    )
+                    if part
+                ),
+                fix="Change the dataset's groups in GeoLens, or publish with "
+                "the groups it has now.",
+            )
+        ]
+    )
 
 
 def _job_refused_message(

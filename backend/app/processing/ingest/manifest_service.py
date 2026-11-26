@@ -55,6 +55,7 @@ from app.processing.ingest.manifest_dataset_fields import (
     raster_not_replaced_message,
     note_more_visible,
     answer_as_the_job_ends,
+    refuse_a_share_its_job_refuses,
     resolve_entry_groups,
     report_entry,
     resolve_entry_collection,
@@ -1291,6 +1292,16 @@ async def _reserve_or_settle_entry(
         await db.commit()
         return held
     refuse_used_upload(prepared)
+    await refuse_a_share_its_job_refuses(
+        db,
+        user,
+        dataset,
+        fields,
+        existing_dataset if update_dataset_id is not None else None,
+        _job_metadata(
+            db, dataset, prepared, fingerprint, user, fields, update_dataset_id
+        ),
+    )
     if request.dry_run:
         # A preview reserves nothing, so the key is left exactly as this entry
         # found it.

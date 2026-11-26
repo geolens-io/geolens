@@ -1936,18 +1936,24 @@ async def _shared_through(session, user, member, dataset_id) -> GroupRef:
     """Restrict the dataset to a group ``member`` is in, on a map of
     ``user``'s shared with that group: the map's readers need the grant."""
     group = await _group(session, user.id, member.id)
+    session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=group.id))
+    await session.commit()
+    await _map_needing(session, user, group, dataset_id)
+    return group
+
+
+async def _map_needing(session, user, group, dataset_id) -> None:
+    """A map of ``user``'s shared with ``group``, showing the dataset."""
     shared_map = Map(name="Shared", created_by=user.id, visibility="restricted")
     session.add(shared_map)
     await session.flush()
     session.add_all(
         [
-            DatasetGroupGrant(dataset_id=dataset_id, group_id=group.id),
             MapGroupGrant(map_id=shared_map.id, group_id=group.id),
             MapLayer(map_id=shared_map.id, dataset_id=dataset_id),
         ]
     )
     await session.commit()
-    return group
 
 
 async def _data_version(session, dataset_id) -> int | None:
@@ -1961,11 +1967,11 @@ async def _data_version(session, dataset_id) -> int | None:
 async def test_a_replacement_whose_group_removal_is_refused_publishes_nothing(
     client, admin_auth_header, test_db_session, clean_tables
 ):
-    """The owner's shared map keeps the group, so the removal is refused;
-    publishing anyway would hand the new data to the group the entry drops.
-    The same manifest sent again while the job is queued says so: a dry run
-    is refused with A056, and an apply answers for the job with it as a
-    warning."""
+    """A shared map that keeps the group arrives after the apply, so the
+    job's removal is refused; publishing anyway would hand the new data to
+    the group the entry drops. The same manifest sent again while the job is
+    queued says so: a dry run is refused with A056, and an apply answers for
+    the job with it as a warning."""
     _stage_fixture()
     user = await _admin_user(test_db_session)
     _, member = await _editor(client, test_db_session, admin_auth_header)
@@ -1973,11 +1979,14 @@ async def test_a_replacement_whose_group_removal_is_refused_publishes_nothing(
     dataset_id = await _manifest_dataset(
         test_db_session, user, key, "restricted", "published"
     )
-    mine = await _shared_through(test_db_session, user, member, dataset_id)
+    mine = await _group(test_db_session, user.id, member.id)
+    test_db_session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=mine.id))
+    await test_db_session.commit()
     version = await _data_version(test_db_session, dataset_id)
     entry = await _uploaded(client, admin_auth_header, key, groups=[])
     result, task = await _queue_update(test_db_session, user, entry)
     assert (result.action, _codes(result)) == ("update", [])
+    await _map_needing(test_db_session, user, mine, dataset_id)
 
     response, _ = await _apply_entries(
         test_db_session, user, _entries_request(entry, dry_run=True)
@@ -2007,6 +2016,51 @@ async def test_a_replacement_whose_group_removal_is_refused_publishes_nothing(
         ),
     )
     assert await _record(test_db_session, dataset_id) == ("restricted", "published")
+
+
+async def test_a_replacement_swapping_a_maps_group_is_refused_before_it_is_queued(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """The owner's shared map needs group A, so the job could not swap A for
+    B and would fail: the entry is refused with A056 before anything is
+    queued, and a map in the same request isn't judged on B's access."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, member = await _editor(client, test_db_session, admin_auth_header)
+    key = "groups-swap-refused"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "restricted", "published"
+    )
+    needed = await _shared_through(test_db_session, user, member, dataset_id)
+    swapped = await _group(test_db_session, user.id)
+    entry = await _uploaded(client, admin_auth_header, key, groups=[str(swapped.id)])
+    maps = [
+        _map(
+            "groups-swap-refused-map",
+            _layer(dataset_key=key),
+            groups=[str(swapped.id)],
+        )
+    ]
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True, maps=maps)
+    )
+    [refused] = response.results
+    assert refused.action == "error", refused
+    assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
+    assert "used in shared maps: Shared" in refused.messages[0].message
+    [checked] = response.maps
+    assert ("A052", "parks") in [(m.code, m.layer) for m in checked.messages]
+    assert _layer_gaps(checked) == []
+
+    user = await _admin_user(test_db_session)
+    applied, queue = await _apply_entries(
+        test_db_session, user, _entries_request(entry)
+    )
+    [refused] = applied.results
+    assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
+    queue.assert_not_awaited()
+    assert await _dataset_grants(test_db_session, dataset_id) == {needed.id}
 
 
 async def test_a_queued_widening_that_removes_a_maps_group_is_answered_as_a_publish(
