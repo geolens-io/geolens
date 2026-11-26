@@ -554,11 +554,17 @@ BACKUP_DIR="$PROJECT_ROOT/backups/pre-upgrade"
 # The dump holds password hashes, API key hashes and encrypted credentials, so
 # keep it owner-only whatever the umask, and tighten a directory an earlier
 # upgrade left looser.
+BACKUP_TAIL="Nothing was stopped, .env still pins ${PREVIOUS_VERSION}, and the database is untouched."
+[ ! -L "$BACKUP_DIR" ] \
+  || fail "$BACKUP_DIR is a symlink; refusing to write the backup through it. $BACKUP_TAIL"
 if [ -d "$BACKUP_DIR" ] && [ "$(ls -ld "$BACKUP_DIR" | cut -c5-10)" != "------" ]; then
   say "  tightening $BACKUP_DIR to owner-only (0700)"
 fi
 (umask 077 && mkdir -p "$BACKUP_DIR") && chmod 700 "$BACKUP_DIR" \
-  || fail "Could not create $BACKUP_DIR with owner-only permissions."
+  || fail "Could not create $BACKUP_DIR with owner-only permissions; it is owned by $(ls -ld "$BACKUP_DIR" 2>/dev/null | awk '{print $3}'), you are $(id -un). $BACKUP_TAIL"
+BACKUP_DIR_OWNER="$(ls -ld "$BACKUP_DIR" | awk '{print $3}')"
+[ "$BACKUP_DIR_OWNER" = "$(id -un)" ] \
+  || fail "$BACKUP_DIR is owned by $BACKUP_DIR_OWNER, not $(id -un). $BACKUP_TAIL"
 STAMP="$(date '+%Y%m%d_%H%M%S')"
 BACKUP_FILE="$BACKUP_DIR/${POSTGRES_DB}_pre_${CURRENT_VERSION:-unknown}_to_${TARGET_VERSION}_${STAMP}.dump"
 

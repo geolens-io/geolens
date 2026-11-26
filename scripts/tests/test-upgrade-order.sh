@@ -1693,6 +1693,24 @@ else
   bad "no tightening notice for a 0755 backup dir"
 fi
 
+# A symlinked backup dir is refused before anything is stopped, so a plain
+# chmod can't be steered at the link's target.
+seed_prod_env
+rm -rf "$FAKE/backups"
+mkdir -p "$FAKE/backups" "$WORK/elsewhere"
+chmod 755 "$WORK/elsewhere"
+ln -s "$WORK/elsewhere" "$FAKE/backups/pre-upgrade"
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ] \
+   && grep -qF "is a symlink" "$WORK/out.txt" \
+   && [ -z "$(pos_of stop_app)" ] \
+   && [ "$(ls -ld "$WORK/elsewhere" | cut -c1-10)" = "drwxr-xr-x" ]; then
+  ok "a symlinked backup dir is refused before the app is stopped, target untouched"
+else
+  bad "symlinked backup dir not refused cleanly (exit=$(cat "$WORK/code.txt"))"
+fi
+rm -rf "$FAKE/backups"
+
 echo "1..$((PASS + FAIL))"
 echo "# $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]
