@@ -428,6 +428,7 @@
     "storyVisibilityUnsupported": "Las historias aún no se pueden publicar con esta visibilidad.",
     "dashboardTooNew": "Este panel se guardó con una versión más reciente de GeoLens y no se puede cambiar aquí.",
     "dashboardTooManyWidgets": "Un panel admite como máximo 50 widgets. Quita algunos antes de guardar.",
+    "dashboardLayerMoveRefused": "El panel de este mapa tiene widgets que esta versión de GeoLens no puede leer, así que esta capa no puede pasar a un conjunto de datos compartido más ampliamente que el actual. Quita los widgets de la capa en la versión de GeoLens que los añadió o mantén la capa en su conjunto de datos.",
     "dashboardWidgetsRefused": "Algunos widgets del panel usan capas que no están en este mapa o que no puedes leer. Quítalos o elige otras capas.",
     "dashboardWidgetFilterRefused": "No se puede usar el filtro de un widget del panel en su capa: el servidor rechazó una de sus condiciones, o es demasiado grande junto con el filtro de la capa. Revísalo en Panel.",
     "storyImageUnreadable": "El archivo no es una imagen legible.",

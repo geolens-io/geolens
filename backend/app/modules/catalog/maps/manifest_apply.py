@@ -748,10 +748,12 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 targets,
                 map_obj.dashboard_config,
                 kept=not styling_applied,
-                widening=(
-                    await widening_moves(session, stored, targets)
-                    if not styling_applied
-                    else ()
+                widening=await widening_moves(
+                    session,
+                    stored,
+                    targets,
+                    map_obj.dashboard_config,
+                    kept=not styling_applied,
                 ),
             )
             messages.extend([*moves.errors, *moves.warnings])
