@@ -490,22 +490,21 @@ def repair_layer_columns(
     to from the dataset's ``column_info``: the column whose recorded
     ``source_name`` it is first, then the exact name, then the laundered
     name, then the one column equal to it ignoring case. A reference that
-    already names a stored column stays, unless it exactly names a source
-    field, which names that field's column instead: without that guard a
-    layer reading ``name`` would be rewritten to the column whose source is
-    ``Name``, and a second repair would rewrite what the first one wrote.
-    A reference that resolves to nothing is kept and reported ``"missing"``,
-    unless more than one stored column matches it ignoring case, when it is
-    ``"ambiguous"``, so a repair never guesses between two columns. With no
-    columns recorded the names cannot be judged, so the layer is left as it
-    was. ``layer`` itself is left as it was.
+    already names a stored column stays, even when another column records
+    that name as its source field: the layer already reads a real column,
+    and moving it would point it at a different column. Two columns that
+    name each other would swap the reference on every run without that
+    rule. A reference that resolves to nothing is kept and reported
+    ``"missing"``, unless more than one stored column matches it ignoring
+    case, when it is ``"ambiguous"``, so a repair never guesses between two
+    columns. With no columns recorded the names cannot be judged, so the
+    layer is left as it was. ``layer`` itself is left as it was.
     """
     if not columns:
         return layer, ColumnRepair(repaired={}, unrepaired={})
     stored = FieldNames(columns)
     by_folded: dict[str, set[str]] = {}
     stored_names: set[str] = set()
-    source_names: set[str] = set()
     for column in columns:
         if not isinstance(column, Mapping):
             continue
@@ -513,16 +512,13 @@ def repair_layer_columns(
         if isinstance(name, str):
             by_folded.setdefault(name.casefold(), set()).add(name)
             stored_names.add(name)
-        source = column.get("source_name")
-        if isinstance(source, str):
-            source_names.add(source)
     repaired: dict[str, str] = {}
     unrepaired: dict[str, str] = {}
 
     def rename(name: str) -> str:
         if not name:
             return name
-        if name in stored_names and name not in source_names:
+        if name in stored_names:
             return name
         resolved = stored.stored(name)
         if resolved is not None:

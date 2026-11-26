@@ -156,7 +156,7 @@ def test_repair_reads_a_source_name_before_a_case_variant_stored_name():
     assert repaired.paint == {"circle-color": ["get", "full_name"]}
 
 
-def test_repair_reads_a_source_name_before_a_stored_name_spelled_the_same():
+def test_repair_leaves_a_stored_name_alone_when_another_column_records_it_as_a_source_name():
     layer = _layer(paint={"circle-color": ["get", "name"]})
 
     repaired, report = repair_layer_columns(
@@ -167,8 +167,28 @@ def test_repair_reads_a_source_name_before_a_stored_name_spelled_the_same():
         ],
     )
 
-    assert report == ColumnRepair(repaired={"name": "name_2"}, unrepaired={})
-    assert repaired.paint == {"circle-color": ["get", "name_2"]}
+    assert report == ColumnRepair(repaired={}, unrepaired={})
+    assert repaired.paint == {"circle-color": ["get", "name"]}
+
+
+def test_repair_does_not_swap_two_columns_that_name_each_other_as_source():
+    columns = [
+        {"name": "x", "source_name": "y"},
+        {"name": "y", "source_name": "x"},
+    ]
+    first_layer = _layer(paint={"circle-color": ["get", "x"]})
+    second_layer = _layer(paint={"circle-color": ["get", "y"]})
+
+    repaired_once, first = repair_layer_columns(first_layer, columns)
+    repaired_twice, second = repair_layer_columns(repaired_once, columns)
+
+    assert first == ColumnRepair(repaired={}, unrepaired={})
+    assert second == ColumnRepair(repaired={}, unrepaired={})
+    assert repaired_twice.paint == {"circle-color": ["get", "x"]}
+
+    repaired_other, other = repair_layer_columns(second_layer, columns)
+    assert other == ColumnRepair(repaired={}, unrepaired={})
+    assert repaired_other.paint == {"circle-color": ["get", "y"]}
 
 
 def test_repair_leaves_a_stored_name_alone_when_another_columns_source_differs_only_by_case():
