@@ -414,7 +414,7 @@ async def _statements_run_on(isolation_level: str | None) -> list[str]:
 
 
 @pytest.mark.anyio
-async def test_an_autocommit_connection_gets_no_set_local():
+async def test_an_autocommit_connection_gets_no_set_local(test_db_session):
     # SET LOCAL outside a transaction block only warns and sets nothing, so the
     # startup connections that run as AUTOCOMMIT must not issue it.
     statements = await _statements_run_on("AUTOCOMMIT")
@@ -422,6 +422,6 @@ async def test_an_autocommit_connection_gets_no_set_local():
 
 
 @pytest.mark.anyio
-async def test_a_transaction_still_gets_set_local():
+async def test_a_transaction_still_gets_set_local(test_db_session):
     statements = await _statements_run_on(None)
     assert any(s.startswith("SET LOCAL statement_timeout") for s in statements)
