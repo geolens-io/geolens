@@ -453,13 +453,15 @@ async def export_dataset(
             # event loop, drained on cancellation so the `except BaseException`
             # rmtree below can't delete temp_dir while the zip thread still
             # writes into it.
-            zip_path = os.path.join(temp_dir, filename)
+            zip_path = os.path.join(temp_dir, "archive.zip")
             await run_in_thread_draining(_zip_export_files, temp_dir, zip_path)
 
             return zip_path, filename, media_type
 
         # Single-file formats
-        output_path = os.path.join(temp_dir, filename)
+        # The title can exceed the filesystem name limit, so it only names the
+        # download, never the file on disk.
+        output_path = os.path.join(temp_dir, f"export{ext}")
         await run_ogr2ogr_export(
             table_name,
             output_path,

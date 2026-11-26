@@ -1,6 +1,7 @@
 """KML and KMZ exports written by LIBKML, read back with OGR."""
 
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -190,3 +191,25 @@ async def test_columns_named_like_kml_elements_stay_attributes(
     assert data["ints"] == "(3:1,2,3)"
     assert data["reals"] == "(2:1.5,2.5)"
     assert data["words"] == "(2:x,y)"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("fmt", ["geojson", "shp"])
+async def test_export_of_a_very_long_title_still_writes_and_keeps_the_download_name(
+    test_db_session, monkeypatch, tmp_path, fmt
+):
+    from app.processing.export import service as export_service
+
+    monkeypatch.setattr(export_service.settings, "upload_staging_dir", str(tmp_path))
+    table = await _make_table(test_db_session, "Point", 4326, _ROWS)
+    title = "東京都の公園と緑地の分布データ" * 6
+    try:
+        path, filename, _media = await export_service.export_dataset(
+            table, title, fmt, schema="data"
+        )
+    finally:
+        await _drop_table(test_db_session, table)
+
+    assert len(os.path.basename(path).encode()) <= 255
+    assert os.path.getsize(path) > 0
+    assert filename.startswith("東京都")
