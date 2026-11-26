@@ -88,9 +88,9 @@ def planned_publication(
     group held back or left off changed from what it asked for."""
     _, record_status = publication_to_catalog_fields(dataset.publication)
     if not result.decided:
-        return PendingManifestDataset(
-            dataset.visibility, record_status, dataset.title, dataset.groups
-        )
+        # Its own ids aren't filtered by what the caller may grant, so the
+        # dataset is judged on the groups it has.
+        return PendingManifestDataset(dataset.visibility, record_status, dataset.title)
     return PendingManifestDataset(
         result.decided_visibility,
         record_status,

@@ -173,6 +173,10 @@ class ManifestEntryFields:
     job_refusal: ManifestMessage | None = None
     job_refused_because: str | None = None
     job_refused_publishing: bool = False
+    # What the job a fresh replacement queues leaves, as ``settle_job_groups``
+    # predicts it: the entry answers with it, while its own fields above
+    # hold what the job stores.
+    settled: ManifestEntryFields | None = None
     job_held_back: list[ManifestMessage] | None = None
 
     @classmethod
@@ -273,9 +277,8 @@ def report_entry(
     whatever it did: a held run still carries what the entry decided."""
     if fields is not None and result.action != "error":
         result.messages = [*(result.messages or []), *fields.messages]
-        result.decide(
-            fields.visibility, fields.group_names, fields.role_granted, fields.groups
-        )
+        ends = fields.settled or fields
+        result.decide(ends.visibility, ends.group_names, ends.role_granted, ends.groups)
     return result
 
 
@@ -505,12 +508,14 @@ async def refuse_a_share_its_job_refuses(
     storing ``job_metadata``, would be refused, by the guard on its
     publication or for keeping a group the entry leaves out, judged by
     ``settle_job_groups`` as a queued job is. Nothing of ``fields`` changes:
-    the job plans its own share when it runs."""
+    the job plans its own share when it runs, and ``fields.settled`` holds
+    what it leaves, which the entry answers with."""
     if fields is None or existing is None:
         return
     trial = replace(fields, messages=[])
     await settle_job_groups(db, user, dataset, trial, existing, job_metadata)
     if trial.job_refusal is None:
+        fields.settled = trial
         return
     raise ManifestEntryRefused(
         [
@@ -594,11 +599,14 @@ def note_more_visible(
     than it does now: through a level or groups the request changed, since an
     omitted one keeps the dataset's, or because the entry publishes a dataset
     that only its owner and admins read until then. A dataset that stays
-    unpublished reaches nobody more, whatever its level and groups."""
+    unpublished reaches nobody more, whatever its level and groups. A fresh
+    replacement is judged on what its job leaves (``settled``)."""
     if fields is None or existing is None:
         return
     record = existing.record
     before = record.visibility
+    messages = fields.messages
+    fields = fields.settled or fields
     after = fields.visibility or before
     if fields.groups is not None and after in ("private", "restricted"):
         kept_by_role = after == "restricted" and fields.role_granted
@@ -622,7 +630,7 @@ def note_more_visible(
     audience = audience_phrase(after, fields.group_names or [])
     if after == "restricted" and not fields.group_names:
         audience = "the groups and roles it is shared with"
-    fields.messages.append(
+    messages.append(
         ManifestMessage(
             code=MORE_VISIBLE,
             severity="warning",

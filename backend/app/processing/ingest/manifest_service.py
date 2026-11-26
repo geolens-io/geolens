@@ -13,6 +13,7 @@ import structlog
 from fastapi import HTTPException, Request
 from sqlalchemy import desc, select
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm import joinedload
@@ -569,8 +570,11 @@ async def _admit_key_dataset(db: AsyncSession, dataset: Any, user: Identity) -> 
     # level (layering invariant).
     from app.modules.catalog.authorization import check_dataset_write_access
 
-    # The row may have been loaded before a transfer committed.
-    await db.refresh(dataset.record, attribute_names=["created_by"])
+    # The row may have been loaded before a transfer or a delete committed.
+    try:
+        await db.refresh(dataset.record, attribute_names=["created_by"])
+    except InvalidRequestError as exc:
+        raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED) from exc
     if dataset.record.created_by != user.id:
         raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED)
     try:
@@ -1304,9 +1308,9 @@ async def _reserve_or_settle_entry(
         dataset=dataset,
         existing=existing_dataset,
     )
-    if request.dry_run:
-        note_more_visible(dataset, fields, existing_dataset)
     if held_matches:
+        if request.dry_run:
+            note_more_visible(dataset, fields, existing_dataset)
         answer_as_the_job_ends(fields, dry_run=request.dry_run)
         # The held replacement publishes what this apply just decided.
         held.mark_pending(fields.visibility)
@@ -1324,6 +1328,8 @@ async def _reserve_or_settle_entry(
         ),
     )
     if request.dry_run:
+        # Judged on what the job leaves, once the check above settled it.
+        note_more_visible(dataset, fields, existing_dataset)
         # A preview reserves nothing, so the key is left exactly as this entry
         # found it.
         result = None

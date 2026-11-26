@@ -2165,6 +2165,52 @@ async def test_a_queued_private_replacement_its_publication_will_refuse_says_so(
     assert await _dataset_grants(test_db_session, dataset_id) == {needed.id}
 
 
+async def test_a_replacement_answers_with_the_groups_its_refused_share_keeps(
+    client, admin_auth_header, test_db_session, clean_tables, monkeypatch
+):
+    """Under an authority that can't answer audience questions the owner's
+    shared map refuses any grant change, so the job keeps A: a fresh
+    preview, the apply, a preview of the queued job and the job itself all
+    leave A, and nothing warns A057 of B."""
+    from app.modules.catalog.maps import service_public
+
+    monkeypatch.setattr(
+        service_public, "answers_audience_questions", lambda permission: False
+    )
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, member = await _editor(client, test_db_session, admin_auth_header)
+    key = "groups-refused-share-kept"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "restricted", "published"
+    )
+    kept = await _shared_through(test_db_session, user, member, dataset_id)
+    added = await _group(test_db_session, user.id)
+    entry = await _uploaded(
+        client, admin_auth_header, key, groups=[str(kept.id), str(added.id)]
+    )
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True)
+    )
+    [fresh] = response.results
+    assert (fresh.action, fresh.groups, _codes(fresh)) == ("update", [kept.name], [])
+
+    user = await _admin_user(test_db_session)
+    queued, task = await _queue_update(test_db_session, user, entry)
+    assert (queued.action, queued.groups) == ("update", [kept.name])
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True)
+    )
+    [again] = response.results
+    assert (again.action, again.job_id) == ("skip", queued.job_id)
+    assert again.groups == [kept.name]
+
+    job = await _run_update(test_db_session, queued, task)
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _dataset_grants(test_db_session, dataset_id) == {kept.id}
+
+
 async def test_a_queued_widening_that_removes_a_maps_group_is_answered_as_a_publish(
     client, admin_auth_header, test_db_session, clean_tables
 ):
@@ -3108,3 +3154,21 @@ async def test_a_former_owner_learns_nothing_of_the_new_owners_maps(
         [refused] = response.results
         assert (refused.action, refused.message) == ("error", MANIFEST_KEY_NOT_OWNED)
         assert _NEW_OWNERS_MAP not in response.model_dump_json()
+
+
+async def test_a_dataset_deleted_before_its_owner_is_read_is_not_owned():
+    """A record gone before the admit reads its owner answers
+    MANIFEST_KEY_NOT_OWNED, not the ORM's message."""
+    from sqlalchemy.exc import InvalidRequestError
+
+    from app.processing.ingest.manifest_service import (
+        ManifestSourceError,
+        _admit_key_dataset,
+    )
+
+    db = AsyncMock()
+    db.refresh.side_effect = InvalidRequestError("Could not refresh instance")
+    dataset = type("D", (), {"id": uuid.uuid4(), "record": object()})()
+    user = type("U", (), {"id": uuid.uuid4()})()
+    with pytest.raises(ManifestSourceError, match=re.escape(MANIFEST_KEY_NOT_OWNED)):
+        await _admit_key_dataset(db, dataset, user)

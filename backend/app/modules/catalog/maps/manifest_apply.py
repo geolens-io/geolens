@@ -625,6 +625,18 @@ async def _plan_sharing(
     return visibility, groups
 
 
+def _name_pending(
+    named_pending: dict[str, ShownDataset],
+    key: str,
+    dataset_id: uuid.UUID | None,
+    dataset: _Dataset | None,
+    planned: PendingManifestDataset | None,
+) -> None:
+    """Record the dataset a layer names when this request publishes it."""
+    if planned is not None:
+        named_pending[key] = planned_dataset(key, dataset_id, dataset, planned)
+
+
 async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _Plan:
     """Check one map and plan its apply. Writes nothing.
 
@@ -730,10 +742,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             layers.append(stored_layer)
             keys.append(layer.key)
             targets[layer.key] = Target(dataset_id, dataset, stored_layer)
-            if planned is not None:
-                named_pending[layer.key] = planned_dataset(
-                    layer.key, dataset_id, dataset, planned
-                )
+            _name_pending(named_pending, layer.key, dataset_id, dataset, planned)
     plan = _Plan(result={}, map_obj=map_obj, styling_applied=styling_applied)
     plan.notes = managed_notes(
         map_obj.notes if map_obj is not None else None,

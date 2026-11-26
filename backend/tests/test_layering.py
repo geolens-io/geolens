@@ -1350,12 +1350,18 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # a held or in-flight job is reused, the updates a publish key may not make,
     # the maps section's results beside the datasets', and quota admission that
     # credits a replacement with the bytes it supersedes.
-    "backend/app/processing/ingest/manifest_service.py": 1389,
+    "backend/app/processing/ingest/manifest_service.py": 1438,
+    # A version 2 entry's fields as an apply decides them and as its job's
+    # publish applies them, side by side: an apply or dry run of a replacement
+    # predicts its job's share, held-back groups and refusal through the
+    # worker's own helpers and guards, fresh, queued or held.
+    "backend/app/processing/ingest/manifest_dataset_fields.py": 1218,
     # One map's check, plan and write: the styling decision, layer matching, the
     # history event, the share link and the result's visibility, groups and
     # removed layers share the row lock the apply holds, which is also where its
-    # groups are planned and its moved layers are judged.
-    "backend/app/modules/catalog/maps/manifest_apply.py": 1191,
+    # groups are planned, its moved layers are judged and a dry run judges a
+    # layer on a dataset the same request publishes.
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1224,
     # The publish manifest's request and response models in one place, which
     # the vendored wire schema, the contract snapshot and both SDKs are held to.
     "backend/app/processing/ingest/manifest_schemas.py": 1046,
