@@ -691,6 +691,7 @@ def test_no_external_imports_of_maps_private_service_modules() -> None:
         "service_shared",
         "service_crud",
         "service_diff",
+        "service_images",
         "service_layers",
         "service_public",
     }
@@ -1218,7 +1219,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 134,
+        "backend/app/modules/catalog/maps/service.py": 142,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 150,
         "backend/app/processing/ai/chat_service.py": 487,
@@ -1230,7 +1231,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Preview operations share one sandbox concurrency and serialization boundary.
         "backend/app/modules/catalog/datasets/domain/service_analysis.py": 612,
         # Database commits and object publication/rollback form one asset lifecycle.
-        "backend/app/modules/catalog/maps/service_crud.py": 850,
+        "backend/app/modules/catalog/maps/service_crud.py": 854,
         # Page search and its counts share one candidate and semantic-window selection.
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,

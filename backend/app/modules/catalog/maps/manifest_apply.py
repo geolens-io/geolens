@@ -45,7 +45,6 @@ from app.modules.catalog.maps.manifest_columns import (
 from app.modules.catalog.maps.manifest_layers import plan_layer_stack
 from app.modules.catalog.maps.manifest_republish import (
     ManagedNotes,
-    clear_map_images,
     loss_lines,
     managed_notes,
     publish_line,
@@ -111,6 +110,7 @@ from app.modules.catalog.maps.schemas import (
 )
 from app.modules.catalog.maps.service import (
     bulk_check_dataset_access,
+    clear_map_images,
     discard_map_asset_objects,
     lock_map_for_asset_write,
     check_map_ownership,

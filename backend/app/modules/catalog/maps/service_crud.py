@@ -58,7 +58,7 @@ from app.modules.catalog.maps.service_shared import (
     _fetch_layer_rows_ordered,
     _resolve_save_response_metadata,
 )
-from app.platform.catalog_locks import bounded_row_lock
+from app.platform.catalog_locks import REQUEST_LOCK_TIMEOUT, bounded_row_lock
 
 logger = structlog.stdlib.get_logger(__name__)
 
@@ -85,7 +85,12 @@ def new_map_asset_key(prefix: str, map_id: uuid.UUID, ext: str) -> str:
     return f"{prefix}/{map_id}-{uuid.uuid4().hex}.{ext}"
 
 
-async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> Row:
+async def lock_map_for_asset_write(
+    session: AsyncSession,
+    map_id: uuid.UUID,
+    *,
+    lock_timeout: str = REQUEST_LOCK_TIMEOUT,
+) -> Row:
     """Take the row lock that serializes one map's asset replacements.
 
     Callers take it after validating the payload, so no decode or image
@@ -109,6 +114,7 @@ async def lock_map_for_asset_write(session: AsyncSession, map_id: uuid.UUID) -> 
         .with_for_update(),
         message=_ASSETS_BUSY,
         detail={"code": "map_asset_write_locked", "message": _ASSETS_BUSY},
+        lock_timeout=lock_timeout,
         reset=False,
     )
     row = result.one_or_none()
