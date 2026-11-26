@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
+import { useCallback, useEffect, useId, useMemo, useRef, useState, type FocusEvent, type KeyboardEvent } from 'react';
 import type { MapTerrainConfig, SharedLayerResponse } from '@/types/api';
 import { useTranslation } from 'react-i18next';
 import { demChipGlyph, LayerTypeIcon, RasterGlyphChip } from '@/components/map/layer-icons';
@@ -82,6 +82,33 @@ export function LayerLegend({
 
   const panelId = useId();
 
+  // The room beside the docked table is measured on a sentinel that shares the
+  // panel's top offset and height cap, so an overlay can't skew the reading.
+  // Under about one heading and a row the panel collapses; an explicit press
+  // of the toggle then opens it over the table until there is room again.
+  const roomRef = useRef<HTMLDivElement>(null);
+  const [tight, setTight] = useState(false);
+  const tightRef = useRef(false);
+  const [peek, setPeek] = useState(false);
+  useEffect(() => {
+    const el = roomRef.current;
+    if (!el || typeof ResizeObserver === 'undefined') return;
+    const observer = new ResizeObserver(() => {
+      const minRoom = 6 * parseFloat(getComputedStyle(document.documentElement).fontSize || '16');
+      const next = el.getBoundingClientRect().height < minRoom;
+      // Only the moment the panel disappears moves focus; an overlay the reader
+      // opened keeps it through resizes.
+      if (next && !tightRef.current && panelRef.current?.contains(document.activeElement)) toggleRef.current?.focus();
+      tightRef.current = next;
+      setTight(next);
+      if (!next) setPeek(false);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
+  const overlay = isOpen && tight && peek;
+  const shown = isOpen && (!tight || peek);
+
   // Rows below the fold get a fading chevron so a cut-off list reads as
   // scrollable rather than complete.
   const [moreBelow, setMoreBelow] = useState(false);
@@ -92,47 +119,71 @@ export function LayerLegend({
   }, []);
   useEffect(() => {
     const el = panelRef.current;
-    if (!isOpen || !el) return;
+    if (!shown || !el) return;
     updateMoreBelow();
     if (typeof ResizeObserver === 'undefined') return;
     const observer = new ResizeObserver(updateMoreBelow);
     observer.observe(el);
     if (el.firstElementChild) observer.observe(el.firstElementChild);
     return () => observer.disconnect();
-  }, [isOpen, sorted, terrainEntry, visibleLayers, updateMoreBelow]);
+  }, [shown, sorted, terrainEntry, visibleLayers, updateMoreBelow]);
+  function toggle() {
+    if (!tight) {
+      onToggle();
+    } else if (overlay) {
+      setPeek(false);
+    } else {
+      setPeek(true);
+      if (!isOpen) onToggle();
+    }
+  }
+  // The overlay sits over the table, so focus moving on into the page (not
+  // between the legend and its toggle) puts it away.
+  function handleBlur(e: FocusEvent<HTMLElement>) {
+    const next = e.relatedTarget as Node | null;
+    if (!overlay || !next || panelRef.current?.contains(next) || toggleRef.current?.contains(next)) return;
+    setPeek(false);
+  }
   // Escape closes the panel only while focus is in the legend, and marks the
   // event handled so FeaturePopup and BasemapToggle's document listeners skip it.
   function handleEscape(e: KeyboardEvent<HTMLElement>) {
-    if (e.key !== 'Escape' || e.defaultPrevented || !isOpen) return;
+    if (e.key !== 'Escape' || e.defaultPrevented || !shown) return;
     e.preventDefault();
-    onToggle();
+    toggle();
     toggleRef.current?.focus();
   }
 
   return (
     <>
+      <div
+        ref={roomRef}
+        data-testid="legend-room"
+        className={`pointer-events-none invisible absolute ${edge} top-14 w-0 h-[max(0px,calc(100%-11rem-var(--viewer-data-panel-height,0px)))]`}
+      />
       {/* Toggle button — always visible */}
       <button
         ref={toggleRef}
         type="button"
-        onClick={onToggle}
+        onClick={toggle}
         onKeyDown={handleEscape}
-        aria-expanded={isOpen}
+        onBlur={handleBlur}
+        aria-expanded={shown}
         aria-controls={panelId}
-        aria-label={isOpen ? t('viewer.legend.hide') : t('viewer.legend.show')}
+        aria-label={shown ? t('viewer.legend.hide') : t('viewer.legend.show')}
         className={`absolute ${edge} top-3 z-20 flex items-center justify-center w-8 h-8 rounded-md bg-background/80 backdrop-blur-sm border border-border/50 shadow-sm text-foreground hover:bg-background transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring`}
       >
-        {isOpen ? <X className="w-4 h-4" aria-hidden="true" /> : <Layers className="w-4 h-4" aria-hidden="true" />}
+        {shown ? <X className="w-4 h-4" aria-hidden="true" /> : <Layers className="w-4 h-4" aria-hidden="true" />}
       </button>
 
       {/* Legend panel — unmounted when closed (prevents a keyboard trap into
           invisible per-layer toggles; opacity-0 + pointer-events-none alone
           would not). */}
-      {isOpen && (
+      {shown && (
       // eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- Escape dismisses the region from any control focused inside it
       <div
         ref={panelRef}
         onKeyDown={handleEscape}
+        onBlur={handleBlur}
         onScroll={updateMoreBelow}
         id={panelId}
         role="region"
@@ -141,8 +192,10 @@ export function LayerLegend({
         // absolutely positioned inside the map, so a viewport cap would let a
         // tall legend run behind the Map data button (bottom-20 + ~2rem) and the
         // basemap toggle (bottom-8) in the same corner. 11rem = the 3.5rem top
-        // offset plus clearance above that bottom-left stack.
-        className={`absolute ${edge} top-14 z-10 w-64 max-h-[calc(100%-11rem)] overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50`}
+        // offset plus clearance above that bottom-left stack, and the docked
+        // table's height comes off too. The overlay, opened on request, only
+        // keeps the top offset and a small bottom margin, and paints above the table.
+        className={`absolute ${edge} top-14 w-64 overflow-y-auto bg-background/90 backdrop-blur-md rounded-lg shadow-lg border border-border/50 ${overlay ? 'z-30 max-h-[calc(100%-4.25rem)]' : 'z-10 max-h-[max(0px,calc(100%-11rem-var(--viewer-data-panel-height,0px)))]'}`}
       >
         <div className="p-3 border-b border-border/50">
           <h2 className="text-sm font-semibold text-foreground">

@@ -203,7 +203,7 @@ function PublicViewer() {
         mainLandmark
       >
         {({ onMapReady, mapLayers }) => (
-          <main id="map-viewport" className="w-full min-w-0 min-h-0 flex-1 relative overflow-hidden">
+          <main id="map-viewport" data-map-frame className="w-full min-w-0 min-h-0 flex-1 relative overflow-hidden">
             {/* Full-viewport map */}
             <MapErrorBoundary>
               <Suspense fallback={<LoadingState message={t('viewer.loading')} />}>
