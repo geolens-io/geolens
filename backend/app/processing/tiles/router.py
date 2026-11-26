@@ -31,7 +31,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.url_redaction import redact_exception_text
 from app.core.geo import extent_lon_span, extent_to_span_bbox, raster_crs_facts
-from app.core.identity import Identity
+from app.core.identity import Identity, IdentitySnapshot
 from app.core.raster_bands import is_palette_raster
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.tile_scope import (
@@ -1384,6 +1384,10 @@ async def raster_tile_proxy(
                 detail=f"sigma must be > 0; got sigma={eff_sigma}",
             )
 
+    # Authorizing rolls the session back, which expires an ORM user, and the
+    # check after a replace reads the caller again.
+    if user is not None:
+        user = IdentitySnapshot.of(user)
     auth_resp = await raster_auth_check(request, dataset_id, user, db)
     open_path = auth_resp.headers.get("X-GeoLens-Asset-OpenPath")
     if not open_path:

@@ -12,6 +12,7 @@ from app.processing.tiles import router as tile_router
 
 from tests.factories import get_user_id
 from tests.test_perf002_raster_meta_cache import (
+    _create_private_raster,
     _create_public_raster,
     _swap_raster_pointer,
 )
@@ -47,10 +48,8 @@ class _Titiler:
         return [_opened(call) for call in self.client.get.call_args_list]
 
 
-async def _raster(session):
-    dataset = await _create_public_raster(
-        session, created_by=await get_user_id(session, "admin")
-    )
+async def _raster(session, create=_create_public_raster):
+    dataset = await create(session, created_by=await get_user_id(session, "admin"))
     (old_uri,) = (
         await session.execute(
             text("SELECT asset_uri FROM catalog.raster_assets WHERE dataset_id = :id"),
@@ -60,9 +59,11 @@ async def _raster(session):
     return dataset, old_uri
 
 
-async def _tile(client, dataset_id: uuid.UUID, **params):
+async def _tile(client, dataset_id: uuid.UUID, headers=None, **params):
     return await client.get(
-        f"/tiles/raster-proxy/{dataset_id}/8/75/96.png", params=params
+        f"/tiles/raster-proxy/{dataset_id}/8/75/96.png",
+        params=params,
+        headers=headers or {},
     )
 
 
@@ -87,6 +88,24 @@ async def test_a_tile_after_a_replace_is_rendered_from_the_new_file(
     # A `v` behind the row is served, but never into the shared cache.
     assert "no-store" in old_version.headers["cache-control"]
     assert titiler.opened()[-1].endswith(new_uri)
+
+
+async def test_a_signed_in_reader_of_a_private_raster_gets_the_new_tile(
+    client, test_db_session, admin_auth_header
+):
+    dataset, old_uri = await _raster(test_db_session, _create_private_raster)
+    titiler = _Titiler({old_uri: _OLD_TILE})
+    with patch.object(tile_router, "_titiler_client", titiler.client):
+        warm = await _tile(client, dataset.id, headers=admin_auth_header)
+        new_uri = await _swap_raster_pointer(test_db_session, dataset.id)
+        titiler.present = {new_uri: _NEW_TILE}
+
+        response = await _tile(client, dataset.id, headers=admin_auth_header)
+
+    assert warm.content == _OLD_TILE
+    assert response.status_code == 200
+    assert response.content == _NEW_TILE
+    assert "no-store" in response.headers["cache-control"]
 
 
 async def test_a_failure_with_the_file_unchanged_surfaces_after_one_render(
