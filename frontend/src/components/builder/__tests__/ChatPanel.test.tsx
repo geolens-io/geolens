@@ -1362,6 +1362,103 @@ describe('ChatPanel', () => {
     expect(props.onLabelChange).not.toHaveBeenCalled();
   });
 
+  it('undo reverts only the layers the turn edited and keeps hand edits made since', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: [{ type: 'set_style', layer_id: 'a', paint: { 'fill-color': '#ff0000' } }] },
+      };
+      yield { event: 'done', data: { explanation: 'Styled' } };
+    });
+    const actions = {
+      onFilterChange: vi.fn(),
+      onPaintChange: vi.fn(),
+      onStyleConfigChange: vi.fn(),
+      onLabelChange: vi.fn(),
+      onToggleVisibility: vi.fn(),
+      onAddDataset: vi.fn(),
+      onRemove: vi.fn(),
+      onRestoreLayers: vi.fn(),
+    };
+    const a = makeLayer({ id: 'a', dataset_id: 'ds-a', sort_order: 0, paint: { 'fill-color': '#111827' } });
+    const c = makeLayer({ id: 'c', dataset_id: 'ds-c', sort_order: 1 });
+    const d = makeLayer({ id: 'd', dataset_id: 'ds-d', sort_order: 2, opacity: 1 });
+    const user = userEvent.setup();
+    const { rerender } = render(<ChatPanel mapId="map-1" layers={[a, c, d]} layerActions={actions} />);
+
+    await typeAndSend(user, 'make a red');
+    await waitFor(() => expect(actions.onPaintChange).toHaveBeenCalled());
+
+    // By hand: add B, delete C, change D's opacity and move A below D.
+    const b = makeLayer({ id: 'b', dataset_id: 'ds-b', sort_order: 0 });
+    rerender(
+      <ChatPanel
+        mapId="map-1"
+        layers={[
+          b,
+          { ...d, sort_order: 1, opacity: 0.2 },
+          { ...a, sort_order: 2, paint: { 'fill-color': '#ff0000' } },
+        ]}
+        layerActions={actions}
+      />,
+    );
+    await user.click(await screen.findByRole('button', { name: /undo/i }));
+
+    expect(actions.onRemove).not.toHaveBeenCalled();
+    expect(actions.onAddDataset).not.toHaveBeenCalled();
+    expect(actions.onRestoreLayers).toHaveBeenCalledTimes(1);
+    const restored = actions.onRestoreLayers.mock.calls[0][0] as MapLayerResponse[];
+    expect(restored).toHaveLength(1);
+    expect(restored[0]).toMatchObject({ id: 'a', paint: { 'fill-color': '#111827' }, sort_order: 2 });
+  });
+
+  it('undo keeps a layer out of a folder it was moved out of after the turn', async () => {
+    mockStreamChat.mockImplementation(async function* () {
+      yield {
+        event: 'actions',
+        data: { actions: [{ type: 'set_style', layer_id: 'a', paint: { 'fill-color': '#ff0000' } }] },
+      };
+      yield { event: 'done', data: { explanation: 'Styled' } };
+    });
+    const onRestoreLayers = vi.fn();
+    const actions = {
+      onFilterChange: vi.fn(),
+      onPaintChange: vi.fn(),
+      onStyleConfigChange: vi.fn(),
+      onLabelChange: vi.fn(),
+      onToggleVisibility: vi.fn(),
+      onAddDataset: vi.fn(),
+      onRemove: vi.fn(),
+      onRestoreLayers,
+    };
+    const folder = { ...makeLayer({ id: 'g', sort_order: 0 }), layer_type: 'group:folder' } as unknown as MapLayerResponse;
+    const inFolder = {
+      ...makeLayer({
+        id: 'a',
+        dataset_id: 'ds-a',
+        sort_order: 1,
+        paint: { 'fill-color': '#111827' },
+        style_config: { builder: { folderGroupId: 'g', folderGroupName: 'Parks' } } as StyleConfig,
+      }),
+      parent_group_id: 'g',
+    } as MapLayerResponse;
+    const user = userEvent.setup();
+    const { rerender } = render(<ChatPanel mapId="map-1" layers={[folder, inFolder]} layerActions={actions} />);
+
+    await typeAndSend(user, 'make a red');
+    await waitFor(() => expect(actions.onPaintChange).toHaveBeenCalled());
+
+    // Moving the folder's only child out prunes the folder.
+    const movedOut = makeLayer({ id: 'a', dataset_id: 'ds-a', sort_order: 0, paint: { 'fill-color': '#ff0000' } });
+    rerender(<ChatPanel mapId="map-1" layers={[movedOut]} layerActions={actions} />);
+    await user.click(await screen.findByRole('button', { name: /undo/i }));
+
+    const [restored] = onRestoreLayers.mock.calls[0][0] as (MapLayerResponse & { parent_group_id?: string })[];
+    expect(restored.paint).toEqual({ 'fill-color': '#111827' });
+    expect(restored.parent_group_id).toBeUndefined();
+    expect(restored.style_config?.builder).toBeUndefined();
+  });
+
   it('STALE-01: a query-only turn after a style edit does not leave a stale undo button', async () => {
     mockStreamChat
       .mockImplementationOnce(async function* () {
