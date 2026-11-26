@@ -750,9 +750,9 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 or (layer.manifest_key not in listed and entry.styling == "keep")
             )
         )
-        waiting = unsettled_sources(
-            stored, targets, {*unsettled, *busy}, request.pending_datasets
-        )
+        # Only a job that is running or queued: an entry that failed queued
+        # none, so the dataset it would have replaced is settled.
+        waiting = unsettled_sources(stored, targets, busy, request.pending_datasets)
         messages.extend(waiting)
         # A move that waits for its source's job is judged once it can be made.
         movable = {

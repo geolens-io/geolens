@@ -335,11 +335,11 @@ async def widening_moves(
 def unsettled_sources(
     stored: Sequence[tuple[MapLayer, Any]],
     targets: Mapping[str, Target],
-    unsettled: Collection[uuid.UUID],
+    busy: Collection[uuid.UUID],
     pending: Mapping[str | uuid.UUID, tuple[str | None, str]],
 ) -> list[dict[str, Any]]:
-    """A052 for each layer the publish would move off a dataset in
-    ``unsettled``, one a job is still writing, that the request doesn't plan.
+    """A052 for each layer the publish would move off a dataset in ``busy``,
+    one a pending or running job writes, that the request doesn't plan.
     The move waits for that job, as a layer onto such a dataset does: judged
     on the dataset as it was before the job, it could replace the layer's
     styling and remove its widgets for good. Only moves between datasets the
@@ -355,7 +355,7 @@ def unsettled_sources(
             layer=layer.manifest_key,
         )
         for layer, _, _ in _moving(stored, targets)
-        if layer.dataset_id in unsettled and layer.dataset_id not in pending
+        if layer.dataset_id in busy and layer.dataset_id not in pending
     ]
 
 
