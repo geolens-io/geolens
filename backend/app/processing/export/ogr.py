@@ -443,6 +443,13 @@ async def run_ogr2ogr_export(
         driver,
         output_path,
         pg_conn,
+        # GDAL's PostgreSQL driver reads layer metadata from ogr_system_tables
+        # if the schema exists. The app role has no USAGE on it, and LIBKML
+        # asks the source layer for metadata, causing KML/KMZ exports to fail
+        # (#4192). Ingest already disables metadata with this option.
+        "--config",
+        "OGR_PG_ENABLE_METADATA",
+        "NO",
     ]
     cmd.extend(_format_specific_args(format_key))
     use_xy = xy and format_key == "csv"
