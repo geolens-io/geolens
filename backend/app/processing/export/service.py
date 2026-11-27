@@ -8,6 +8,8 @@ import zipfile
 from urllib.parse import quote
 
 import structlog
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
@@ -18,10 +20,7 @@ from app.processing.export.ogr import (
     PARQUET_MEDIA_TYPE,
     run_ogr2ogr_export,
 )
-from app.processing.export.where_validator import (
-    mask_quoted_literals,
-    validate_where_ast,
-)
+from app.processing.export.where_validator import canonical_where
 from app.core.runtime.staging import ensure_staging_ready
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -263,43 +262,16 @@ def file_response_content_disposition(filename: str) -> str:
     return f'attachment; filename="{filename}"'
 
 
-# SQL keywords to ignore during where-clause column validation
-_SQL_KEYWORDS = frozenset(
-    {
-        "AND",
-        "OR",
-        "NOT",
-        "IS",
-        "NULL",
-        "LIKE",
-        "IN",
-        "BETWEEN",
-        "TRUE",
-        "FALSE",
-        "ASC",
-        "DESC",
-        "SELECT",
-        "FROM",
-        "WHERE",
-    }
-)
-
-# Regex to extract identifiers from a WHERE clause
-_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-
-# Regex to detect numeric literals (integers and decimals)
-_NUMERIC_RE = re.compile(r"^\d+(\.\d+)?$")
-
-
 def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
-    """Validate that a WHERE clause only references known columns.
+    """Validate a WHERE condition and return the text to run in its place.
 
     Args:
         where: SQL WHERE expression string.
         column_info: List of column dicts, each with a "name" key.
 
     Returns:
-        The where string unchanged if valid.
+        ``canonical_where(where, columns)``: the server's render of the
+        validated condition. Callers run this, never ``where`` itself.
 
     Raises:
         ValueError: If column_info is missing or an unknown column is referenced.
@@ -307,44 +279,29 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     if not column_info:
         raise ValueError("Cannot filter: no column info available")
 
-    # Pre-parse rejection of meta-SQL tokens. validate_where_ast catches most
-    # via its AST allowlist, but string-level rejection gives a clearer error
-    # and defends against a sqlglot parser bug tolerating a terminator or
-    # comment.
+    # Refused anywhere in the text, inside a quoted value or name too, with
+    # a clearer error than the parser's.
     if ";" in where:
         raise ValueError("WHERE clause must not contain statement terminator ';'")
     if "--" in where:
         raise ValueError("WHERE clause must not contain SQL line comment '--'")
     if "/*" in where or "*/" in where:
         raise ValueError("WHERE clause must not contain SQL block comment '/* */'")
-    # Unbalanced single-quote check — count unescaped quotes; legal usage is
-    # always even (open + close). SQL '' is the escape sequence so we collapse
-    # those first.
-    quote_count = where.replace("''", "").count("'")
-    if quote_count % 2 != 0:
-        raise ValueError("WHERE clause has unbalanced single-quotes")
 
-    # AST gate: rejects UNION, subqueries, DDL and function calls that the
-    # identifier-only regex below cannot detect.
-    validate_where_ast(where)
+    # Every name must resolve to one of this dataset's columns; the render
+    # names each by its real column name.
+    return canonical_where(where, [str(col["name"]) for col in column_info])
 
-    # Defense in depth: rejects column names that aren't in this dataset's
-    # column_info, even if they parse cleanly.
-    valid_names = {col["name"].lower() for col in column_info}
 
-    # A quoted literal is never a column reference, so masking it cannot admit
-    # an unknown column before, after or between literals.
-    identifiers = _IDENTIFIER_RE.findall(mask_quoted_literals(where))
-    for ident in identifiers:
-        upper = ident.upper()
-        if upper in _SQL_KEYWORDS:
-            continue
-        if _NUMERIC_RE.match(ident):
-            continue
-        if ident.lower() not in valid_names:
-            raise ValueError(f"Unknown column: {ident}")
+async def read_filter_strings_as_rendered(db: AsyncSession) -> None:
+    """Read string literals without backslash escapes for this transaction.
 
-    return where
+    A validated filter writes a backslash in a string as itself, which is how
+    ogr2ogr's connection reads it. A role or database that defaults
+    ``standard_conforming_strings`` to off would read it as an escape, and so
+    run a different condition from the one validated.
+    """
+    await db.execute(text("SET LOCAL standard_conforming_strings = on"))
 
 
 _DOWNLOAD_STEM_MAX_BYTES = 150
@@ -419,7 +376,7 @@ async def export_dataset(
         raise ValueError(f"Unsupported export format: {format_key}")
 
     if where is not None:
-        validate_where_clause(where, column_info)
+        where = validate_where_clause(where, column_info)
 
     fmt = FORMAT_MAP[format_key]
     driver = fmt["driver"]
