@@ -35,6 +35,23 @@ _FORMATS = [
 ]
 
 
+# GeoParquet reads PostgreSQL itself; every other format converts with ogr2ogr.
+_EXPORTING = [
+    params
+    if params["format"] == "parquet"
+    else pytest.param(
+        params,
+        marks=[
+            pytest.mark.requires_ogr2ogr,
+            pytest.mark.skipif(
+                shutil.which("ogr2ogr") is None, reason="ogr2ogr not available"
+            ),
+        ],
+    )
+    for params in _FORMATS
+]
+
+
 @pytest.fixture
 async def keyword_dataset(test_db_session, monkeypatch, tmp_path):
     from app.processing.export import service as export_service
@@ -100,9 +117,7 @@ async def test_text_after_the_condition_is_refused(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("params", _FORMATS, ids=lambda p: "-".join(p.values()))
-@pytest.mark.requires_ogr2ogr
-@pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="ogr2ogr not available")
+@pytest.mark.parametrize("params", _EXPORTING, ids=lambda p: "-".join(p.values()))
 async def test_a_plain_condition_still_exports(
     client: AsyncClient, admin_auth_header: dict, keyword_dataset, params
 ):
@@ -124,9 +139,7 @@ async def test_a_plain_condition_still_exports(
 
 
 @pytest.mark.anyio
-@pytest.mark.parametrize("params", _FORMATS, ids=lambda p: "-".join(p.values()))
-@pytest.mark.requires_ogr2ogr
-@pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="ogr2ogr not available")
+@pytest.mark.parametrize("params", _EXPORTING, ids=lambda p: "-".join(p.values()))
 async def test_the_deepest_filter_head_accepts_also_exports(
     client: AsyncClient, admin_auth_header: dict, keyword_dataset, params
 ):
@@ -200,6 +213,18 @@ async def test_the_geoparquet_count_reads_a_backslash_as_the_export_does(
             schema="data",
             where=_BACKSLASH_FILTER,
         )
+
+
+@pytest.mark.anyio
+async def test_the_geoparquet_plan_holds_the_render_not_the_request(
+    test_db_session, keyword_dataset
+):
+    from app.processing.export.parquet import plan_parquet_export
+
+    plan = await plan_parquet_export(
+        test_db_session, keyword_dataset.table_name, schema="data", where="NAME='a'"
+    )
+    assert plan.where_sql == """(("name" = 'a'))"""
 
 
 @pytest.mark.anyio

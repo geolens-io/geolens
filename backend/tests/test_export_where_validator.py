@@ -329,6 +329,12 @@ def test_a_long_run_of_operator_characters_is_refused_unsplit():
         ("pop BETWEEN -5 AND +5", '("pop" BETWEEN -5 AND 5)'),
         ("pop=+5 OR pop > + (2.5)", '(("pop" = 5) OR ("pop" > 2.5))'),
         ("pop IN (1, pop, NOT pop)", '("pop" IN (1, "pop", (NOT "pop")))'),
+        ("pop = pop IN (1, 2)", '("pop" = ("pop" IN (1, 2)))'),
+        ("pop = (pop IN (1, 2))", '("pop" = ("pop" IN (1, 2)))'),
+        (
+            "name LIKE 'a%' = pop BETWEEN 1 AND 2",
+            '(("name" LIKE \'a%\') = ("pop" BETWEEN 1 AND 2))',
+        ),
         ("pop < - ((5.))", '("pop" < -5.0)'),
         ("name = 'a' IS NOT TRUE", "((\"name\" = 'a') IS NOT TRUE)"),
         ("pop IN (1, 2) IS FALSE", '(("pop" IN (1, 2)) IS FALSE)'),
@@ -503,8 +509,8 @@ def test_operators_outside_the_standard_spellings_are_refused(where):
         validate_where_clause(where, columns)
 
 
-# Each of these mixes a condition into a comparison or bound; PostgreSQL either
-# groups them in ways a re-render can change or refuses them outright.
+# Each of these chains comparisons or puts a bare condition where an operand
+# goes. PostgreSQL refuses most; the rest need parentheses to say what is meant.
 @pytest.mark.parametrize(
     "where",
     [
@@ -512,13 +518,11 @@ def test_operators_outside_the_standard_spellings_are_refused(where):
         "gid < 2 = active",
         "active = gid < 2",
         "active BETWEEN NOT flag AND flag",
-        "gid NOT IN (1) <= active",
-        "gid NOT IN (1, 2) > flag",
-        "gid NOT BETWEEN 1 AND 2 <= flag",
         "active IS NOT TRUE = flag",
         "active = NOT flag",
-        "gid IN (1, 2) = active",
         "active IS TRUE IS FALSE",
+        "gid IN (1) IN (TRUE)",
+        "active = gid IN (1) = flag",
         "gid = - -2",
     ],
 )
@@ -562,6 +566,14 @@ _ROWS_SQL = (
         "active IN (flag, NOT flag)",
         "active NOT IN (gid < 3, flag AND active)",
         "gid BETWEEN -5 AND +5",
+        "gid NOT IN (1) <= active",
+        "gid NOT IN (1, 2) > flag",
+        "gid NOT BETWEEN 1 AND 2 <= flag",
+        "gid IN (1, 2) = active",
+        "active = gid IN (1, 2)",
+        "active = name LIKE 'a%'",
+        "flag = gid NOT BETWEEN 2 AND 5 IS NOT TRUE",
+        "name LIKE 'a%' = name ILIKE 'A%' OR NOT active = gid IN (3)",
     ],
 )
 async def test_the_render_selects_the_same_rows_as_the_condition(

@@ -5,10 +5,11 @@ The language is one condition over a dataset's columns::
     or        := and (OR and)*
     and       := not (AND not)*
     not       := NOT not | predicate
-    predicate := primary [test] [IS [NOT] (NULL | TRUE | FALSE)]
-    test      := cmp primary | [NOT] IN ( or {, or} )
-               | [NOT] BETWEEN primary AND primary
-               | [NOT] (LIKE | ILIKE) primary
+    predicate := compared [IS [NOT] (NULL | TRUE | FALSE)]
+    compared  := ranged [cmp ranged]
+    ranged    := primary [ [NOT] IN ( or {, or} )
+                         | [NOT] BETWEEN primary AND primary
+                         | [NOT] (LIKE | ILIKE) primary ]
     primary   := ( or ) | operand
     operand   := column | 'string' | [+ | -] number | [+ | -] ( number )
                | TRUE | FALSE | NULL
@@ -16,9 +17,10 @@ The language is one condition over a dataset's columns::
 with cmp one of ``= <> != < <= > >=``. Anything else, and any input the
 grammar doesn't consume whole, is refused. The render is built from the parse
 tree, fully parenthesized and with every column double-quoted, so PostgreSQL
-reads it with exactly the grouping and names the parser saw. ``IS`` applies
-to the whole test before it, as it does in PostgreSQL. Rendering a render
-returns it unchanged.
+reads it with exactly the grouping and names the parser saw. The levels are
+PostgreSQL's precedence: ``IN``, ``BETWEEN`` and ``LIKE`` bind tighter than a
+comparison, and ``IS`` applies to the whole comparison before it. Rendering a
+render returns it unchanged.
 """
 
 from __future__ import annotations
@@ -300,7 +302,7 @@ class _Parser:
             inner = self.negation()
             self.depth -= 1
             return f"(NOT {inner})"
-        tested = self.test(self.primary())
+        tested = self.compared()
         if not self.keyword("IS"):
             return tested
         self.pos += 1
@@ -328,11 +330,16 @@ class _Parser:
         self.expect(")")
         return inner
 
-    def test(self, left: str) -> str:
+    def compared(self) -> str:
+        left = self.ranged()
         token = self.peek()
-        if token is not None and token.kind == "op" and token.text in _COMPARISONS:
-            self.pos += 1
-            return f"({left} {_COMPARISONS[token.text]} {self.primary()})"
+        if token is None or token.kind != "op" or token.text not in _COMPARISONS:
+            return left
+        self.pos += 1
+        return f"({left} {_COMPARISONS[token.text]} {self.ranged()})"
+
+    def ranged(self) -> str:
+        left = self.primary()
         negated = "NOT " if self.keyword("NOT") else ""
         if negated and not any(self.keyword(w, 1) for w in _NEGATABLE):
             raise ValueError(_SYNTAX.format("expected IN, BETWEEN or LIKE after NOT"))
