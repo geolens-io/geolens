@@ -207,9 +207,10 @@ does a column named with a reserved word such as `"order"`. There is no
 deprecation window, because the old reading can't be kept safely.
 
 A table registered on 1.35 gets `geom_4326` as a stored generated column, and
-1.34 can't edit its features. Finish upgrading every instance before you
-register tables, and expect feature edits on them to fail after a rollback to
-1.34.
+1.34 can't edit its features. A refresh on 1.35 does the same for a registered
+table whose `geom_4326` column is missing. Finish upgrading every instance
+before you register tables or refresh such a table, and expect feature edits
+on them to fail after a rollback to 1.34.
 
 If a reverse proxy of your own sits in front of GeoLens, such as an ingress
 controller or a load balancer, let it accept a request line of 16 KiB
