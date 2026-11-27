@@ -772,7 +772,6 @@ app = FastAPI(
     # instead register a no-slash alias via stacked decorators
     # (``include_in_schema=False``), so both shapes resolve identically.
     redirect_slashes=False,
-    dependencies=[Depends(refuse_nul_in_query)],
     lifespan=lifespan,
 )
 # The constructor argument is deprecated, but FastAPI.__call__ still applies the
@@ -1055,7 +1054,8 @@ app.add_middleware(
 app.add_middleware(NoCompressionByPathMiddleware)
 app.add_middleware(DynamicCORSMiddleware)
 
-app.include_router(api_router)
+# On the API routes, not the app, so the liveness probe keeps no dependencies.
+app.include_router(api_router, dependencies=[Depends(refuse_nul_in_query)])
 
 
 def _clone_api_route(
