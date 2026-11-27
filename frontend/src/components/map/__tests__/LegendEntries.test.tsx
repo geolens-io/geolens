@@ -417,6 +417,25 @@ describe('legend swatches in forced colors', () => {
     }
   });
 
+  it('keeps the largest radius class halo inside its cell at the maximum stroke', () => {
+    const { container } = render(
+      <LegendClassesList
+        geometryType="Point"
+        style={legendSwatch({ stroke: { color: '#000', width: 10 } })}
+        classes={[{ mode: 'graduated', target: 'radius', title: 'M', items: [{ color: '#ef4444', size: 12 }, { color: '#ef4444', size: 3 }], breaks: [6] }]}
+      />,
+    );
+    const svgs = Array.from(container.querySelectorAll('li > svg')) as SVGElement[];
+    for (const svg of svgs) {
+      const halo = svg.querySelector('circle.hidden') as SVGElement;
+      const fit = Number(svg.style.getPropertyValue('--halo-fit'));
+      const extent = (Number(halo.getAttribute('r')) + Number(halo.getAttribute('stroke-width')) / 2) * fit;
+      expect(extent).toBeLessThanOrEqual(12);
+      expect(svg).toHaveClass('forced-colors:[transform:scale(var(--halo-fit))]');
+    }
+    expect(Number(svgs[0].style.getPropertyValue('--halo-fit'))).toBeLessThan(1);
+  });
+
   it('keeps the colours on the heatmap ramp and gives it an edge', () => {
     const { container } = render(
       <HeatmapLegend
