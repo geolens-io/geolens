@@ -212,6 +212,70 @@ def test_text_after_the_condition_is_refused(where):
         validate_where_ast(where)
 
 
+@pytest.mark.parametrize(
+    "where",
+    [
+        "active = flag = active",
+        "gid < 2 = active",
+        "active = gid < 2",
+        "active BETWEEN NOT flag AND flag",
+    ],
+)
+def test_groupings_postgresql_refuses_are_refused(where):
+    with pytest.raises(ValueError, match="Disallowed expression"):
+        validate_where_ast(where)
+
+
+_ROWS_SQL = (
+    "SELECT coalesce(array_agg(gid ORDER BY gid), '{{}}') FROM (VALUES "
+    "(1, true, true, 'ab'), (2, true, false, 'b'), (3, false, true, NULL), "
+    "(4, false, false, 'a'), (5, NULL, true, 'Ax'), (6, true, NULL, 'z'), "
+    "(7, NULL, NULL, 'a')) AS t(gid, active, flag, name) WHERE {}"
+)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "where",
+    [
+        "gid NOT IN (1) <= active",
+        "gid NOT IN (1, 2) > flag",
+        "gid NOT IN (1, 2) <> flag",
+        "gid NOT BETWEEN 1 AND 2 <= flag",
+        "name NOT LIKE 'a%' < active",
+        "name NOT ILIKE 'a%' >= flag",
+        "active IS NOT TRUE = flag",
+        "active IS NOT NULL < flag",
+        "gid NOT IN (1) IS NULL",
+        "active = NOT flag",
+        "active = NOT flag = active",
+        "active <> gid NOT IN (1)",
+        "active IN (flag, NOT flag)",
+        "active BETWEEN flag AND NOT flag",
+        "active = flag IS NOT NULL",
+        "active IS NULL = flag",
+        "NOT active = flag",
+        "NOT NOT active <= flag",
+        "gid IN (1, 2) = active",
+        "active = gid BETWEEN 1 AND 2",
+        "gid BETWEEN -2 AND -(-3)",
+        "gid = - -2",
+        "(gid NOT IN (1)) <= active",
+        "gid NOT IN (1, 2) AND NOT active OR flag",
+    ],
+)
+async def test_the_render_selects_the_same_rows_as_the_condition(
+    test_db_session, where
+):
+    from sqlalchemy import text
+
+    async def rows(condition):
+        sql = _ROWS_SQL.format(condition).replace(":", "\\:")
+        return (await test_db_session.execute(text(sql))).scalar_one()
+
+    assert await rows(canonical_where(where)) == await rows(where)
+
+
 class TestWrapper:
     _COL_INFO = [{"name": "pop"}, {"name": "gid"}, {"name": "state"}]
 

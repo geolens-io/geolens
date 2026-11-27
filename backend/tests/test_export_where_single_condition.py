@@ -71,8 +71,15 @@ async def keyword_dataset(test_db_session, monkeypatch, tmp_path):
         feature_count=2,
         column_info=columns,
     )
+    record_id, dataset_id = ds.record_id, ds.id
     yield ds
     await test_db_session.rollback()
+    await test_db_session.execute(
+        text("DELETE FROM catalog.datasets WHERE id = :id"), {"id": dataset_id}
+    )
+    await test_db_session.execute(
+        text("DELETE FROM catalog.records WHERE id = :id"), {"id": record_id}
+    )
     await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
     await test_db_session.commit()
 

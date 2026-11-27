@@ -70,19 +70,32 @@ ALLOWED_EXPRESSIONS: tuple[type, ...] = (
 _WRAPPER_SELECT_ARGS = frozenset({"expressions", "from_", "where"})
 
 
-def validate_where_ast(where: str) -> None:
-    """Validate that ``where`` is a safe WHERE-clause fragment.
+_COMPARISONS: tuple[type, ...] = (exp.EQ, exp.NEQ, exp.LT, exp.LTE, exp.GT, exp.GTE)
+_PLAIN_OPERANDS: tuple[type, ...] = (
+    exp.Column,
+    exp.Literal,
+    exp.Boolean,
+    exp.Null,
+    exp.Paren,
+    exp.Neg,
+)
+# Parents a NOT may sit under unparenthesized and keep its meaning when
+# rendered. sqlglot prints a NOT inside anything else as a prefix that
+# PostgreSQL binds more loosely: ``a NOT IN (1) <= b`` comes out as
+# ``NOT a IN (1) <= b``, which PostgreSQL reads as ``NOT (a IN (1) <= b)``.
+_NOT_KEEPS_MEANING_UNDER: tuple[type, ...] = (
+    exp.And,
+    exp.Or,
+    exp.Not,
+    exp.Paren,
+    exp.Where,
+)
 
-    Raises ValueError if empty/blank, unparseable, not a single SELECT
-    (multi-statement injection or UNION), followed by anything after the
-    condition (ORDER BY, LIMIT and the like), or any WHERE-subtree node isn't
-    in ALLOWED_EXPRESSIONS (subqueries, function calls, DDL, etc.).
 
-    Args:
-        where: SQL WHERE-clause fragment supplied by the caller.
+def _validated_condition(where: str) -> exp.Expression:
+    """Parse and validate ``where``; return its condition node.
 
-    Raises:
-        ValueError: Description of the disallowed construct.
+    Raises ValueError for everything ``validate_where_ast`` documents.
     """
     if not where or not where.strip():
         raise ValueError("Empty WHERE expression")
@@ -114,6 +127,22 @@ def validate_where_ast(where: str) -> None:
             raise ValueError(
                 f"Disallowed expression in WHERE clause: {type(node).__name__}"
             )
+        # PostgreSQL refuses an unparenthesized comparison as an operand of
+        # another (``a < b = c``); sqlglot would accept and group it.
+        if isinstance(node, _COMPARISONS) and isinstance(node.parent, _COMPARISONS):
+            raise ValueError(
+                "Disallowed expression in WHERE clause: chained comparison "
+                "(parenthesize each comparison)"
+            )
+        # PostgreSQL's lower BETWEEN bound takes no unparenthesized predicate
+        # (``a BETWEEN NOT b AND c`` is a syntax error there).
+        if isinstance(node, exp.Between) and not isinstance(
+            node.args.get("low"), _PLAIN_OPERANDS
+        ):
+            raise ValueError(
+                "Disallowed expression in WHERE clause: condition as a BETWEEN "
+                "bound (parenthesize it)"
+            )
         # Table-qualified columns (`tbl.col`, `cat.tbl.col`) are rejected even
         # though `exp.Column` is allowed: sqlglot folds table/db/catalog into
         # the Column node's args rather than a separate exp.Dot.
@@ -126,20 +155,42 @@ def validate_where_ast(where: str) -> None:
                 "Disallowed expression in WHERE clause: table-qualified "
                 "column reference (only unqualified column names are accepted)"
             )
+    return where_node.this
+
+
+def validate_where_ast(where: str) -> None:
+    """Validate that ``where`` is a safe WHERE-clause fragment.
+
+    Raises ValueError if empty/blank, unparseable, not a single SELECT
+    (multi-statement injection or UNION), followed by anything after the
+    condition (ORDER BY, LIMIT and the like), a chained comparison, a
+    condition as the lower BETWEEN bound, or any WHERE-subtree node isn't in
+    ALLOWED_EXPRESSIONS (subqueries, function calls, DDL, etc.).
+
+    Args:
+        where: SQL WHERE-clause fragment supplied by the caller.
+
+    Raises:
+        ValueError: Description of the disallowed construct.
+    """
+    _validated_condition(where)
 
 
 def canonical_where(where: str) -> str:
     """Validate ``where`` and return its canonical sqlglot re-render.
 
     For callers that interpolate the fragment into SQL text: the re-emission
-    of the validated AST, never raw bytes.
+    of the validated AST, never raw bytes. PostgreSQL reads the render with
+    the same grouping as the original.
 
     Raises ValueError via validate_where_ast on any disallowed construct.
     """
-    validate_where_ast(where)
-    wrapped = f"SELECT 1 FROM _t WHERE {where}"
-    statements = sqlglot.parse(wrapped, dialect="postgres")
-    return statements[0].args["where"].this.sql(dialect="postgres")
+    condition = _validated_condition(where)
+    # Deepest first, so an outer NOT wraps an inner one already grouped.
+    for node in reversed(list(condition.find_all(exp.Not))):
+        if not isinstance(node.parent, _NOT_KEEPS_MEANING_UNDER):
+            node.replace(exp.Paren(this=node.copy()))
+    return condition.sql(dialect="postgres")
 
 
 # Both quote kinds are scanned in one pass, because a single quote inside a
