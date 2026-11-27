@@ -194,11 +194,44 @@ class TestBlocklist:
 # ─────────────────────────────────────────────────────────────────────────────
 
 
+_TRAILING = [
+    "gid > 0 LIMIT 0",
+    "gid > 0 OFFSET 1",
+    "gid > 0 ORDER BY gid",
+    "gid > 0 GROUP BY gid",
+    "gid > 0 GROUP BY gid HAVING gid > 0",
+    "gid > 0 FOR UPDATE",
+    "gid > 0 FETCH FIRST 1 ROWS ONLY",
+    "gid > 0 WINDOW w AS ()",
+]
+
+
+@pytest.mark.parametrize("where", _TRAILING)
+def test_text_after_the_condition_is_refused(where):
+    with pytest.raises(ValueError, match="Only a single WHERE expression"):
+        validate_where_ast(where)
+
+
 class TestWrapper:
     _COL_INFO = [{"name": "pop"}, {"name": "gid"}, {"name": "state"}]
 
+    def test_wrapper_returns_the_canonical_render(self):
+        for where in ("pop>1000", "state='CA'  AND  pop<5", "(gid = 1)"):
+            result = validate_where_clause(where, column_info=self._COL_INFO)
+            assert result == canonical_where(where)
+        assert validate_where_clause("pop>1000", column_info=self._COL_INFO) == (
+            "pop > 1000"
+        )
+
+    def test_wrapper_refuses_text_after_the_condition_even_for_known_columns(self):
+        # Known columns, so a refusal comes from the single-condition rule.
+        columns = [{"name": n} for n in ("gid", "limit", "order", "by", "offset")]
+        for where in ("gid > 0 LIMIT 0", "gid > 0 ORDER BY gid", "gid > 0 OFFSET 1"):
+            with pytest.raises(ValueError, match="Only a single WHERE expression"):
+                validate_where_clause(where, column_info=columns)
+
     def test_wrapper_happy_path_still_works(self):
-        """validate_where_clause with a valid expression returns the expression unchanged."""
+        """A canonical expression comes back as it went in."""
         result = validate_where_clause("pop > 1000", column_info=self._COL_INFO)
         assert result == "pop > 1000"
 

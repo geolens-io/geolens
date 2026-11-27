@@ -35,7 +35,6 @@ from app.processing.export.ogr import (
     export_subprocess_timeout_seconds,
 )
 from app.processing.export.service import export_descriptor, validate_where_clause
-from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable, get_column_info, probe_geom_4326
 
 # Rows, or approximate bytes of Python values, held before a batch is encoded
@@ -471,8 +470,7 @@ async def plan_parquet_export(
         # Same trust boundary as the ogr2ogr -where path: AST allowlist + column
         # check (against the live columns), then interpolate the canonical
         # re-render, never the raw bytes.
-        validate_where_clause(where, live_columns)
-        safe_where = canonical_where(where)
+        safe_where = validate_where_clause(where, live_columns)
     else:
         safe_where = None
 

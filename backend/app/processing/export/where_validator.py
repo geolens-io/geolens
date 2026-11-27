@@ -65,11 +65,17 @@ ALLOWED_EXPRESSIONS: tuple[type, ...] = (
 )
 
 
+# The wrapper's own parts of the parsed SELECT. Any other populated part was
+# parsed from text after the condition.
+_WRAPPER_SELECT_ARGS = frozenset({"expressions", "from_", "where"})
+
+
 def validate_where_ast(where: str) -> None:
     """Validate that ``where`` is a safe WHERE-clause fragment.
 
     Raises ValueError if empty/blank, unparseable, not a single SELECT
-    (multi-statement injection or UNION), or any WHERE-subtree node isn't
+    (multi-statement injection or UNION), followed by anything after the
+    condition (ORDER BY, LIMIT and the like), or any WHERE-subtree node isn't
     in ALLOWED_EXPRESSIONS (subqueries, function calls, DDL, etc.).
 
     Args:
@@ -92,6 +98,11 @@ def validate_where_ast(where: str) -> None:
     # Multi-statement injection produces len > 1; UNION produces a Union node
     # rather than Select.
     if len(statements) != 1 or not isinstance(statements[0], exp.Select):
+        raise ValueError("Only a single WHERE expression is allowed")
+    if any(
+        value and name not in _WRAPPER_SELECT_ARGS
+        for name, value in statements[0].args.items()
+    ):
         raise ValueError("Only a single WHERE expression is allowed")
 
     where_node = statements[0].args.get("where")

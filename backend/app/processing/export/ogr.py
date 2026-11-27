@@ -13,6 +13,7 @@ from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
 from app.processing.raster.vrt import gdal_vector_safe_env
 from app.core.csv_safety import escape_csv_formula
+from app.processing.export.where_validator import canonical_where
 
 # build_pg_conn_str is imported at call scope: a module-scope import snapshots
 # it past the test fixture's patch, which would send a test export at the dev
@@ -371,7 +372,7 @@ def _xy_select_sql(schema: str, table_name: str, where: str | None) -> str:
     """The SELECT behind a CSV export with longitude and latitude columns.
 
     Both names were validated by the caller. ``where`` is the same fragment
-    ``-where`` would push down, already checked by ``validate_where_clause``.
+    ``-where`` would push down: a validated condition's re-render and the bbox.
     """
     lon = _XY_AXIS_SQL.format(axis="X")
     lat = _XY_AXIS_SQL.format(axis="Y")
@@ -450,13 +451,18 @@ async def run_ogr2ogr_export(
     if target_srs:
         cmd.extend(["-t_srs", target_srs])
 
+    # Both -where and -sql hand the text to PostgreSQL, so only the validated
+    # condition, re-rendered from its parse, goes in.
+    row_filter = canonical_where(where) if where else None
     if bbox and (bbox[0] > bbox[2] or use_xy):
         # -spat takes one rectangle, so an antimeridian-crossing box would
         # become the complement band and drop every feature. Split into the
         # server-side WHERE instead, in one pass. The coordinate-column
         # SELECT takes the same route: -spat_srs is refused alongside -sql.
         spatial_where = bbox_where_sql(bbox, literal=True)
-        where = f"{spatial_where} AND ({where})" if where else spatial_where
+        row_filter = (
+            f"{spatial_where} AND ({row_filter})" if row_filter else spatial_where
+        )
     elif bbox:
         cmd.extend(
             [
@@ -471,11 +477,11 @@ async def run_ogr2ogr_export(
         )
 
     if use_xy:
-        cmd.extend(["-sql", _xy_select_sql(schema, table_name, where)])
+        cmd.extend(["-sql", _xy_select_sql(schema, table_name, row_filter)])
     else:
         cmd.append(f"{schema}.{table_name}")
-        if where:
-            cmd.extend(["-where", where])
+        if row_filter:
+            cmd.extend(["-where", row_filter])
 
     if format_key == "gpkg":
         # GeoPackage reserves the "gpkg" prefix and SQLite "sqlite_", so such a

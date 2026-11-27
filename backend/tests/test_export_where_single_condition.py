@@ -1,0 +1,116 @@
+"""The export route refuses a ``where`` with text after its condition, on GET and HEAD."""
+
+import csv
+import io
+import shutil
+import uuid
+
+import pytest
+from httpx import AsyncClient
+from sqlalchemy import text
+
+from tests.factories import create_dataset, get_user_id
+
+pytestmark = [
+    pytest.mark.requires_ogr2ogr,
+    pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="ogr2ogr not available"),
+]
+
+# Known columns, so a refusal comes from the single-condition rule.
+_KEYWORD_COLUMNS = ("limit", "offset", "order", "by", "group", "having")
+
+_TRAILING = [
+    "name = 'a' LIMIT 0",
+    "name = 'a' OFFSET 1",
+    "name = 'a' ORDER BY name",
+    "name = 'a' GROUP BY name",
+    "name = 'a' GROUP BY name HAVING name = 'a'",
+]
+
+_FORMATS = [
+    ({"format": "csv"}),
+    ({"format": "csv", "xy": "true"}),
+    ({"format": "geojson"}),
+    ({"format": "gpkg"}),
+    ({"format": "fgb"}),
+    ({"format": "parquet"}),
+]
+
+
+@pytest.fixture
+async def keyword_dataset(test_db_session, monkeypatch, tmp_path):
+    from app.processing.export import service as export_service
+
+    monkeypatch.setattr(export_service.settings, "upload_staging_dir", str(tmp_path))
+    table = f"exp_kw_{uuid.uuid4().hex[:12]}"
+    extra = ", ".join(f'"{c}" text' for c in _KEYWORD_COLUMNS)
+    await test_db_session.execute(
+        text(
+            f"CREATE TABLE data.{table} (gid serial PRIMARY KEY, name text, {extra}, "
+            "geom geometry(Point, 4326), geom_4326 geometry(Point, 4326) "
+            "GENERATED ALWAYS AS (geom) STORED)"
+        )
+    )
+    await test_db_session.execute(
+        text(
+            f"INSERT INTO data.{table} (name, geom) VALUES "
+            "('a', ST_SetSRID(ST_MakePoint(-74.5, 41.25), 4326)), "
+            "('b', ST_SetSRID(ST_MakePoint(10, -20), 4326))"
+        )
+    )
+    await test_db_session.commit()
+    admin_id = await get_user_id(test_db_session, "admin")
+    columns = [{"name": "gid", "type": "integer"}, {"name": "name", "type": "text"}]
+    columns += [{"name": c, "type": "text"} for c in _KEYWORD_COLUMNS]
+    ds = await create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"Keywords {table}",
+        table_name=table,
+        geometry_type="Point",
+        feature_count=2,
+        column_info=columns,
+    )
+    yield ds
+    await test_db_session.rollback()
+    await test_db_session.execute(text(f"DROP TABLE IF EXISTS data.{table}"))
+    await test_db_session.commit()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("params", _FORMATS, ids=lambda p: "-".join(p.values()))
+async def test_text_after_the_condition_is_refused(
+    client: AsyncClient, admin_auth_header: dict, keyword_dataset, params
+):
+    url = f"/datasets/{keyword_dataset.id}/export"
+    for where in _TRAILING:
+        for method in ("GET", "HEAD"):
+            resp = await client.request(
+                method,
+                url,
+                params={**params, "where": where},
+                headers=admin_auth_header,
+            )
+            assert resp.status_code == 400, (method, where, resp.status_code)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("params", _FORMATS, ids=lambda p: "-".join(p.values()))
+async def test_a_plain_condition_still_exports(
+    client: AsyncClient, admin_auth_header: dict, keyword_dataset, params
+):
+    resp = await client.get(
+        f"/datasets/{keyword_dataset.id}/export",
+        params={**params, "where": "name = 'a'"},
+        headers=admin_auth_header,
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.content
+    if params["format"] == "csv":
+        rows = list(csv.DictReader(io.StringIO(resp.text)))
+        assert [r["name"] for r in rows] == ["a"]
+    elif params["format"] == "geojson":
+        features = resp.json()["features"]
+        assert [f["properties"]["name"] for f in features] == ["a"]
+        assert features[0]["geometry"]["type"] == "Point"
+        assert features[0]["geometry"]["coordinates"] == [-74.5, 41.25]

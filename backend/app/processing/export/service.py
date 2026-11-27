@@ -19,8 +19,8 @@ from app.processing.export.ogr import (
     run_ogr2ogr_export,
 )
 from app.processing.export.where_validator import (
+    canonical_where,
     mask_quoted_literals,
-    validate_where_ast,
 )
 from app.core.runtime.staging import ensure_staging_ready
 
@@ -292,14 +292,15 @@ _NUMERIC_RE = re.compile(r"^\d+(\.\d+)?$")
 
 
 def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
-    """Validate that a WHERE clause only references known columns.
+    """Validate a WHERE condition and return the text to run in its place.
 
     Args:
         where: SQL WHERE expression string.
         column_info: List of column dicts, each with a "name" key.
 
     Returns:
-        The where string unchanged if valid.
+        ``canonical_where(where)``: the validated condition re-rendered from
+        its parse. Callers run this, never ``where`` itself.
 
     Raises:
         ValueError: If column_info is missing or an unknown column is referenced.
@@ -324,9 +325,9 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     if quote_count % 2 != 0:
         raise ValueError("WHERE clause has unbalanced single-quotes")
 
-    # AST gate: rejects UNION, subqueries, DDL and function calls that the
-    # identifier-only regex below cannot detect.
-    validate_where_ast(where)
+    # AST gate: rejects UNION, subqueries, DDL, function calls and text after
+    # the condition, which the identifier-only regex below cannot detect.
+    canonical = canonical_where(where)
 
     # Defense in depth: rejects column names that aren't in this dataset's
     # column_info, even if they parse cleanly.
@@ -344,7 +345,7 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
         if ident.lower() not in valid_names:
             raise ValueError(f"Unknown column: {ident}")
 
-    return where
+    return canonical
 
 
 _DOWNLOAD_STEM_MAX_BYTES = 150
@@ -419,7 +420,7 @@ async def export_dataset(
         raise ValueError(f"Unsupported export format: {format_key}")
 
     if where is not None:
-        validate_where_clause(where, column_info)
+        where = validate_where_clause(where, column_info)
 
     fmt = FORMAT_MAP[format_key]
     driver = fmt["driver"]

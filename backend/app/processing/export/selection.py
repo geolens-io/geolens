@@ -24,7 +24,6 @@ from app.processing.export.service import (
     export_descriptor,
     validate_where_clause,
 )
-from app.processing.export.where_validator import canonical_where
 from app.processing.ingest.metadata import _qtable
 
 if TYPE_CHECKING:
@@ -134,11 +133,10 @@ async def _count_selected_features(
     clauses: list[str] = []
     params: dict = {"limit": _MAX_EXPORT_FEATURES + 1}
     if where is not None:
-        validate_where_clause(where, column_info)
         # The canonical AST re-render, never the caller's raw bytes. text()
         # reads ":name" as a bind, so a colon in a validated literal (an ISO
         # timestamp) is escaped to \: as parquet.py does.
-        safe_where = canonical_where(where).replace(":", "\\:")
+        safe_where = validate_where_clause(where, column_info).replace(":", "\\:")
         clauses.append(f"({safe_where})")
     if bbox is not None and has_geometry:
         # A crossing bbox counts with the predicate the export runs. An ordinary
