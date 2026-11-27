@@ -18,7 +18,9 @@ Boolean/Null (scalars), EQ/NEQ/LT/LTE/GT/GTE (comparisons), And/Or/Not
 from __future__ import annotations
 
 import re
+from collections import Counter
 from collections.abc import Sequence
+from functools import lru_cache
 
 import sqlglot
 from sqlglot import exp
@@ -258,7 +260,7 @@ def _validated_condition(where: str) -> exp.Expression:
     # Every word that isn't an operator must be read as a column; a word
     # sqlglot turns into something else (``ISNULL``, ``UNKNOWN``) is refused.
     columns = [c.name for c in where_node.find_all(exp.Column)]
-    if sorted(columns) != sorted(identifiers):
+    if Counter(columns) != Counter(identifiers):
         raise ValueError(_REFUSED.format("unsupported keyword"))
     return where_node.this
 
@@ -284,10 +286,19 @@ def canonical_where(where: str, columns: Sequence[str] | None = None) -> str:
         ValueError: ``where`` is outside the filter language.
     """
     rendered = render_filter(where, columns)
+    _check_render(rendered)
+    return rendered
+
+
+# One export validates its filter at the route, again in the service and a
+# third time where the ogr2ogr command is built; the last two see a render
+# already checked here.
+@lru_cache(maxsize=64)
+def _check_render(rendered: str) -> None:
+    """Refuse a render the sqlglot checks refuse or that isn't its own render."""
     try:
         _validated_condition(rendered)
     except RecursionError as exc:
         raise ValueError(_REFUSED.format("nesting too deep")) from exc
     if render_filter(rendered) != rendered:
         raise ValueError(_REFUSED.format("expression the server cannot re-render"))
-    return rendered

@@ -260,7 +260,9 @@ def test_an_unquoted_name_never_resolves_to_a_column_of_another_case():
     assert validate_where_clause('"GID" = 7', [{"name": "GID"}]) == '("GID" = 7)'
 
 
-@pytest.mark.parametrize("where", ["gid IN ((1, 2))", "gid = -(1)", "gid = (1"])
+@pytest.mark.parametrize(
+    "where", ["gid IN ((1, 2))", "gid = -(gid)", "gid = -(-1)", "gid = (1", "gid = -(1"]
+)
 def test_parentheses_hold_one_operand_or_condition(where):
     with pytest.raises(ValueError):
         validate_where_clause(where, [{"name": "gid"}])
@@ -312,7 +314,12 @@ def test_a_long_run_of_operator_characters_is_refused_unsplit():
         ("pop > 1e3", '("pop" > 1e3)'),
         ("pop > 1.5E-2", '("pop" > 1.5e-2)'),
         ("pop > .5e+2", '("pop" > 0.5e+2)'),
-        ("pop = -5.E1", '("pop" = -5.0e1)'),
+        ("pop = -5.E1", '("pop" = -5e1)'),
+        ("pop < -(5)", '("pop" < -5)'),
+        ("pop < - ((5.))", '("pop" < -5.0)'),
+        ("name = 'a' IS NOT TRUE", "((\"name\" = 'a') IS NOT TRUE)"),
+        ("pop IN (1, 2) IS FALSE", '(("pop" IN (1, 2)) IS FALSE)'),
+        ("NOT pop BETWEEN 1 AND 2 IS NULL", '(NOT (("pop" BETWEEN 1 AND 2) IS NULL))'),
         ("name ILIKE 'a%'", "(\"name\" ILIKE 'a%')"),
         ("name not ilike 'a%'", "(\"name\" NOT ILIKE 'a%')"),
         ("(pop > 10) IS FALSE", '(("pop" > 10) IS FALSE)'),
@@ -325,8 +332,18 @@ def test_spellings_the_filter_always_took_still_render(where, rendered):
     assert validate_where_clause(rendered, columns) == rendered
 
 
-@pytest.mark.parametrize("where", ["pop > 1e", "pop > 1e+", "pop > 1e5x", "pop > 1.e"])
-def test_a_number_with_trailing_junk_is_refused(where):
+@pytest.mark.parametrize(
+    "where",
+    [
+        "pop > 1e",
+        "pop > 1e+",
+        "pop > 1e5x",
+        "pop > 1.e",
+        "pop > 1e1000",
+        "pop > 1.e-16383",
+    ],
+)
+def test_a_number_with_trailing_junk_or_a_huge_exponent_is_refused(where):
     with pytest.raises(ValueError):
         validate_where_clause(where, [{"name": "pop"}])
 
@@ -337,6 +354,7 @@ def test_a_render_too_deep_for_the_second_parser_is_refused(monkeypatch):
     def exhausted(_rendered):
         raise RecursionError
 
+    where_validator._check_render.cache_clear()
     monkeypatch.setattr(where_validator, "_validated_condition", exhausted)
     with pytest.raises(ValueError, match="nesting too deep"):
         canonical_where("gid = 1")
@@ -435,6 +453,7 @@ async def test_names_select_what_postgresql_selects_through_the_service(
 def test_a_render_that_does_not_reproduce_itself_is_refused(monkeypatch):
     from app.processing.export import where_validator
 
+    where_validator._check_render.cache_clear()
     real = where_validator.render_filter
     monkeypatch.setattr(
         where_validator,
@@ -486,7 +505,6 @@ def test_operators_outside_the_standard_spellings_are_refused(where):
         "active IS NOT TRUE = flag",
         "active = NOT flag",
         "active IN (flag, NOT flag)",
-        "active = flag IS NOT NULL",
         "gid IN (1, 2) = active",
         "active IS TRUE IS FALSE",
         "gid = - -2",
@@ -524,6 +542,11 @@ _ROWS_SQL = (
         "active BETWEEN (NOT flag) AND (flag OR active)",
         "(active = flag) = (gid > 3) OR name ILIKE 'A%'",
         "gid > 1e0 AND gid < 0.5E+1",
+        "active = flag IS NOT NULL",
+        "name = 'a' IS NOT TRUE",
+        "gid IN (1, 2) IS FALSE OR name LIKE 'a%' IS NULL",
+        "NOT gid BETWEEN 2 AND 5 IS TRUE",
+        "gid > -(3) AND gid < - (6.)",
     ],
 )
 async def test_the_render_selects_the_same_rows_as_the_condition(
@@ -870,6 +893,13 @@ class _FilterGenerator:
             target = self.pick("NULL", "TRUE", "FALSE", "null")
             if self.chance(0.06):
                 return self.pick(f"{subject} ISNULL", f"{subject} IS UNKNOWN")
+            if self.chance(0.3):
+                subject = self.pick(
+                    f"{self.integer()} {op} {self.integer()}",
+                    f"{self.integer()} BETWEEN {self.number()} AND {self.number()}",
+                    f"name LIKE {self.text()}",
+                    f"{subject} IS {target}",
+                )
             return f"{subject} IS {neg}{target}"
         sub = self.predicate(depth - 1)
         if shape == "not":

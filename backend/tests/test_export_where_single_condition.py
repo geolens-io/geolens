@@ -150,9 +150,12 @@ async def test_the_deepest_filter_head_accepts_also_exports(
 _BACKSLASH_FILTER = r"name = '\' OR name <> '\'"
 
 
+_LEGACY_ESCAPES = text("SET standard_conforming_strings = off")
+
+
 @pytest.fixture
 async def legacy_string_escapes(test_db_session):
-    await test_db_session.execute(text("SET standard_conforming_strings = off"))
+    """Each test sets the mode itself, on the connection it is about to use."""
     yield
     await test_db_session.rollback()
     await test_db_session.execute(text("RESET standard_conforming_strings"))
@@ -165,6 +168,7 @@ async def test_the_count_reads_a_backslash_as_the_export_does(
 ):
     from app.processing.export import selection
 
+    await test_db_session.execute(_LEGACY_ESCAPES)
     count = await selection._count_selected_features(
         test_db_session,
         table_name=keyword_dataset.table_name,
@@ -178,7 +182,26 @@ async def test_the_count_reads_a_backslash_as_the_export_does(
 
 
 @pytest.mark.anyio
-async def test_geoparquet_reads_a_backslash_as_the_export_does(
+async def test_the_geoparquet_count_reads_a_backslash_as_the_export_does(
+    test_db_session, keyword_dataset, legacy_string_escapes, monkeypatch
+):
+    from app.processing.export import parquet
+
+    # Both rows match as written and none as an escape, so only the count as
+    # written is over a cap of one.
+    monkeypatch.setattr(parquet, "_MAX_EXPORT_FEATURES", 1)
+    await test_db_session.execute(_LEGACY_ESCAPES)
+    with pytest.raises(parquet.ExportTooLargeError):
+        await parquet.plan_parquet_export(
+            test_db_session,
+            keyword_dataset.table_name,
+            schema="data",
+            where=_BACKSLASH_FILTER,
+        )
+
+
+@pytest.mark.anyio
+async def test_the_geoparquet_stream_reads_a_backslash_as_the_export_does(
     test_db_session, keyword_dataset, legacy_string_escapes
 ):
     import pyarrow.parquet as pq
@@ -189,8 +212,10 @@ async def test_geoparquet_reads_a_backslash_as_the_export_does(
     plan = await plan_parquet_export(
         test_db_session, table, schema="data", where=_BACKSLASH_FILTER
     )
-    # The stream runs in a transaction of its own.
+    # The stream runs in a transaction of its own, which may be on another
+    # connection, so the mode is set there and not before the plan.
     await test_db_session.commit()
+    await test_db_session.execute(_LEGACY_ESCAPES)
     path, _filename, _media_type = await export_parquet(
         test_db_session, table, "Backslash", schema="data", plan=plan
     )

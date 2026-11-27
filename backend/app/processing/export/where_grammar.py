@@ -5,19 +5,20 @@ The language is one condition over a dataset's columns::
     or        := and (OR and)*
     and       := not (AND not)*
     not       := NOT not | predicate
-    predicate := primary [test]
+    predicate := primary [test] [IS [NOT] (NULL | TRUE | FALSE)]
     test      := cmp primary | [NOT] IN ( primary {, primary} )
                | [NOT] BETWEEN primary AND primary
                | [NOT] (LIKE | ILIKE) primary
-               | IS [NOT] (NULL | TRUE | FALSE)
     primary   := ( or ) | operand
-    operand   := column | 'string' | number | -number | TRUE | FALSE | NULL
+    operand   := column | 'string' | number | - number | - ( number )
+               | TRUE | FALSE | NULL
 
 with cmp one of ``= <> != < <= > >=``. Anything else, and any input the
 grammar doesn't consume whole, is refused. The render is built from the parse
 tree, fully parenthesized and with every column double-quoted, so PostgreSQL
-reads it with exactly the grouping and names the parser saw. Rendering a
-render returns it unchanged.
+reads it with exactly the grouping and names the parser saw. ``IS`` applies
+to the whole test before it, as it does in PostgreSQL. Rendering a render
+returns it unchanged.
 """
 
 from __future__ import annotations
@@ -68,6 +69,8 @@ MAX_RENDER_DEPTH = 16
 _MAX_INPUT_NESTING = 2 * MAX_RENDER_DEPTH
 # The longest run of operator characters that can be valid: ``<>-``.
 _MAX_OPERATOR_RUN = 3
+# Enough for any double precision value, and far inside what numeric holds.
+_MAX_EXPONENT_DIGITS = 3
 
 # The tests NOT may precede.
 _NEGATABLE = ("IN", "BETWEEN", "LIKE", "ILIKE")
@@ -129,7 +132,12 @@ def _read_quoted(text: str, start: int, quote: str) -> tuple[str, int]:
 
 
 def _read_number(text: str, start: int) -> tuple[str, int]:
-    """A number as PostgreSQL reads it, rendered with digits on both sides."""
+    """A number as PostgreSQL reads it, rendered with a digit before any point.
+
+    A bare trailing point becomes ``.0`` so the value stays numeric, except
+    before an exponent, where the point goes: the value is numeric either way
+    and keeps its scale.
+    """
     i = start
     while i < len(text) and text[i].isascii() and text[i].isdigit():
         i += 1
@@ -146,11 +154,13 @@ def _read_number(text: str, start: int) -> tuple[str, int]:
         k = j
         while k < len(text) and text[k].isascii() and text[k].isdigit():
             k += 1
+        if k - j > _MAX_EXPONENT_DIGITS:
+            raise ValueError(_REFUSED.format("number with an exponent too large"))
         if k > j:
             exponent, i = "e" + text[i + 1 : k], k
     if i < len(text) and (_ident_char(text[i]) or text[i] == "."):
         raise ValueError(_REFUSED.format(f"number {text[start : i + 1]}"))
-    if fraction is None:
+    if fraction is None or (exponent and not fraction):
         return whole + exponent, i
     return f"{whole or '0'}.{fraction or '0'}{exponent}", i
 
@@ -290,7 +300,17 @@ class _Parser:
             inner = self.negation()
             self.depth -= 1
             return f"(NOT {inner})"
-        return self.test(self.primary())
+        tested = self.test(self.primary())
+        if not self.keyword("IS"):
+            return tested
+        self.pos += 1
+        negated = "NOT " if self.keyword("NOT") else ""
+        self.pos += bool(negated)
+        for target in ("NULL", "TRUE", "FALSE"):
+            if self.keyword(target):
+                self.pos += 1
+                return f"({tested} IS {negated}{target})"
+        raise ValueError(_SYNTAX.format("expected NULL, TRUE or FALSE after IS"))
 
     def primary(self) -> str:
         """An operand, or a whole condition in parentheses.
@@ -313,15 +333,6 @@ class _Parser:
         if token is not None and token.kind == "op" and token.text in _COMPARISONS:
             self.pos += 1
             return f"({left} {_COMPARISONS[token.text]} {self.primary()})"
-        if self.keyword("IS"):
-            self.pos += 1
-            negated = "NOT " if self.keyword("NOT") else ""
-            self.pos += bool(negated)
-            for target in ("NULL", "TRUE", "FALSE"):
-                if self.keyword(target):
-                    self.pos += 1
-                    return f"({left} IS {negated}{target})"
-            raise ValueError(_SYNTAX.format("expected NULL, TRUE or FALSE after IS"))
         negated = "NOT " if self.keyword("NOT") else ""
         if negated and not any(self.keyword(w, 1) for w in _NEGATABLE):
             raise ValueError(_SYNTAX.format("expected IN, BETWEEN or LIKE after NOT"))
@@ -353,10 +364,7 @@ class _Parser:
         if token.kind == "number":
             return token.text
         if token.kind == "op" and token.text == "-":
-            number = self.take()
-            if number.kind != "number":
-                raise ValueError(_REFUSED.format("minus sign before a non-number"))
-            return f"-{number.text}"
+            return f"-{self.negated_number()}"
         if token.kind == "ident":
             return _quote(self.resolve(token.text, quoted=True))
         if token.kind == "word":
@@ -370,6 +378,19 @@ class _Parser:
                 raise ValueError(_REFUSED.format(token.text))
             return _quote(self.resolve(token.text, quoted=False))
         raise ValueError(_SYNTAX.format(f"unexpected {token.text!r}"))
+
+    def negated_number(self) -> str:
+        """The number after a minus sign, in any number of parentheses."""
+        token = self.take()
+        if token.kind == "number":
+            return token.text
+        if token.kind != "(":
+            raise ValueError(_REFUSED.format("minus sign before a non-number"))
+        self.nest()
+        number = self.negated_number()
+        self.depth -= 1
+        self.expect(")")
+        return number
 
     def resolve(self, name: str, *, quoted: bool) -> str:
         """The dataset column ``name`` refers to, as PostgreSQL resolves it:
