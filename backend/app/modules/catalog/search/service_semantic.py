@@ -10,7 +10,8 @@ from dataclasses import dataclass
 from typing import Any
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import Uuid, any_, bindparam, func, select
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement, Label
@@ -313,7 +314,11 @@ class SemanticArm:
 
     def clause(self) -> ColumnElement[bool]:
         """Record.id predicate for the vector arm; the caller applies vetting."""
-        return Record.id.in_([uuid_mod.UUID(rid) for rid in self.ordered_ids])
+        # One array bind; a per-id IN list exceeds asyncpg's 32,767 limit.
+        ids = [uuid_mod.UUID(rid) for rid in self.ordered_ids]
+        return Record.id == any_(
+            bindparam("semantic_ids", ids, type_=ARRAY(Uuid), unique=True)
+        )
 
 
 @dataclass(frozen=True)
