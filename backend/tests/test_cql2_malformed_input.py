@@ -182,6 +182,8 @@ _SEARCH_AND_RECORDS = {
         '{"op":"t_before","args":[{"property":"srid"},{"date":"2020-01-01"}]}',
         '{"op":"between","args":[5,{"property":"title"},10]}',
         '{"op":"between","args":[5,-1,{"property":"title"}]}',
+        '{"op":"like","args":[{"property":"title"},{"date":"2020-01-01"}]}',
+        '{"op":"=","args":[{"property":"title"},{"interval":["2020-01-01","2020-01-02"]}]}',
     ],
 )
 async def test_a_literal_of_the_wrong_type_is_a_400(

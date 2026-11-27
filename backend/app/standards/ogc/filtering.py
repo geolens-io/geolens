@@ -364,12 +364,18 @@ def _mistyped_temporal_errors(node: Any) -> list[str]:
     return []
 
 
+def _is_plain_literal(value: Any) -> bool:
+    from pygeofilter.values import Interval
+
+    return isinstance(value, (str, int, float, bool, date, list, Interval))
+
+
 def _mistyped_like_errors(node: Any, pg_type: str | None) -> list[str]:
     if pg_type and pg_type != "text":
         return ["LIKE only applies to string properties"]
     if (
         pg_type
-        and isinstance(node.pattern, (str, int, float, bool, list))
+        and _is_plain_literal(node.pattern)
         and not isinstance(node.pattern, str)
     ):
         return ["LIKE pattern must be a string"]
@@ -389,14 +395,11 @@ def _mistyped_literal_errors(node: Any) -> list[str]:
             return _QUERYABLE_PG_TYPES.get(operand.name)
         return None
 
-    def literal(operand: Any) -> bool:
-        return isinstance(operand, (str, int, float, bool, date, list))
-
     def judge(pg_type: str, values: list[Any]) -> list[str]:
         return [
             f"literal {v!r} does not match the property's {pg_type} type"
             for v in values
-            if literal(v) and not _literal_fits(v, pg_type)
+            if _is_plain_literal(v) and not _literal_fits(v, pg_type)
         ]
 
     if isinstance(node, pgf_ast.Comparison):
