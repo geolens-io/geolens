@@ -315,6 +315,8 @@ describe('DatasetPage editable affordance integration', () => {
     await user.click(await screen.findByText('Original summary', undefined, { timeout: 10_000 }));
 
     const summaryInput = screen.getByDisplayValue('Original summary');
+
+    expect(summaryInput).toHaveFocus();
     await user.clear(summaryInput);
     await user.type(summaryInput, 'Updated summary pending save');
     await user.keyboard('{Control>}{Enter}{/Control}');
@@ -338,6 +340,8 @@ describe('DatasetPage editable affordance integration', () => {
     await user.click(await screen.findByText('Original summary'));
 
     const secondEditInput = screen.getByDisplayValue('Original summary');
+
+    expect(secondEditInput).toHaveFocus();
     await user.clear(secondEditInput);
     await user.type(secondEditInput, 'Summary that will be canceled');
     await user.keyboard('{Control>}{Enter}{/Control}');
