@@ -3,8 +3,10 @@ import hashlib
 import json
 import math
 import re
+from datetime import datetime
+from decimal import Decimal
 
-from fastapi import Request
+from fastapi import HTTPException, Request, status
 
 from app.core.public_urls import get_env_public_api_url, join_public_url
 
@@ -220,3 +222,86 @@ def items_validator_headers(
         "Cache-Control": "private, no-cache" if carries_credentials else "no-cache",
         "Vary": "Authorization, X-Api-Key",
     }
+
+
+# RFC 3339 date-time as required by STAC and OGC API Features: full date + time with a
+# Z or numeric UTC offset. The shared parse_ogc_datetime is deliberately more
+# lenient (day-granular, bare dates), so callers validate syntax first.
+_RFC3339_DATETIME_RE = re.compile(
+    r"^\d{4}-\d{2}-\d{2}[Tt](?:[01]\d|2[0-3]):[0-5]\d:\d{2}(\.\d+)?([Zz]|[+-](?:[01]\d|2[0-3]):[0-5]\d)$"
+)
+
+
+_FULL_DATE_RE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
+
+
+def validate_rfc3339_datetime(datetime_str: str, *, allow_date: bool = False) -> str:
+    """Enforce the strict RFC 3339 datetime syntax, returning a normalized
+    value (empty open-interval ends become ``..``) for the shared parser.
+
+    ``allow_date`` also accepts a bare RFC 3339 full-date as an endpoint.
+    """
+
+    def _parse_side(part: str) -> tuple[datetime, Decimal] | None:
+        if part in ("", ".."):
+            return None
+        if allow_date and _FULL_DATE_RE.match(part):
+            # Midnight UTC keeps the start/end comparison below tz-aware.
+            part += "T00:00:00Z"
+        if not _RFC3339_DATETIME_RE.match(part):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid RFC 3339 datetime: {part!r}",
+            )
+        try:
+            # RFC 3339 allows lowercase t/z and a leap second; fromisoformat
+            # allows neither. Second 60 is read as 59.999999, with its own
+            # fraction as the tie-break key, so it orders after every 59.x and
+            # among other 60.x; whether the leap second really exists is not
+            # checked.
+            normalized = part.upper()
+            leap = re.search(r"T\d{2}:\d{2}:60", normalized)
+            if not leap:
+                return datetime.fromisoformat(normalized), Decimal(-1)
+            fraction = re.search(r":60(\.\d+)", normalized)
+            normalized = re.sub(r"(T\d{2}:\d{2}:)60(\.\d+)?", r"\g<1>59", normalized)
+            parsed = datetime.fromisoformat(normalized).replace(microsecond=999999)
+            return parsed, Decimal("0" + fraction.group(1)) if fraction else Decimal(0)
+        except ValueError as e:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"Invalid RFC 3339 datetime: {e}",
+            )
+
+    if "/" in datetime_str:
+        parts = datetime_str.split("/")
+        if len(parts) != 2:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid datetime interval: expected exactly one '/'",
+            )
+        start, end = (_parse_side(p) for p in parts)
+        if start is None and end is None:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid datetime interval: both ends are open",
+            )
+        if start is not None and end is not None and start > end:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid datetime interval: start is after end",
+            )
+        return f"{parts[0] or '..'}/{parts[1] or '..'}"
+
+    _parse_side(datetime_str)
+    if datetime_str == "":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid datetime: value is empty",
+        )
+    if datetime_str == "..":
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid datetime: '..' is only valid inside an interval",
+        )
+    return datetime_str

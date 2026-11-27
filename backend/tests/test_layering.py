@@ -1498,7 +1498,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # the collections routes also answer under the desktop entry's gate.
     "backend/app/modules/catalog/search/router.py": 1482,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1957,
+    "backend/app/standards/stac/router.py": 1898,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
     "backend/app/processing/tiles/router.py": 3087,
@@ -2876,6 +2876,7 @@ _STANDARDS_MODULE_IMPORT_SURFACE: dict[str, set[str]] = {
         "app.modules.catalog.datasets.domain.models",
         "app.modules.catalog.features.schemas",
         "app.modules.catalog.features.service",
+        "app.modules.catalog.search.service",
     },
     "ogc/schemas.py": {
         "app.modules.catalog.features.schemas",

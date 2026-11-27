@@ -37,6 +37,7 @@ from app.modules.catalog.authorization import (
 )
 from app.modules.catalog.datasets.domain.models import Dataset, DatasetGrant, Record
 from app.modules.catalog.features.schemas import inline_json_schema
+from app.modules.catalog.search.service import parse_ogc_datetime
 from app.modules.catalog.features.service import (
     feature_table_exists,
     get_feature_by_id,
@@ -81,6 +82,7 @@ from app.standards.ogc.utils import (
     build_url,
     items_validator_headers,
     link_header_value,
+    validate_rfc3339_datetime,
 )
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -796,11 +798,12 @@ async def get_collection_items(
 ) -> Response:
     """OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
 
-    Note: ``datetime`` is accepted per OGC API Features Core but acts as a
-    no-op for per-dataset feature queries.  Per-dataset feature tables contain
-    user-uploaded data with no standard temporal column, so the spec provision
-    "if the collection does not include temporal information, the datetime
-    parameter SHALL be ignored" applies (OGC 17-069r4 §7.15.5).
+    Note: a well-formed ``datetime`` is accepted per OGC API Features Core but
+    acts as a no-op for per-dataset feature queries.  Per-dataset feature
+    tables contain user-uploaded data with no standard temporal column, so the
+    spec provision "if the collection does not include temporal information,
+    the datetime parameter SHALL be ignored" applies (OGC 17-069r4 §7.15.5).
+    A malformed ``datetime`` is refused with 400.
     """
     _validate_f_param(f)
     if startindex is not None:
@@ -847,6 +850,11 @@ async def get_collection_items(
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST, detail=f"Invalid bbox: {e}"
             )
+
+    if datetime_param is not None:
+        parse_ogc_datetime(
+            validate_rfc3339_datetime(datetime_param.strip(), allow_date=True)
+        )
 
     has_geometry = dataset.geometry_type is not None
 

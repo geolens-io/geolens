@@ -224,11 +224,12 @@ def sync_detailed(
 
      OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
 
-    Note: ``datetime`` is accepted per OGC API Features Core but acts as a
-    no-op for per-dataset feature queries.  Per-dataset feature tables contain
-    user-uploaded data with no standard temporal column, so the spec provision
-    \"if the collection does not include temporal information, the datetime
-    parameter SHALL be ignored\" applies (OGC 17-069r4 §7.15.5).
+    Note: a well-formed ``datetime`` is accepted per OGC API Features Core but
+    acts as a no-op for per-dataset feature queries.  Per-dataset feature
+    tables contain user-uploaded data with no standard temporal column, so the
+    spec provision \"if the collection does not include temporal information,
+    the datetime parameter SHALL be ignored\" applies (OGC 17-069r4 §7.15.5).
+    A malformed ``datetime`` is refused with 400.
 
     Args:
         dataset_id (UUID):
@@ -321,11 +322,12 @@ def sync(
 
      OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
 
-    Note: ``datetime`` is accepted per OGC API Features Core but acts as a
-    no-op for per-dataset feature queries.  Per-dataset feature tables contain
-    user-uploaded data with no standard temporal column, so the spec provision
-    \"if the collection does not include temporal information, the datetime
-    parameter SHALL be ignored\" applies (OGC 17-069r4 §7.15.5).
+    Note: a well-formed ``datetime`` is accepted per OGC API Features Core but
+    acts as a no-op for per-dataset feature queries.  Per-dataset feature
+    tables contain user-uploaded data with no standard temporal column, so the
+    spec provision \"if the collection does not include temporal information,
+    the datetime parameter SHALL be ignored\" applies (OGC 17-069r4 §7.15.5).
+    A malformed ``datetime`` is refused with 400.
 
     Args:
         dataset_id (UUID):
@@ -412,11 +414,12 @@ async def asyncio_detailed(
 
      OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
 
-    Note: ``datetime`` is accepted per OGC API Features Core but acts as a
-    no-op for per-dataset feature queries.  Per-dataset feature tables contain
-    user-uploaded data with no standard temporal column, so the spec provision
-    \"if the collection does not include temporal information, the datetime
-    parameter SHALL be ignored\" applies (OGC 17-069r4 §7.15.5).
+    Note: a well-formed ``datetime`` is accepted per OGC API Features Core but
+    acts as a no-op for per-dataset feature queries.  Per-dataset feature
+    tables contain user-uploaded data with no standard temporal column, so the
+    spec provision \"if the collection does not include temporal information,
+    the datetime parameter SHALL be ignored\" applies (OGC 17-069r4 §7.15.5).
+    A malformed ``datetime`` is refused with 400.
 
     Args:
         dataset_id (UUID):
@@ -507,11 +510,12 @@ async def asyncio(
 
      OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
 
-    Note: ``datetime`` is accepted per OGC API Features Core but acts as a
-    no-op for per-dataset feature queries.  Per-dataset feature tables contain
-    user-uploaded data with no standard temporal column, so the spec provision
-    \"if the collection does not include temporal information, the datetime
-    parameter SHALL be ignored\" applies (OGC 17-069r4 §7.15.5).
+    Note: a well-formed ``datetime`` is accepted per OGC API Features Core but
+    acts as a no-op for per-dataset feature queries.  Per-dataset feature
+    tables contain user-uploaded data with no standard temporal column, so the
+    spec provision \"if the collection does not include temporal information,
+    the datetime parameter SHALL be ignored\" applies (OGC 17-069r4 §7.15.5).
+    A malformed ``datetime`` is refused with 400.
 
     Args:
         dataset_id (UUID):

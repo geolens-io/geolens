@@ -8,11 +8,9 @@ see public + their owned private + any restricted records granted to their roles
 from __future__ import annotations
 
 import json
-import re
 import time
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
 from typing import Any, TypeVar
 
 from urllib.parse import urlencode
@@ -66,6 +64,7 @@ from app.platform.cache import (
 from app.platform.extensions import get_catalog_port
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC, NOT_FOUND_RESPONSE
 from app.standards.ogc.utils import (
+    validate_rfc3339_datetime,
     content_language_for_record_languages,
     link_header_value,
     parse_accept_languages,
@@ -401,64 +400,6 @@ async def _visible_derived_from_id(
     )
     found = (await db.execute(stmt)).scalars().first()
     return str(source_id) if found is not None else None
-
-
-# RFC 3339 date-time as required by the STAC API spec: full date + time with a
-# Z or numeric UTC offset. The shared parse_ogc_datetime is deliberately more
-# lenient (day-granular, bare dates), so STAC validates syntax first.
-_RFC3339_DATETIME_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$"
-)
-
-
-def _validate_stac_datetime(datetime_str: str) -> str:
-    """Enforce STAC's strict RFC 3339 datetime syntax, returning a normalized
-    value (empty open-interval ends become ``..``) for the shared parser."""
-
-    def _parse_side(part: str) -> datetime | None:
-        if part in ("", ".."):
-            return None
-        if not _RFC3339_DATETIME_RE.match(part):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid RFC 3339 datetime: {part!r}",
-            )
-        try:
-            # RFC 3339 allows lowercase t/z; fromisoformat does not.
-            return datetime.fromisoformat(part.upper())
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid RFC 3339 datetime: {e}",
-            )
-
-    if "/" in datetime_str:
-        parts = datetime_str.split("/")
-        if len(parts) != 2:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid datetime interval: expected exactly one '/'",
-            )
-        start, end = (_parse_side(p) for p in parts)
-        if start is None and end is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid datetime interval: both ends are open",
-            )
-        if start is not None and end is not None and start > end:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid datetime interval: start is after end",
-            )
-        return f"{parts[0] or '..'}/{parts[1] or '..'}"
-
-    _parse_side(datetime_str)
-    if datetime_str == "..":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid datetime: '..' is only valid inside an interval",
-        )
-    return datetime_str
 
 
 def _base_published_raster_query(
@@ -1913,7 +1854,7 @@ def _apply_datetime_filter(stmt, datetime_str: str):
     """
     from app.modules.catalog.search.service import parse_ogc_datetime, utc_midnight
 
-    datetime_str = _validate_stac_datetime(datetime_str.strip())
+    datetime_str = validate_rfc3339_datetime(datetime_str.strip())
     start, end = parse_ogc_datetime(datetime_str)
 
     # For records without temporal bounds, filter by created_at, matching the
