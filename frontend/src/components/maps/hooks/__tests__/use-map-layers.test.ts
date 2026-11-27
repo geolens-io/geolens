@@ -2,7 +2,7 @@ import { renderHook } from '@testing-library/react';
 import { DEFAULT_HILLSHADE_PAINT } from '@/components/builder/layer-adapters/builder-defaults';
 import { describe, expect, it, vi } from 'vitest';
 import type { VectorTileToken } from '@/api/tiles';
-import { previewSourceId, useMapLayers } from '../use-map-layers';
+import { previewSourceId, rasterMinzoomFromToken, useMapLayers } from '../use-map-layers';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 
 vi.mock('@/lib/env', () => ({
@@ -208,6 +208,104 @@ describe('useMapLayers raster tile source cache-busting', () => {
       type: 'hillshade',
       source: 'raster-tile-source',
       paint: DEFAULT_HILLSHADE_PAINT,
+    });
+  });
+
+  describe('raster tile floor', () => {
+    const URL = '/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png';
+    type Opts = { rasterMinzoom?: number; rasterTokenSettled?: boolean; isDem?: boolean };
+
+    // A map that remembers its sources, so a re-add is observable.
+    function stateMap() {
+      const sources = new Map<string, { minzoom?: number }>();
+      const layers = new Set<string>();
+      const idle = new Set<() => void>();
+      let styleLoaded = true;
+      const map = {
+        addSource: vi.fn((id: string, spec: { minzoom?: number }) => sources.set(id, spec)),
+        addLayer: vi.fn((l: { id: string }) => layers.add(l.id)),
+        getSource: vi.fn((id: string) => sources.get(id)),
+        getLayer: vi.fn((id: string) => (layers.has(id) ? {} : undefined)),
+        removeLayer: vi.fn((id: string) => layers.delete(id)),
+        removeSource: vi.fn((id: string) => sources.delete(id)),
+        isStyleLoaded: vi.fn(() => styleLoaded),
+        once: vi.fn((_e: string, fn: () => void) => idle.add(fn)),
+        off: vi.fn((_e: string, fn: () => void) => idle.delete(fn)),
+      } as unknown as MaplibreMap;
+      return { map, sources, idle, setStyleLoaded: (v: boolean) => { styleLoaded = v; } };
+    }
+
+    function setup(initial: Opts) {
+      const { map, sources, idle, setStyleLoaded } = stateMap();
+      const mapRef = { current: map };
+      const hook = renderHook(
+        (o: Opts) =>
+          useMapLayers({
+            tableName: null,
+            geometryType: null,
+            rasterTileUrl: URL,
+            tileToken: null,
+            mapRef,
+            ...o,
+          }),
+        { initialProps: initial },
+      );
+      return { map, sources, idle, setStyleLoaded, ...hook };
+    }
+
+    it('floors the preview two zooms below the token minzoom', () => {
+      const { sources } = setup({ rasterMinzoom: 9, rasterTokenSettled: true });
+      expect(sources.get('raster-tile-source')?.minzoom).toBe(7);
+    });
+
+    it('holds the source back until the token request settles, then adds it with the floor', () => {
+      const { map, sources, rerender } = setup({ rasterTokenSettled: false });
+      expect(map.addSource).not.toHaveBeenCalled();
+      rerender({ rasterMinzoom: 9, rasterTokenSettled: true });
+      expect(sources.get('raster-tile-source')?.minzoom).toBe(7);
+    });
+
+    it('uses minzoom 0 when the token failed or reports a low floor', () => {
+      const { sources } = setup({ rasterMinzoom: 0, rasterTokenSettled: true });
+      expect(sources.get('raster-tile-source')?.minzoom).toBe(0);
+    });
+
+    it('waits for the style to finish loading before adding the source', () => {
+      const { map, sources, idle, setStyleLoaded } = (() => {
+        const m = stateMap();
+        m.setStyleLoaded(false);
+        return m;
+      })();
+      renderHook(() =>
+        useMapLayers({
+          tableName: null, geometryType: null, rasterTileUrl: URL, tileToken: null,
+          mapRef: { current: map }, rasterMinzoom: 9, rasterTokenSettled: true,
+        }),
+      );
+      expect(map.addSource).not.toHaveBeenCalled();
+      setStyleLoaded(true);
+      idle.forEach((fn) => fn());
+      expect(map.addSource).toHaveBeenCalledTimes(1);
+      expect(sources.get('raster-tile-source')?.minzoom).toBe(7);
+    });
+
+    it('ignores the floor of a token whose refetch failed', () => {
+      expect(rasterMinzoomFromToken({ kind: 'raster', minzoom: 9 }, false)).toBe(9);
+      expect(rasterMinzoomFromToken({ kind: 'raster', minzoom: 9 }, true)).toBe(0);
+      expect(rasterMinzoomFromToken(undefined, false)).toBe(0);
+    });
+
+    it('keeps minzoom 0 on a DEM', () => {
+      const { sources } = setup({ rasterMinzoom: 9, rasterTokenSettled: true, isDem: true });
+      expect(sources.get('raster-tile-source')?.minzoom).toBe(0);
+    });
+
+    it('re-adds the source when a fresh token changes the floor after a replacement', () => {
+      const { map, sources, rerender } = setup({ rasterMinzoom: 9, rasterTokenSettled: true });
+      expect(sources.get('raster-tile-source')?.minzoom).toBe(7);
+      rerender({ rasterMinzoom: 0, rasterTokenSettled: true });
+      expect(map.removeSource).toHaveBeenCalledWith('raster-tile-source');
+      expect(sources.get('raster-tile-source')?.minzoom).toBe(0);
     });
   });
 

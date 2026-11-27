@@ -1,7 +1,8 @@
 import { renderHook, waitFor } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { createElement } from 'react';
-import { useTileToken } from '@/hooks/use-tile-token';
+import { getTileToken } from '@/api/tiles';
+import { refreshTileToken, useTileToken } from '@/hooks/use-tile-token';
 
 // Mock the tiles API. The runtime ``TileToken`` is a discriminated
 // union (``VectorTileToken | RasterTileToken``) keyed on ``kind``, so
@@ -95,5 +96,28 @@ describe('useTileTokens', () => {
     expect(result.current[1].data).toBeUndefined();
     expect(result.current[1].isError).toBe(false);
     release();
+  });
+});
+
+describe('refreshTileToken', () => {
+  it('discards a token request that was in flight when the data changed', async () => {
+    const raster = (minzoom: number) =>
+      ({ kind: 'raster', minzoom, expires_in: 300 }) as unknown as Awaited<ReturnType<typeof getTileToken>>;
+    let releaseStale: (v: Awaited<ReturnType<typeof getTileToken>>) => void = () => {};
+    vi.mocked(getTileToken)
+      .mockImplementationOnce(() => new Promise((r) => { releaseStale = r; }))
+      .mockResolvedValueOnce(raster(0));
+
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const wrapper = ({ children }: { children: React.ReactNode }) =>
+      createElement(QueryClientProvider, { client }, children);
+    const { result } = renderHook(() => useTileToken('ds_abc'), { wrapper });
+    await waitFor(() => expect(getTileToken).toHaveBeenCalledTimes(1));
+
+    const refresh = refreshTileToken(client, 'ds_abc');
+    releaseStale(raster(9));
+    await refresh;
+
+    await waitFor(() => expect(result.current.data).toMatchObject({ minzoom: 0 }));
   });
 });

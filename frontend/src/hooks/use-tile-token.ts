@@ -1,5 +1,5 @@
 import { useCallback, useMemo } from 'react';
-import { keepPreviousData, useQuery, useQueryClient } from '@tanstack/react-query';
+import { keepPreviousData, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
 import { getTileToken, getTileTokensBatch } from '@/api/tiles';
 import type { TileToken, TileTokenError } from '@/api/tiles';
@@ -23,6 +23,17 @@ export function useInvalidateTileTokens() {
         (q.queryKey[0] === 'tile-token' || q.queryKey[0] === 'tile-tokens-batch'),
     });
   }, [qc]);
+}
+
+/**
+ * Re-mint one dataset's token after its data changed. Cancelling first matters:
+ * invalidating alone reuses a request already in flight, whose pre-change
+ * response would then be cached.
+ */
+export async function refreshTileToken(qc: QueryClient, datasetId: string) {
+  const queryKey = queryKeys.tileTokens.token(datasetId);
+  await qc.cancelQueries({ queryKey });
+  await qc.invalidateQueries({ queryKey });
 }
 
 /**
