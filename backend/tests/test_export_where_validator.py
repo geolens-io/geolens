@@ -313,6 +313,12 @@ def test_parentheses_the_render_drops_are_bounded_too():
         validate_where_clause(wrapped(2 * MAX_RENDER_DEPTH + 1), columns)
 
 
+@pytest.mark.parametrize("where", ["name = 'x\x00y'", '"na\x00me" = 1', "gid = 1\x00"])
+def test_a_nul_character_is_refused_anywhere(where):
+    with pytest.raises(ValueError, match="NUL character"):
+        validate_where_clause(where, [{"name": "gid"}, {"name": "name"}])
+
+
 def test_a_long_run_of_operator_characters_is_refused_unsplit():
     with pytest.raises(ValueError, match=r"operator <<<\.\.\.$"):
         validate_where_clause("gid " + "<" * 5000 + " 1", [{"name": "gid"}])
@@ -1024,9 +1030,10 @@ async def test_accepted_filters_select_what_postgresql_selects(test_db_session):
         if original[1] == "42601":
             failures.append((where, rendered, "PostgreSQL can't parse the original"))
         elif original[1] is not None:
-            # A type error: no rows to compare, but the render must fail too.
-            if render[1] is None:
-                failures.append((where, rendered, f"original {original[1]}"))
+            # A type error: no rows to compare, but the render must fail too,
+            # and not because it no longer parses.
+            if render[1] is None or render[1] == "42601":
+                failures.append((where, rendered, f"{original[1]} vs {render[1]}"))
         elif render != original:
             failures.append((where, rendered, f"{original[0]} vs {render}"))
     print(counts)

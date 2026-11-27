@@ -434,6 +434,9 @@ def render_filter(where: str, columns: Sequence[str] | None = None) -> str:
     """
     if not where or not where.strip():
         raise ValueError("Empty WHERE expression")
+    # PostgreSQL takes no NUL in a query, quoted or not.
+    if "\x00" in where:
+        raise ValueError(_REFUSED.format("NUL character"))
     rendered = _Parser(_lex(where), columns).parse()
     if _paren_depth(_lex(rendered)) > MAX_RENDER_DEPTH:
         raise ValueError(_TOO_DEEP)
