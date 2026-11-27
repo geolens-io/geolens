@@ -92,7 +92,7 @@ async def test_malformed_filter_is_a_400(
         params={"filter-lang": "cql2-json", "filter": REGRESSIONS[name]},
     )
 
-    assert resp.status_code in (400, 422), resp.text
+    assert resp.status_code == 400, resp.text
     assert "detail" in resp.json()
 
 
