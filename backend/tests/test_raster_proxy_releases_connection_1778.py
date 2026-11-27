@@ -95,7 +95,7 @@ async def _fetch_tile(version: str | None) -> tuple[list[str], int]:
     app.dependency_overrides[get_db] = lambda: session
     app.dependency_overrides[get_optional_user_fail_open] = lambda: None
 
-    path = f"/tiles/raster-proxy/{dataset_id}/1/2/3.png"
+    path = f"/tiles/raster-proxy/{dataset_id}/2/1/1.png"
     if version is not None:
         path = f"{path}?v={version}"
 
