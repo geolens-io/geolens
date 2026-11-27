@@ -46,6 +46,7 @@ and releases use semantic versioning.
 - Adding or removing a sharing group's member, or deleting the group, no longer fails with a 503 when a publish manifest job is sharing one of the group's datasets with groups at the same moment. When PostgreSQL stops the group change to break a deadlock, the change now runs once more after the job finishes; a second deadlock still answers 503, which is safe to retry.
 - Filled buttons keep a visible edge in forced colors mode.
 - Legend swatches keep their data colours in forced colors mode, so a legend category still matches the map.
+- Forced colors mode keeps a dashed legend line dashed when its gaps are tight, and a large radius class's halo stays inside its legend cell.
 - A by-reference raster layer's tile source now has a `minzoom` where the raster is about half a tile across, so a zoomed-out map no longer requests slow remote tiles that show a speck (a remote COG could take 20-30 s per tile). Managed rasters keep minzoom 0, and a layer's saved zoom range still draws.
 - Semantic and hybrid search no longer fail with "Database unavailable" on a deep page. The vector candidate ids are bound as one array, so a window past 32,767 candidates runs.
 - The dataset page's raster preview now floors its `minzoom` from the raster's tile token, so a by-reference raster no longer requests slow zoomed-out tiles there. The preview waits for the token before adding the source, uses `minzoom` 0 if the token fails, and re-adds the source when a replacement or refresh changes the floor.

@@ -126,12 +126,18 @@ function LineIcon({ colors, layerId, opacityStyle, styleHints, swatch, discrete 
   const dashArray = styleHints?.dashPattern
     ? styleHints.dashPattern.map((v) => v * 1.5).join(' ')
     : undefined;
+  // The halo's round caps would grow each dash lengthwise and close a tight
+  // gap, so a dashed halo keeps butt caps and the same dash array. A zero-length
+  // painted segment is drawn entirely by its caps, so that pattern keeps them.
+  const dashes = styleHints?.dashPattern;
+  const paintedDashes = dashes && (dashes.length % 2 ? dashes : dashes.filter((_, i) => i % 2 === 0));
+  const haloCap = dashArray && !paintedDashes?.includes(0) ? 'butt' : 'round';
   const strokeColor = hasGradient ? `url(#${gradientId})` : color;
 
   return (
     <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center" style={opacityStyle}>
       <svg width="14" height="14" viewBox="0 0 14 14" className={`h-3.5 w-3.5 ${KEEP_DATA_COLOR}`}>
-        <line x1="1" y1="7" x2="13" y2="7" strokeWidth={svgStrokeWidth + 2} strokeLinecap="round" strokeDasharray={dashArray} className={`${UNDERLAY} stroke-[CanvasText]`} />
+        <line x1="1" y1="7" x2="13" y2="7" strokeWidth={svgStrokeWidth + 2} strokeLinecap={haloCap} strokeDasharray={dashArray} className={`${UNDERLAY} stroke-[CanvasText]`} />
         <line x1="1" y1="7" x2="13" y2="7" strokeWidth={svgStrokeWidth} strokeLinecap="round" strokeDasharray={dashArray} className={KNOCKOUT} />
         {hasGradient && (
           <defs>

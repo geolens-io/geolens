@@ -417,6 +417,28 @@ describe('legend swatches in forced colors', () => {
     }
   });
 
+  it('fits the largest radius class halo in its cell and keeps the classes distinct', () => {
+    const { container } = render(
+      <LegendClassesList
+        geometryType="Point"
+        style={legendSwatch({ stroke: { color: '#000', width: 10 } })}
+        classes={[{ mode: 'graduated', target: 'radius', title: 'M', items: [{ color: '#ef4444', size: 12 }, { color: '#ef4444', size: 8 }, { color: '#ef4444', size: 3 }], breaks: [4, 8] }]}
+      />,
+    );
+    const svgs = Array.from(container.querySelectorAll('li > svg')) as SVGElement[];
+    // The largest class's halo is 12 + 5 + 1 + 0.75 from the centre, unscaled.
+    const expectedFit = 12 / 18.75;
+    const diameters = svgs.map((svg) => {
+      const halo = svg.querySelector('circle.hidden') as SVGElement;
+      const fit = Number(svg.style.getPropertyValue('--halo-fit'));
+      expect(fit).toBeCloseTo(expectedFit, 3);
+      expect(svg).toHaveClass('forced-colors:[transform:scale(var(--halo-fit))]');
+      return 2 * (Number(halo.getAttribute('r')) + Number(halo.getAttribute('stroke-width')) / 2) * fit;
+    });
+    expect(diameters[0]).toBeLessThanOrEqual(24 + 1e-6);
+    expect(new Set(diameters.map((d) => d.toFixed(2))).size).toBe(3);
+  });
+
   it('keeps the colours on the heatmap ramp and gives it an edge', () => {
     const { container } = render(
       <HeatmapLegend

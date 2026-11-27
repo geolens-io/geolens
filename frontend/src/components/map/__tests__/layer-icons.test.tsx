@@ -488,6 +488,34 @@ describe('layer icons in forced colors', () => {
     expect(underlay.getAttribute('stroke-dasharray')).toBe('3 1.5');
   });
 
+  it('draws a dashed halo with butt caps so a tight gap stays open', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="LINESTRING"
+        colors={['#ff5a5f']}
+        layerId="k"
+        styleHints={{ dashPattern: [4, 2], strokeWidth: 1.5 }}
+      />,
+    );
+    const [underlay] = Array.from(container.querySelectorAll('svg[viewBox="0 0 14 14"] line'));
+    expect(underlay.getAttribute('stroke-linecap')).toBe('butt');
+    expect(underlay.getAttribute('stroke-dasharray')).toBe('6 3');
+  });
+
+  it.each([[[0, 4]], [[3, 0, 1]]])('keeps round caps on the halo of a pattern with a zero-length dash %j', (dashPattern) => {
+    const { container } = render(
+      <ColorizedGeometryIcon geometryType="LINESTRING" colors={['#ff5a5f']} layerId="k" styleHints={{ dashPattern }} />,
+    );
+    const [underlay] = Array.from(container.querySelectorAll('svg[viewBox="0 0 14 14"] line'));
+    expect(underlay.getAttribute('stroke-linecap')).toBe('round');
+  });
+
+  it('keeps round caps on a solid line halo', () => {
+    const { container } = render(<ColorizedGeometryIcon geometryType="LINESTRING" colors={['#ff5a5f']} layerId="k" />);
+    const [underlay] = Array.from(container.querySelectorAll('svg[viewBox="0 0 14 14"] line'));
+    expect(underlay.getAttribute('stroke-linecap')).toBe('round');
+  });
+
   it('keeps the colours and edge of a heatmap icon', () => {
     const { container } = render(<LayerTypeIcon layer={SAVED_LAYERS.heatmapByExpression} iconId="h" />);
     expect(container.querySelector('svg[viewBox="0 0 14 14"]')).toHaveClass('forced-color-adjust-none', 'forced-colors:outline-[CanvasText]');
