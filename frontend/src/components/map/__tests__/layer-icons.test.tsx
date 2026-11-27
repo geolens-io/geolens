@@ -502,6 +502,14 @@ describe('layer icons in forced colors', () => {
     expect(underlay.getAttribute('stroke-dasharray')).toBe('6 3');
   });
 
+  it.each([[[0, 4]], [[3, 0, 1]]])('keeps round caps on the halo of a pattern with a zero-length dash %j', (dashPattern) => {
+    const { container } = render(
+      <ColorizedGeometryIcon geometryType="LINESTRING" colors={['#ff5a5f']} layerId="k" styleHints={{ dashPattern }} />,
+    );
+    const [underlay] = Array.from(container.querySelectorAll('svg[viewBox="0 0 14 14"] line'));
+    expect(underlay.getAttribute('stroke-linecap')).toBe('round');
+  });
+
   it('keeps round caps on a solid line halo', () => {
     const { container } = render(<ColorizedGeometryIcon geometryType="LINESTRING" colors={['#ff5a5f']} layerId="k" />);
     const [underlay] = Array.from(container.querySelectorAll('svg[viewBox="0 0 14 14"] line'));

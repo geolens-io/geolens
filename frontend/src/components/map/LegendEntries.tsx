@@ -35,14 +35,18 @@ function HaloRing({ cx, cy, r, s }: { cx: number; cy: number; r: number; s?: Leg
 const HALO_SVG = 'forced-colors:overflow-visible';
 const HALO_FIT_VAR = '--halo-fit';
 // Scales glyph and halo together about the cell centre in forced colors only.
-const FIT_HALO = `forced-colors:[transform:scale(var(${HALO_FIT_VAR}))]`;
+const FIT_HALO = 'forced-colors:[transform:scale(var(--halo-fit))]';
 const HALO_STROKE = 1.5;
 const RADIUS_CELL_HALF = 12;
 
-/** Scale that keeps a radius class's halo, authored stroke included, inside its 24 px cell. */
-function haloFit(r: number, s?: LegendSwatch | null): number {
-  if (r <= 0) return 1;
-  const outer = r + (s?.stroke?.width ?? 0) / 2 + 1 + HALO_STROKE / 2;
+/**
+ * One scale for a whole radius-class list, set by its largest class, so the
+ * largest halo fits its 24 px cell and the classes keep their relative sizes.
+ */
+function haloFit(items: LegendClasses['items'], s?: LegendSwatch | null): number {
+  const largest = Math.max(0, ...items.map((item) => Math.min(item.size ?? 0, RADIUS_CELL_HALF)));
+  if (largest <= 0) return 1;
+  const outer = largest + (s?.stroke?.width ?? 0) / 2 + 1 + HALO_STROKE / 2;
   return Math.min(1, RADIUS_CELL_HALF / outer);
 }
 
@@ -163,6 +167,7 @@ function ColorClassList({ items, breaks, geometryType, style: s, otherLabel }: C
 /** Radius classes as circles of each class's size. */
 function RadiusClassList({ items, breaks, style: s }: ClassListProps) {
   const opacityStyle = swatchOpacityStyle(s);
+  const fit = haloFit(items, s);
   return (
     <ul className="space-y-0.5">
       {items.map((item, i) => (
@@ -170,7 +175,7 @@ function RadiusClassList({ items, breaks, style: s }: ClassListProps) {
           <svg
             viewBox="0 0 24 24" width="24" height="24"
             className={`shrink-0 ${KEEP_DATA_COLOR} ${HALO_SVG} ${FIT_HALO}`}
-            style={{ ...opacityStyle, [HALO_FIT_VAR]: haloFit(Math.min(item.size ?? 0, 12), s) } as React.CSSProperties}
+            style={{ ...opacityStyle, [HALO_FIT_VAR]: fit } as React.CSSProperties}
           >
             <HaloRing cx={12} cy={12} r={Math.min(item.size ?? 0, 12)} s={s} />
             <circle
