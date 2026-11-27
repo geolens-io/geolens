@@ -15,7 +15,6 @@ import pytest
 from httpx import AsyncClient
 
 from app.processing.export.service import validate_where_clause
-from app.processing.export.where_validator import mask_quoted_literals
 from app.processing.export.ogr import FORMAT_MAP
 
 from tests.factories import create_dataset, get_user_id
@@ -99,7 +98,7 @@ class TestWhereClauseStringLiterals:
     def test_literal_containing_a_space_accepted(self):
         assert (
             validate_where_clause("name = 'Main Street'", COLS)
-            == "name = 'Main Street'"
+            == "(\"name\" = 'Main Street')"
         )
 
     def test_literal_in_like_pattern_accepted(self):
@@ -173,50 +172,15 @@ class TestWhereClauseStringLiterals:
         """A single quote inside a double-quoted identifier opens no literal
         in Postgres, so it must open no mask either: the code after it stays
         visible to the walk."""
-        with pytest.raises(ValueError, match="Unknown column: secret"):
+        with pytest.raises(ValueError, match="Unknown column"):
             validate_where_clause('"name\'" = 1 AND secret = 1 AND "name\'" = 1', COLS)
 
     def test_lone_quote_in_a_double_quoted_identifier_does_not_hide_a_column(self):
-        with pytest.raises(ValueError, match="Unknown column: secret"):
+        with pytest.raises(ValueError, match="Unknown column"):
             validate_where_clause('"\'" = 1 AND secret = 1 AND "\'" = 1', COLS)
 
     def test_double_quoted_identifier_beside_a_literal_accepted(self):
         validate_where_clause("\"name\" = 'x'", COLS)
-
-
-class TestMaskQuotedLiterals:
-    """Unit contract of the masking helper the walk runs through."""
-
-    def test_masking_preserves_length(self):
-        where = "name = 'Main Street' AND pop > 1"
-        assert len(mask_quoted_literals(where)) == len(where)
-
-    def test_literal_contents_are_blanked(self):
-        assert mask_quoted_literals("name = 'Main Street'") == "name = " + " " * 13
-
-    def test_escaped_quote_consumed_as_one_literal(self):
-        assert mask_quoted_literals("name = 'O''Brien'") == "name = " + " " * 10
-
-    def test_code_between_literals_survives(self):
-        assert mask_quoted_literals("'a' AND nope = 'b'") == "    AND nope =    "
-
-    def test_empty_literal_blanked(self):
-        assert mask_quoted_literals("name = ''") == "name =   "
-
-    def test_no_literal_is_a_no_op(self):
-        assert mask_quoted_literals("pop > 1000") == "pop > 1000"
-
-    def test_double_quoted_identifier_returned_unchanged(self):
-        assert mask_quoted_literals('"name" = 1') == '"name" = 1'
-
-    def test_quote_inside_a_double_quoted_identifier_opens_no_literal(self):
-        """Two such identifiers, so a scan that saw only single quotes would
-        pair them and blank the code between."""
-        where = '"name\'" = 1 AND secret = 1 AND "name\'" = 1'
-        assert mask_quoted_literals(where) == where
-
-    def test_literal_after_a_double_quoted_identifier_still_blanked(self):
-        assert mask_quoted_literals("\"name\" = 'x'") == '"name" = ' + " " * 3
 
 
 # ---------------------------------------------------------------------------

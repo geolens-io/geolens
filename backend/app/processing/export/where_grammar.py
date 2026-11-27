@@ -1,0 +1,346 @@
+"""The export ``where`` filter language: a strict lexer, parser and render.
+
+The language is one condition over a dataset's columns::
+
+    or        := and (OR and)*
+    and       := not (AND not)*
+    not       := NOT not | predicate
+    predicate := ( or ) | operand [test]
+    test      := cmp operand | [NOT] IN ( operand {, operand} )
+               | [NOT] BETWEEN operand AND operand | [NOT] LIKE operand
+               | IS [NOT] (NULL | TRUE | FALSE)
+    operand   := column | 'string' | number | -number | TRUE | FALSE | NULL
+
+with cmp one of ``= <> != < <= > >=``. Anything else, and any input the
+grammar doesn't consume whole, is refused. The render is built from the parse
+tree, fully parenthesized and with every column double-quoted, so PostgreSQL
+reads it with exactly the grouping and names the parser saw.
+"""
+
+from __future__ import annotations
+
+from collections.abc import Sequence
+from dataclasses import dataclass
+
+_REFUSED = "Disallowed expression in WHERE clause: {}"
+_SINGLE = "Only a single WHERE expression is allowed"
+_SYNTAX = "Invalid WHERE syntax: {}"
+
+_WHITESPACE = frozenset(" \t\n\r")
+# PostgreSQL's operator characters; a run of them is lexed as one operator.
+_OPERATOR_CHARS = frozenset("~!@#^&|`?+-*/%<>=")
+# Each comparison spelling and the operator the render writes for it.
+_COMPARISONS = {
+    "=": "=",
+    "<>": "<>",
+    "!=": "<>",
+    "<": "<",
+    "<=": "<=",
+    ">": ">",
+    ">=": ">=",
+}
+# Nesting deeper than this is refused rather than risking the recursion limit.
+_MAX_DEPTH = 100
+
+# PostgreSQL 18's reserved and type/function-name keywords
+# (pg_get_keywords() catcode R and T). PostgreSQL refuses each as an unquoted
+# column reference; its other keywords work as column names.
+_RESERVED_WORDS = frozenset(
+    """
+    all analyse analyze and any array as asc asymmetric both case cast check
+    collate column constraint create current_catalog current_date current_role
+    current_time current_timestamp current_user default deferrable desc
+    distinct do else end except false fetch for foreign from grant group having
+    in initially intersect into lateral leading limit localtime localtimestamp
+    not null offset on only or order placing primary references returning
+    select session_user some symmetric system_user table then to trailing true
+    union unique user using variadic when where window with
+    authorization binary collation concurrently cross current_schema freeze
+    full ilike inner is isnull join left like natural notnull outer overlaps
+    right similar tablesample verbose
+    """.split()
+)
+
+
+@dataclass(frozen=True)
+class _Token:
+    kind: str  # word, ident, string, number, op, (, ), ","
+    text: str
+
+
+def pg_operator_split(run: str) -> list[str]:
+    """How PostgreSQL's lexer splits a run of operator characters.
+
+    A run is one operator, except that a trailing ``+``/``-`` is split off
+    when the run has none of ``~!@#^&|`?%`` before it.
+    """
+    operators = []
+    while run:
+        size = len(run)
+        if size > 1 and run[-1] in "+-" and not set(run[:-1]) & set("~!@#^&|`?%"):
+            while size > 1 and run[size - 1] in "+-":
+                size -= 1
+        operators.append(run[:size])
+        run = run[size:]
+    return operators
+
+
+def _read_quoted(text: str, start: int, quote: str) -> tuple[str, int]:
+    """The unescaped content of a quoted run at ``start``; doubling escapes."""
+    value: list[str] = []
+    i = start + 1
+    while i < len(text):
+        if text[i] == quote:
+            if i + 1 < len(text) and text[i + 1] == quote:
+                value.append(quote)
+                i += 2
+                continue
+            return "".join(value), i + 1
+        value.append(text[i])
+        i += 1
+    raise ValueError(_SYNTAX.format("unterminated quote"))
+
+
+def _read_number(text: str, start: int) -> tuple[str, int]:
+    """A number as PostgreSQL reads it, rendered with digits on both sides."""
+    i = start
+    while i < len(text) and text[i].isascii() and text[i].isdigit():
+        i += 1
+    whole = text[start:i]
+    fraction = None
+    if i < len(text) and text[i] == ".":
+        j = i + 1
+        while j < len(text) and text[j].isascii() and text[j].isdigit():
+            j += 1
+        fraction, i = text[i + 1 : j], j
+    if i < len(text) and (text[i].isalnum() or text[i] in "_.$"):
+        raise ValueError(_REFUSED.format(f"number {text[start : i + 1]}"))
+    if fraction is None:
+        return whole, i
+    return f"{whole or '0'}.{fraction or '0'}", i
+
+
+def _lex(text: str) -> list[_Token]:
+    tokens: list[_Token] = []
+    i = 0
+    while i < len(text):
+        ch = text[i]
+        if ch in _WHITESPACE:
+            i += 1
+        elif ch in "(),":
+            tokens.append(_Token(ch, ch))
+            i += 1
+        elif ch == "'":
+            value, i = _read_quoted(text, i, "'")
+            tokens.append(_Token("string", value))
+        elif ch == '"':
+            value, i = _read_quoted(text, i, '"')
+            if not value:
+                raise ValueError(_SYNTAX.format("empty quoted identifier"))
+            tokens.append(_Token("ident", value))
+        elif (ch.isascii() and ch.isdigit()) or (
+            ch == "." and text[i + 1 : i + 2].isdigit()
+        ):
+            value, i = _read_number(text, i)
+            tokens.append(_Token("number", value))
+        elif ch.isalpha() or ch == "_":
+            j = i + 1
+            while j < len(text) and (text[j].isalnum() or text[j] == "_"):
+                j += 1
+            tokens.append(_Token("word", text[i:j]))
+            i = j
+        elif ch in _OPERATOR_CHARS:
+            j = i
+            while j < len(text) and text[j] in _OPERATOR_CHARS:
+                j += 1
+            for op in pg_operator_split(text[i:j]):
+                if op not in _COMPARISONS and op != "-":
+                    raise ValueError(_REFUSED.format(f"operator {op}"))
+                tokens.append(_Token("op", op))
+            i = j
+        elif ch == ";":
+            raise ValueError(_SINGLE)
+        else:
+            raise ValueError(_REFUSED.format(f"character {ch!r}"))
+    return tokens
+
+
+def _fold(word: str) -> str:
+    """An unquoted identifier as PostgreSQL folds it: ASCII letters lowered."""
+    return "".join(c.lower() if "A" <= c <= "Z" else c for c in word)
+
+
+def _quote(name: str) -> str:
+    return '"' + name.replace('"', '""') + '"'
+
+
+class _Parser:
+    def __init__(self, tokens: list[_Token], columns: Sequence[str] | None):
+        self.tokens = tokens
+        self.pos = 0
+        self.depth = 0
+        self.columns = columns
+
+    def peek(self, offset: int = 0) -> _Token | None:
+        index = self.pos + offset
+        return self.tokens[index] if index < len(self.tokens) else None
+
+    def keyword(self, word: str, offset: int = 0) -> bool:
+        token = self.peek(offset)
+        return token is not None and token.kind == "word" and token.text.upper() == word
+
+    def take(self) -> _Token:
+        token = self.peek()
+        if token is None:
+            raise ValueError(_SYNTAX.format("unexpected end of condition"))
+        self.pos += 1
+        return token
+
+    def expect_keyword(self, word: str) -> None:
+        if not self.keyword(word):
+            raise ValueError(_SYNTAX.format(f"expected {word}"))
+        self.pos += 1
+
+    def expect(self, kind: str) -> None:
+        token = self.take()
+        if token.kind != kind:
+            raise ValueError(_SYNTAX.format(f"expected {kind!r}"))
+
+    def nest(self) -> None:
+        self.depth += 1
+        if self.depth > _MAX_DEPTH:
+            raise ValueError(_REFUSED.format("nesting too deep"))
+
+    def parse(self) -> str:
+        if not self.tokens:
+            raise ValueError("Empty WHERE expression")
+        rendered = self.disjunction()
+        if self.peek() is not None:
+            raise ValueError(_SINGLE)
+        return rendered
+
+    def disjunction(self) -> str:
+        parts = [self.conjunction()]
+        while self.keyword("OR"):
+            self.pos += 1
+            parts.append(self.conjunction())
+        return parts[0] if len(parts) == 1 else "(" + " OR ".join(parts) + ")"
+
+    def conjunction(self) -> str:
+        parts = [self.negation()]
+        while self.keyword("AND"):
+            self.pos += 1
+            parts.append(self.negation())
+        return parts[0] if len(parts) == 1 else "(" + " AND ".join(parts) + ")"
+
+    def negation(self) -> str:
+        if self.keyword("NOT"):
+            self.pos += 1
+            self.nest()
+            inner = self.negation()
+            self.depth -= 1
+            return f"(NOT {inner})"
+        return self.predicate()
+
+    def predicate(self) -> str:
+        token = self.peek()
+        if token is not None and token.kind == "(":
+            self.pos += 1
+            self.nest()
+            inner = self.disjunction()
+            self.depth -= 1
+            self.expect(")")
+            return inner
+        left = self.operand()
+        return self.test(left)
+
+    def test(self, left: str) -> str:
+        token = self.peek()
+        if token is not None and token.kind == "op" and token.text in _COMPARISONS:
+            self.pos += 1
+            return f"({left} {_COMPARISONS[token.text]} {self.operand()})"
+        if self.keyword("IS"):
+            self.pos += 1
+            negated = "NOT " if self.keyword("NOT") else ""
+            self.pos += bool(negated)
+            for target in ("NULL", "TRUE", "FALSE"):
+                if self.keyword(target):
+                    self.pos += 1
+                    return f"({left} IS {negated}{target})"
+            raise ValueError(_SYNTAX.format("expected NULL, TRUE or FALSE after IS"))
+        negated = "NOT " if self.keyword("NOT") else ""
+        if negated and not any(self.keyword(w, 1) for w in ("IN", "BETWEEN", "LIKE")):
+            raise ValueError(_SYNTAX.format("expected IN, BETWEEN or LIKE after NOT"))
+        self.pos += bool(negated)
+        if self.keyword("IN"):
+            self.pos += 1
+            self.expect("(")
+            items = [self.operand()]
+            while (token := self.peek()) is not None and token.kind == ",":
+                self.pos += 1
+                items.append(self.operand())
+            self.expect(")")
+            return f"({left} {negated}IN ({', '.join(items)}))"
+        if self.keyword("BETWEEN"):
+            self.pos += 1
+            low = self.operand()
+            self.expect_keyword("AND")
+            return f"({left} {negated}BETWEEN {low} AND {self.operand()})"
+        if self.keyword("LIKE"):
+            self.pos += 1
+            return f"({left} {negated}LIKE {self.operand()})"
+        return left
+
+    def operand(self) -> str:
+        token = self.take()
+        if token.kind == "string":
+            return "'" + token.text.replace("'", "''") + "'"
+        if token.kind == "number":
+            return token.text
+        if token.kind == "op" and token.text == "-":
+            number = self.take()
+            if number.kind != "number":
+                raise ValueError(_REFUSED.format("minus sign before a non-number"))
+            return f"-{number.text}"
+        if token.kind == "ident":
+            return _quote(self.resolve(token.text, quoted=True))
+        if token.kind == "word":
+            upper = token.text.upper()
+            if upper in ("TRUE", "FALSE", "NULL"):
+                return upper
+            following = self.peek()
+            if following is not None and following.kind == "(":
+                raise ValueError(_REFUSED.format("function call"))
+            if token.text.lower() in _RESERVED_WORDS:
+                raise ValueError(_REFUSED.format(token.text))
+            return _quote(self.resolve(token.text, quoted=False))
+        raise ValueError(_SYNTAX.format(f"unexpected {token.text!r}"))
+
+    def resolve(self, name: str, *, quoted: bool) -> str:
+        """The dataset column ``name`` refers to, as PostgreSQL would resolve it.
+
+        Unquoted, a name that doesn't match once folded may still match one
+        column case-insensitively.
+        """
+        target = name if quoted else _fold(name)
+        if self.columns is None or target in self.columns:
+            return target
+        if not quoted:
+            matches = [c for c in self.columns if c.lower() == name.lower()]
+            if len(matches) == 1:
+                return matches[0]
+        raise ValueError(f"Unknown column: {name}")
+
+
+def render_filter(where: str, columns: Sequence[str] | None = None) -> str:
+    """Parse ``where`` strictly and return its fully parenthesized render.
+
+    ``columns`` are the dataset's column names; every name must resolve to
+    one of them. Without them, names are kept as PostgreSQL would read them.
+
+    Raises:
+        ValueError: ``where`` is outside the filter language.
+    """
+    if not where or not where.strip():
+        raise ValueError("Empty WHERE expression")
+    return _Parser(_lex(where), columns).parse()

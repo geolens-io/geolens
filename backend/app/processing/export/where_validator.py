@@ -1,8 +1,9 @@
-"""AST-based WHERE-clause validator.
+"""WHERE-clause validator for dataset exports.
 
-Wraps ``where`` in ``SELECT 1 FROM _t WHERE <fragment>``, parses with
-sqlglot postgres dialect, and walks the WHERE node — anything outside the
-strict allowlist raises ValueError.
+``where_grammar`` decides what a caller's filter means and renders it. The
+render is then checked again here: wrapped in ``SELECT 1 FROM _t WHERE
+<render>``, parsed with sqlglot's postgres dialect, and walked; anything
+outside the strict allowlist raises ValueError.
 
 Peer-companion to ``app.platform.sandbox.validator.validate_sql`` — same
 parser/dialect, but allowlist-based (that one is blocklist-based). No code
@@ -17,11 +18,14 @@ Boolean/Null (scalars), EQ/NEQ/LT/LTE/GT/GTE (comparisons), And/Or/Not
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 
 import sqlglot
 from sqlglot import exp
 from sqlglot.dialects.postgres import Postgres
 from sqlglot.tokens import Token, TokenType
+
+from app.processing.export.where_grammar import pg_operator_split, render_filter
 
 # Strict allowlist: every node type found during an AST walk of the WHERE
 # subtree must be an instance of one of these.
@@ -81,19 +85,6 @@ _PLAIN_OPERANDS: tuple[type, ...] = (
     exp.Paren,
     exp.Neg,
 )
-# Parents a NOT may sit under unparenthesized and keep its meaning when
-# rendered. sqlglot prints a NOT inside anything else as a prefix that
-# PostgreSQL binds more loosely: ``a NOT IN (1) <= b`` comes out as
-# ``NOT a IN (1) <= b``, which PostgreSQL reads as ``NOT (a IN (1) <= b)``.
-_NOT_KEEPS_MEANING_UNDER: tuple[type, ...] = (
-    exp.And,
-    exp.Or,
-    exp.Not,
-    exp.Paren,
-    exp.Where,
-)
-
-
 # The filter language at the token level, checked before sqlglot normalizes
 # anything: each operator in its standard spelling only. sqlglot reads some
 # PostgreSQL spellings as something else (``~~`` as LIKE, ``!!`` as two NOTs,
@@ -127,23 +118,6 @@ _REFUSED = "Disallowed expression in WHERE clause: {}"
 _SINGLE = "Only a single WHERE expression is allowed"
 
 
-def _pg_operator_split(run: str) -> list[str]:
-    """How PostgreSQL's lexer splits a run of adjacent operator characters.
-
-    A run is one operator, except that a trailing ``+``/``-`` is split off
-    when the run has none of ``~!@#^&|`?%`` before it.
-    """
-    operators = []
-    while run:
-        size = len(run)
-        if size > 1 and run[-1] in "+-" and not set(run[:-1]) & set("~!@#^&|`?%"):
-            while size > 1 and run[size - 1] in "+-":
-                size -= 1
-        operators.append(run[:size])
-        run = run[size:]
-    return operators
-
-
 def _check_operator_runs(tokens: list[Token]) -> None:
     """Refuse adjacent operators PostgreSQL would lex as one (``!=-``, ``<>=``)."""
     index = 0
@@ -158,7 +132,7 @@ def _check_operator_runs(tokens: list[Token]) -> None:
             end += 1
         if end > index:
             texts = [t.text for t in tokens[index : end + 1]]
-            if _pg_operator_split("".join(texts)) != texts:
+            if pg_operator_split("".join(texts)) != texts:
                 raise ValueError(_REFUSED.format("operator " + "".join(texts)))
         index = end + 1
 
@@ -290,74 +264,27 @@ def _validated_condition(where: str) -> exp.Expression:
 
 
 def validate_where_ast(where: str) -> None:
-    """Validate that ``where`` is a safe WHERE-clause fragment.
-
-    Raises ValueError if empty/blank, unparseable, not a single SELECT
-    (multi-statement injection or UNION), followed by anything after the
-    condition (ORDER BY, LIMIT and the like), a chained comparison, a
-    condition as the lower BETWEEN bound, or any WHERE-subtree node isn't in
-    ALLOWED_EXPRESSIONS (subqueries, function calls, DDL, etc.).
-
-    Args:
-        where: SQL WHERE-clause fragment supplied by the caller.
+    """Validate that ``where`` is a filter in the supported language.
 
     Raises:
         ValueError: Description of the disallowed construct.
     """
-    _validated_condition(where)
+    canonical_where(where)
 
 
-def canonical_where(where: str) -> str:
-    """Validate ``where`` and return its canonical sqlglot re-render.
+def canonical_where(where: str, columns: Sequence[str] | None = None) -> str:
+    """Validate ``where`` and return the server's render of it.
 
-    For callers that interpolate the fragment into SQL text: the re-emission
-    of the validated AST, never raw bytes. PostgreSQL reads the render with
-    the same grouping as the original.
+    The render comes from ``where_grammar``'s strict parse, never the
+    caller's text. ``columns`` are the dataset's column names, which every
+    name must resolve to. The render must then also pass the sqlglot checks
+    above and render to itself.
 
-    Raises ValueError via validate_where_ast on any disallowed construct.
+    Raises:
+        ValueError: ``where`` is outside the filter language.
     """
-    rendered = _render(where)
-    # The render is run in the caller's place, so it must itself be a valid
-    # filter that renders to itself.
-    if _render(rendered) != rendered:
+    rendered = render_filter(where, columns)
+    _validated_condition(rendered)
+    if render_filter(rendered) != rendered:
         raise ValueError(_REFUSED.format("expression the server cannot re-render"))
     return rendered
-
-
-def _render(where: str) -> str:
-    condition = _validated_condition(where)
-    # Deepest first, so an outer NOT wraps an inner one already grouped.
-    for node in reversed(list(condition.find_all(exp.Not))):
-        if not isinstance(node.parent, _NOT_KEEPS_MEANING_UNDER):
-            node.replace(exp.Paren(this=node.copy()))
-    return condition.sql(dialect="postgres")
-
-
-# Both quote kinds are scanned in one pass, because a single quote inside a
-# double-quoted identifier opens no literal in Postgres and must open none here.
-_QUOTED_RUN_RE = re.compile(r"'(?:[^']|'')*'|\"(?:[^\"]|\"\")*\"")
-
-
-def mask_quoted_literals(where: str) -> str:
-    """Blank every single-quoted literal in ``where``, preserving its length.
-
-    A caller scanning for code (identifier walk, token classifier) must not
-    read values as code. A double-quoted identifier is code, so it's scanned
-    but returned unchanged; consuming it in the same pass stops a quote inside
-    it from opening a literal that blanks real code after it.
-    Dollar-quoting and E'' are rejected by the AST gate, not modelled here.
-
-    Args:
-        where: SQL WHERE-clause fragment.
-
-    Returns:
-        The fragment with string-literal contents replaced by spaces.
-        Trailing text after an unterminated quote is unchanged; callers
-        reject an unbalanced clause before masking.
-    """
-
-    def _blank_literals_only(match: re.Match[str]) -> str:
-        run = match.group(0)
-        return run if run.startswith('"') else " " * len(run)
-
-    return _QUOTED_RUN_RE.sub(_blank_literals_only, where)

@@ -147,7 +147,7 @@ class TestExportCommandShape:
         cmd = captured[0]
         assert cmd.count("-where") == 1
         where = cmd[cmd.index("-where") + 1]
-        assert where.endswith(" AND (pop > 15)")
+        assert where.endswith(' AND (("pop" > 15))')
         assert " OR " in where
 
     @pytest.mark.anyio
@@ -158,9 +158,9 @@ class TestExportCommandShape:
         # The CSV pass rewrites the file ogr2ogr would have written.
         (tmp_path / "out.geojson").write_text("")
         await self._run(tmp_path, where="pop>15", format_key="csv", xy=True)
-        assert captured[0][captured[0].index("-where") + 1] == "pop > 15"
+        assert captured[0][captured[0].index("-where") + 1] == '("pop" > 15)'
         sql = captured[1][captured[1].index("-sql") + 1]
-        assert sql.endswith(" WHERE pop > 15")
+        assert sql.endswith(' WHERE ("pop" > 15)')
 
     @pytest.mark.anyio
     async def test_fgb_retry_applies_the_crossing_bbox_once(
@@ -200,13 +200,13 @@ class TestExportCommandShape:
         first, retry = (c[c.index("-where") + 1] for c in commands)
         assert retry == first
         assert first.count("ST_MakeEnvelope(170.0") == 2
-        assert first.endswith(" AND (pop > 15)")
+        assert first.endswith(' AND (("pop" > 15))')
 
     @pytest.mark.anyio
     async def test_no_bbox_leaves_the_caller_where_alone(self, captured, tmp_path):
         await self._run(tmp_path, where="pop > 15")
         cmd = captured[0]
-        assert cmd[cmd.index("-where") + 1] == "pop > 15"
+        assert cmd[cmd.index("-where") + 1] == '("pop" > 15)'
         assert "-spat" not in cmd
 
 

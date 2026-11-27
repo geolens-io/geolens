@@ -212,17 +212,53 @@ def test_text_after_the_condition_is_refused(where):
         validate_where_ast(where)
 
 
+@pytest.mark.parametrize(
+    "where", ["gid BETWEEN 1 3", "gid IN (1,,2)", "gid IN (1 2)", "name\u00a0= 'x'"]
+)
+def test_malformed_conditions_are_refused_not_repaired(where):
+    with pytest.raises(ValueError):
+        validate_where_clause(where, [{"name": "gid"}, {"name": "name"}])
+
+
+@pytest.mark.parametrize(
+    ("where", "rendered"),
+    [
+        ("show = name", '("show" = "name")'),
+        ("gid > .5", '("gid" > 0.5)'),
+        ("gid < 5.", '("gid" < 5.0)'),
+        ("GID = - 3", '("gid" = -3)'),
+        ("mixed = 1", '("Mixed" = 1)'),
+        ('"Mixed" = 1', '("Mixed" = 1)'),
+        ('"a ""b"" c" = \'x\'\'y\'', '("a ""b"" c" = \'x\'\'y\')'),
+    ],
+)
+def test_names_resolve_to_the_dataset_columns(where, rendered):
+    columns = [{"name": n} for n in ("show", "name", "gid", "Mixed", 'a "b" c')]
+    assert validate_where_clause(where, columns) == rendered
+
+
+@pytest.mark.parametrize("where", ["limit = 1", "SELECT = 1", "dup = 1", '"GID" = 1'])
+def test_names_that_are_not_one_column_are_refused(where):
+    columns = [{"name": n} for n in ("limit", "select", "gid", "Dup", "DUP")]
+    with pytest.raises(ValueError):
+        validate_where_clause(where, columns)
+
+
 def test_a_render_that_does_not_reproduce_itself_is_refused(monkeypatch):
     from app.processing.export import where_validator
 
-    real = where_validator._render
-    monkeypatch.setattr(where_validator, "_render", lambda w: real(w) + " AND TRUE")
+    real = where_validator.render_filter
+    monkeypatch.setattr(
+        where_validator, "render_filter", lambda w, c=None: real(w, c) + " AND TRUE"
+    )
     with pytest.raises(ValueError, match="Disallowed expression"):
         canonical_where("pop > 1")
 
 
 def test_unquoted_non_ascii_column_names_are_accepted():
-    assert canonical_where("名前 = 'x' AND café > 1") == "名前 = 'x' AND café > 1"
+    assert canonical_where("名前 = 'x' AND café > 1") == (
+        '(("名前" = \'x\') AND ("café" > 1))'
+    )
 
 
 @pytest.mark.parametrize(
@@ -245,6 +281,8 @@ def test_operators_outside_the_standard_spellings_are_refused(where):
         validate_where_clause(where, columns)
 
 
+# Each of these mixes a condition into a comparison or bound; PostgreSQL either
+# groups them in ways a re-render can change or refuses them outright.
 @pytest.mark.parametrize(
     "where",
     [
@@ -252,10 +290,20 @@ def test_operators_outside_the_standard_spellings_are_refused(where):
         "gid < 2 = active",
         "active = gid < 2",
         "active BETWEEN NOT flag AND flag",
+        "gid NOT IN (1) <= active",
+        "gid NOT IN (1, 2) > flag",
+        "gid NOT BETWEEN 1 AND 2 <= flag",
+        "active IS NOT TRUE = flag",
+        "active = NOT flag",
+        "active IN (flag, NOT flag)",
+        "active = flag IS NOT NULL",
+        "gid IN (1, 2) = active",
+        "(gid NOT IN (1)) <= active",
+        "gid = - -2",
     ],
 )
-def test_groupings_postgresql_refuses_are_refused(where):
-    with pytest.raises(ValueError, match="Disallowed expression"):
+def test_conditions_inside_comparisons_are_refused(where):
+    with pytest.raises(ValueError):
         validate_where_ast(where)
 
 
@@ -271,30 +319,13 @@ _ROWS_SQL = (
 @pytest.mark.parametrize(
     "where",
     [
-        "gid NOT IN (1) <= active",
-        "gid NOT IN (1, 2) > flag",
-        "gid NOT IN (1, 2) <> flag",
-        "gid NOT BETWEEN 1 AND 2 <= flag",
-        "name NOT LIKE 'a%' < active",
-        "name NOT ILIKE 'a%' >= flag",
-        "active IS NOT TRUE = flag",
-        "active IS NOT NULL < flag",
-        "gid NOT IN (1) IS NULL",
-        "active = NOT flag",
-        "active = NOT flag = active",
-        "active <> gid NOT IN (1)",
-        "active IN (flag, NOT flag)",
-        "active BETWEEN flag AND NOT flag",
-        "active = flag IS NOT NULL",
-        "active IS NULL = flag",
-        "NOT active = flag",
-        "NOT NOT active <= flag",
-        "gid IN (1, 2) = active",
-        "active = gid BETWEEN 1 AND 2",
-        "gid BETWEEN -2 AND -(-3)",
-        "gid = - -2",
-        "(gid NOT IN (1)) <= active",
         "gid NOT IN (1, 2) AND NOT active OR flag",
+        "NOT active = flag",
+        "NOT gid IN (1) OR gid BETWEEN -2 AND 3",
+        "name NOT LIKE 'a%' AND active IS NOT TRUE",
+        "active OR flag AND NOT active",
+        "NOT (active OR flag) AND gid > .5",
+        "gid < 5. AND name IS NOT NULL",
     ],
 )
 async def test_the_render_selects_the_same_rows_as_the_condition(
@@ -317,7 +348,7 @@ class TestWrapper:
             result = validate_where_clause(where, column_info=self._COL_INFO)
             assert result == canonical_where(where)
         assert validate_where_clause("pop>1000", column_info=self._COL_INFO) == (
-            "pop > 1000"
+            '("pop" > 1000)'
         )
 
     def test_wrapper_refuses_text_after_the_condition_even_for_known_columns(self):
@@ -328,9 +359,8 @@ class TestWrapper:
                 validate_where_clause(where, column_info=columns)
 
     def test_wrapper_happy_path_still_works(self):
-        """A canonical expression comes back as it went in."""
         result = validate_where_clause("pop > 1000", column_info=self._COL_INFO)
-        assert result == "pop > 1000"
+        assert result == '("pop" > 1000)'
 
     def test_wrapper_calls_ast_validator_first(self):
         """UNION attack must be rejected by the AST gate before identifier check."""
@@ -393,10 +423,12 @@ class TestCanonicalWhere:
     export cap's bounded COUNT never interpolates the caller's raw bytes."""
 
     def test_returns_equivalent_canonical_sql(self):
-        assert canonical_where("1=1") == "1 = 1"
-        assert canonical_where("pop > 25") == "pop > 25"
-        assert canonical_where("name = 'O''Brien'") == "name = 'O''Brien'"
-        assert canonical_where("category IN ('a', 'b')") == "category IN ('a', 'b')"
+        assert canonical_where("1=1") == "(1 = 1)"
+        assert canonical_where("pop > 25") == '("pop" > 25)'
+        assert canonical_where("name = 'O''Brien'") == "(\"name\" = 'O''Brien')"
+        assert canonical_where("category IN ('a', 'b')") == (
+            "(\"category\" IN ('a', 'b'))"
+        )
 
     def test_rejects_disallowed_constructs(self):
         with pytest.raises(ValueError):
@@ -468,19 +500,25 @@ class TestEndpoint:
 # the filter as written.
 # ─────────────────────────────────────────────────────────────────────────────
 
+# Besides plain names, columns named like statement keywords, with non-ASCII
+# letters, a space and a double quote; the second integer of each row fills them.
+_KEYWORD_COLUMNS = ("show", "limit", "order", "select", "café", "a b", 'q"x')
 _TABLE_SQL = (
-    "SELECT coalesce(array_agg(gid ORDER BY gid), '{{}}') FROM (VALUES "
+    "SELECT coalesce(array_agg(gid ORDER BY gid), '{{}}') FROM (SELECT *, "
+    + ", ".join(
+        f'pop + {i} AS "{c.replace(chr(34), chr(34) * 2)}"'
+        for i, c in enumerate(_KEYWORD_COLUMNS)
+    )
+    + " FROM (VALUES "
     "(1, 10, 'ab', true, true), (2, -3, 'b', true, false), "
     "(3, 0, NULL, false, true), (4, NULL, 'a', false, false), "
     "(5, 25, 'Ax', NULL, true), (6, 7, 'z%', true, NULL), "
-    "(7, 10, '', NULL, NULL)) AS t(gid, pop, name, active, flag) WHERE {}"
+    "(7, 10, '', NULL, NULL), (8, 1, 'a\\b', true, true), "
+    "(9, 2, E'x\\ny', false, true)) AS v(gid, pop, name, active, flag)) AS t "
+    "WHERE {}"
 )
 _TABLE_COLUMNS = [
-    {"name": "gid"},
-    {"name": "pop"},
-    {"name": "name"},
-    {"name": "active"},
-    {"name": "flag"},
+    {"name": n} for n in ("gid", "pop", "name", "active", "flag", *_KEYWORD_COLUMNS)
 ]
 
 
@@ -503,15 +541,34 @@ class _FilterGenerator:
 
     def number(self) -> str:
         n = str(self.rng.randint(-5, 30))
-        if self.chance(0.08):
-            return self.pick(f"+{n}", f"{n}.5", f".{abs(int(n))}", f"'{n}'")
+        if self.chance(0.15):
+            return self.pick(
+                f"+{n}", f"{n}.5", f".{abs(int(n))}", f"{abs(int(n))}.", f"'{n}'"
+            )
         if self.chance(0.1):
             return f"- {abs(int(n))}" if self.chance(0.5) else f"-({n})"
         return n
 
     def integer(self) -> str:
         if self.chance(0.5):
-            col = self.pick("gid", "pop", '"pop"')
+            col = self.pick(
+                "gid",
+                "pop",
+                '"pop"',
+                "POP",
+                "show",
+                "Show",
+                "limit",
+                '"limit"',
+                "order",
+                '"order"',
+                "select",
+                '"select"',
+                "café",
+                '"a b"',
+                '"q""x"',
+                "a b",
+            )
             if self.chance(0.08):
                 return self.pick(f"-{col}", f"+{col}", f"{col}::text", f"{col} + 1")
             return col
@@ -520,7 +577,18 @@ class _FilterGenerator:
     def text(self) -> str:
         if self.chance(0.5):
             return "name"
-        literal = self.pick("'a%'", "'A%'", "'b'", "'z%'", "''", "'O''x'", "'%'")
+        literal = self.pick(
+            "'a%'",
+            "'A%'",
+            "'b'",
+            "'z%'",
+            "''",
+            "'O''x'",
+            "'%'",
+            "'a\\b'",
+            "'a\\%'",
+            "'x\ny'",
+        )
         if self.chance(0.05):
             return self.pick("E'a'", "$$a$$", "'a' || 'b'")
         return literal
@@ -550,12 +618,16 @@ class _FilterGenerator:
             return f"{self.boolean(depth)} {op} {self.boolean(depth)}"
         neg = "NOT " if self.chance(0.4) else ""
         if shape == "in":
-            items = ", ".join(self.number() for _ in range(self.rng.randint(1, 3)))
+            separator = ", " if self.chance(0.9) else self.pick(",, ", " ", ", , ")
+            items = separator.join(self.number() for _ in range(self.rng.randint(1, 3)))
             if self.chance(0.2):
                 return f"{self.boolean(depth)} {neg}IN (TRUE, flag)"
             return f"{self.integer()} {neg}IN ({items})"
         if shape == "between":
-            return f"{self.integer()} {neg}BETWEEN {self.number()} AND {self.number()}"
+            joiner = " AND " if self.chance(0.9) else " "
+            return (
+                f"{self.integer()} {neg}BETWEEN {self.number()}{joiner}{self.number()}"
+            )
         if shape == "like":
             op = self.pick("LIKE", "ILIKE", "like", "~~", "~~*", "!~~")
             if op.startswith(("~", "!")):
@@ -579,6 +651,8 @@ class _FilterGenerator:
 
     def filter(self) -> str:
         where = self.predicate(self.rng.randint(0, 3))
+        if self.chance(0.04):
+            where = where.replace(" ", "\u00a0", 1)
         if self.chance(0.05):
             where += self.pick(",", " |> WHERE gid > 1", " LIMIT 1", ";", " , 1")
         return where

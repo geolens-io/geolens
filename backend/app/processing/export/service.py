@@ -18,10 +18,7 @@ from app.processing.export.ogr import (
     PARQUET_MEDIA_TYPE,
     run_ogr2ogr_export,
 )
-from app.processing.export.where_validator import (
-    canonical_where,
-    mask_quoted_literals,
-)
+from app.processing.export.where_validator import canonical_where
 from app.core.runtime.staging import ensure_staging_ready
 
 logger = structlog.stdlib.get_logger(__name__)
@@ -263,34 +260,6 @@ def file_response_content_disposition(filename: str) -> str:
     return f'attachment; filename="{filename}"'
 
 
-# SQL keywords to ignore during where-clause column validation
-_SQL_KEYWORDS = frozenset(
-    {
-        "AND",
-        "OR",
-        "NOT",
-        "IS",
-        "NULL",
-        "LIKE",
-        "IN",
-        "BETWEEN",
-        "TRUE",
-        "FALSE",
-        "ASC",
-        "DESC",
-        "SELECT",
-        "FROM",
-        "WHERE",
-    }
-)
-
-# Regex to extract identifiers from a WHERE clause
-_IDENTIFIER_RE = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
-
-# Regex to detect numeric literals (integers and decimals)
-_NUMERIC_RE = re.compile(r"^\d+(\.\d+)?$")
-
-
 def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     """Validate a WHERE condition and return the text to run in its place.
 
@@ -299,8 +268,8 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
         column_info: List of column dicts, each with a "name" key.
 
     Returns:
-        ``canonical_where(where)``: the validated condition re-rendered from
-        its parse. Callers run this, never ``where`` itself.
+        ``canonical_where(where, columns)``: the server's render of the
+        validated condition. Callers run this, never ``where`` itself.
 
     Raises:
         ValueError: If column_info is missing or an unknown column is referenced.
@@ -308,10 +277,8 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     if not column_info:
         raise ValueError("Cannot filter: no column info available")
 
-    # Pre-parse rejection of meta-SQL tokens. validate_where_ast catches most
-    # via its AST allowlist, but string-level rejection gives a clearer error
-    # and defends against a sqlglot parser bug tolerating a terminator or
-    # comment.
+    # Pre-parse rejection of meta-SQL tokens, for a clearer error than the
+    # parser's.
     if ";" in where:
         raise ValueError("WHERE clause must not contain statement terminator ';'")
     if "--" in where:
@@ -325,27 +292,9 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     if quote_count % 2 != 0:
         raise ValueError("WHERE clause has unbalanced single-quotes")
 
-    # AST gate: rejects UNION, subqueries, DDL, function calls and text after
-    # the condition, which the identifier-only regex below cannot detect.
-    canonical = canonical_where(where)
-
-    # Defense in depth: rejects column names that aren't in this dataset's
-    # column_info, even if they parse cleanly.
-    valid_names = {col["name"].lower() for col in column_info}
-
-    # A quoted literal is never a column reference, so masking it cannot admit
-    # an unknown column before, after or between literals.
-    identifiers = _IDENTIFIER_RE.findall(mask_quoted_literals(where))
-    for ident in identifiers:
-        upper = ident.upper()
-        if upper in _SQL_KEYWORDS:
-            continue
-        if _NUMERIC_RE.match(ident):
-            continue
-        if ident.lower() not in valid_names:
-            raise ValueError(f"Unknown column: {ident}")
-
-    return canonical
+    # Every name must resolve to one of this dataset's columns; the render
+    # names each by its real column name.
+    return canonical_where(where, [str(col["name"]) for col in column_info])
 
 
 _DOWNLOAD_STEM_MAX_BYTES = 150
