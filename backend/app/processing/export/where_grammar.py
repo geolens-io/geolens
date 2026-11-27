@@ -26,7 +26,21 @@ _REFUSED = "Disallowed expression in WHERE clause: {}"
 _SINGLE = "Only a single WHERE expression is allowed"
 _SYNTAX = "Invalid WHERE syntax: {}"
 
-_WHITESPACE = frozenset(" \t\n\r")
+# PostgreSQL's scanner: these are its only whitespace characters, and an
+# identifier starts with an ASCII letter, ``_`` or any non-ASCII character and
+# continues with those, ASCII digits and ``$``. So a no-break space or a
+# combining mark is part of the name, as PostgreSQL reads it.
+_WHITESPACE = frozenset(" \t\n\r\f\v")
+
+
+def _ident_start(ch: str) -> bool:
+    return not ch.isascii() or ch.isalpha() or ch == "_"
+
+
+def _ident_char(ch: str) -> bool:
+    return _ident_start(ch) or ("0" <= ch <= "9") or ch == "$"
+
+
 # PostgreSQL's operator characters; a run of them is lexed as one operator.
 _OPERATOR_CHARS = frozenset("~!@#^&|`?+-*/%<>=")
 # Each comparison spelling and the operator the render writes for it.
@@ -43,8 +57,10 @@ _COMPARISONS = {
 _MAX_DEPTH = 100
 
 # PostgreSQL 18's reserved and type/function-name keywords
-# (pg_get_keywords() catcode R and T). PostgreSQL refuses each as an unquoted
-# column reference; its other keywords work as column names.
+# (pg_get_keywords() catcode R and T). Unquoted, PostgreSQL refuses each as a
+# column reference or reads it as something else (``user`` is the current
+# role), so only the quoted form names a column. Its other keywords work as
+# column names.
 _RESERVED_WORDS = frozenset(
     """
     all analyse analyze and any array as asc asymmetric both case cast check
@@ -113,7 +129,7 @@ def _read_number(text: str, start: int) -> tuple[str, int]:
         while j < len(text) and text[j].isascii() and text[j].isdigit():
             j += 1
         fraction, i = text[i + 1 : j], j
-    if i < len(text) and (text[i].isalnum() or text[i] in "_.$"):
+    if i < len(text) and (_ident_char(text[i]) or text[i] == "."):
         raise ValueError(_REFUSED.format(f"number {text[start : i + 1]}"))
     if fraction is None:
         return whole, i
@@ -143,9 +159,9 @@ def _lex(text: str) -> list[_Token]:
         ):
             value, i = _read_number(text, i)
             tokens.append(_Token("number", value))
-        elif ch.isalpha() or ch == "_":
+        elif _ident_start(ch):
             j = i + 1
-            while j < len(text) and (text[j].isalnum() or text[j] == "_"):
+            while j < len(text) and _ident_char(text[j]):
                 j += 1
             tokens.append(_Token("word", text[i:j]))
             i = j

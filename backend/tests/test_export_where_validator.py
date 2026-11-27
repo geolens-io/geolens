@@ -244,6 +244,56 @@ def test_names_that_are_not_one_column_are_refused(where):
         validate_where_clause(where, columns)
 
 
+@pytest.mark.parametrize(
+    "where", ["gid IN ()", "gid IN (,1)", "gid IN (1,)", "gid IN (1,,2)"]
+)
+def test_malformed_in_lists_are_refused(where):
+    with pytest.raises(ValueError):
+        validate_where_clause(where, [{"name": "gid"}])
+
+
+@pytest.mark.parametrize(
+    "where",
+    [
+        "user IS NULL",
+        "current_user = 'x'",
+        "current_date IS NULL",
+        "session_user = 'x'",
+    ],
+)
+def test_unquoted_value_keywords_are_refused(where):
+    columns = [
+        {"name": n} for n in ("user", "current_user", "current_date", "session_user")
+    ]
+    with pytest.raises(ValueError):
+        validate_where_clause(where, columns)
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    "where",
+    [
+        # A no-break space is part of a PostgreSQL identifier: this names the
+        # second column, not pop.
+        "pop\u00a0 = 17",
+        "pop = 5",
+        "क्षेत्रफल > 12",
+        '"user" IS NULL',
+        '"q""x" > 10',
+        '"a b" BETWEEN 5 AND 20',
+        "a$b > 10",
+        '"pop" >=\f-3\vAND\tgid < 9',
+    ],
+)
+async def test_names_select_what_postgresql_selects_through_the_service(
+    test_db_session, where
+):
+    rendered = validate_where_clause(where, _TABLE_COLUMNS)
+    original = await _run_filter(test_db_session, where)
+    assert original[1] is None, where
+    assert await _run_filter(test_db_session, rendered) == original
+
+
 def test_a_render_that_does_not_reproduce_itself_is_refused(monkeypatch):
     from app.processing.export import where_validator
 
@@ -502,7 +552,19 @@ class TestEndpoint:
 
 # Besides plain names, columns named like statement keywords, with non-ASCII
 # letters, a space and a double quote; the second integer of each row fills them.
-_KEYWORD_COLUMNS = ("show", "limit", "order", "select", "café", "a b", 'q"x')
+_KEYWORD_COLUMNS = (
+    "show",
+    "limit",
+    "order",
+    "select",
+    "café",
+    "a b",
+    'q"x',
+    "pop\u00a0",
+    "क्षेत्रफल",
+    "user",
+    "a$b",
+)
 _TABLE_SQL = (
     "SELECT coalesce(array_agg(gid ORDER BY gid), '{{}}') FROM (SELECT *, "
     + ", ".join(
@@ -537,6 +599,8 @@ class _FilterGenerator:
         return self.rng.random() < p
 
     def gap(self) -> str:
+        if self.chance(0.05):
+            return self.pick("\f", "\v", "\t", "\u00a0", "\u2003")
         return "" if self.chance(0.2) else " "
 
     def number(self) -> str:
@@ -568,6 +632,13 @@ class _FilterGenerator:
                 '"a b"',
                 '"q""x"',
                 "a b",
+                "pop\u00a0",
+                '"pop\u00a0"',
+                "क्षेत्रफल",
+                "user",
+                '"user"',
+                "current_user",
+                "a$b",
             )
             if self.chance(0.08):
                 return self.pick(f"-{col}", f"+{col}", f"{col}::text", f"{col} + 1")
@@ -603,6 +674,15 @@ class _FilterGenerator:
             return self.pick("==", "=<", "!=-", "<>=", "^=")
         return self.pick("=", "<>", "!=", "<", "<=", ">", ">=")
 
+    def in_list(self, depth: int, neg: str) -> str:
+        if self.chance(0.2):
+            return f"{self.boolean(depth)} {neg}IN (TRUE, flag)"
+        separator = ", " if self.chance(0.9) else self.pick(",, ", " ", ", , ")
+        items = separator.join(self.number() for _ in range(self.rng.randint(1, 3)))
+        if self.chance(0.05):
+            items = self.pick("", f",{items}", f"{items},")
+        return f"{self.integer()} {neg}IN ({items})"
+
     def predicate(self, depth: int) -> str:
         shapes = ["cmp", "text", "bool", "in", "between", "like", "is"]
         if depth > 0:
@@ -618,11 +698,7 @@ class _FilterGenerator:
             return f"{self.boolean(depth)} {op} {self.boolean(depth)}"
         neg = "NOT " if self.chance(0.4) else ""
         if shape == "in":
-            separator = ", " if self.chance(0.9) else self.pick(",, ", " ", ", , ")
-            items = separator.join(self.number() for _ in range(self.rng.randint(1, 3)))
-            if self.chance(0.2):
-                return f"{self.boolean(depth)} {neg}IN (TRUE, flag)"
-            return f"{self.integer()} {neg}IN ({items})"
+            return self.in_list(depth, neg)
         if shape == "between":
             joiner = " AND " if self.chance(0.9) else " "
             return (
