@@ -71,6 +71,14 @@ export const DEFAULT_ARROW_SPACING = 80;
 /** The builder's zoom bounds, which stand in for an end of the range the layout does not save. */
 export const FULL_ZOOM_RANGE = { minzoom: 0, maxzoom: 22 } as const;
 
+/**
+ * A raster token's `minzoom` is where the raster is about 128 px across; a map
+ * can be far smaller than that once fitted, so its source floors two zooms lower.
+ */
+export function rasterSourceMinzoom(tokenMinzoom: number): number {
+  return Math.max(0, tokenMinzoom - 2);
+}
+
 /** 3D fill-extrusion defaults. Below the min zoom the
  *  extrusion is not shown; the opacity cap bounds a freshly-converted extrusion. */
 export const DEFAULT_EXTRUSION_MIN_ZOOM = 14;
