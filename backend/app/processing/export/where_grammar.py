@@ -6,11 +6,11 @@ The language is one condition over a dataset's columns::
     and       := not (AND not)*
     not       := NOT not | predicate
     predicate := primary [test] [IS [NOT] (NULL | TRUE | FALSE)]
-    test      := cmp primary | [NOT] IN ( primary {, primary} )
+    test      := cmp primary | [NOT] IN ( or {, or} )
                | [NOT] BETWEEN primary AND primary
                | [NOT] (LIKE | ILIKE) primary
     primary   := ( or ) | operand
-    operand   := column | 'string' | number | - number | - ( number )
+    operand   := column | 'string' | [+ | -] number | [+ | -] ( number )
                | TRUE | FALSE | NULL
 
 with cmp one of ``= <> != < <= > >=``. Anything else, and any input the
@@ -175,7 +175,7 @@ def _read_operators(text: str, start: int) -> tuple[list[_Token], int]:
         raise ValueError(_REFUSED.format(f"operator {run}..."))
     operators = pg_operator_split(text[start:end])
     for op in operators:
-        if op not in _COMPARISONS and op != "-":
+        if op not in _COMPARISONS and op not in ("+", "-"):
             raise ValueError(_REFUSED.format(f"operator {op}"))
     return [_Token("op", op) for op in operators], end
 
@@ -340,10 +340,12 @@ class _Parser:
         if self.keyword("IN"):
             self.pos += 1
             self.expect("(")
-            items = [self.primary()]
+            self.nest()
+            items = [self.disjunction()]
             while (token := self.peek()) is not None and token.kind == ",":
                 self.pos += 1
-                items.append(self.primary())
+                items.append(self.disjunction())
+            self.depth -= 1
             self.expect(")")
             return f"({left} {negated}IN ({', '.join(items)}))"
         if self.keyword("BETWEEN"):
@@ -363,8 +365,9 @@ class _Parser:
             return "'" + token.text.replace("'", "''") + "'"
         if token.kind == "number":
             return token.text
-        if token.kind == "op" and token.text == "-":
-            return f"-{self.negated_number()}"
+        if token.kind == "op" and token.text in ("+", "-"):
+            sign = "-" if token.text == "-" else ""
+            return sign + self.signed_number()
         if token.kind == "ident":
             return _quote(self.resolve(token.text, quoted=True))
         if token.kind == "word":
@@ -379,15 +382,15 @@ class _Parser:
             return _quote(self.resolve(token.text, quoted=False))
         raise ValueError(_SYNTAX.format(f"unexpected {token.text!r}"))
 
-    def negated_number(self) -> str:
-        """The number after a minus sign, in any number of parentheses."""
+    def signed_number(self) -> str:
+        """The number after a sign, in any number of parentheses."""
         token = self.take()
         if token.kind == "number":
             return token.text
         if token.kind != "(":
-            raise ValueError(_REFUSED.format("minus sign before a non-number"))
+            raise ValueError(_REFUSED.format("sign before a non-number"))
         self.nest()
-        number = self.negated_number()
+        number = self.signed_number()
         self.depth -= 1
         self.expect(")")
         return number

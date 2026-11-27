@@ -425,6 +425,9 @@ class ParquetExportPlan(NamedTuple):
     params: dict
     json_columns: frozenset[str] = frozenset()
     has_gid: bool = False
+    # Whether where_sql holds a caller's filter, whose string literals need
+    # read_filter_strings_as_rendered in each transaction that runs it.
+    filtered: bool = False
 
 
 async def plan_parquet_export(
@@ -506,7 +509,8 @@ async def plan_parquet_export(
         f"{_qtable(table_name, schema=schema)} t "
         f"WHERE {where_sql} LIMIT :__cap) sub"
     )
-    await read_filter_strings_as_rendered(db)
+    if where is not None:
+        await read_filter_strings_as_rendered(db)
     count = (
         await db.execute(
             text(count_sql).bindparams(**params, __cap=_MAX_EXPORT_FEATURES + 1)
@@ -519,7 +523,12 @@ async def plan_parquet_export(
         )
 
     return ParquetExportPlan(
-        attr_names, where_sql, params, json_columns, "gid" in udt_names
+        attr_names,
+        where_sql,
+        params,
+        json_columns,
+        "gid" in udt_names,
+        filtered=where is not None,
     )
 
 
@@ -644,7 +653,7 @@ async def export_parquet(
         stream past the edge-proxy window with nothing else to stop it. None
         outside a request.
     """
-    attr_names, where_sql, params, json_columns, _ = plan
+    attr_names, where_sql, params, json_columns = plan[:4]
 
     # Attribute columns are selected directly (not via to_jsonb) so the async
     # driver returns native Python values and Arrow infers real types; json
@@ -675,7 +684,8 @@ async def export_parquet(
         # route releases its connection after planning and a reupload that swaps
         # the table needs ACCESS EXCLUSIVE. The wait for the lock is bounded by
         # the same budget as the stream.
-        await read_filter_strings_as_rendered(db)
+        if plan.filtered:
+            await read_filter_strings_as_rendered(db)
         await db.execute(
             text(
                 f"LOCK TABLE {_qtable(table_name, schema=schema)} IN ACCESS SHARE MODE"

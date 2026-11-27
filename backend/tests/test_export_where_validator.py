@@ -261,7 +261,17 @@ def test_an_unquoted_name_never_resolves_to_a_column_of_another_case():
 
 
 @pytest.mark.parametrize(
-    "where", ["gid IN ((1, 2))", "gid = -(gid)", "gid = -(-1)", "gid = (1", "gid = -(1"]
+    "where",
+    [
+        "gid IN ((1, 2))",
+        "gid = -(gid)",
+        "gid = -(-1)",
+        "gid = +-1",
+        "gid = +gid",
+        "gid = (1",
+        "gid = -(1",
+        "gid IN (1, NOT)",
+    ],
 )
 def test_parentheses_hold_one_operand_or_condition(where):
     with pytest.raises(ValueError):
@@ -316,6 +326,9 @@ def test_a_long_run_of_operator_characters_is_refused_unsplit():
         ("pop > .5e+2", '("pop" > 0.5e+2)'),
         ("pop = -5.E1", '("pop" = -5e1)'),
         ("pop < -(5)", '("pop" < -5)'),
+        ("pop BETWEEN -5 AND +5", '("pop" BETWEEN -5 AND 5)'),
+        ("pop=+5 OR pop > + (2.5)", '(("pop" = 5) OR ("pop" > 2.5))'),
+        ("pop IN (1, pop, NOT pop)", '("pop" IN (1, "pop", (NOT "pop")))'),
         ("pop < - ((5.))", '("pop" < -5.0)'),
         ("name = 'a' IS NOT TRUE", "((\"name\" = 'a') IS NOT TRUE)"),
         ("pop IN (1, 2) IS FALSE", '(("pop" IN (1, 2)) IS FALSE)'),
@@ -504,7 +517,6 @@ def test_operators_outside_the_standard_spellings_are_refused(where):
         "gid NOT BETWEEN 1 AND 2 <= flag",
         "active IS NOT TRUE = flag",
         "active = NOT flag",
-        "active IN (flag, NOT flag)",
         "gid IN (1, 2) = active",
         "active IS TRUE IS FALSE",
         "gid = - -2",
@@ -547,6 +559,9 @@ _ROWS_SQL = (
         "gid IN (1, 2) IS FALSE OR name LIKE 'a%' IS NULL",
         "NOT gid BETWEEN 2 AND 5 IS TRUE",
         "gid > -(3) AND gid < - (6.)",
+        "active IN (flag, NOT flag)",
+        "active NOT IN (gid < 3, flag AND active)",
+        "gid BETWEEN -5 AND +5",
     ],
 )
 async def test_the_render_selects_the_same_rows_as_the_condition(
@@ -855,7 +870,8 @@ class _FilterGenerator:
 
     def in_list(self, depth: int, neg: str) -> str:
         if self.chance(0.2):
-            return f"{self.boolean(depth)} {neg}IN (TRUE, flag)"
+            items = self.pick("TRUE, flag", "flag, NOT flag", "gid < 3, flag OR active")
+            return f"{self.boolean(depth)} {neg}IN ({items})"
         separator = ", " if self.chance(0.9) else self.pick(",, ", " ", ", , ")
         items = separator.join(self.number() for _ in range(self.rng.randint(1, 3)))
         if self.chance(0.05):

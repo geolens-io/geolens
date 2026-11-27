@@ -11,10 +11,8 @@ from sqlalchemy import text
 
 from tests.factories import create_dataset, get_user_id
 
-pytestmark = [
-    pytest.mark.requires_ogr2ogr,
-    pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="ogr2ogr not available"),
-]
+# Only the tests that convert a file are marked for ogr2ogr; a refusal and the
+# database reads happen before any conversion.
 
 # Known columns, so a refusal comes from the single-condition rule.
 _KEYWORD_COLUMNS = ("limit", "offset", "order", "by", "group", "having")
@@ -103,6 +101,8 @@ async def test_text_after_the_condition_is_refused(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("params", _FORMATS, ids=lambda p: "-".join(p.values()))
+@pytest.mark.requires_ogr2ogr
+@pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="ogr2ogr not available")
 async def test_a_plain_condition_still_exports(
     client: AsyncClient, admin_auth_header: dict, keyword_dataset, params
 ):
@@ -125,6 +125,8 @@ async def test_a_plain_condition_still_exports(
 
 @pytest.mark.anyio
 @pytest.mark.parametrize("params", _FORMATS, ids=lambda p: "-".join(p.values()))
+@pytest.mark.requires_ogr2ogr
+@pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="ogr2ogr not available")
 async def test_the_deepest_filter_head_accepts_also_exports(
     client: AsyncClient, admin_auth_header: dict, keyword_dataset, params
 ):

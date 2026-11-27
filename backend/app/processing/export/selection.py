@@ -156,7 +156,8 @@ async def _count_selected_features(
         f"{_qtable(table_name, schema=schema)} "
         f"WHERE {where_sql} LIMIT :limit) sub"
     )
-    await read_filter_strings_as_rendered(db)
+    if where is not None:
+        await read_filter_strings_as_rendered(db)
     result = await db.execute(text(sql).bindparams(**params))
     return result.scalar_one()
 
