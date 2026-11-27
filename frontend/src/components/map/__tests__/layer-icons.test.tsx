@@ -350,7 +350,7 @@ describe('ColorizedGeometryIcon line gradients (fix #1494)', () => {
     expect(gradient).not.toBeNull();
     expect(gradient).toHaveAttribute('gradientUnits', 'userSpaceOnUse');
 
-    const line = container.querySelector('line');
+    const line = container.querySelector('line:not(.hidden)');
     expect(line).toHaveAttribute('stroke', `url(#${gradient!.id})`);
     // The gradient must span the stroke it paints, not default to a unit box.
     expect(gradient).toHaveAttribute('x1', line!.getAttribute('x1')!);
@@ -367,7 +367,7 @@ describe('ColorizedGeometryIcon line gradients (fix #1494)', () => {
     );
 
     expect(container.querySelector('linearGradient')).toBeNull();
-    expect(container.querySelector('line')).toHaveAttribute('stroke', '#ef4444');
+    expect(container.querySelector('line:not(.hidden)')).toHaveAttribute('stroke', '#ef4444');
   });
 });
 
@@ -408,5 +408,88 @@ describe('LayerTypeIcon swatch', () => {
     const [ringed, ringless] = Array.from(container.querySelectorAll('.lucide-circle'));
     expect(ringed).toHaveAttribute('stroke', '#1d4ed8');
     expect(ringless).toHaveAttribute('stroke-width', '0');
+  });
+});
+
+describe('layer icons in forced colors', () => {
+  it('keeps a patterned polygon chip colours and gives it a system edge', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="POLYGON"
+        colors={['#ff5a5f']}
+        layerId="x"
+        swatch={legendSwatch({ pattern: { id: 'geolens-fill-dots', tint: null } })}
+      />,
+    );
+    const chip = container.firstElementChild as HTMLElement;
+    expect(chip).toHaveClass('forced-color-adjust-none', 'forced-colors:outline-[CanvasText]');
+  });
+
+  const KEEP = 'forced-color-adjust-none';
+
+  it.each([
+    ['plain polygon', 'POLYGON', ['#ff5a5f'], 'svg.lucide-pentagon'],
+    ['gradient polygon', 'POLYGON', ['#ff5a5f', '#00f'], 'svg.lucide-pentagon'],
+    ['plain point', 'POINT', ['#ff5a5f'], 'svg.lucide-circle'],
+    ['gradient point', 'POINT', ['#ff5a5f', '#00f'], 'svg.lucide-circle'],
+  ])('gives a %s icon a system stroke in forced colors', (_name, geometryType, colors, selector) => {
+    const { container } = render(
+      <ColorizedGeometryIcon geometryType={geometryType} colors={colors} layerId="k" />,
+    );
+    expect(container.querySelector(selector)).toHaveClass(KEEP, 'forced-colors:[stroke:CanvasText]');
+  });
+
+  it('gives a stroke-only polygon icon a halo and leaves its authored ring', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="POLYGON"
+        colors={['#ff5a5f']}
+        layerId="k"
+        swatch={legendSwatch({ fillOpacity: 0, stroke: { color: '#ff5a5f', width: 2 } })}
+      />,
+    );
+    const icon = container.querySelector('svg.lucide-pentagon') as SVGElement;
+    // An outline, not a drop shadow: a shadow paints under a translucent fill too.
+    expect(icon).toHaveClass(KEEP, 'forced-colors:outline-[CanvasText]');
+    expect(icon.getAttribute('class')).not.toContain('drop-shadow');
+    expect(icon.getAttribute('stroke')).toBe('#ff5a5f');
+    expect(icon.getAttribute('class')).not.toContain('forced-colors:[stroke:CanvasText]');
+  });
+
+  it.each([
+    ['plain line', ['#ff5a5f']],
+    ['gradient line', ['#ff5a5f', '#00f']],
+  ])('draws a system-coloured underlay under a %s icon', (_name, colors) => {
+    const { container } = render(
+      <ColorizedGeometryIcon geometryType="LINESTRING" colors={colors} layerId="k" />,
+    );
+    const svg = container.querySelector('svg[viewBox="0 0 14 14"]') as SVGElement;
+    expect(svg).toHaveClass(KEEP);
+    expect(svg.firstElementChild).toHaveClass('hidden', 'forced-colors:block', 'stroke-[CanvasText]');
+  });
+
+  it('gives the line underlay the foreground dash pattern', () => {
+    const { container } = render(
+      <ColorizedGeometryIcon
+        geometryType="LINESTRING"
+        colors={['#ff5a5f']}
+        layerId="k"
+        styleHints={{ dashPattern: [2, 1] }}
+      />,
+    );
+    const svg = container.querySelector('svg[viewBox="0 0 14 14"]') as SVGElement;
+    const [underlay, knockout, line] = Array.from(svg.querySelectorAll('line'));
+    expect(underlay).toHaveClass('hidden');
+    expect(knockout).toHaveClass('hidden', 'stroke-[Canvas]');
+    expect(knockout.getAttribute('stroke-dasharray')).toBe('3 1.5');
+    expect(knockout.getAttribute('stroke-width')).toBe(line.getAttribute('stroke-width'));
+    // Dash arrays are in user units, so the same array keeps each halo dash in phase.
+    expect(line.getAttribute('stroke-dasharray')).toBe('3 1.5');
+    expect(underlay.getAttribute('stroke-dasharray')).toBe('3 1.5');
+  });
+
+  it('keeps the colours and edge of a heatmap icon', () => {
+    const { container } = render(<LayerTypeIcon layer={SAVED_LAYERS.heatmapByExpression} iconId="h" />);
+    expect(container.querySelector('svg[viewBox="0 0 14 14"]')).toHaveClass('forced-color-adjust-none', 'forced-colors:outline-[CanvasText]');
   });
 });

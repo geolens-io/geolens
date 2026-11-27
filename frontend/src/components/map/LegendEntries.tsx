@@ -6,6 +6,33 @@ import { patternPreviewStyle } from '@/lib/fill-pattern-preview';
 import { rampGradient } from './legend-facts';
 import type { LegendClasses, LegendRamp, LegendSwatch } from './legend-facts';
 
+// Swatch colours are data, so forced colors must not repaint them; the edge keeps
+// a swatch visible against the system background.
+export const KEEP_DATA_COLOR = 'forced-color-adjust-none';
+export const SWATCH_EDGE = 'forced-colors:outline forced-colors:outline-1 forced-colors:outline-[CanvasText]';
+// Underlays are drawn first and only shown in forced colors: a system-coloured
+// halo behind a glyph keeps it visible whatever data colour it carries.
+export const UNDERLAY = 'hidden forced-colors:block';
+// Drawn over a line's underlay at the foreground's width, so a translucent
+// stroke blends against the background, not the halo.
+export const KNOCKOUT = `${UNDERLAY} stroke-[Canvas]`;
+
+/**
+ * An exterior ring just outside the fill and any authored stroke, so a hollow or
+ * translucent glyph stays hollow. The svg lets it overflow rather than clip.
+ */
+function HaloRing({ cx, cy, r, s }: { cx: number; cy: number; r: number; s?: LegendSwatch | null }) {
+  // A zero radius draws nothing, so it gets no halo either.
+  if (r <= 0) return null;
+  return (
+    <circle
+      cx={cx} cy={cy} r={r + (s?.stroke?.width ?? 0) / 2 + 1}
+      fill="none" strokeWidth={1.5}
+      className={`${UNDERLAY} stroke-[CanvasText]`}
+    />
+  );
+}
+const HALO_SVG = 'forced-colors:overflow-visible';
 
 /**
  * Element-level opacity for the LAYER opacity only. Each renderer applies
@@ -35,7 +62,8 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
 
   if (gt.includes('POINT')) {
     return (
-      <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0" style={opacityStyle} aria-hidden="true">
+      <svg width="14" height="14" viewBox="0 0 14 14" className={`shrink-0 ${KEEP_DATA_COLOR} ${HALO_SVG}`} style={opacityStyle} aria-hidden="true">
+        <HaloRing cx={7} cy={7} r={5} s={s} />
         <circle
           cx="7" cy="7" r="5"
           fill={color}
@@ -48,7 +76,9 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
 
   if (gt.includes('LINE')) {
     return (
-      <svg width="14" height="14" viewBox="0 0 14 14" className="shrink-0" style={opacityStyle} aria-hidden="true">
+      <svg width="14" height="14" viewBox="0 0 14 14" className={`shrink-0 ${KEEP_DATA_COLOR}`} style={opacityStyle} aria-hidden="true">
+        <line x1="1" y1="7" x2="13" y2="7" strokeWidth={4.5} strokeLinecap="round" className={`${UNDERLAY} stroke-[CanvasText]`} />
+        <line x1="1" y1="7" x2="13" y2="7" strokeWidth={2.5} strokeLinecap="round" className={KNOCKOUT} />
         <line
           x1="1" y1="7" x2="13" y2="7"
           stroke={color}
@@ -79,7 +109,7 @@ export function GeometrySwatch({ geometryType, color, style: s }: GeometrySwatch
   }
   return (
     <div
-      className={cn('relative w-3.5 h-3.5 rounded-sm shrink-0 overflow-hidden', stroke && 'border')}
+      className={cn('relative w-3.5 h-3.5 rounded-sm shrink-0 overflow-hidden', KEEP_DATA_COLOR, SWATCH_EDGE, stroke && 'border')}
       style={{
         ...(stroke ? { borderColor: stroke.color, borderWidth: stroke.width } : {}),
         ...opacityStyle,
@@ -125,7 +155,8 @@ function RadiusClassList({ items, breaks, style: s }: ClassListProps) {
     <ul className="space-y-0.5">
       {items.map((item, i) => (
         <li key={i} className="flex items-center gap-1.5">
-          <svg viewBox="0 0 24 24" width="24" height="24" className="shrink-0" style={opacityStyle}>
+          <svg viewBox="0 0 24 24" width="24" height="24" className={`shrink-0 ${KEEP_DATA_COLOR} ${HALO_SVG}`} style={opacityStyle}>
+            <HaloRing cx={12} cy={12} r={Math.min(item.size ?? 0, 12)} s={s} />
             <circle
               cx="12" cy="12"
               r={Math.min(item.size ?? 0, 12)}
@@ -148,7 +179,13 @@ function WidthClassList({ items, breaks, style: s }: ClassListProps) {
     <ul className="space-y-0.5">
       {items.map((item, i) => (
         <li key={i} className="flex items-center gap-1.5">
-          <svg width="24" height="16" className="shrink-0" style={opacityStyle}>
+          <svg width="24" height="16" className={`shrink-0 ${KEEP_DATA_COLOR}`} style={opacityStyle}>
+            {(item.size ?? 0) > 0 && (
+              <>
+                <line x1="0" y1="8" x2="24" y2="8" strokeWidth={Math.min(item.size ?? 0, 8) + 3} strokeLinecap="round" className={`${UNDERLAY} stroke-[CanvasText]`} />
+                <line x1="0" y1="8" x2="24" y2="8" strokeWidth={Math.min(item.size ?? 0, 8)} strokeLinecap="round" className={KNOCKOUT} />
+              </>
+            )}
             <line x1="0" y1="8" x2="24" y2="8" stroke={item.color} strokeOpacity={s?.fillOpacity} strokeWidth={Math.min(item.size ?? 0, 8)} strokeLinecap="round" />
           </svg>
           <span className="text-muted-foreground min-w-0 break-words" title={breakLabel(i, breaks)}>{breakLabel(i, breaks)}</span>
@@ -227,7 +264,7 @@ export const HeatmapLegend = memo(function HeatmapLegend({
     <div style={opacity < 1 ? { opacity } : undefined}>
       {name && <div className="font-medium text-foreground mb-1 truncate">{name}</div>}
       <div
-        className="h-3 rounded-sm w-full"
+        className={`h-3 rounded-sm w-full ${KEEP_DATA_COLOR} ${SWATCH_EDGE}`}
         style={{ background: gradient }}
       />
       <div className="flex justify-between mt-0.5">
