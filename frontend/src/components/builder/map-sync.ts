@@ -95,7 +95,6 @@ export function ensureRasterDemTerrainSource(
   options: {
     sourceId?: string;
     tileSize?: number | null;
-    minzoom?: number | null;
     maxzoom?: number | null;
     bounds?: number[] | null;
     /**
@@ -125,7 +124,7 @@ export function ensureRasterDemTerrainSource(
       || existingTiles[0] !== absoluteTileUrl
       || !sameNumberArray(existingSpec.bounds, bounds)
       || existingSpec.tileSize !== (options.tileSize ?? 256)
-      || existingSpec.minzoom !== (options.minzoom ?? 0)
+      || existingSpec.minzoom !== 0
       || existingSpec.maxzoom !== (options.maxzoom ?? 18)
       // A changed credit replaces the source. There is no data to drop (it
       // carries only a tile template), so the swap is cheap and keeps the
@@ -143,7 +142,9 @@ export function ensureRasterDemTerrainSource(
       type: 'raster-dem',
       tiles: [absoluteTileUrl],
       tileSize: options.tileSize ?? 256,
-      minzoom: options.minzoom ?? 0,
+      // No floor: terrain is pitched, and a pitched view loads tiles below the
+      // camera zoom for the distant mesh, which a floor would leave flat.
+      minzoom: 0,
       maxzoom: options.maxzoom ?? 18,
       ...(bounds ? { bounds } : {}),
       ...(options.attribution ? { attribution: options.attribution } : {}),

@@ -473,7 +473,6 @@ export const BuilderMap = memo(function BuilderMap({
 
     ensureRasterDemTerrainSource(map, token.tile_url, {
       tileSize: token.tile_size,
-      minzoom: token.minzoom,
       maxzoom: token.maxzoom,
       bounds: token.bounds,
       // A terrain-mode DEM has no visible layer, so the attributed source its

@@ -120,7 +120,7 @@ describe('useViewerTerrain', () => {
           scope: 'scope-fixture',
           expires_in: 900,
           bounds: [-113, 36, -111.5, 37],
-          minzoom: 2,
+          minzoom: 8,
           maxzoom: 14,
           tile_size: 512,
           format: 'png',
@@ -129,11 +129,13 @@ describe('useViewerTerrain', () => {
     }));
 
     await waitFor(() => expect(result.current.terrainReady).toBe(true));
+    // A pitched view loads tiles below the camera zoom, so the token's floor
+    // stays off the terrain source.
     expect(map.addSource).toHaveBeenCalledWith('terrain-dem', expect.objectContaining({
       type: 'raster-dem',
       tiles: [`${window.location.origin}/raster-tiles/token-dem/tiles/{z}/{x}/{y}.png`],
       bounds: [-113, 36, -111.5, 37],
-      minzoom: 2,
+      minzoom: 0,
       maxzoom: 14,
       tileSize: 512,
     }));
