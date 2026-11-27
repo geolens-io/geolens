@@ -1019,3 +1019,25 @@ async def test_typed_search_calls_the_embedding_provider_once_when_it_fails(
     assert body["numberMatched"] >= 1
     assert body["numberMatchedAllTypes"] >= body["numberMatched"]
     assert provider.await_count == 1
+
+
+@pytest.mark.anyio
+async def test_semantic_search_at_int8_max_offset_answers(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    hybrid_datasets_with_embeddings: dict,
+    hybrid_vectors: dict[str, list[float]],
+):
+    """The SQL limits derived from the offset stay inside int8."""
+    with patch(
+        "app.modules.catalog.search.service_semantic.generate_embedding",
+        new_callable=AsyncMock,
+        return_value=hybrid_vectors["transport"],
+    ):
+        resp = await client.get(
+            "/search/datasets/",
+            params={"q": "transportation", "offset": str(2**63 - 1)},
+            headers=admin_auth_header,
+        )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["features"] == []

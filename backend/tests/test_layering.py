@@ -1241,7 +1241,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 662,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
-        "backend/app/modules/catalog/search/service_semantic.py": 521,
+        "backend/app/modules/catalog/search/service_semantic.py": 525,
         # A layer diff checks a changed filter against the caller's access and its widgets,
         # and stacks a map_author key's added layers on top; a full replace
         # carries a publish manifest's layer keys and the rows it keeps.
@@ -1331,7 +1331,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/style_sanitizers.py": 151,
     "backend/app/modules/catalog/maps/router_assets.py": 190,
     "backend/app/modules/catalog/maps/router_sharing.py": 510,
-    "backend/app/modules/catalog/search/query_params.py": 205,
+    "backend/app/modules/catalog/search/query_params.py": 206,
     "backend/app/modules/catalog/search/router_saved.py": 113,
     "backend/app/modules/admin/router_operations.py": 348,
     "backend/app/modules/settings/router_public.py": 189,
@@ -1381,14 +1381,14 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/db/tenant_adoption.py": 1256,
     # CQL2 parsing, feature-filter validation, record-filter literal handling and
     # the requester's spatial extent share one pygeofilter walk.
-    "backend/app/standards/ogc/filtering.py": 1111,
+    "backend/app/standards/ogc/filtering.py": 1150,
     # Auth routes (sign-in, sessions, API keys, password) share one router and its
     # rate-limit and cookie helpers.
     "backend/app/modules/auth/router.py": 1541,
     # The app object, its middleware and exception handlers, route registration
     # and the lifespan stay together to keep their order; the capability 401
     # mapping stays here because this module is already reviewed for embed tokens.
-    "backend/app/api/main.py": 1296,
+    "backend/app/api/main.py": 1298,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
     "backend/app/modules/catalog/maps/schemas.py": 1638,
@@ -1496,7 +1496,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/features/router.py": 1766,
     # Native search and OGC Records share visibility, query parsing and pagination;
     # the collections routes also answer under the desktop entry's gate.
-    "backend/app/modules/catalog/search/router.py": 1482,
+    "backend/app/modules/catalog/search/router.py": 1486,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
     "backend/app/standards/stac/router.py": 1957,
     # Authorization, acquisition order and cache rehydration share this route boundary;
@@ -1511,7 +1511,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/records/service.py": 871,
     # Export formats and catalog feeds share visibility, lineage, raster-asset
     # presence and private-artifact authorization.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1638,
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1642,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 620,

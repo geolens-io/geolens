@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import joinedload, selectinload
 
 from app.modules.audit.service import AuditEvent, audit_emit
+from app.core.db.pg_ranges import INT8_MAX
 from app.core.identity import Identity
 from app.modules.auth.dependencies import (
     download_token_is_current,
@@ -253,7 +254,10 @@ _FEED_LIMIT_Q = Query(
     description="Max datasets in this page (default = max).",
 )
 _FEED_OFFSET_Q = Query(
-    0, ge=0, description="Datasets to skip — page a catalog larger than one page."
+    0,
+    ge=0,
+    le=INT8_MAX,
+    description="Datasets to skip — page a catalog larger than one page.",
 )
 
 
