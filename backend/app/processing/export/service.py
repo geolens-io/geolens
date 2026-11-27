@@ -8,6 +8,8 @@ import zipfile
 from urllib.parse import quote
 
 import structlog
+from sqlalchemy import text
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.async_io import run_in_thread_draining
 from app.core.config import settings
@@ -289,6 +291,17 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     # Every name must resolve to one of this dataset's columns; the render
     # names each by its real column name.
     return canonical_where(where, [str(col["name"]) for col in column_info])
+
+
+async def read_filter_strings_as_rendered(db: AsyncSession) -> None:
+    """Read string literals without backslash escapes for this transaction.
+
+    A validated filter writes a backslash in a string as itself, which is how
+    ogr2ogr's connection reads it. A role or database that defaults
+    ``standard_conforming_strings`` to off would read it as an escape, and so
+    run a different condition from the one validated.
+    """
+    await db.execute(text("SET LOCAL standard_conforming_strings = on"))
 
 
 _DOWNLOAD_STEM_MAX_BYTES = 150

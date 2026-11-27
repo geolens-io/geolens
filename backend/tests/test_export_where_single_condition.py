@@ -121,3 +121,77 @@ async def test_a_plain_condition_still_exports(
         assert [f["properties"]["name"] for f in features] == ["a"]
         assert features[0]["geometry"]["type"] == "Point"
         assert features[0]["geometry"]["coordinates"] == [-74.5, 41.25]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("params", _FORMATS, ids=lambda p: "-".join(p.values()))
+async def test_the_deepest_filter_head_accepts_also_exports(
+    client: AsyncClient, admin_auth_header: dict, keyword_dataset, params
+):
+    from app.processing.export.where_grammar import MAX_RENDER_DEPTH
+
+    where = "NOT " * (MAX_RENDER_DEPTH - 1) + "name = 'a'"
+    for method in ("HEAD", "GET"):
+        resp = await client.request(
+            method,
+            f"/datasets/{keyword_dataset.id}/export",
+            params={**params, "where": where},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, (method, resp.text)
+    if params["format"] == "csv":
+        rows = list(csv.DictReader(io.StringIO(resp.text)))
+        assert [r["name"] for r in rows] == ["b"]
+
+
+# With standard_conforming_strings off PostgreSQL reads ``\'`` as a quote, so
+# this is one comparison with a long literal, which matches no row. As written
+# it is two comparisons, which together match every row with a name.
+_BACKSLASH_FILTER = r"name = '\' OR name <> '\'"
+
+
+@pytest.fixture
+async def legacy_string_escapes(test_db_session):
+    await test_db_session.execute(text("SET standard_conforming_strings = off"))
+    yield
+    await test_db_session.rollback()
+    await test_db_session.execute(text("RESET standard_conforming_strings"))
+    await test_db_session.commit()
+
+
+@pytest.mark.anyio
+async def test_the_count_reads_a_backslash_as_the_export_does(
+    test_db_session, keyword_dataset, legacy_string_escapes
+):
+    from app.processing.export import selection
+
+    count = await selection._count_selected_features(
+        test_db_session,
+        table_name=keyword_dataset.table_name,
+        where=_BACKSLASH_FILTER,
+        column_info=[{"name": "name", "type": "text"}],
+        bbox=None,
+        has_geometry=True,
+        schema="data",
+    )
+    assert count == 2
+
+
+@pytest.mark.anyio
+async def test_geoparquet_reads_a_backslash_as_the_export_does(
+    test_db_session, keyword_dataset, legacy_string_escapes
+):
+    import pyarrow.parquet as pq
+
+    from app.processing.export.parquet import export_parquet, plan_parquet_export
+
+    table = keyword_dataset.table_name
+    plan = await plan_parquet_export(
+        test_db_session, table, schema="data", where=_BACKSLASH_FILTER
+    )
+    # The stream runs in a transaction of its own.
+    await test_db_session.commit()
+    path, _filename, _media_type = await export_parquet(
+        test_db_session, table, "Backslash", schema="data", plan=plan
+    )
+    assert sorted(pq.read_table(path).column("name").to_pylist()) == ["a", "b"]

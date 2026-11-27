@@ -22,6 +22,7 @@ from app.processing.export.schemas import ExportFormat
 from app.processing.export.service import (
     export_dataset,
     export_descriptor,
+    read_filter_strings_as_rendered,
     validate_where_clause,
 )
 from app.processing.ingest.metadata import _qtable
@@ -155,6 +156,7 @@ async def _count_selected_features(
         f"{_qtable(table_name, schema=schema)} "
         f"WHERE {where_sql} LIMIT :limit) sub"
     )
+    await read_filter_strings_as_rendered(db)
     result = await db.execute(text(sql).bindparams(**params))
     return result.scalar_one()
 

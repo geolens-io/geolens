@@ -260,38 +260,75 @@ def test_an_unquoted_name_never_resolves_to_a_column_of_another_case():
     assert validate_where_clause('"GID" = 7', [{"name": "GID"}]) == '("GID" = 7)'
 
 
-@pytest.mark.parametrize(
-    "where",
-    [
-        "(gid = 1) = TRUE",
-        "(NOT gid) = 1",
-        "(gid OR gid) = 1",
-        "((gid) = 1) = 1",
-        "gid IN ((1, 2))",
-        "gid = -(1)",
-        "gid = (1",
-    ],
-)
-def test_parentheses_wrap_an_operand_only_whole(where):
+@pytest.mark.parametrize("where", ["gid IN ((1, 2))", "gid = -(1)", "gid = (1"])
+def test_parentheses_hold_one_operand_or_condition(where):
     with pytest.raises(ValueError):
         validate_where_clause(where, [{"name": "gid"}])
 
 
+# Each shape's render nests its parentheses ``n`` deep.
 @pytest.mark.parametrize(
     "shape",
     [
-        lambda n: "NOT " * n + "gid = 1",
-        lambda n: "(" * n + "gid = 1" + " OR gid = 2)" * n,
-        lambda n: "gid = " + "(" * n + "1" + ")" * n,
-        lambda n: "NOT (" * (n // 2) + "gid = 1 OR gid = 2" + ")" * (n // 2),
+        lambda n: "NOT " * (n - 1) + "gid = 1",
+        lambda n: "(" * (n - 1) + "gid = 1" + " OR gid = 2)" * (n - 1),
+        lambda n: "NOT (" * (n - 2) + "gid = 1 OR gid = 2" + ")" * (n - 2),
+        lambda n: "gid = 1 OR gid = 2 AND " + "NOT " * (n - 3) + "gid = 3",
     ],
 )
-def test_nesting_is_accepted_to_a_fixed_depth_and_refused_past_it(shape):
-    from app.processing.export.where_grammar import MAX_DEPTH
+def test_a_render_nests_to_a_fixed_depth_and_no_deeper(shape):
+    from app.processing.export.where_grammar import MAX_RENDER_DEPTH
 
-    validate_where_clause(shape(MAX_DEPTH), [{"name": "gid"}])
+    columns = [{"name": "gid"}]
+    rendered = validate_where_clause(shape(MAX_RENDER_DEPTH), columns)
+    # The export validates the render again before it runs it.
+    assert validate_where_clause(rendered, columns) == rendered
     with pytest.raises(ValueError, match="nesting too deep"):
-        validate_where_clause(shape(MAX_DEPTH + 2), [{"name": "gid"}])
+        validate_where_clause(shape(MAX_RENDER_DEPTH + 1), columns)
+
+
+def test_parentheses_the_render_drops_are_bounded_too():
+    from app.processing.export.where_grammar import MAX_RENDER_DEPTH
+
+    def wrapped(n):
+        return "gid = " + "(" * n + "1" + ")" * n
+
+    columns = [{"name": "gid"}]
+    assert (
+        validate_where_clause(wrapped(2 * MAX_RENDER_DEPTH), columns) == '("gid" = 1)'
+    )
+    with pytest.raises(ValueError, match="nesting too deep"):
+        validate_where_clause(wrapped(2 * MAX_RENDER_DEPTH + 1), columns)
+
+
+def test_a_long_run_of_operator_characters_is_refused_unsplit():
+    with pytest.raises(ValueError, match=r"operator <<<\.\.\.$"):
+        validate_where_clause("gid " + "<" * 5000 + " 1", [{"name": "gid"}])
+
+
+@pytest.mark.parametrize(
+    ("where", "rendered"),
+    [
+        ("pop > 1e3", '("pop" > 1e3)'),
+        ("pop > 1.5E-2", '("pop" > 1.5e-2)'),
+        ("pop > .5e+2", '("pop" > 0.5e+2)'),
+        ("pop = -5.E1", '("pop" = -5.0e1)'),
+        ("name ILIKE 'a%'", "(\"name\" ILIKE 'a%')"),
+        ("name not ilike 'a%'", "(\"name\" NOT ILIKE 'a%')"),
+        ("(pop > 10) IS FALSE", '(("pop" > 10) IS FALSE)'),
+        ("(pop > 10) = (name = 'a')", '(("pop" > 10) = ("name" = \'a\'))'),
+    ],
+)
+def test_spellings_the_filter_always_took_still_render(where, rendered):
+    columns = [{"name": "pop"}, {"name": "name"}]
+    assert validate_where_clause(where, columns) == rendered
+    assert validate_where_clause(rendered, columns) == rendered
+
+
+@pytest.mark.parametrize("where", ["pop > 1e", "pop > 1e+", "pop > 1e5x", "pop > 1.e"])
+def test_a_number_with_trailing_junk_is_refused(where):
+    with pytest.raises(ValueError):
+        validate_where_clause(where, [{"name": "pop"}])
 
 
 def test_a_render_too_deep_for_the_second_parser_is_refused(monkeypatch):
@@ -451,7 +488,7 @@ def test_operators_outside_the_standard_spellings_are_refused(where):
         "active IN (flag, NOT flag)",
         "active = flag IS NOT NULL",
         "gid IN (1, 2) = active",
-        "(gid NOT IN (1)) <= active",
+        "active IS TRUE IS FALSE",
         "gid = - -2",
     ],
 )
@@ -479,6 +516,14 @@ _ROWS_SQL = (
         "active OR flag AND NOT active",
         "NOT (active OR flag) AND gid > .5",
         "gid < 5. AND name IS NOT NULL",
+        "(gid NOT IN (1)) <= active",
+        "(gid < 2) = active",
+        "(name LIKE 'a%') IS NOT TRUE",
+        "active = (NOT flag)",
+        "active IN (flag, (NOT flag))",
+        "active BETWEEN (NOT flag) AND (flag OR active)",
+        "(active = flag) = (gid > 3) OR name ILIKE 'A%'",
+        "gid > 1e0 AND gid < 0.5E+1",
     ],
 )
 async def test_the_render_selects_the_same_rows_as_the_condition(
@@ -709,8 +754,16 @@ class _FilterGenerator:
     def number(self) -> str:
         n = str(self.rng.randint(-5, 30))
         if self.chance(0.15):
+            m = abs(int(n))
             return self.pick(
-                f"+{n}", f"{n}.5", f".{abs(int(n))}", f"{abs(int(n))}.", f"'{n}'"
+                f"+{n}",
+                f"{n}.5",
+                f".{m}",
+                f"{m}.",
+                f"'{n}'",
+                f"{m}e0",
+                f"{m}E",
+                f"{m}.e-1",
             )
         if self.chance(0.1):
             return f"- {abs(int(n))}" if self.chance(0.5) else f"-({n})"
@@ -878,6 +931,7 @@ _SUPPORTED = [
     "(pop) >= 10",
     "pop >= (10)",
     "(pop) IS NOT NULL AND gid IN ((1), (2))",
+    "name ILIKE 'a%' OR (pop > 1e1) IS FALSE",
 ]
 
 
@@ -887,6 +941,7 @@ async def test_supported_filters_are_accepted_and_select_the_same_rows(
 ):
     for where in _SUPPORTED:
         rendered = validate_where_clause(where, _TABLE_COLUMNS)
+        assert validate_where_clause(rendered, _TABLE_COLUMNS) == rendered, where
         original = await _run_filter(test_db_session, where)
         assert original[1] is None, where
         assert await _run_filter(test_db_session, rendered) == original, where

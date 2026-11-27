@@ -34,7 +34,11 @@ from app.processing.export.ogr import (
     bbox_where_sql,
     export_subprocess_timeout_seconds,
 )
-from app.processing.export.service import export_descriptor, validate_where_clause
+from app.processing.export.service import (
+    export_descriptor,
+    read_filter_strings_as_rendered,
+    validate_where_clause,
+)
 from app.processing.ingest.metadata import _qtable, get_column_info, probe_geom_4326
 
 # Rows, or approximate bytes of Python values, held before a batch is encoded
@@ -502,6 +506,7 @@ async def plan_parquet_export(
         f"{_qtable(table_name, schema=schema)} t "
         f"WHERE {where_sql} LIMIT :__cap) sub"
     )
+    await read_filter_strings_as_rendered(db)
     count = (
         await db.execute(
             text(count_sql).bindparams(**params, __cap=_MAX_EXPORT_FEATURES + 1)
@@ -670,6 +675,7 @@ async def export_parquet(
         # route releases its connection after planning and a reupload that swaps
         # the table needs ACCESS EXCLUSIVE. The wait for the lock is bounded by
         # the same budget as the stream.
+        await read_filter_strings_as_rendered(db)
         await db.execute(
             text(
                 f"LOCK TABLE {_qtable(table_name, schema=schema)} IN ACCESS SHARE MODE"

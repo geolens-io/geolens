@@ -25,11 +25,7 @@ from sqlglot import exp
 from sqlglot.dialects.postgres import Postgres
 from sqlglot.tokens import Token, TokenType
 
-from app.processing.export.where_grammar import (
-    RENDER_MAX_DEPTH,
-    pg_operator_split,
-    render_filter,
-)
+from app.processing.export.where_grammar import pg_operator_split, render_filter
 
 # Strict allowlist: every node type found during an AST walk of the WHERE
 # subtree must be an instance of one of these.
@@ -117,7 +113,7 @@ _OPERATOR_TOKENS: dict[TokenType, frozenset[str]] = {
     TokenType.DASH: frozenset({"-"}),
 }
 _WORD_RE = re.compile(r"[^\W\d][\w$]*\Z")
-_NUMBER_RE = re.compile(r"\d+(\.\d+)?\Z")
+_NUMBER_RE = re.compile(r"\d+(\.\d+)?(e[+-]?\d+)?\Z")
 _REFUSED = "Disallowed expression in WHERE clause: {}"
 _SINGLE = "Only a single WHERE expression is allowed"
 
@@ -292,6 +288,6 @@ def canonical_where(where: str, columns: Sequence[str] | None = None) -> str:
         _validated_condition(rendered)
     except RecursionError as exc:
         raise ValueError(_REFUSED.format("nesting too deep")) from exc
-    if render_filter(rendered, max_depth=RENDER_MAX_DEPTH) != rendered:
+    if render_filter(rendered) != rendered:
         raise ValueError(_REFUSED.format("expression the server cannot re-render"))
     return rendered

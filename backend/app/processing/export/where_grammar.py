@@ -5,17 +5,19 @@ The language is one condition over a dataset's columns::
     or        := and (OR and)*
     and       := not (AND not)*
     not       := NOT not | predicate
-    predicate := ( or ) | scalar [test]
-    test      := cmp scalar | [NOT] IN ( scalar {, scalar} )
-               | [NOT] BETWEEN scalar AND scalar | [NOT] LIKE scalar
+    predicate := primary [test]
+    test      := cmp primary | [NOT] IN ( primary {, primary} )
+               | [NOT] BETWEEN primary AND primary
+               | [NOT] (LIKE | ILIKE) primary
                | IS [NOT] (NULL | TRUE | FALSE)
-    scalar    := ( scalar ) | operand
+    primary   := ( or ) | operand
     operand   := column | 'string' | number | -number | TRUE | FALSE | NULL
 
 with cmp one of ``= <> != < <= > >=``. Anything else, and any input the
 grammar doesn't consume whole, is refused. The render is built from the parse
 tree, fully parenthesized and with every column double-quoted, so PostgreSQL
-reads it with exactly the grouping and names the parser saw.
+reads it with exactly the grouping and names the parser saw. Rendering a
+render returns it unchanged.
 """
 
 from __future__ import annotations
@@ -26,6 +28,7 @@ from dataclasses import dataclass
 _REFUSED = "Disallowed expression in WHERE clause: {}"
 _SINGLE = "Only a single WHERE expression is allowed"
 _SYNTAX = "Invalid WHERE syntax: {}"
+_TOO_DEEP = _REFUSED.format("nesting too deep")
 
 # PostgreSQL's scanner: these are its only whitespace characters, and an
 # identifier starts with an ASCII letter, ``_`` or any non-ASCII character and
@@ -56,13 +59,18 @@ _COMPARISONS = {
     ">": ">",
     ">=": ">=",
 }
-# The render is parsed a second time by sqlglot, which runs out of Python
-# stack between 20 and 30 nested negations, depending on the caller's own
-# depth. Deeper nesting than this is refused.
-MAX_DEPTH = 16
-# A render nests at most this deep: each negation gains a parenthesis, and a
-# comparison inside a conjunction gains two.
-RENDER_MAX_DEPTH = 2 * MAX_DEPTH + 2
+# How deep a render's parentheses may nest. The render is parsed a second time
+# by sqlglot, which runs out of Python stack between 20 and 30 nested
+# negations, depending on the caller's own depth.
+MAX_RENDER_DEPTH = 16
+# How deep the input's parentheses and negations may nest together. A render
+# has at most one negation per parenthesis, so every render fits.
+_MAX_INPUT_NESTING = 2 * MAX_RENDER_DEPTH
+# The longest run of operator characters that can be valid: ``<>-``.
+_MAX_OPERATOR_RUN = 3
+
+# The tests NOT may precede.
+_NEGATABLE = ("IN", "BETWEEN", "LIKE", "ILIKE")
 
 # PostgreSQL 18's reserved and type/function-name keywords
 # (pg_get_keywords() catcode R and T). Unquoted, PostgreSQL refuses each as a
@@ -132,11 +140,34 @@ def _read_number(text: str, start: int) -> tuple[str, int]:
         while j < len(text) and text[j].isascii() and text[j].isdigit():
             j += 1
         fraction, i = text[i + 1 : j], j
+    exponent = ""
+    if i < len(text) and text[i] in "eE":
+        j = i + 2 if text[i + 1 : i + 2] in ("+", "-") else i + 1
+        k = j
+        while k < len(text) and text[k].isascii() and text[k].isdigit():
+            k += 1
+        if k > j:
+            exponent, i = "e" + text[i + 1 : k], k
     if i < len(text) and (_ident_char(text[i]) or text[i] == "."):
         raise ValueError(_REFUSED.format(f"number {text[start : i + 1]}"))
     if fraction is None:
-        return whole, i
-    return f"{whole or '0'}.{fraction or '0'}", i
+        return whole + exponent, i
+    return f"{whole or '0'}.{fraction or '0'}{exponent}", i
+
+
+def _read_operators(text: str, start: int) -> tuple[list[_Token], int]:
+    """The supported operators in the run of operator characters at ``start``."""
+    end = start
+    while end < len(text) and text[end] in _OPERATOR_CHARS:
+        end += 1
+    if end - start > _MAX_OPERATOR_RUN:
+        run = text[start : start + _MAX_OPERATOR_RUN]
+        raise ValueError(_REFUSED.format(f"operator {run}..."))
+    operators = pg_operator_split(text[start:end])
+    for op in operators:
+        if op not in _COMPARISONS and op != "-":
+            raise ValueError(_REFUSED.format(f"operator {op}"))
+    return [_Token("op", op) for op in operators], end
 
 
 def _lex(text: str) -> list[_Token]:
@@ -169,14 +200,8 @@ def _lex(text: str) -> list[_Token]:
             tokens.append(_Token("word", text[i:j]))
             i = j
         elif ch in _OPERATOR_CHARS:
-            j = i
-            while j < len(text) and text[j] in _OPERATOR_CHARS:
-                j += 1
-            for op in pg_operator_split(text[i:j]):
-                if op not in _COMPARISONS and op != "-":
-                    raise ValueError(_REFUSED.format(f"operator {op}"))
-                tokens.append(_Token("op", op))
-            i = j
+            operators, i = _read_operators(text, i)
+            tokens.extend(operators)
         elif ch == ";":
             raise ValueError(_SINGLE)
         else:
@@ -194,17 +219,11 @@ def _quote(name: str) -> str:
 
 
 class _Parser:
-    def __init__(
-        self, tokens: list[_Token], columns: Sequence[str] | None, max_depth: int
-    ):
+    def __init__(self, tokens: list[_Token], columns: Sequence[str] | None):
         self.tokens = tokens
         self.pos = 0
         self.depth = 0
-        self.max_depth = max_depth
-        self.columns = columns
-        # Whether the condition just parsed was a lone operand, which a
-        # parenthesis may wrap on the left of a test: ``(pop) > 10``.
-        self.bare = False
+        self.columns = None if columns is None else frozenset(columns)
 
     def peek(self, offset: int = 0) -> _Token | None:
         index = self.pos + offset
@@ -239,8 +258,8 @@ class _Parser:
 
     def nest(self) -> None:
         self.depth += 1
-        if self.depth > self.max_depth:
-            raise ValueError(_REFUSED.format("nesting too deep"))
+        if self.depth > _MAX_INPUT_NESTING:
+            raise ValueError(_TOO_DEEP)
 
     def parse(self) -> str:
         if not self.tokens:
@@ -255,20 +274,14 @@ class _Parser:
         while self.keyword("OR"):
             self.pos += 1
             parts.append(self.conjunction())
-        if len(parts) == 1:
-            return parts[0]
-        self.bare = False
-        return "(" + " OR ".join(parts) + ")"
+        return parts[0] if len(parts) == 1 else "(" + " OR ".join(parts) + ")"
 
     def conjunction(self) -> str:
         parts = [self.negation()]
         while self.keyword("AND"):
             self.pos += 1
             parts.append(self.negation())
-        if len(parts) == 1:
-            return parts[0]
-        self.bare = False
-        return "(" + " AND ".join(parts) + ")"
+        return parts[0] if len(parts) == 1 else "(" + " AND ".join(parts) + ")"
 
     def negation(self) -> str:
         if self.keyword("NOT"):
@@ -276,39 +289,30 @@ class _Parser:
             self.nest()
             inner = self.negation()
             self.depth -= 1
-            self.bare = False
             return f"(NOT {inner})"
-        return self.predicate()
+        return self.test(self.primary())
 
-    def predicate(self) -> str:
-        token = self.peek()
-        if token is not None and token.kind == "(":
-            self.pos += 1
-            self.nest()
-            inner = self.disjunction()
-            self.depth -= 1
-            self.expect(")")
-            return self.test(inner) if self.bare else inner
-        return self.test(self.operand())
+    def primary(self) -> str:
+        """An operand, or a whole condition in parentheses.
 
-    def scalar(self) -> str:
-        """An operand, in any number of parentheses."""
+        A condition's render carries its own parentheses, so it stays one
+        operand wherever it is used.
+        """
         token = self.peek()
         if token is None or token.kind != "(":
             return self.operand()
         self.pos += 1
         self.nest()
-        inner = self.scalar()
+        inner = self.disjunction()
         self.depth -= 1
         self.expect(")")
         return inner
 
     def test(self, left: str) -> str:
-        self.bare = False
         token = self.peek()
         if token is not None and token.kind == "op" and token.text in _COMPARISONS:
             self.pos += 1
-            return f"({left} {_COMPARISONS[token.text]} {self.scalar()})"
+            return f"({left} {_COMPARISONS[token.text]} {self.primary()})"
         if self.keyword("IS"):
             self.pos += 1
             negated = "NOT " if self.keyword("NOT") else ""
@@ -319,27 +323,27 @@ class _Parser:
                     return f"({left} IS {negated}{target})"
             raise ValueError(_SYNTAX.format("expected NULL, TRUE or FALSE after IS"))
         negated = "NOT " if self.keyword("NOT") else ""
-        if negated and not any(self.keyword(w, 1) for w in ("IN", "BETWEEN", "LIKE")):
+        if negated and not any(self.keyword(w, 1) for w in _NEGATABLE):
             raise ValueError(_SYNTAX.format("expected IN, BETWEEN or LIKE after NOT"))
         self.pos += bool(negated)
         if self.keyword("IN"):
             self.pos += 1
             self.expect("(")
-            items = [self.scalar()]
+            items = [self.primary()]
             while (token := self.peek()) is not None and token.kind == ",":
                 self.pos += 1
-                items.append(self.scalar())
+                items.append(self.primary())
             self.expect(")")
             return f"({left} {negated}IN ({', '.join(items)}))"
         if self.keyword("BETWEEN"):
             self.pos += 1
-            low = self.scalar()
+            low = self.primary()
             self.expect_keyword("AND")
-            return f"({left} {negated}BETWEEN {low} AND {self.scalar()})"
-        if self.keyword("LIKE"):
-            self.pos += 1
-            return f"({left} {negated}LIKE {self.scalar()})"
-        self.bare = True
+            return f"({left} {negated}BETWEEN {low} AND {self.primary()})"
+        for pattern in ("LIKE", "ILIKE"):
+            if self.keyword(pattern):
+                self.pos += 1
+                return f"({left} {negated}{pattern} {self.primary()})"
         return left
 
     def operand(self) -> str:
@@ -376,18 +380,30 @@ class _Parser:
         raise ValueError(f"Unknown column: {name}")
 
 
-def render_filter(
-    where: str, columns: Sequence[str] | None = None, max_depth: int = MAX_DEPTH
-) -> str:
+def _paren_depth(tokens: list[_Token]) -> int:
+    depth = deepest = 0
+    for token in tokens:
+        if token.kind == "(":
+            depth += 1
+            deepest = max(deepest, depth)
+        elif token.kind == ")":
+            depth -= 1
+    return deepest
+
+
+def render_filter(where: str, columns: Sequence[str] | None = None) -> str:
     """Parse ``where`` strictly and return its fully parenthesized render.
 
     ``columns`` are the dataset's column names; every name must resolve to
     one of them. Without them, names are kept as PostgreSQL would read them.
-    Parentheses and negations may nest ``max_depth`` deep.
+    The render's parentheses nest at most ``MAX_RENDER_DEPTH`` deep.
 
     Raises:
         ValueError: ``where`` is outside the filter language.
     """
     if not where or not where.strip():
         raise ValueError("Empty WHERE expression")
-    return _Parser(_lex(where), columns, max_depth).parse()
+    rendered = _Parser(_lex(where), columns).parse()
+    if _paren_depth(_lex(rendered)) > MAX_RENDER_DEPTH:
+        raise ValueError(_TOO_DEEP)
+    return rendered

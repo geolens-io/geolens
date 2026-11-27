@@ -182,7 +182,8 @@ async def test_count_escapes_colons_and_binds_an_ordinary_bbox(monkeypatch):
         schema="data",
     )
     assert got == 3
-    (statement,) = db.statements
+    pin, statement = db.statements
+    assert pin.text == "SET LOCAL standard_conforming_strings = on"
     sql = statement.text
     assert "'2024-01-01T00\\:00\\:00'" in sql
     assert "geom_4326 && ST_MakeEnvelope(:minx, :miny, :maxx, :maxy, 4326)" in sql
@@ -204,7 +205,7 @@ async def test_count_ignores_bbox_without_geometry_and_rejects_a_bad_filter():
         has_geometry=False,
         schema="data",
     )
-    assert "WHERE TRUE LIMIT" in db.statements[0].text
+    assert "WHERE TRUE LIMIT" in db.statements[-1].text
 
     with pytest.raises(ValueError):
         await selection._count_selected_features(
