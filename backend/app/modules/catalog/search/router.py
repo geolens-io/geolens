@@ -13,6 +13,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.pg_ranges import INT8_MAX
 from app.core.temporal import temporal_interval
 from app.core.identity import Identity
 from app.core.record_types import (
@@ -851,7 +852,10 @@ async def list_collections(
     request: Request,
     response: Response,
     offset: int = Query(
-        0, ge=0, description="Pagination offset for per-dataset collections"
+        0,
+        ge=0,
+        le=INT8_MAX,
+        description="Pagination offset for per-dataset collections",
     ),
     limit: int = Query(
         50, ge=1, le=200, description="Max per-dataset collections to return"

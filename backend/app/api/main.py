@@ -17,12 +17,13 @@ redirect_tempfile_to_staging(settings.upload_staging_dir)
 # S3 endpoint derived into AWS_* env, and subprocesses inherit os.environ.
 configure_gdal_s3_env(settings)
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES, GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.api.query_guard import refuse_nul_in_query
 from app.api.router import api_router
 from app.api.openapi_contract import _iter_api_routes, install_standards_aware_openapi
 from app.observability.metrics import (
@@ -771,6 +772,7 @@ app = FastAPI(
     # instead register a no-slash alias via stacked decorators
     # (``include_in_schema=False``), so both shapes resolve identically.
     redirect_slashes=False,
+    dependencies=[Depends(refuse_nul_in_query)],
     lifespan=lifespan,
 )
 # The constructor argument is deprecated, but FastAPI.__call__ still applies the

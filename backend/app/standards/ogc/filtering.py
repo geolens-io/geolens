@@ -76,6 +76,28 @@ FIELD_MAPPING = {
 }
 
 
+def _refuse_nul_in_json(node: Any) -> None:
+    """400 when a decoded CQL2 JSON string holds a NUL.
+
+    A ``\\u0000`` escape survives the query-string guard and decodes to a real
+    NUL, which PostgreSQL refuses once the literal is bound. Iterative, so a
+    deeply nested filter cannot exhaust the stack here.
+    """
+    stack = [node]
+    while stack:
+        item = stack.pop()
+        if isinstance(item, dict):
+            stack.extend(item.keys())
+            stack.extend(item.values())
+        elif isinstance(item, list):
+            stack.extend(item)
+        elif isinstance(item, str) and "\x00" in item:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid CQL2 expression: must not contain a NUL byte",
+            )
+
+
 def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
     """Parse a CQL2 filter expression into an AST.
 
@@ -113,12 +135,21 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
                 detail=f"Invalid CQL2 expression: {e}",
             )
     elif filter_lang == "cql2-json":
+        from pygeofilter import ast as pgf_ast
         from pygeofilter.parsers.cql2_json import parse
 
         try:
             filter_dict = (
                 json.loads(filter_expr) if isinstance(filter_expr, str) else filter_expr
             )
+            # pygeofilter decodes a string root again, which would hide its
+            # contents from the NUL check, and other roots aren't expressions.
+            if not isinstance(filter_dict, dict):
+                raise HTTPException(
+                    status_code=status.HTTP_400_BAD_REQUEST,
+                    detail="Invalid CQL2 expression: the filter must be a JSON object",
+                )
+            _refuse_nul_in_json(filter_dict)
             filter_dict = _normalize_cql2_json(filter_dict)
         except (json.JSONDecodeError, RecursionError) as e:
             raise HTTPException(
@@ -129,7 +160,7 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
         # key and RecursionError on deep nesting; every parse failure on caller input
         # is a 400.
         try:
-            return parse(filter_dict)
+            expression = parse(filter_dict)
         except HTTPException:
             raise
         except (
@@ -139,6 +170,14 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid CQL2 expression: {e}",
             )
+        # pygeofilter unwraps a {"filter": ...} member and hands back whatever
+        # it holds; only a predicate or a combination of them is a filter.
+        if not isinstance(expression, (pgf_ast.Condition, pgf_ast.Predicate)):
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Invalid CQL2 expression: the filter is not a predicate",
+            )
+        return expression
     else:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,

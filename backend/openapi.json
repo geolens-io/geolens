@@ -40062,6 +40062,7 @@
             "schema": {
               "default": 0,
               "description": "Pagination offset for per-dataset collections",
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -40572,6 +40573,7 @@
             "required": false,
             "schema": {
               "default": 0,
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -43320,6 +43322,7 @@
             "schema": {
               "default": 0,
               "description": "Datasets to skip \u2014 page a catalog larger than one page.",
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -43551,6 +43554,7 @@
             "schema": {
               "default": 0,
               "description": "Datasets to skip \u2014 page a catalog larger than one page.",
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -43782,6 +43786,7 @@
             "schema": {
               "default": 0,
               "description": "Datasets to skip \u2014 page a catalog larger than one page.",
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
@@ -68398,6 +68403,7 @@
             "schema": {
               "default": 0,
               "description": "Pagination offset",
+              "maximum": 9223372036854775807,
               "minimum": 0,
               "title": "Offset",
               "type": "integer"
