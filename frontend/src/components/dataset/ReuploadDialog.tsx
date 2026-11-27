@@ -10,6 +10,7 @@ import {
 } from '@/components/dataset/hooks/use-dataset';
 import { useJobStatus, useUploadConfig } from '@/components/import/hooks/use-ingest';
 import { useRefreshSearchWhenQuicklookLands } from '@/components/dataset/hooks/use-quicklook-settled';
+import { refreshTileToken } from '@/hooks/use-tile-token';
 import { queryKeys } from '@/lib/query-keys';
 import { buildAcceptMap, deriveFormatBadges } from '@/lib/file-utils';
 import { describeFailureReason, fixedFailureReason } from '@/lib/failure-reason';
@@ -255,6 +256,8 @@ export function ReuploadDialog({
           }),
           queryClient.invalidateQueries({ queryKey: queryKeys.datasets.all }),
           queryClient.invalidateQueries({ queryKey: queryKeys.search.all }),
+          // A raster's tile token carries its zoom floor, which a replacement can change.
+          refreshTileToken(queryClient, dataset.id),
         ]);
         let unchanged = false;
         try {

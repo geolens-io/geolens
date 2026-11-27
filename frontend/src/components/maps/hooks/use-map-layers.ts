@@ -105,6 +105,10 @@ interface UseMapLayersOptions {
   tileVersion?: string | null;
   /** Signs the vector tile URLs; without one they go unsigned. */
   tileToken: VectorTileToken | null;
+  /** Lowest zoom the raster source requests tiles at; 0 when unknown. */
+  rasterMinzoom?: number;
+  /** False while the raster tile token is loading, so the source is not added at zoom 0 first. */
+  rasterTokenSettled?: boolean;
   tileConfigCdnBaseUrl?: string;
   mvtSourceLayerPrefix?: string | null;
   /** Whether the tenant-aware source-layer prefix has finished resolving. */
@@ -119,6 +123,11 @@ interface UseMapLayersOptions {
   attribution?: string | null;
 }
 
+/** A failed refetch keeps the previous token as data, so its floor must not be used. */
+export function rasterMinzoomFromToken(token: { kind: string; minzoom?: number } | undefined, failed: boolean) {
+  return token?.kind === 'raster' && !failed ? (token.minzoom ?? 0) : 0;
+}
+
 export function useMapLayers({
   datasetId,
   tableName,
@@ -128,6 +137,8 @@ export function useMapLayers({
   bounds,
   tileVersion,
   tileToken,
+  rasterMinzoom = 0,
+  rasterTokenSettled = true,
   tileConfigCdnBaseUrl,
   mvtSourceLayerPrefix,
   mvtSourceLayerReady = true,
@@ -137,6 +148,10 @@ export function useMapLayers({
 }: UseMapLayersOptions) {
   const vectorLayersAdded = useRef(false);
   const rasterLayersAdded = useRef(false);
+  const rasterInstalledMinzoom = useRef(0);
+  // The token's floor is where the raster is about 128 px across; a preview can
+  // be only ~90 px tall once fitted, so it floors two zooms lower (~32 px).
+  const sourceMinzoom = isDem ? 0 : Math.max(0, rasterMinzoom - 2);
   // MapLibre renders attribution as innerHTML. See lib/attribution-safety.
   const safeAttribution = toMapLibreAttribution(attribution);
 
@@ -307,7 +322,7 @@ export function useMapLayers({
 
   const addRasterLayers = useCallback(
     (map: MaplibreMap) => {
-      if (!rasterTileUrl || rasterLayersAdded.current) return;
+      if (!rasterTileUrl || !rasterTokenSettled || rasterLayersAdded.current) return;
       if (map.getSource('raster-tile-source')) return;
       try {
         // The raster tile route is a fixed per-dataset path (never re-added, see
@@ -329,7 +344,8 @@ export function useMapLayers({
         const tileSource = {
           tiles: [versionedTileUrl],
           tileSize: 256,
-          minzoom: 0,
+          // A DEM feeds hillshade and pitched terrain, which pick tiles below the camera zoom.
+          minzoom: sourceMinzoom,
           maxzoom: 22,
           ...(safeAttribution ? { attribution: safeAttribution } : {}),
         };
@@ -357,12 +373,44 @@ export function useMapLayers({
           });
         }
         rasterLayersAdded.current = true;
+        rasterInstalledMinzoom.current = sourceMinzoom;
       } catch (e) {
         if (import.meta.env.DEV) console.warn('addRasterLayers: failed', e);
       }
     },
-    [rasterTileUrl, isDem, bounds, tileVersion, safeAttribution],
+    [rasterTileUrl, rasterTokenSettled, sourceMinzoom, isDem, bounds, tileVersion, safeAttribution],
   );
+
+  // The load event can precede the raster token request, so add the source
+  // when that request settles. A source keeps the minzoom it was added with,
+  // so a token that later reports another floor (after a replacement) re-adds it.
+  useEffect(() => {
+    const map = mapRef.current;
+    if (!map || !rasterTileUrl || !rasterTokenSettled) return;
+    const install = () => {
+      // Judged from the installed source, not rasterLayersAdded: a tile URL
+      // change clears that flag but leaves the old source in place.
+      if (
+        rasterInstalledMinzoom.current !== sourceMinzoom &&
+        map.getSource('raster-tile-source')
+      ) {
+        if (map.getLayer('raster-layer')) map.removeLayer('raster-layer');
+        map.removeSource('raster-tile-source');
+        rasterLayersAdded.current = false;
+      }
+      addRasterLayers(map);
+    };
+    // A basemap or theme switch rebuilds the style, and adding a source
+    // before it finishes throws; wait for the map to go idle instead.
+    if (map.isStyleLoaded()) {
+      install();
+      return;
+    }
+    map.once('idle', install);
+    return () => {
+      map.off('idle', install);
+    };
+  }, [addRasterLayers, mapRef, rasterTileUrl, rasterTokenSettled, sourceMinzoom]);
 
   const addOverlaySource = useCallback((map: MaplibreMap) => {
     if (map.getSource('drawn-overlay')) return;
