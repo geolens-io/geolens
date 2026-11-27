@@ -378,3 +378,26 @@ describe('raster layers through syncLayersToMap', () => {
     expect(recording.layerIds()).toEqual(['layer-layer-relief-colorrelief', 'layer-layer-relief']);
   });
 });
+
+describe('a raster source minzoom against a saved zoom range', () => {
+  const token = { ...FIXTURE_TOKENS.get(raster.dataset_id)!, minzoom: 8 };
+  const context = { ...builder, tokens: new Map([[raster.dataset_id, token]]) };
+  const minzoomOf = (layer: MapLayerResponse) => {
+    const input = toSyncInput(layer);
+    const { layers: [described], sources } = describeLayers([input], context);
+    return (sources.get(described.sourceId) as { minzoom?: number }).minzoom;
+  };
+
+  it('uses the token floor when the layer saves no zoom range', () => {
+    expect(minzoomOf(raster)).toBe(8);
+  });
+
+  it('lets a saved range below the floor draw', () => {
+    expect(minzoomOf({ ...raster, layout: { _minzoom: 3, _maxzoom: 6 } })).toBe(0);
+  });
+
+  // Pitched terrain and globe views pick tiles below the camera zoom.
+  it('drops the floor for a saved range that starts above it too', () => {
+    expect(minzoomOf({ ...raster, layout: { _minzoom: 12 } })).toBe(0);
+  });
+});

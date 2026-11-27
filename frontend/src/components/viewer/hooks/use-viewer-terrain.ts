@@ -127,7 +127,6 @@ export function useViewerTerrain({
     ensureRasterDemTerrainSource(map, terrainTileUrl, terrainToken?.kind === 'raster'
       ? {
         tileSize: terrainToken.tile_size,
-        minzoom: terrainToken.minzoom,
         maxzoom: terrainToken.maxzoom,
         bounds: terrainToken.bounds,
       }

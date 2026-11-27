@@ -405,10 +405,14 @@ function rasterSource(
   const url = hillshade ? template.tile_url : buildColormapTileUrl(template.tile_url, layer.paint ?? {});
   const bounds = normalizeRasterBounds(template.bounds);
   const attribution = nonBlank(layer.attribution);
+  // A source draws nothing below its minzoom, and pitched terrain and globe
+  // views pick tiles below the camera zoom, so a layer with a saved zoom range
+  // gets no source floor; the layer's own range decides where it shows.
+  const savedZoom = zoomRange(layer.layout ?? {});
   const spec = {
     tiles: [url.startsWith('http') ? url : `${ctx.origin}${url}`],
     tileSize: template.tile_size ?? 256,
-    minzoom: template.minzoom ?? 0,
+    minzoom: savedZoom ? 0 : (template.minzoom ?? 0),
     maxzoom: template.maxzoom ?? 18,
     ...(bounds ? { bounds } : {}),
     ...(attribution ? { attribution } : {}),

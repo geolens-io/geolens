@@ -498,6 +498,46 @@ def _raster_maxzoom_from_metadata(
     return max(0, min(_MAX_RASTER_MAXZOOM, zoom))
 
 
+_MERCATOR_MAX_LAT = 85.0511287798
+
+
+def _mercator_y(lat: float) -> float:
+    lat = max(-_MERCATOR_MAX_LAT, min(_MERCATOR_MAX_LAT, lat))
+    return math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
+
+
+def _raster_minzoom_from_metadata(
+    asset: RasterAsset | None,
+    bounds: list[float] | None,
+    maxzoom: int,
+    *,
+    lon_span: float | None = None,
+) -> int:
+    """Lowest zoom a raster source requests tiles at.
+
+    A by-reference COG read costs a slow remote request per tile, and far
+    below the zoom where the raster fits one tile those tiles show a speck.
+    The floor is the zoom where the raster's larger Web Mercator side is one
+    256 px tile, less one level, so the layer stays drawn until it is about
+    128 px across. A source draws nothing below its minzoom, so managed
+    rasters, which read quickly, keep 0, as does a raster without usable
+    bounds. ``lon_span`` is the honest width of a seam-crossing extent.
+    """
+    if asset is None or asset.storage_backend != "remote":
+        return 0
+    if not bounds or len(bounds) != 4:
+        return 0
+    west, south, east, north = bounds
+    width_deg = lon_span if lon_span is not None else east - west
+    height = _mercator_y(north) - _mercator_y(south)
+    # Fractions of the world's width and height; a Mercator world is square.
+    fraction = max(width_deg / 360.0, height / (2 * math.pi))
+    if not math.isfinite(fraction) or fraction <= 0:
+        return 0
+    one_tile_zoom = math.floor(math.log2(1 / fraction))
+    return max(0, min(maxzoom, one_tile_zoom - 1))
+
+
 def _titiler_render_params(band_count: int | None, dtype: str | None) -> str:
     """Build titiler query string for band selection and rescaling.
 
@@ -1705,6 +1745,9 @@ def _build_tile_token_for_dataset(
         # The raster template is signed too. A raster has no table_name, so the
         # dataset id is the resource string, and it is tenant-bound. Mirrored
         # byte for byte at the verify site in `_resolve_raster_access`.
+        raster_maxzoom = _raster_maxzoom_from_metadata(
+            raster_asset, bounds, lon_span=lon_span
+        )
         raster_exp = round_expiry()
         raster_scope = signed_scope(str(dataset.id))
         raster_sig = generate_tile_signature(raster_scope, raster_exp)
@@ -1732,10 +1775,10 @@ def _build_tile_token_for_dataset(
             scope=raster_scope,
             expires_in=raster_exp - int(time.time()),
             bounds=bounds,
-            minzoom=0,
-            maxzoom=_raster_maxzoom_from_metadata(
-                raster_asset, bounds, lon_span=lon_span
+            minzoom=_raster_minzoom_from_metadata(
+                raster_asset, bounds, raster_maxzoom, lon_span=lon_span
             ),
+            maxzoom=raster_maxzoom,
             tile_size=256,
             format="png",
         )
