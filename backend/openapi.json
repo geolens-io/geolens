@@ -41305,7 +41305,7 @@
     },
     "/collections/{dataset_id}/items": {
       "get": {
-        "description": "OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.\n\nNote: ``datetime`` is accepted per OGC API Features Core but acts as a\nno-op for per-dataset feature queries.  Per-dataset feature tables contain\nuser-uploaded data with no standard temporal column, so the spec provision\n\"if the collection does not include temporal information, the datetime\nparameter SHALL be ignored\" applies (OGC 17-069r4 \u00a77.15.5).",
+        "description": "OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.\n\nNote: a well-formed ``datetime`` is accepted per OGC API Features Core but\nacts as a no-op for per-dataset feature queries.  Per-dataset feature\ntables contain user-uploaded data with no standard temporal column, so the\nspec provision \"if the collection does not include temporal information,\nthe datetime parameter SHALL be ignored\" applies (OGC 17-069r4 \u00a77.15.5).\nA malformed ``datetime`` is refused with 400.",
         "operationId": "get_collection_items_collections__dataset_id__items_get",
         "parameters": [
           {
