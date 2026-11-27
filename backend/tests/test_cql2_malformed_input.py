@@ -157,3 +157,103 @@ async def test_a_timestamp_past_the_supported_years_in_utc_is_a_400(
     )
 
     assert resp.status_code == 400, resp.text
+
+
+_SEARCH_AND_RECORDS = {
+    "search": "/search/datasets/",
+    "records": "/collections/datasets/items",
+}
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("route", _SEARCH_AND_RECORDS)
+@pytest.mark.parametrize(
+    "expr",
+    [
+        '{"op":"=","args":[{"property":"title"},5]}',
+        '{"op":"<","args":[{"property":"title"},5]}',
+        '{"op":"like","args":[{"property":"title"},5]}',
+        '{"op":"=","args":[{"property":"title"},[]]}',
+        '{"op":"in","args":[{"property":"title"},[1,2]]}',
+        '{"op":"=","args":[{"property":"updated"},"x"]}',
+        '{"op":"between","args":[{"property":"srid"},"a","b"]}',
+        '{"op":"t_before","args":[{"property":"updated"},5]}',
+        '{"op":"t_after","args":[{"property":"updated"},"x"]}',
+        '{"op":"t_before","args":[{"property":"srid"},{"date":"2020-01-01"}]}',
+        '{"op":"between","args":[5,{"property":"title"},10]}',
+        '{"op":"between","args":[5,-1,{"property":"title"}]}',
+        '{"op":"like","args":[{"property":"title"},{"date":"2020-01-01"}]}',
+        '{"op":"=","args":[{"property":"title"},{"interval":["2020-01-01","2020-01-02"]}]}',
+    ],
+)
+async def test_a_literal_of_the_wrong_type_is_a_400(
+    client: AsyncClient, route: str, expr: str
+):
+    resp = await client.get(
+        _SEARCH_AND_RECORDS[route],
+        params={"filter-lang": "cql2-json", "filter": expr},
+    )
+
+    assert resp.status_code == 400, resp.text
+    assert "detail" in resp.json()
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("route", _SEARCH_AND_RECORDS)
+@pytest.mark.parametrize(
+    "expr",
+    [
+        '{"op":"=","args":[{"property":"title"},"x"]}',
+        '{"op":"like","args":[{"property":"title"},"x%"]}',
+        '{"op":"in","args":[{"property":"title"},["a","b"]]}',
+        '{"op":">=","args":[{"property":"updated"},{"timestamp":"2020-01-01T00:00:00Z"}]}',
+        '{"op":"=","args":[{"property":"srid"},4326]}',
+    ],
+)
+async def test_a_literal_of_the_right_type_is_still_accepted(
+    client: AsyncClient, route: str, expr: str
+):
+    resp = await client.get(
+        _SEARCH_AND_RECORDS[route],
+        params={"filter-lang": "cql2-json", "filter": expr},
+    )
+
+    assert resp.status_code == 200, resp.text
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("route", _SEARCH_AND_RECORDS)
+@pytest.mark.parametrize(
+    ("lang", "expr"),
+    [
+        ("cql2-text", "CASEI(title) = CASEI('alpha')"),
+        ("cql2-text", "CASEI(title) IN ('alpha','beta')"),
+        ("cql2-text", "srid + 1 = 4327"),
+        ("cql2-text", "updated BETWEEN created AND updated"),
+        ("cql2-text", "srid = 4326.0"),
+        ("cql2-text", "srid BETWEEN 4000.5 AND 5000.5"),
+        (
+            "cql2-json",
+            '{"op":"=","args":[{"op":"casei","args":[{"property":"title"}]},{"op":"casei","args":["alpha"]}]}',
+        ),
+        ("cql2-json", '{"op":"=","args":[{"property":"srid"},4326.0]}'),
+        ("cql2-text", "title LIKE CASEI('Al%')"),
+        (
+            "cql2-json",
+            '{"op":"like","args":[{"property":"title"},{"op":"casei","args":["Al%"]}]}',
+        ),
+        (
+            "cql2-json",
+            '{"op":"t_during","args":[{"property":"updated"},'
+            '{"interval":["2020-01-01T00:00:00Z","P1D"]}]}',
+        ),
+    ],
+)
+async def test_an_expression_beyond_a_bare_queryable_is_left_alone(
+    client: AsyncClient, route: str, lang: str, expr: str
+):
+    resp = await client.get(
+        _SEARCH_AND_RECORDS[route], params={"filter-lang": lang, "filter": expr}
+    )
+
+    assert resp.status_code == 200, resp.text
