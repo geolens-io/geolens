@@ -64,6 +64,7 @@ make_stubs() {
   : > "$CALLLOG.files"
   GITLOG="$WORK/git.log"
   : > "$GITLOG"
+  : > "$GITLOG.args"
 
   # --- docker stub ---------------------------------------------------------
   # Handles: `docker compose version`, `docker compose -f <f> <cmd...>`,
@@ -319,7 +320,12 @@ DOCKERFILE_TARGET='FROM --platform=linux/amd64 postgis/postgis:17-3.6
 '
 case "$1" in
   ls-remote) printf 'deadbeef\trefs/tags/v1.2.4\n' ;;
-  fetch)     echo "fetch" >> "$GLOG" ;;
+  fetch)     echo "fetch" >> "$GLOG"; echo "$*" >> "$GLOG.args"
+    # GIT_FETCH_FAIL refuses fetches of the exact tag ref only, so a
+    # fetch of all tags from the same remote would still succeed.
+    if [ -n "${GIT_FETCH_FAIL:-}" ]; then
+      case "$*" in *refs/tags/*) exit 128 ;; esac
+    fi ;;
   checkout)
     echo "checkout" >> "$GLOG"
     for a in "$@"; do
@@ -416,6 +422,7 @@ run_upgrade() {  # $1=migrate mode, rest=args to upgrade.sh
       DOCKER_PG_NUM="${PG_NUM:-170005}" GIT_TARGET_PG="${TARGET_PG:-17}" \
       DOCKER_DB_RUNNING_CONF="${DB_RUNNING_CONF-temp_file_limit = 0}" \
       GIT_DOCKERFILE_SYNC_TEST="${DOCKERFILE_SYNC_TEST:-}" \
+      GIT_FETCH_FAIL="${FETCH_FAIL:-}" \
       DOCKER_DB_RECREATE_MODE="${DB_RECREATE_MODE:-ok}" \
       DOCKER_DB_IMAGE_TAG="${DB_IMAGE_TAG:-}" \
       DOCKER_CONFIG_OUT="${CONFIG_OUT:-}" \
@@ -446,6 +453,11 @@ iso_ago() {
 seed_prod_env
 run_upgrade ok 1.2.4
 
+if ! grep -q -- '--tags' "$WORK/git.log.args" && grep -q 'refs/tags/v1.2.4' "$WORK/git.log.args"; then
+  ok "the target tag is fetched by exact ref, never with --tags"
+else
+  bad "unexpected git fetch arguments: $(tr '\n' ';' < "$WORK/git.log.args")"
+fi
 if [ "$(cat "$WORK/code.txt")" = "0" ]; then
   ok "happy-path upgrade exits 0"
 else
@@ -1740,6 +1752,65 @@ else
   bad "planted dump name not refused cleanly (exit=$(cat "$WORK/code.txt"))"
 fi
 rm -rf "$FAKE/backups" "$WORK/planted-target"
+
+# ============================================================================
+# CASE 13 — in a git checkout, a release tag that can't be fetched stops the
+# upgrade before anything changes; --keep-current-files accepts the old files.
+# ============================================================================
+seed_prod_env
+FETCH_FAIL=1
+run_upgrade ok 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ] \
+   && grep -qF -- "--keep-current-files" "$WORK/out.txt" \
+   && [ -z "$(pos_of pull)" ] && [ -z "$(pos_of stop_app)" ] \
+   && [ -z "$(pos_of backup)" ] && [ -z "$(pos_of migrate_up)" ] \
+   && [ -z "$(pos_of app_up)" ] \
+   && grep -q '^GEOLENS_VERSION=1.2.3$' "$FAKE/.env"; then
+  ok "an unfetchable release tag stops the upgrade before pull, stop and migrate"
+else
+  bad "unfetchable tag did not stop cleanly (exit=$(cat "$WORK/code.txt"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
+fi
+if ! grep -q '^checkout$' "$WORK/git.log" && ! grep -q -- '--tags' "$WORK/git.log.args"; then
+  ok "an unfetchable release tag checks nothing out and never fetches all tags"
+else
+  bad "checkout ran although the tag fetch failed"
+fi
+( cd "$FAKE/scripts" && env "PATH=$SHIM:$PATH" DOCKER_LOG="$CALLLOG" ./upgrade.sh --help ) > "$WORK/help.txt" 2>&1
+if grep -qF -- "--keep-current-files" "$WORK/help.txt" && ! grep -qi "sed:" "$WORK/help.txt"; then
+  ok "--help prints the usage text from the scripts directory"
+else
+  bad "--help failed: $(cat "$WORK/help.txt")"
+fi
+mv "$FAKE/.env" "$WORK/env.saved"
+( cd "$FAKE/scripts" && env "PATH=$SHIM:$PATH" DOCKER_LOG="$CALLLOG" ./upgrade.sh --help ) > "$WORK/help-noenv.txt" 2>&1
+help_noenv_code=$?
+mv "$WORK/env.saved" "$FAKE/.env"
+if [ "$help_noenv_code" = "0" ] && grep -qF -- "--keep-current-files" "$WORK/help-noenv.txt"; then
+  ok "--help works before an install has written .env"
+else
+  bad "--help without .env failed (exit=$help_noenv_code): $(cat "$WORK/help-noenv.txt")"
+fi
+seed_prod_env
+run_upgrade ok --keep-current-files 1.2.4
+if [ "$(cat "$WORK/code.txt")" = "0" ] && [ -n "$(pos_of migrate_up)" ] \
+   && grep -q '^GEOLENS_VERSION=1.2.4$' "$FAKE/.env"; then
+  ok "--keep-current-files upgrades with the current files when the tag can't be fetched"
+else
+  bad "--keep-current-files did not proceed (exit=$(cat "$WORK/code.txt"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
+fi
+FETCH_FAIL=
+
+# A target tag already cached locally still answers the PostgreSQL major check
+# when the fetch fails, so --keep-current-files cannot cross a major.
+seed_prod_env
+FETCH_FAIL=1 PG_NUM=170005 TARGET_PG=18 run_upgrade ok --keep-current-files 1.2.4
+if [ "$(cat "$WORK/code.txt")" != "0" ] && grep -q 'PostgreSQL 18' "$WORK/out.txt" \
+   && [ -z "$(pos_of pull)" ] && [ -z "$(pos_of stop_app)" ] \
+   && [ -z "$(pos_of backup)" ] && [ -z "$(pos_of migrate_up)" ]; then
+  ok "a locally cached target tag still refuses a PostgreSQL major change when the fetch fails"
+else
+  bad "major mismatch slipped past a failed fetch (exit=$(cat "$WORK/code.txt"), calls=$(tr '\n' ',' < "$WORK/calls.log"))"
+fi
 
 echo "1..$((PASS + FAIL))"
 echo "# $PASS passed, $FAIL failed"

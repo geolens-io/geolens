@@ -2,6 +2,16 @@
 set -eu
 
 # GeoLens prebuilt-image upgrade.
+#
+# Usage: scripts/upgrade.sh [--keep-current-files] [version]
+#
+#   version              target release (1.2.4 or v1.2.4); default: newest release
+#   --keep-current-files if the target release tag can't be fetched in a git
+#                        checkout, upgrade anyway with the compose files,
+#                        mounted scripts and db/postgresql.conf already on disk
+#                        (default: stop and change nothing)
+#   -h, --help           show this text
+#
 # One-command upgrade for a PREBUILT-IMAGE install (COMPOSE_FILE=
 # docker-compose.prod.yml). Ordered, fail-safe steps:
 #
@@ -12,7 +22,9 @@ set -eu
 #   2.5 Refuse to cross a PostgreSQL major — abort before any
 #      change with a pointer to RUNBOOK section 6.
 #   3. Export GEOLENS_VERSION=<target> for compose (NOT written to .env yet).
-#   4. Sync the on-disk release files to the target tag.
+#   4. Sync the on-disk release files to the target tag. In a git checkout a
+#      tag that can't be fetched stops the upgrade here, before anything
+#      changes, unless --keep-current-files accepts the current files.
 #   5. compose pull --ignore-buildable.
 #   6. OUTAGE STARTS — stop api + worker, then PRE-UPGRADE BACKUP (pg_dump -Fc
 #      to a timestamped file). Abort if it is missing/empty/unreadable.
@@ -36,6 +48,12 @@ set -eu
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Help needs no install, so answer it before any check that does.
+for _arg in "$@"; do
+  case "$_arg" in
+    -h|--help) sed -n '3,/^$/p' "$SCRIPT_DIR/upgrade.sh" | sed 's/^# \{0,1\}//'; exit 0 ;;
+  esac
+done
 
 # shellcheck source=scripts/lib/common.sh
 . "$SCRIPT_DIR/lib/common.sh"
@@ -151,6 +169,16 @@ export GEOLENS_VERSION="${CURRENT_VERSION:-latest}"
 PREVIOUS_VERSION="${CURRENT_VERSION:-latest}"
 
 # --- Step 2: determine target version ---------------------------------------
+KEEP_CURRENT_FILES=0
+_arg_count=$#
+while [ "$_arg_count" -gt 0 ]; do
+  _arg_count=$((_arg_count - 1))
+  case "$1" in
+    --keep-current-files) KEEP_CURRENT_FILES=1; shift ;;
+    -*) fail "Unknown option: $1 (see scripts/upgrade.sh --help)" ;;
+    *) set -- "$@" "$1"; shift ;;
+  esac
+done
 if [ "$#" -ge 1 ] && [ -n "${1:-}" ]; then
   TARGET_RAW="$1"
 else
@@ -259,13 +287,22 @@ if [ -n "$RUNTIME_DB_ROLE_VALUE" ] \
 fi
 target_pg_major=""
 current_pg_major=""
+# One fetch of the exact target tag serves this check and the Step 4 sync.
+IS_GIT_CHECKOUT=0
+TARGET_TAG_FETCHED=0
+if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
+  IS_GIT_CHECKOUT=1
+  if git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
+     || git fetch --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null; then
+    TARGET_TAG_FETCHED=1
+  fi
+fi
 if [ -n "$DATABASE_URL_OVERRIDE_VALUE" ] \
    && [ "$bundled_runtime_override" = "false" ]; then
   say "External database configured (DATABASE_URL_OVERRIDE) — skipping the bundled PostgreSQL major check."
 else
-  if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
-    git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
-      || git fetch --tags --quiet "$REPO_URL" 2>/dev/null || true
+  if [ "$IS_GIT_CHECKOUT" = "1" ]; then
+    # A tag already present locally answers this even when the fetch failed.
     target_pg_major="$(git show "${TARGET_TAG}:db/Dockerfile" 2>/dev/null \
       | sed -n 's|^FROM .*postgis/postgis:\([0-9][0-9]*\)-.*|\1|p' | head -n 1)"
   fi
@@ -317,9 +354,8 @@ DB_CONF="db/postgresql.conf"
 DB_CONF_CHANGED=0
 DB_CONF_AT_TARGET=0
 DB_DOCKERFILE="db/Dockerfile"
-if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; then
-  if git fetch --depth 1 --quiet "$REPO_URL" "refs/tags/${TARGET_TAG}:refs/tags/${TARGET_TAG}" 2>/dev/null \
-     || git fetch --tags --quiet "$REPO_URL" 2>/dev/null; then
+if [ "$IS_GIT_CHECKOUT" = "1" ]; then
+  if [ "$TARGET_TAG_FETCHED" = "1" ]; then
     # Compose files are the critical part (image tags + services/mounts/env).
     if git checkout --quiet "$TARGET_TAG" -- \
          docker-compose.prod.yml docker-compose.yml .env.example 2>/dev/null; then
@@ -404,7 +440,17 @@ if command -v git >/dev/null 2>&1 && git rev-parse --git-dir >/dev/null 2>&1; th
       rm -f "$_db_dockerfile_target" "$_db_dockerfile_installed"
     fi
   else
-    warn "Could not fetch ${TARGET_TAG} from ${REPO_URL} — keeping the current checkout's compose/scripts."
+    if [ "$KEEP_CURRENT_FILES" = "1" ]; then
+      warn "Could not fetch ${TARGET_TAG} from ${REPO_URL} — keeping the current checkout's compose/scripts (--keep-current-files)."
+      warn "If this release changed docker-compose.prod.yml, scripts or db/postgresql.conf, review them after the upgrade."
+    else
+      say "Could not fetch ${TARGET_TAG} from ${REPO_URL}." >&2
+      say "Upgrading now would run the new images under the current release's compose files," >&2
+      say "mounted scripts and db/postgresql.conf. Nothing was changed." >&2
+      say "Check the network and retry, or accept keeping the current files:" >&2
+      say "  scripts/upgrade.sh --keep-current-files ${TARGET_VERSION}" >&2
+      fail "Could not fetch release tag ${TARGET_TAG}."
+    fi
   fi
 else
   warn "git unavailable or not a git checkout — skipping release-file sync; keeping the current compose/scripts."
