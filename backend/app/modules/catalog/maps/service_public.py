@@ -4,7 +4,7 @@ import hashlib
 import math
 import secrets
 import uuid
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Collection
 from dataclasses import replace
 from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Any
@@ -154,6 +154,10 @@ async def _lost_readers(
     return and_(active, kept, after.users.is_not(True))
 
 
+def _stated(group_ids: Collection[uuid.UUID] | None) -> frozenset[uuid.UUID] | None:
+    return None if group_ids is None else frozenset(group_ids)
+
+
 async def find_maps_broken_by_dataset_visibility(
     session: AsyncSession,
     dataset_id: uuid.UUID,
@@ -165,6 +169,8 @@ async def find_maps_broken_by_dataset_visibility(
     record_id: uuid.UUID,
     owner_id: uuid.UUID | None,
     regrant: Callable[[], Awaitable[object]] | None = None,
+    group_ids: Collection[uuid.UUID] | None = None,
+    group_ids_before: Collection[uuid.UUID] | None = None,
 ) -> list[dict[str, str]]:
     """Ids and names of the owner's shared maps that work at ``old_visibility`` and
     ``record_status`` and would not at ``new_visibility`` and
@@ -182,7 +188,9 @@ async def find_maps_broken_by_dataset_visibility(
 
     ``regrant``, when given, changes the dataset's grants as well. It runs at
     most once, between reading who could read before and after; a caller
-    runs it if this didn't.
+    runs it if this didn't. ``group_ids`` instead states the group grants the
+    change leaves, and ``group_ids_before`` those it starts from (None reads
+    the stored ones), which are judged without being written.
     """
     stmt = (
         select(Map.id, Map.name)
@@ -200,7 +208,11 @@ async def find_maps_broken_by_dataset_visibility(
     # A no-op change strands nobody for any authority, and a round-tripped
     # record resubmits the same visibility. Without an answer, only a status
     # change that leaves published is taken to narrow.
-    same_grants = old_visibility == new_visibility and regrant is None
+    same_grants = (
+        old_visibility == new_visibility
+        and regrant is None
+        and _stated(group_ids) == _stated(group_ids_before)
+    )
     strands_nobody = same_grants and (
         record_status == new_record_status
         or (not answers and record_status != "published")
@@ -218,10 +230,16 @@ async def find_maps_broken_by_dataset_visibility(
             owner_id=owner_id,
             visibility=old_visibility,
             record_status=record_status,
+            group_ids=_stated(group_ids_before),
         )
         before = await permission.record_audience(query, User, grant_cls=DatasetGrant)
         after = await permission.record_audience(
-            replace(query, visibility=new_visibility, record_status=new_record_status),
+            replace(
+                query,
+                visibility=new_visibility,
+                record_status=new_record_status,
+                group_ids=_stated(group_ids),
+            ),
             User,
             grant_cls=DatasetGrant,
         )

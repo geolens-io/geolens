@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import contextlib
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from pydantic import TypeAdapter, ValidationError
@@ -31,6 +31,7 @@ from app.platform.request_credential import (
 from app.platform.record_audience import (
     audience_phrase,
     readable_level,
+    settled_visibility,
     widens_audience,
 )
 from app.processing.ingest.manifest_schemas import (
@@ -164,6 +165,20 @@ class ManifestEntryFields:
     # Whether the gate let the caller name public, for an entry that writes;
     # a skip writes nothing, so it applies no fallback.
     may_set_public: bool = True
+    # The held-back warning A056 the share planned now gave, if any.
+    held_back_message: ManifestMessage | None = None
+    # For the queued or held job this entry matched: error A056 when it will
+    # be refused for the groups it leaves the dataset with, and, once its own
+    # share was planned, the held-back warnings it gives in place of the one
+    # above.
+    job_refusal: ManifestMessage | None = None
+    job_refused_because: str | None = None
+    job_refused_publishing: bool = False
+    # What the job a fresh replacement queues leaves, as ``settle_job_groups``
+    # predicts it: the entry answers with it, while its own fields above
+    # hold what the job stores.
+    settled: ManifestEntryFields | None = None
+    job_held_back: list[ManifestMessage] | None = None
 
     @classmethod
     def of(
@@ -263,7 +278,8 @@ def report_entry(
     whatever it did: a held run still carries what the entry decided."""
     if fields is not None and result.action != "error":
         result.messages = [*(result.messages or []), *fields.messages]
-        result.decide(fields.visibility, fields.group_names, fields.role_granted)
+        ends = fields.settled or fields
+        result.decide(ends.visibility, ends.group_names, ends.role_granted, ends.groups)
     return result
 
 
@@ -316,7 +332,7 @@ async def resolve_entry_groups(
         fields.groups_added = plan.added
     if plan.left_off:
         fields.messages.append(_left_off_message(dataset, plan.left_off))
-    if plan.unchanged and set(plan.granted) - set(dataset.groups):
+    if _left_with(plan) - set(dataset.groups):
         raise ManifestEntryRefused(
             [
                 ManifestMessage(
@@ -337,19 +353,246 @@ async def resolve_entry_groups(
             ]
         )
     if plan.held_back:
-        fields.messages.append(
-            ManifestMessage(
-                code=SHARING_KEPT,
-                severity="warning",
-                message=(
-                    f"A publish key can't share {dataset.title!r} with more "
-                    f"people, so {audience_phrase('restricted', plan.held_back)} "
-                    "won't see it unless they already can, and its groups stay "
-                    "as they are."
-                ),
-                fix="Share the dataset in GeoLens, or lower the Sharing level.",
-            )
+        fields.held_back_message = _held_back_message(
+            dataset,
+            plan.held_back,
+            f"A publish key can't share {dataset.title!r} with more people",
+            kept=plan.unchanged,
         )
+        fields.messages.append(fields.held_back_message)
+
+
+def _held_back_message(
+    dataset: ManifestDataset, held_back: list[str], cause: str, *, kept: bool
+) -> ManifestMessage:
+    """Warning A056: the groups ``held_back`` won't see the dataset, because
+    of ``cause``; ``kept`` says the whole share was held back."""
+    audience = audience_phrase("restricted", held_back)
+    kept_groups = ", and its groups stay as they are" if kept else ""
+    return ManifestMessage(
+        code=SHARING_KEPT,
+        severity="warning",
+        message=(
+            f"{cause}, so {audience} won't see it unless they already can{kept_groups}."
+        ),
+        fix="Share the dataset in GeoLens, or lower the Sharing level.",
+    )
+
+
+def _job_held_back_cause(dataset: ManifestDataset, plan: Any, metadata: dict) -> str:
+    """Why a job's planned share held groups back, as ``_share_outcome``
+    reads it: a publish key or a narrowing for a share held back whole, and
+    otherwise groups taken off the dataset since the apply."""
+    if not plan.unchanged:
+        return (
+            f"Groups were taken off {dataset.title!r} after this publish was submitted"
+        )
+    if metadata.get(ADMITTED_PUBLISH_KEY_METADATA_KEY):
+        return f"A publish key can't share {dataset.title!r} with more people"
+    return (
+        f"{dataset.title!r} was made visible to fewer people after this "
+        "publish was submitted"
+    )
+
+
+async def settle_job_groups(
+    db: AsyncSession,
+    user: Identity,
+    dataset: ManifestDataset,
+    fields: ManifestEntryFields,
+    existing: Any,
+    job_metadata: dict,
+) -> None:
+    """Set ``fields`` to the groups a job still to publish this entry over
+    ``existing`` leaves its dataset with, where ``fields`` holds the share
+    planned now, and to the refusal that job will meet, if any.
+
+    The job's share is read and planned as its publish reads and plans it
+    (``_stored_share``, the port's planner, ``_share_outcome``): against the
+    visibility and groups its own apply planned it from, so a group taken
+    off the dataset since is not restored and a share planned for a wider
+    dataset is held back whole. Both are judged at the visibility and status
+    the dataset has when the job shares it (``level_at_share``), and a write
+    the shared-map guard would refuse there keeps the dataset's groups, as
+    the worker's refused share does. The job's publication is judged by
+    the same guard, in the order the job writes the two
+    (``shares_first``), on the grants the earlier write leaves; a refusal
+    there fails the job. Its replacement is then held to the entry's groups
+    as ``hold_to_entry_groups`` holds it. A job creating its dataset shares
+    what is planned now.
+    """
+    if existing is None:
+        return
+    written = _publication_as_written(job_metadata, fields, existing.record)
+    shared_groups = None
+    stored = _stored_share(job_metadata)
+    if isinstance(stored, GroupShare):
+        share = stored
+        fields.groups = fields.group_names = None
+        fields.groups_added = False
+        left_with = await _granted_now(db, existing.id)
+    else:
+        wanted, granted = stored
+        level, record_status = level_at_share(written, job_metadata, existing.record)
+        plan = await get_processing_port().plan_manifest_groups(
+            db,
+            existing.id,
+            wanted,
+            user,
+            level=level,
+            planned_from=job_metadata.get(GROUPS_PLANNED_FROM_METADATA_KEY),
+            granted_at_plan=granted,
+            record_status=record_status,
+        )
+        fields.job_held_back = []
+        if plan.refused:
+            share = _refused_share(plan.refused)
+            fields.groups = fields.group_names = None
+            fields.groups_added = False
+            left_with = set(plan.granted)
+        else:
+            share = _share_outcome(plan, job_metadata)
+            fields.groups_added = plan.added and not plan.unchanged
+            if plan.unchanged:
+                fields.groups = fields.group_names = None
+            else:
+                fields.groups, fields.group_names = plan.group_ids, plan.names
+            left_with = _left_with(plan)
+            shared_groups = plan.group_ids
+            if plan.held_back:
+                fields.job_held_back.append(
+                    _held_back_message(
+                        dataset,
+                        plan.held_back,
+                        _job_held_back_cause(dataset, plan, job_metadata),
+                        kept=plan.unchanged,
+                    )
+                )
+    # The job's other write, its publication, comes before the share or,
+    # for a share written first, after it and on the grants it left.
+    publication, grants = written, None
+    if shares_first(written, job_metadata):
+        publication = publication_after_share(written, share)
+        if share.shared:
+            grants = shared_groups
+    refusal = await get_processing_port().manifest_publication_refusal(
+        db,
+        existing.id,
+        visibility=publication.get("visibility"),
+        record_status=publication.get("record_status"),
+        group_ids=grants,
+    )
+    held_to = _groups_held_to(job_metadata)
+    if refusal is not None:
+        fields.job_refused_publishing = True
+        fields.job_refused_because = refusal
+    elif held_to is not None and left_with - held_to[0]:
+        fields.job_refused_because = held_to[1] or share.kept_because
+    else:
+        return
+    fields.job_refusal = _job_refused_message(
+        dataset, fields.job_refused_because, publishing=refusal is not None
+    )
+    # The refused job rolls both writes back: the dataset keeps its level and
+    # groups, which the entry then reports.
+    fields.visibility = fields.groups = fields.group_names = None
+    fields.groups_added = False
+
+
+async def refuse_a_share_its_job_refuses(
+    db: AsyncSession,
+    user: Identity,
+    dataset: ManifestDataset,
+    fields: ManifestEntryFields | None,
+    existing: Any,
+    job_metadata: dict,
+) -> None:
+    """Refuse, with error A056, a replacement about to be queued whose job,
+    storing ``job_metadata``, would be refused, by the guard on its
+    publication or for keeping a group the entry leaves out, judged by
+    ``settle_job_groups`` as a queued job is. Nothing of ``fields`` changes:
+    the job plans its own share when it runs, and ``fields.settled`` holds
+    what it leaves, which the entry answers with."""
+    if fields is None or existing is None:
+        return
+    trial = replace(fields, messages=[])
+    await settle_job_groups(db, user, dataset, trial, existing, job_metadata)
+    if trial.job_refusal is None:
+        fields.settled = trial
+        return
+    raise ManifestEntryRefused(
+        [
+            _job_refused_message(
+                dataset,
+                trial.job_refused_because,
+                publishing=trial.job_refused_publishing,
+                queued=False,
+            )
+        ]
+    )
+
+
+def _job_refused_message(
+    dataset: ManifestDataset,
+    because: str | None,
+    *,
+    publishing: bool,
+    queued: bool = True,
+) -> ManifestMessage:
+    """Error A056 for an entry whose job will be refused: by the guard on its
+    publication (``publishing``, ``because`` being the guard's sentence), or
+    for keeping a group the entry leaves out. ``queued`` says the job is
+    already queued or held, rather than about to be."""
+    if queued:
+        lead = (
+            f"The publish of {dataset.title!r} already queued or held will "
+            "not replace its data:"
+        )
+        fix = "before that publish runs."
+    else:
+        lead = f"{dataset.title!r} was not updated:"
+        fix = "or publish with what it has now."
+    if publishing:
+        parts = (lead, because)
+        fix = f"Change the dataset's level or the maps that show it in GeoLens, {fix}"
+    else:
+        parts = (
+            lead,
+            "the dataset is shared with groups this entry leaves out, which "
+            "would read the new data.",
+            because,
+        )
+        fix = f"Change the dataset's groups in GeoLens, {fix}"
+    return ManifestMessage(
+        code=SHARING_KEPT,
+        severity="error",
+        message=" ".join(part for part in parts if part),
+        fix=fix,
+    )
+
+
+def answer_as_the_job_ends(
+    fields: ManifestEntryFields | None, *, dry_run: bool
+) -> None:
+    """Answer an entry that matched a queued or held job as that job's
+    publish ends. A dry run is refused where the job will be, and warns of
+    the groups the job's own share holds back. An apply answers for the job
+    it matched, with that refusal as a warning: the job is already queued."""
+    if fields is None:
+        return
+    if fields.job_refusal is not None:
+        if dry_run:
+            raise ManifestEntryRefused([fields.job_refusal])
+        fields.messages.append(
+            fields.job_refusal.model_copy(update={"severity": "warning"})
+        )
+        return
+    if dry_run and fields.job_held_back is not None:
+        fields.messages = [
+            message
+            for message in fields.messages
+            if message is not fields.held_back_message
+        ] + fields.job_held_back
 
 
 def note_more_visible(
@@ -359,11 +602,14 @@ def note_more_visible(
     than it does now: through a level or groups the request changed, since an
     omitted one keeps the dataset's, or because the entry publishes a dataset
     that only its owner and admins read until then. A dataset that stays
-    unpublished reaches nobody more, whatever its level and groups."""
+    unpublished reaches nobody more, whatever its level and groups. A fresh
+    replacement is judged on what its job leaves (``settled``)."""
     if fields is None or existing is None:
         return
     record = existing.record
     before = record.visibility
+    messages = fields.messages
+    fields = fields.settled or fields
     after = fields.visibility or before
     if fields.groups is not None and after in ("private", "restricted"):
         kept_by_role = after == "restricted" and fields.role_granted
@@ -387,7 +633,7 @@ def note_more_visible(
     audience = audience_phrase(after, fields.group_names or [])
     if after == "restricted" and not fields.group_names:
         audience = "the groups and roles it is shared with"
-    fields.messages.append(
+    messages.append(
         ManifestMessage(
             code=MORE_VISIBLE,
             severity="warning",
@@ -665,6 +911,51 @@ def shares_groups(user_metadata: dict) -> bool:
     return isinstance(wanted, list) and bool(wanted)
 
 
+def shares_first(publication: dict, user_metadata: dict) -> bool:
+    """Whether a replacement's job shares its dataset before it writes
+    ``publication``. Private with groups is restricted: the share is written
+    first, so the shared-map checks judge the audience the publish leaves,
+    not a private moment between the two writes."""
+    return publication.get("visibility") == "private" and shares_groups(user_metadata)
+
+
+def publication_after_share(publication: dict, share: GroupShare) -> dict:
+    """What a replacement whose share ran first publishes: restricted once
+    that share left the dataset groups, since private with groups is."""
+    if share.shared:
+        return {**publication, "visibility": "restricted"}
+    return publication
+
+
+def _publication_as_written(
+    job_metadata: dict, fields: ManifestEntryFields, record: Any
+) -> dict:
+    """The publication a job's publish writes over ``record`` as it is now,
+    as ``settle_stored_publication`` settles it: a visibility only where it
+    moves the record's, the narrower of the stored one and this entry's."""
+    written = {key: value for key, value in job_metadata.items() if key != "visibility"}
+    visibility = settled_visibility(
+        job_metadata.get("visibility"), fields.visibility, record.visibility
+    )
+    if visibility is not None:
+        written["visibility"] = visibility
+    return written
+
+
+def level_at_share(
+    publication: dict, user_metadata: dict, record: Any
+) -> tuple[str, str]:
+    """The visibility and status ``record`` has when its replacement's job
+    shares it, ``publication`` being what the job writes: its own for a
+    share written first, else the publication's where it sets them."""
+    if shares_first(publication, user_metadata):
+        return record.visibility, record.record_status
+    return (
+        publication.get("visibility") or record.visibility,
+        publication.get("record_status") or record.record_status,
+    )
+
+
 def _groups_warning(job: Any, group_ids: list[uuid.UUID], reason: str) -> None:
     append_job_warning(
         job,
@@ -720,17 +1011,12 @@ async def _apply_groups(
     parses, which keep the dataset's groups; none fails the job here. The
     result says why the groups were kept, which ``hold_to_entry_groups``
     reports when they include one the entry left out."""
-    wanted = _stored_ids(user_metadata, GROUPS_METADATA_KEY)
-    granted = _stored_ids(user_metadata, GROUPS_GRANTED_METADATA_KEY, limit=None)
-    by_key = bool(user_metadata.get(ADMITTED_PUBLISH_KEY_METADATA_KEY))
-    if wanted is None:
-        # A publish key's entry that named groups and stores no share had it
-        # held back whole at the apply.
-        named = user_metadata.get(REQUESTED_GROUPS_METADATA_KEY) is not None
-        return GroupShare(kept_because=_KEPT_FOR_KEY if named and by_key else None)
-    if wanted is _MALFORMED or granted is _MALFORMED:
-        _groups_warning(job, [], "refused")
-        return GroupShare(kept_because=_KEPT_UNREADABLE)
+    stored = _stored_share(user_metadata)
+    if isinstance(stored, GroupShare):
+        if stored.kept_because == _KEPT_UNREADABLE:
+            _groups_warning(job, [], "refused")
+        return stored
+    wanted, granted = stored
     before = None
     if user_metadata.get("reupload"):
         before = audience_before or dataset.record.visibility
@@ -751,14 +1037,52 @@ async def _apply_groups(
         )
     if refusal:
         _groups_warning(job, wanted, "refused")
-        return GroupShare(
-            kept_because=f"The group change was refused: {refusal.rstrip('.')}."
-        )
+        return _refused_share(refusal)
     if plan.left_off:
         _groups_warning(job, plan.left_off, "left_off")
     if plan.held_back_ids:
         _groups_warning(job, plan.held_back_ids, "held_back")
+    return _share_outcome(plan, user_metadata)
+
+
+def _stored_share(
+    user_metadata: dict,
+) -> tuple[list[uuid.UUID], list[uuid.UUID] | None] | GroupShare:
+    """The groups a job shares its dataset with and the dataset's groups
+    when the apply planned that share, or how the job keeps the dataset's
+    groups without planning one: it stores no share, or one that no longer
+    parses."""
+    wanted = _stored_ids(user_metadata, GROUPS_METADATA_KEY)
+    granted = _stored_ids(user_metadata, GROUPS_GRANTED_METADATA_KEY, limit=None)
+    if wanted is None:
+        # A publish key's entry that named groups and stores no share had it
+        # held back whole at the apply.
+        named = user_metadata.get(REQUESTED_GROUPS_METADATA_KEY) is not None
+        by_key = bool(user_metadata.get(ADMITTED_PUBLISH_KEY_METADATA_KEY))
+        return GroupShare(kept_because=_KEPT_FOR_KEY if named and by_key else None)
+    if wanted is _MALFORMED or granted is _MALFORMED:
+        return GroupShare(kept_because=_KEPT_UNREADABLE)
+    return wanted, granted
+
+
+def _refused_share(refusal: str) -> GroupShare:
+    """How a job's share ends when its write is refused with ``refusal``:
+    the dataset keeps its groups."""
+    return GroupShare(
+        kept_because=f"The group change was refused: {refusal.rstrip('.')}."
+    )
+
+
+def _left_with(plan: Any) -> set[uuid.UUID]:
+    """The groups a dataset is shared with once a job shares it by
+    ``plan``: its own when the share was held back whole."""
+    return set(plan.granted if plan.unchanged else plan.group_ids)
+
+
+def _share_outcome(plan: Any, user_metadata: dict) -> GroupShare:
+    """How a job's share ends once ``plan`` was planned or written for it."""
     if plan.unchanged:
+        by_key = bool(user_metadata.get(ADMITTED_PUBLISH_KEY_METADATA_KEY))
         return GroupShare(kept_because=_KEPT_FOR_KEY if by_key else _KEPT_NARROWED)
     return GroupShare(shared=bool(plan.group_ids))
 
@@ -766,6 +1090,29 @@ async def _apply_groups(
 _GRANTED_GROUPS = text(
     "SELECT group_id FROM catalog.dataset_group_grants WHERE dataset_id = :dataset_id"
 )
+
+
+async def _granted_now(session: AsyncSession, dataset_id: uuid.UUID) -> set[uuid.UUID]:
+    """The dataset's group grants as they are now, in SQL, since processing
+    may not import the catalog models."""
+    return set(
+        (await session.execute(_GRANTED_GROUPS, {"dataset_id": dataset_id})).scalars()
+    )
+
+
+def _groups_held_to(user_metadata: dict) -> tuple[set[uuid.UUID], str | None] | None:
+    """The groups a replacement may leave its dataset shared with: those its
+    entry named, an empty list included, else those its share stores. None
+    when it is held to none. A list that no longer parses allows none, and
+    comes with the reason to give."""
+    named = _stored_ids(user_metadata, REQUESTED_GROUPS_METADATA_KEY)
+    if named is None:
+        named = _stored_ids(user_metadata, GROUPS_METADATA_KEY)
+    if named is None:
+        return None
+    if named is _MALFORMED:
+        return set(), _KEPT_UNREADABLE
+    return set(named), None
 
 
 class GroupsOutsideEntry(ValueError):
@@ -803,23 +1150,15 @@ async def hold_to_entry_groups(
 
     Call once the share was attempted, in the publish transaction, holding
     the catalog rows, which every writer of the dataset's grants takes. The
-    grants are read as they are then, in SQL, since processing may not
-    import the catalog models. An entry that named no groups is not held to
-    any, and a job that stores a share without the entry's own list is held
-    to the share's. A list that no longer parses allows no group.
+    grants are read as they are then. The groups it is held to are
+    ``_groups_held_to``'s.
     """
-    named = _stored_ids(user_metadata, REQUESTED_GROUPS_METADATA_KEY)
-    if named is None:
-        named = _stored_ids(user_metadata, GROUPS_METADATA_KEY)
-    if named is None:
+    held_to = _groups_held_to(user_metadata)
+    if held_to is None:
         return
-    granted = set(
-        (await session.execute(_GRANTED_GROUPS, {"dataset_id": dataset_id})).scalars()
-    )
-    if named is _MALFORMED:
-        named, because = [], _KEPT_UNREADABLE
-    if granted - set(named):
-        raise GroupsOutsideEntry(because)
+    allowed, unreadable = held_to
+    if await _granted_now(session, dataset_id) - allowed:
+        raise GroupsOutsideEntry(unreadable or because)
 
 
 def as_publish_key(

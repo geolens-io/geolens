@@ -23,7 +23,7 @@ from collections.abc import Collection, Iterator, Mapping, Sequence
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from datetime import date, datetime
-from typing import Any, Protocol, runtime_checkable
+from typing import Any, NamedTuple, Protocol, runtime_checkable
 
 from sqlalchemy import Select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -67,7 +67,9 @@ class ManifestGroupsPlan:
     ``held_back_ids`` holds their ids. ``added`` says whether it gains any
     group. ``unchanged`` means the dataset keeps its groups as they are,
     since the share was held back, and ``role_granted`` that a role grant
-    keeps it restricted without groups.
+    keeps it restricted without groups. ``refused`` is, for a job's plan,
+    the sentence the share's write would be refused with because it strands
+    one of the owner's shared maps, None when it wouldn't be.
     """
 
     group_ids: list[uuid.UUID]
@@ -80,6 +82,24 @@ class ManifestGroupsPlan:
     held_back_ids: list[uuid.UUID] = field(default_factory=list)
     # The dataset's groups when planned.
     granted: list[uuid.UUID] = field(default_factory=list)
+    refused: str | None = None
+
+
+class PendingManifestDataset(NamedTuple):
+    """What one of a request's manifest dataset entries publishes, for the
+    maps of the same request to be judged on.
+
+    ``visibility`` None keeps the dataset's. ``group_ids`` are the groups the
+    entry shares the dataset with, held-back and left-off ones removed; None
+    keeps the dataset's groups. ``role_granted`` says a role grant keeps the
+    dataset restricted without groups.
+    """
+
+    visibility: str | None
+    record_status: str
+    title: str
+    group_ids: Sequence[uuid.UUID] | None = None
+    role_granted: bool = False
 
 
 @runtime_checkable
@@ -547,7 +567,12 @@ class ProcessingPort(Protocol):
 
     # The groups a manifest entry would share its dataset with, None for one
     # it creates, once the entry writes ``level`` (None keeps the dataset's),
-    # as the caller's roles and a publish key allow. Writes nothing.
+    # as the caller's roles and a publish key allow. With ``planned_from``
+    # and ``granted_at_plan``, the dataset's visibility and groups when a job
+    # still to publish planned the share, the answer is what that job would
+    # share now, as ``apply_manifest_groups`` judges it, including whether
+    # its write would strand a shared map (``refused``) once the dataset is at
+    # ``level`` and ``record_status`` (None keeps its own). Writes nothing.
     async def plan_manifest_groups(
         self,
         session: AsyncSession,
@@ -556,6 +581,9 @@ class ProcessingPort(Protocol):
         user: Identity,
         *,
         level: str | None,
+        planned_from: str | None = None,
+        granted_at_plan: Sequence[uuid.UUID] | None = None,
+        record_status: str | None = None,
     ) -> ManifestGroupsPlan: ...
 
     # Shares a dataset a manifest job publishes with the groups it may, in the
@@ -577,6 +605,21 @@ class ProcessingPort(Protocol):
         granted_at_plan: Sequence[uuid.UUID] | None,
     ) -> tuple[ManifestGroupsPlan, str | None]: ...
 
+    # The sentence a manifest job's publication of ``visibility`` and
+    # ``record_status`` (None keeps the dataset's) is refused with for
+    # stranding one of the owner's shared maps while the dataset's group
+    # grants are ``group_ids`` (None keeps the stored ones), as the metadata
+    # edit the job makes judges it; None when it isn't. Writes nothing.
+    async def manifest_publication_refusal(
+        self,
+        session: AsyncSession,
+        dataset_id: uuid.UUID,
+        *,
+        visibility: str | None,
+        record_status: str | None,
+        group_ids: Sequence[uuid.UUID] | None,
+    ) -> str | None: ...
+
     # The names of a dataset's groups, None when ``user`` may not see them.
     async def manifest_dataset_group_names(
         self, session: AsyncSession, dataset_id: uuid.UUID, user: Identity
@@ -596,9 +639,9 @@ class ProcessingPort(Protocol):
     # ``dataset_ids_by_key`` the dataset each layer ``dataset_key`` names,
     # resolved by the caller; a key it couldn't resolve is absent.
     # ``pending_datasets`` are the request's own dataset entries that change
-    # their dataset, by key and by dataset id, each with the visibility (None
-    # keeps the dataset's) and record status it publishes; a dry run judges a
-    # map on them. ``unsettled_dataset_ids`` are datasets a job is still
+    # their dataset, by key and by dataset id, each with the visibility,
+    # record status, title and groups it publishes; a dry run judges a map on
+    # them. ``unsettled_dataset_ids`` are datasets a job is still
     # replacing, which a layer may not use yet. ``public_fallback`` and
     # ``client`` are the request's. Outside a dry run each map that checks
     # clean is written and committed on its own. Returns one
@@ -615,7 +658,7 @@ class ProcessingPort(Protocol):
         *,
         dry_run: bool,
         dataset_ids_by_key: Mapping[str, uuid.UUID],
-        pending_datasets: Mapping[str | uuid.UUID, tuple[str | None, str]],
+        pending_datasets: Mapping[str | uuid.UUID, PendingManifestDataset],
         unsettled_dataset_ids: Collection[uuid.UUID],
         public_fallback: str | None,
         client: Any,

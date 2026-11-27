@@ -530,8 +530,9 @@ async def apply_manifest_replacement(
     from app.processing.ingest.manifest_dataset_fields import (
         apply_fields_for_job,
         hold_to_entry_groups,
+        publication_after_share,
         share_groups_for_job,
-        shares_groups,
+        shares_first,
     )
     from app.processing.ingest.manifest_publication import settle_stored_publication
 
@@ -542,19 +543,13 @@ async def apply_manifest_replacement(
     # Who read the dataset before this publish, which its groups are judged
     # against.
     before = dataset.record.visibility
-    # Private with groups is restricted: share first and write that, so the
-    # shared-map checks judge the audience the publish leaves, not a private
-    # moment between the two writes.
-    groups_first = publication.get("visibility") == "private" and shares_groups(
-        user_metadata
-    )
+    groups_first = shares_first(publication, user_metadata)
     first = None
     if groups_first:
         first = await share_groups_for_job(
             session, uuid.UUID(job_id), dataset, user_metadata, audience_before=before
         )
-        if first.shared:
-            publication = {**publication, "visibility": "restricted"}
+        publication = publication_after_share(publication, first)
     await apply_manifest_publication(
         session, dataset, publication, actor_id=uuid.UUID(user_id)
     )

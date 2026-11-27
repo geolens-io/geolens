@@ -333,7 +333,16 @@ class FakeProcessingPort:
         return "A033"
 
     async def plan_manifest_groups(
-        self, session, dataset_id, group_ids, user, *, level
+        self,
+        session,
+        dataset_id,
+        group_ids,
+        user,
+        *,
+        level,
+        planned_from=None,
+        granted_at_plan=None,
+        record_status=None,
     ):
         return None
 
@@ -349,6 +358,11 @@ class FakeProcessingPort:
         granted_at_plan,
     ):
         return None, False
+
+    async def manifest_publication_refusal(
+        self, session, dataset_id, *, visibility, record_status, group_ids
+    ):
+        return None
 
     async def manifest_dataset_group_names(self, session, dataset_id, user):
         return None

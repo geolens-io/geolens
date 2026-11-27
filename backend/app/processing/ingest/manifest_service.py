@@ -13,6 +13,7 @@ import structlog
 from fastapi import HTTPException, Request
 from sqlalchemy import desc, select
 from sqlalchemy import inspect as sa_inspect
+from sqlalchemy.exc import InvalidRequestError
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm.attributes import set_committed_value
 from sqlalchemy.orm import joinedload
@@ -54,6 +55,8 @@ from app.processing.ingest.manifest_dataset_fields import (
     attach_unchanged_entry,
     raster_not_replaced_message,
     note_more_visible,
+    answer_as_the_job_ends,
+    refuse_a_share_its_job_refuses,
     resolve_entry_groups,
     report_entry,
     resolve_entry_collection,
@@ -567,6 +570,11 @@ async def _admit_key_dataset(db: AsyncSession, dataset: Any, user: Identity) -> 
     # level (layering invariant).
     from app.modules.catalog.authorization import check_dataset_write_access
 
+    # The row may have been loaded before a transfer or a delete committed.
+    try:
+        await db.refresh(dataset.record, attribute_names=["created_by"])
+    except InvalidRequestError as exc:
+        raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED) from exc
     if dataset.record.created_by != user.id:
         raise ManifestSourceError(MANIFEST_KEY_NOT_OWNED)
     try:
@@ -1183,6 +1191,34 @@ def _dataset_busy_result(dataset: ManifestDataset) -> ManifestApplyEntryResult:
     )
 
 
+async def _answer_in_flight(
+    db: AsyncSession,
+    request: ManifestApplyRequest,
+    user: Identity,
+    dataset: ManifestDataset,
+    fields: ManifestEntryFields | None,
+    job: IngestJob,
+) -> ManifestApplyEntryResult:
+    """Answer an unchanged entry for the job of its key still in flight."""
+    # The dataset may have passed to another owner since the job was queued;
+    # only its owner is answered for it, before the match judges the owner's
+    # shared maps.
+    if job.dataset_id is not None:
+        named = await get_processing_port().get_dataset(db, job.dataset_id)
+        if named is not None:
+            await _admit_key_dataset(db, named, user)
+    if not await in_flight_job_matches(db, user, fields, dataset, job):
+        raise DatasetBusyError(
+            "The key's in-flight apply publishes otherwise than this one."
+        )
+    answer_as_the_job_ends(fields, dry_run=request.dry_run)
+    result = _skip_result_for_in_flight(dataset, job)
+    # The match above settled the level the queued job publishes.
+    result.mark_pending(fields.visibility if fields else None)
+    await db.commit()
+    return result
+
+
 async def _reserve_or_settle_entry(
     db: AsyncSession,
     request: ManifestApplyRequest,
@@ -1209,15 +1245,7 @@ async def _reserve_or_settle_entry(
         raise ManifestSourceError("Manifest source could not be prepared")
 
     if classification == "skip_in_flight" and job is not None:
-        if not await in_flight_job_matches(db, user, fields, dataset, job):
-            raise DatasetBusyError(
-                "The key's in-flight apply publishes otherwise than this one."
-            )
-        result = _skip_result_for_in_flight(dataset, job)
-        # The match above settled the level the queued job publishes.
-        result.mark_pending(fields.visibility if fields else None)
-        await db.commit()
-        return result
+        return await _answer_in_flight(db, request, user, dataset, fields, job)
 
     if classification == "skip_complete" and job is not None:
         if existing_dataset is None:
@@ -1242,7 +1270,9 @@ async def _reserve_or_settle_entry(
         # Before the blocked and dry-run responses, which name the dataset.
         await _admit_key_dataset(db, existing_dataset, user)
         held = await held_entry(db, dataset, fingerprint, job, existing_dataset)
-        if fields is None and await held_job_matches(db, held, None, {}):
+        if fields is None and await held_job_matches(
+            db, held, None, {}, user=user, dataset=dataset, existing=existing_dataset
+        ):
             await db.commit()
             return held
         # Run after authorization (to avoid leaking another user's dataset
@@ -1265,22 +1295,41 @@ async def _reserve_or_settle_entry(
     await decide_publication(db, fields, dataset, existing_dataset)
     await resolve_entry_collection(db, dataset, user, fields, dry_run=request.dry_run)
     await resolve_entry_groups(db, dataset, user, fields, existing_dataset)
-    if request.dry_run:
-        note_more_visible(dataset, fields, existing_dataset)
-    if fields is not None and await held_job_matches(
+    # Matched before the dry run's A057, which then judges the groups an
+    # Accept leaves.
+    held_matches = fields is not None and await held_job_matches(
         db,
         held,
         fields,
         _job_metadata(
             db, dataset, prepared, fingerprint, user, fields, update_dataset_id
         ),
-    ):
+        user=user,
+        dataset=dataset,
+        existing=existing_dataset,
+    )
+    if held_matches:
+        if request.dry_run:
+            note_more_visible(dataset, fields, existing_dataset)
+        answer_as_the_job_ends(fields, dry_run=request.dry_run)
         # The held replacement publishes what this apply just decided.
         held.mark_pending(fields.visibility)
         await db.commit()
         return held
     refuse_used_upload(prepared)
+    await refuse_a_share_its_job_refuses(
+        db,
+        user,
+        dataset,
+        fields,
+        existing_dataset if update_dataset_id is not None else None,
+        _job_metadata(
+            db, dataset, prepared, fingerprint, user, fields, update_dataset_id
+        ),
+    )
     if request.dry_run:
+        # Judged on what the job leaves, once the check above settled it.
+        note_more_visible(dataset, fields, existing_dataset)
         # A preview reserves nothing, so the key is left exactly as this entry
         # found it.
         result = None

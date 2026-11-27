@@ -178,11 +178,23 @@ class TestExtensionApiVersionConstant:
         ``processing_port`` key without them fails every manifest version 2
         entry that names groups, and every version 2 response.
 
+        v29 makes each value of ``ProcessingPort.apply_manifest_maps``'s
+        ``pending_datasets`` a ``PendingManifestDataset``, which adds the
+        entry's title, groups and role grant to the visibility and status.
+        An overlay port that unpacks the old two-item tuples fails on every
+        dry run whose maps name a dataset the request publishes. It also
+        adds the optional ``group_ids`` to ``RecordAudienceQuery``: an
+        overlay ``record_audience`` that reads group grants itself must
+        answer for the stated groups. ``plan_manifest_groups`` takes the
+        optional ``planned_from``, ``granted_at_plan`` and ``record_status``,
+        and ``ProcessingPort`` gains the required
+        ``manifest_publication_refusal``.
+
         Update this pin, and the note above it, whenever the constant moves.
         """
         from app.platform.extensions.version import EXTENSION_API_VERSION
 
-        assert EXTENSION_API_VERSION == 28
+        assert EXTENSION_API_VERSION == 29
 
 
 class TestCheckExtensionApiVersion:

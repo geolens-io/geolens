@@ -1221,7 +1221,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     facade_line_budgets = {
         "backend/app/modules/catalog/maps/service.py": 142,
         "backend/app/modules/catalog/search/service.py": 80,
-        "backend/app/modules/catalog/datasets/domain/service.py": 150,
+        "backend/app/modules/catalog/datasets/domain/service.py": 154,
         "backend/app/processing/ai/chat_service.py": 487,
         "backend/app/platform/extensions/defaults.py": 75,
     }
@@ -1236,8 +1236,9 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,
         # restricted maps' group members and embed tokens included, beside the
-        # share-link lifecycle they gate.
-        "backend/app/modules/catalog/maps/service_public.py": 1171,
+        # share-link lifecycle they gate; a planned group change is judged as
+        # stated grants, without writing them.
+        "backend/app/modules/catalog/maps/service_public.py": 1189,
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 662,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
@@ -1257,8 +1258,10 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/modules/catalog/maps/service_shared.py": 416,
         "backend/app/modules/catalog/datasets/domain/service_relationships.py": 668,
         # A metadata edit judges its visibility and status change as one move, and a
-        # manifest saves its per-column text beside the attribute edit it reuses.
-        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 685,
+        # manifest saves its per-column text beside the attribute edit it reuses;
+        # the shared-map guard also judges stated grants, as a manifest job's
+        # publication will meet it.
+        "backend/app/modules/catalog/datasets/domain/service_metadata.py": 736,
         # Pointer reads sit beside the detail query that shares them; the row
         # browser's page, count, label-filter and box SQL share its projection, and
         # its NULLS LAST keyset also pages the aggregate feature list.
@@ -1272,8 +1275,8 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         "backend/app/platform/extensions/defaults_ai_anthropic.py": 372,
         "backend/app/platform/extensions/defaults_catalog_port.py": 579,
         # ProcessingPort signatures remain explicit across the catalog boundary.
-        "backend/app/platform/extensions/defaults_processing_port.py": 720,
-        "backend/app/platform/extensions/defaults_extensions.py": 436,
+        "backend/app/platform/extensions/defaults_processing_port.py": 766,
+        "backend/app/platform/extensions/defaults_extensions.py": 443,
         "backend/app/modules/catalog/search/service_filters.py": 376,
     }
 
@@ -1348,16 +1351,22 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # a held or in-flight job is reused, the updates a publish key may not make,
     # the maps section's results beside the datasets', and quota admission that
     # credits a replacement with the bytes it supersedes.
-    "backend/app/processing/ingest/manifest_service.py": 1389,
+    "backend/app/processing/ingest/manifest_service.py": 1438,
+    # A version 2 entry's fields as an apply decides them and as its job's
+    # publish applies them, side by side: an apply or dry run of a replacement
+    # predicts its job's share, held-back groups and refusal through the
+    # worker's own helpers and guards, fresh, queued or held.
+    "backend/app/processing/ingest/manifest_dataset_fields.py": 1236,
     # One map's check, plan and write: the styling decision, layer matching, the
     # history event, the share link and the result's visibility, groups and
     # removed layers share the row lock the apply holds, which is also where its
-    # groups are planned and its moved layers are judged or wait for their
-    # source's job.
-    "backend/app/modules/catalog/maps/manifest_apply.py": 1211,
+    # groups are planned, its moved layers are judged or wait for their
+    # source's job, and a dry run judges a layer on a dataset the same request
+    # publishes.
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1244,
     # The publish manifest's request and response models in one place, which
     # the vendored wire schema, the contract snapshot and both SDKs are held to.
-    "backend/app/processing/ingest/manifest_schemas.py": 1036,
+    "backend/app/processing/ingest/manifest_schemas.py": 1046,
     # Endpoint parsing, SSRF checks and credential forwarding share one security
     # boundary.
     "backend/app/platform/service_endpoints.py": 1419,
@@ -1410,7 +1419,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # What every ingest strategy shares: the task app, job lifecycle and phase
     # sessions, finalization, the reupload table swap and catalog write, and
     # the manifest fields every replacement applies.
-    "backend/app/processing/ingest/tasks_common.py": 1524,
+    "backend/app/processing/ingest/tasks_common.py": 1519,
     # File and remote-source replacement strategies own retrieval, staging and
     # verification, including the live geometry read and its witness, the
     # live-edit comparison each publication makes, a service re-upload's
@@ -1533,11 +1542,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # extension's.
     "backend/app/modules/catalog/features/service.py": 1915,
     # Dataset visibility, the VRT member counts and extents each requester may
-    # see, which groups can't read a dataset, and whether one dataset's readers
-    # reach past another's, today or by its sharing rules, share the permission
-    # extension's one audience; map reads, and which groups can't read a map,
-    # share the one map guard beside it.
-    "backend/app/modules/catalog/authorization.py": 1507,
+    # see, which groups can't read a dataset, as stored or as a publish plans
+    # it, and whether one dataset's readers reach past another's, today or by
+    # its sharing rules, share the permission extension's one audience; map
+    # reads, and which groups can't read a map, share the one map guard beside
+    # it.
+    "backend/app/modules/catalog/authorization.py": 1568,
 }
 
 

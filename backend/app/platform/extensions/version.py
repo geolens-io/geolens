@@ -180,7 +180,28 @@ logger = logging.getLogger(__name__)
 # 27 -> 28: ProcessingPort gained the required ``plan_manifest_groups``,
 # ``apply_manifest_groups`` and ``manifest_dataset_group_names`` methods for
 # manifest groups.
-EXTENSION_API_VERSION: int = 28
+# 28 -> 29: the values of ``ProcessingPort.apply_manifest_maps``'s
+# ``pending_datasets`` mapping became ``PendingManifestDataset``: the
+# visibility and record status as before, then the entry's title, the groups
+# it shares its dataset with and whether a role grant keeps the dataset
+# restricted. A port that unpacks the old two-item tuples fails on them.
+# ``RecordAudienceQuery`` gained the optional ``group_ids``, the dataset's
+# group grants stated in place of the stored ones, which a publish dry run
+# sets for a dataset the request shares. Same signatures: an overlay whose
+# ``record_audience`` reads group grants itself, and doesn't delegate that
+# to the community default, must answer for the stated groups, or the dry
+# run judges the planned share on the stored grants.
+# ``ProcessingPort.plan_manifest_groups`` gained the optional keyword-only
+# ``planned_from`` and ``granted_at_plan``, with which it answers for a job
+# still to publish. A port without them gets a TypeError when an entry with
+# groups is sent again while its replacement is queued. It also gained the
+# optional keyword-only ``record_status``, and ``ManifestGroupsPlan`` gained
+# ``refused``, default None, which a job's plan sets when its write would
+# strand one of the owner's shared maps at that ``level`` and status.
+# ProcessingPort gained the required ``manifest_publication_refusal``, which
+# judges a manifest job's publication by the same guard on the group grants
+# its share leaves.
+EXTENSION_API_VERSION: int = 29
 
 
 def check_extension_api_version(name: str, declared_version: int | None) -> None:

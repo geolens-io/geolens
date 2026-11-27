@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import uuid
-from collections.abc import Awaitable, Callable, Mapping, Sequence
+from collections.abc import Awaitable, Callable, Collection, Mapping, Sequence
+from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import structlog
@@ -224,10 +225,14 @@ async def refuse_stranding_shared_maps(
     visibility: str | None = None,
     record_status: str | None = None,
     regrant: Callable[[], Awaitable[object]] | None = None,
+    group_ids: Collection[uuid.UUID] | None = None,
+    group_ids_before: Collection[uuid.UUID] | None = None,
 ) -> None:
     """Raise ValueError when moving the record to ``visibility`` and
     ``record_status`` (None keeps the current one) strands one of the owner's
-    shared maps. ``regrant`` changes the grants between the two audience reads.
+    shared maps. ``regrant`` changes the grants between the two audience reads;
+    ``group_ids`` and ``group_ids_before`` state the group grants after and
+    before instead (None reads the stored ones).
     """
     from app.modules.catalog.maps.service import (
         find_maps_broken_by_dataset_visibility,
@@ -244,11 +249,57 @@ async def refuse_stranding_shared_maps(
         record_id=record.id,
         owner_id=record.created_by,
         regrant=regrant,
+        group_ids=group_ids,
+        group_ids_before=group_ids_before,
     )
     if broken_maps:
         unpublishes = record.record_status == "published" and new_status != "published"
         action = "unpublish" if unpublishes else "restrict_visibility"
         raise DatasetInSharedMapsError(action=action, shared_maps=broken_maps)
+
+
+async def dataset_publication_refusal(
+    session: AsyncSession,
+    dataset: Dataset,
+    *,
+    visibility: str | None,
+    record_status: str | None,
+    group_ids: Collection[uuid.UUID] | None,
+) -> str | None:
+    """The sentence a metadata edit moving ``dataset`` to ``visibility`` and
+    ``record_status`` (None keeps its own) is refused with for stranding one
+    of its owner's shared maps; None when it isn't. ``group_ids`` are grants
+    a share wrote just before, None when none did: the edit then starts from
+    the record as that share left it, its grants and the level they give a
+    private dataset. Writes nothing."""
+    from app.modules.catalog.datasets.domain.service_sharing import role_granted
+    from app.modules.catalog.group_sharing import level_with_groups
+
+    record = dataset.record
+    if group_ids is not None:
+        record = SimpleNamespace(
+            id=record.id,
+            created_by=record.created_by,
+            visibility=level_with_groups(
+                record.visibility,
+                bool(group_ids),
+                role_granted=await role_granted(session, dataset.id),
+            ),
+            record_status=record.record_status,
+        )
+    try:
+        await refuse_stranding_shared_maps(
+            session,
+            record,
+            dataset.id,
+            visibility=visibility,
+            record_status=record_status,
+            group_ids=group_ids,
+            group_ids_before=group_ids,
+        )
+    except DatasetInSharedMapsError as exc:
+        return str(exc)
+    return None
 
 
 async def _apply_visibility_change(

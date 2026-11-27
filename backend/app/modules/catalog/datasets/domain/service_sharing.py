@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import Iterable
+from types import SimpleNamespace
 
 import structlog
 from sqlalchemy import exists, select
@@ -34,6 +35,7 @@ from app.modules.catalog.group_sharing import (
     group_refs,
     hold_back_revoked,
     hold_back_widening,
+    level_with_groups,
     lock_share_groups,
     plan_share_groups,
     refuse_publish_key_widening_share,
@@ -45,8 +47,10 @@ from app.modules.catalog.datasets.domain.models import (
     DatasetGrant,
     DatasetGroupGrant,
 )
+from app.modules.catalog.datasets.domain.helpers import DatasetInSharedMapsError
 from app.modules.catalog.datasets.domain.service_metadata import (
     _apply_visibility_change,
+    refuse_stranding_shared_maps,
 )
 
 log = structlog.get_logger()
@@ -104,12 +108,11 @@ async def set_dataset_groups(
         wanted |= current
     added, removed = wanted - current, current - wanted
     await refuse_unjoined_groups(session, added, actor, is_admin=is_admin)
-    visibility = record.visibility
-    if visibility == "private" and wanted:
-        visibility = "restricted"
-    elif visibility == "restricted" and not wanted:
-        if not await role_granted(session, dataset.id):
-            visibility = "private"
+    visibility = level_with_groups(
+        record.visibility,
+        bool(wanted),
+        role_granted=await role_granted(session, dataset.id),
+    )
     refuse_publish_key_widening_share(
         session,
         record.visibility if audience_before == CURRENT_LEVEL else audience_before,
@@ -156,6 +159,46 @@ async def set_dataset_groups(
     if warning is not None and warnings_out is not None:
         warnings_out.append(warning)
     return True
+
+
+async def dataset_share_refusal(
+    session: AsyncSession,
+    dataset: Dataset,
+    group_ids: Iterable[uuid.UUID],
+    *,
+    level: str | None = None,
+    record_status: str | None = None,
+) -> str | None:
+    """Why ``set_dataset_groups``'s shared-map guard would refuse sharing
+    ``dataset`` with exactly ``group_ids`` at ``level`` and ``record_status``
+    (None keeps its own), or None. The grants are stated, not written."""
+    stored = dataset.record
+    # The record as the share finds it, after the publish wrote its level.
+    record = SimpleNamespace(
+        id=stored.id,
+        created_by=stored.created_by,
+        visibility=level or stored.visibility,
+        record_status=record_status or stored.record_status,
+    )
+    wanted = set(group_ids)
+    current = set(await session.scalars(_granted(dataset.id)))
+    visibility = level_with_groups(
+        record.visibility,
+        bool(wanted),
+        role_granted=await role_granted(session, dataset.id),
+    )
+    # The guard runs only where grants decide who reads, as the share's own.
+    if record.visibility not in ("private", "restricted") or (
+        wanted == current and visibility == record.visibility
+    ):
+        return None
+    try:
+        await refuse_stranding_shared_maps(
+            session, record, dataset.id, visibility=visibility, group_ids=wanted
+        )
+    except DatasetInSharedMapsError as exc:
+        return _refusal_sentence(exc)
+    return None
 
 
 def _granted(dataset_id: uuid.UUID):

@@ -8,7 +8,7 @@ from ``app.modules.*``. ``AuditEvent`` is forward-referenced via
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Collection, Mapping
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, Literal, Protocol, runtime_checkable
 
@@ -387,7 +387,14 @@ class RecordAudienceQuery:
     reason ``WorkflowTransitionContext.dataset`` does — no catalog ORM
     imports at module load time. Both ids are carried because grants key
     the DATASET while visibility lives on the RECORD, so an overlay keying
-    policy on either doesn't have to join.
+    policy on either doesn't have to join. Both are None for a record that
+    doesn't exist yet, such as a VRT about to be built or a dataset a
+    publish dry run would create: it has no grants and no stored attributes.
+
+    ``group_ids`` states the dataset's group grants the same way: the
+    audience as if the dataset were shared with exactly these groups, for a
+    change that is planned and not yet written. None reads the stored group
+    grants. Role grants are always the stored ones.
     """
 
     dataset_id: Any
@@ -395,6 +402,7 @@ class RecordAudienceQuery:
     owner_id: Any | None
     visibility: str
     record_status: str
+    group_ids: Collection[Any] | None = None
 
 
 @dataclass(frozen=True)
@@ -499,7 +507,8 @@ class PermissionExtension(Protocol):
 
         Implementations must agree with ``filter_visible`` exactly: a user
         the predicate admits must be a user whose filtered query returns
-        the record, at the visibility and status named in ``query``. Core
+        the record, at the visibility and status named in ``query``, with
+        the group grants it states when ``query.group_ids`` is set. Core
         proves that equivalence for the community default account by
         account and expects an overlay to hold itself to the same
         standard — an overlay whose reads reach further than the audience

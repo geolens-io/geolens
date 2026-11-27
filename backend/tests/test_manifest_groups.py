@@ -6,7 +6,10 @@ Requirements: the docker database must be running with migrations applied.
 
 from __future__ import annotations
 
+import contextlib
+import dataclasses
 import re
+import shutil
 import uuid
 from unittest.mock import AsyncMock, patch
 
@@ -23,6 +26,7 @@ from app.modules.catalog.datasets.domain.models import (
     Dataset,
     DatasetGrant,
     DatasetGroupGrant,
+    Record,
 )
 from app.modules.catalog.maps.models import (
     Map,
@@ -33,10 +37,17 @@ from app.modules.catalog.maps.models import (
 from app.platform.extensions import get_processing_port
 from app.platform.jobs.models import IngestJob
 from app.platform.jobs.schemas import ManifestGroupsLeftOffWarning
+from app.processing.ingest.manifest_schemas import ManifestApplyRequest
+from app.processing.ingest.manifest_service import (
+    MANIFEST_KEY_NOT_OWNED,
+    apply_manifest,
+)
 from app.processing.ingest.manifest_sources import manifest_dataset_fingerprint
 from tests.factories import create_user
 from tests.test_api_key_scope_875 import _remove_keys_minted_by_the_test  # noqa: F401
 from tests.test_dataset_group_sharing import _mint_key
+from tests.test_manifest_accept_publish_key import _accept
+from tests.test_manifest_blocked_reapply import _KEY as _HELD_KEY, _held_apply
 from tests.test_manifest_dataset_fields import (
     _apply as _apply_entries,
     _editors_without,
@@ -52,6 +63,11 @@ from tests.test_manifest_dataset_fields import (
     _set_record,
     _stage_fixture,
     _uploaded,
+)
+from tests.test_manifest_reapply_publication import (
+    _entry as _held_entry,
+    _http_request as _held_http_request,
+    _reupload_task,
 )
 from tests.test_manifest_maps_apply import (
     _apply,
@@ -1924,18 +1940,24 @@ async def _shared_through(session, user, member, dataset_id) -> GroupRef:
     """Restrict the dataset to a group ``member`` is in, on a map of
     ``user``'s shared with that group: the map's readers need the grant."""
     group = await _group(session, user.id, member.id)
+    session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=group.id))
+    await session.commit()
+    await _map_needing(session, user, group, dataset_id)
+    return group
+
+
+async def _map_needing(session, user, group, dataset_id) -> None:
+    """A map of ``user``'s shared with ``group``, showing the dataset."""
     shared_map = Map(name="Shared", created_by=user.id, visibility="restricted")
     session.add(shared_map)
     await session.flush()
     session.add_all(
         [
-            DatasetGroupGrant(dataset_id=dataset_id, group_id=group.id),
             MapGroupGrant(map_id=shared_map.id, group_id=group.id),
             MapLayer(map_id=shared_map.id, dataset_id=dataset_id),
         ]
     )
     await session.commit()
-    return group
 
 
 async def _data_version(session, dataset_id) -> int | None:
@@ -1949,8 +1971,11 @@ async def _data_version(session, dataset_id) -> int | None:
 async def test_a_replacement_whose_group_removal_is_refused_publishes_nothing(
     client, admin_auth_header, test_db_session, clean_tables
 ):
-    """The owner's shared map keeps the group, so the removal is refused;
-    publishing anyway would hand the new data to the group the entry drops."""
+    """A shared map that keeps the group arrives after the apply, so the
+    job's removal is refused; publishing anyway would hand the new data to
+    the group the entry drops. The same manifest sent again while the job is
+    queued says so: a dry run is refused with A056, and an apply answers for
+    the job with it as a warning."""
     _stage_fixture()
     user = await _admin_user(test_db_session)
     _, member = await _editor(client, test_db_session, admin_auth_header)
@@ -1958,11 +1983,29 @@ async def test_a_replacement_whose_group_removal_is_refused_publishes_nothing(
     dataset_id = await _manifest_dataset(
         test_db_session, user, key, "restricted", "published"
     )
-    mine = await _shared_through(test_db_session, user, member, dataset_id)
+    mine = await _group(test_db_session, user.id, member.id)
+    test_db_session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=mine.id))
+    await test_db_session.commit()
     version = await _data_version(test_db_session, dataset_id)
     entry = await _uploaded(client, admin_auth_header, key, groups=[])
     result, task = await _queue_update(test_db_session, user, entry)
     assert (result.action, _codes(result)) == ("update", [])
+    await _map_needing(test_db_session, user, mine, dataset_id)
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True)
+    )
+    [previewed] = response.results
+    assert previewed.action == "error", previewed
+    assert [(m.code, m.severity) for m in previewed.messages] == [("A056", "error")]
+    assert "used in shared maps: Shared" in previewed.messages[0].message
+    # The refused entry rolled the session back, which expires the user row.
+    user = await _admin_user(test_db_session)
+    response, _ = await _apply_entries(test_db_session, user, _entries_request(entry))
+    [applied] = response.results
+    assert (applied.action, applied.job_id) == ("skip", result.job_id)
+    assert _job_refusals(applied) == [("A056", "warning")]
+    assert await _dataset_grants(test_db_session, dataset_id) == {mine.id}
 
     await _assert_not_replaced(
         test_db_session,
@@ -1977,6 +2020,280 @@ async def test_a_replacement_whose_group_removal_is_refused_publishes_nothing(
         ),
     )
     assert await _record(test_db_session, dataset_id) == ("restricted", "published")
+
+
+async def test_a_replacement_swapping_a_maps_group_is_refused_before_it_is_queued(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """The owner's shared map needs group A, so the job could not swap A for
+    B and would fail: the entry is refused with A056 before anything is
+    queued, and a map in the same request isn't judged on B's access."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, member = await _editor(client, test_db_session, admin_auth_header)
+    key = "groups-swap-refused"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "restricted", "published"
+    )
+    needed = await _shared_through(test_db_session, user, member, dataset_id)
+    swapped = await _group(test_db_session, user.id)
+    entry = await _uploaded(client, admin_auth_header, key, groups=[str(swapped.id)])
+    maps = [
+        _map(
+            "groups-swap-refused-map",
+            _layer(dataset_key=key),
+            groups=[str(swapped.id)],
+        )
+    ]
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True, maps=maps)
+    )
+    [refused] = response.results
+    assert refused.action == "error", refused
+    assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
+    assert "used in shared maps: Shared" in refused.messages[0].message
+    [checked] = response.maps
+    assert ("A052", "parks") in [(m.code, m.layer) for m in checked.messages]
+    assert _layer_gaps(checked) == []
+
+    user = await _admin_user(test_db_session)
+    refused, task = await _queue_update(test_db_session, user, entry)
+    task.defer_async.assert_not_awaited()
+    assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
+    assert await _dataset_grants(test_db_session, dataset_id) == {needed.id}
+
+
+async def _internal_shared_through(client, admin_auth_header, session, key):
+    """An internal dataset of the admin's granted to group A, whose member
+    reads it only as the organization, and group B, which only the admin is
+    in; the dataset, A, B and the admin."""
+    user = await _admin_user(session)
+    _, member = await _editor(client, session, admin_auth_header)
+    dataset_id = await _manifest_dataset(session, user, key, "internal", "published")
+    needed = await _group(session, user.id, member.id)
+    session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=needed.id))
+    await session.commit()
+    swapped = await _group(session, user.id)
+    return dataset_id, needed, swapped, user
+
+
+async def test_a_private_replacement_its_publication_would_refuse_is_not_queued(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """Private with group B makes the internal dataset restricted to B after
+    its share, which strands the owner's map shared with A: the job's
+    publication would be refused, so the entry is refused with A056 before
+    anything is queued, and a map in the same request isn't judged on B."""
+    _stage_fixture()
+    key = "groups-private-narrowing-refused"
+    dataset_id, needed, swapped, user = await _internal_shared_through(
+        client, admin_auth_header, test_db_session, key
+    )
+    await _map_needing(test_db_session, user, needed, dataset_id)
+    entry = await _uploaded(
+        client,
+        admin_auth_header,
+        key,
+        visibility="private",
+        groups=[str(swapped.id)],
+    )
+    maps = [_map(f"{key}-map", _layer(dataset_key=key), groups=[str(swapped.id)])]
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True, maps=maps)
+    )
+    [refused] = response.results
+    assert refused.action == "error", refused
+    assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
+    assert "used in shared maps: Shared" in refused.messages[0].message
+    [checked] = response.maps
+    assert ("A052", "parks") in [(m.code, m.layer) for m in checked.messages]
+    assert _layer_gaps(checked) == []
+
+    user = await _admin_user(test_db_session)
+    refused, task = await _queue_update(test_db_session, user, entry)
+    task.defer_async.assert_not_awaited()
+    assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
+    assert await _record(test_db_session, dataset_id) == ("internal", "published")
+    assert await _dataset_grants(test_db_session, dataset_id) == {needed.id}
+
+
+async def test_a_queued_private_replacement_its_publication_will_refuse_says_so(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """The map shared with A arrives after the apply, so the job's
+    publication will be refused once its share leaves only B: the same
+    manifest sent again is refused with A056 in a dry run and warned of in
+    an apply, and the job fails and leaves the dataset as it was."""
+    _stage_fixture()
+    key = "groups-private-narrowing-queued"
+    dataset_id, needed, swapped, user = await _internal_shared_through(
+        client, admin_auth_header, test_db_session, key
+    )
+    entry = await _uploaded(
+        client,
+        admin_auth_header,
+        key,
+        visibility="private",
+        groups=[str(swapped.id)],
+    )
+    queued, task = await _queue_update(test_db_session, user, entry)
+    assert queued.action == "update", queued
+    await _map_needing(test_db_session, user, needed, dataset_id)
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True)
+    )
+    [previewed] = response.results
+    assert previewed.action == "error", previewed
+    assert [(m.code, m.severity) for m in previewed.messages] == [("A056", "error")]
+    assert "used in shared maps: Shared" in previewed.messages[0].message
+    user = await _admin_user(test_db_session)
+    response, _ = await _apply_entries(test_db_session, user, _entries_request(entry))
+    [applied] = response.results
+    assert (applied.action, applied.job_id) == ("skip", queued.job_id)
+    assert _job_refusals(applied) == [("A056", "warning")]
+    # The job's writes roll back, so the answer is the dataset as it stands.
+    assert (applied.visibility, applied.groups) == ("internal", [needed.name])
+
+    with pytest.raises(ValueError, match="used in shared maps"):
+        await _run_update(test_db_session, queued, task)
+    assert (await _failed_job(test_db_session, queued)).status == "failed"
+    assert await _record(test_db_session, dataset_id) == ("internal", "published")
+    assert await _dataset_grants(test_db_session, dataset_id) == {needed.id}
+
+
+async def test_a_replacement_answers_with_the_groups_its_refused_share_keeps(
+    client, admin_auth_header, test_db_session, clean_tables, monkeypatch
+):
+    """Under an authority that can't answer audience questions the owner's
+    shared map refuses any grant change, so the job keeps A: a fresh
+    preview, the apply, a preview of the queued job and the job itself all
+    leave A, and nothing warns A057 of B."""
+    from app.modules.catalog.maps import service_public
+
+    monkeypatch.setattr(
+        service_public, "answers_audience_questions", lambda permission: False
+    )
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, member = await _editor(client, test_db_session, admin_auth_header)
+    key = "groups-refused-share-kept"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "restricted", "published"
+    )
+    kept = await _shared_through(test_db_session, user, member, dataset_id)
+    added = await _group(test_db_session, user.id)
+    entry = await _uploaded(
+        client, admin_auth_header, key, groups=[str(kept.id), str(added.id)]
+    )
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True)
+    )
+    [fresh] = response.results
+    assert (fresh.action, fresh.groups, _codes(fresh)) == ("update", [kept.name], [])
+
+    user = await _admin_user(test_db_session)
+    queued, task = await _queue_update(test_db_session, user, entry)
+    assert (queued.action, queued.groups) == ("update", [kept.name])
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True)
+    )
+    [again] = response.results
+    assert (again.action, again.job_id) == ("skip", queued.job_id)
+    assert again.groups == [kept.name]
+
+    job = await _run_update(test_db_session, queued, task)
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _dataset_grants(test_db_session, dataset_id) == {kept.id}
+
+
+@pytest.mark.parametrize("queued", [False, True], ids=["fresh", "queued"])
+async def test_a_private_draft_shared_with_a_maps_group_is_answered_as_its_job_ends(
+    client, admin_auth_header, test_db_session, clean_tables, queued
+):
+    """A private dataset stays private, so its job writes the draft first,
+    which strands nobody, and then shares it with G: the owner's map shared
+    with G loses nothing, and the preview, fresh or of the queued job,
+    answers the publish the job completes."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, member = await _editor(client, test_db_session, admin_auth_header)
+    key = f"groups-private-draft-{'queued' if queued else 'fresh'}"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "private", "published"
+    )
+    shared = await _group(test_db_session, user.id, member.id)
+    await _map_needing(test_db_session, user, shared, dataset_id)
+    entry = await _uploaded(
+        client,
+        admin_auth_header,
+        key,
+        visibility="private",
+        groups=[str(shared.id)],
+        publication={"intent": "draft"},
+    )
+    if not queued:
+        response, _ = await _apply_entries(
+            test_db_session, user, _entries_request(entry, dry_run=True)
+        )
+        [previewed] = response.results
+        assert (previewed.action, _codes(previewed)) == ("update", []), previewed
+        user = await _admin_user(test_db_session)
+    result, task = await _queue_update(test_db_session, user, entry)
+    assert (result.action, _codes(result)) == ("update", []), result
+    if queued:
+        response, _ = await _apply_entries(
+            test_db_session, user, _entries_request(entry, dry_run=True)
+        )
+        [previewed] = response.results
+        assert (previewed.action, previewed.job_id) == ("skip", result.job_id)
+        assert _codes(previewed) == []
+
+    job = await _run_update(test_db_session, result, task)
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("restricted", "draft")
+    assert await _dataset_grants(test_db_session, dataset_id) == {shared.id}
+
+
+async def test_a_queued_widening_that_removes_a_maps_group_is_answered_as_a_publish(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """The job makes the dataset internal before it removes the group, so
+    the owner's map keeps its readers and the replacement publishes; the same
+    manifest sent again while the job is queued answers as that publish."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, member = await _editor(client, test_db_session, admin_auth_header)
+    key = "groups-widening-removal"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "restricted", "published"
+    )
+    await _shared_through(test_db_session, user, member, dataset_id)
+    entry = await _uploaded(
+        client, admin_auth_header, key, groups=[], visibility="internal"
+    )
+    result, task = await _queue_update(test_db_session, user, entry)
+    assert result.action == "update", result
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True)
+    )
+    [previewed] = response.results
+    assert (previewed.action, previewed.job_id) == ("skip", result.job_id)
+    assert "A056" not in _codes(previewed)
+    user = await _admin_user(test_db_session)
+    response, _ = await _apply_entries(test_db_session, user, _entries_request(entry))
+    [applied] = response.results
+    assert (applied.action, applied.job_id) == ("skip", result.job_id)
+    assert _job_refusals(applied) == []
+
+    job = await _run_update(test_db_session, result, task)
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _record(test_db_session, dataset_id) == ("internal", "published")
+    assert await _dataset_grants(test_db_session, dataset_id) == set()
 
 
 async def test_a_replacement_whose_added_group_is_refused_still_publishes(
@@ -2044,3 +2361,864 @@ async def test_an_unpublished_layer_on_an_organization_map_is_a056(
 
     [gap] = [message for message in checked.messages if message.code == "A056"]
     assert (gap.layer, "Draft parks" in gap.message) == ("parks", True)
+
+
+# ---------------------------------------------------------------------------
+# A dry run's layers on datasets the same request publishes
+# ---------------------------------------------------------------------------
+
+
+async def _dry_run_maps(session, user, entry: dict, *maps: dict) -> list:
+    """The map results of a dry run that publishes ``entry`` and ``maps``."""
+    response, _ = await _apply_entries(
+        session, user, _entries_request(entry, dry_run=True, maps=list(maps))
+    )
+    [dataset] = response.results
+    assert dataset.action in ("create", "update"), dataset
+    _assert_maps_written(response.maps)
+    return response.maps
+
+
+def _assert_maps_written(maps) -> None:
+    """Every map checks clean apart from its warnings, so a missing A056 is
+    the layer judged readable, not a map that failed before its layers."""
+    assert all(result.action in ("create", "update") for result in maps), maps
+
+
+def _layer_gaps(result) -> list[tuple[str | None, str]]:
+    return [
+        (message.layer, message.message)
+        for message in result.messages
+        if message.code == "A056" and message.layer is not None
+    ]
+
+
+async def test_a_dry_run_judges_a_layer_on_the_groups_its_dataset_is_published_to(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    _, reader = await _editor(client, test_db_session, admin_auth_header)
+    _, other = await _editor(client, test_db_session, admin_auth_header)
+    readers = await _group(test_db_session, editor.id, reader.id)
+    others = await _group(test_db_session, editor.id, other.id)
+    key = "groups-pending-create"
+    layer = _layer(dataset_key=key)
+
+    without, shared = await _dry_run_maps(
+        test_db_session,
+        editor,
+        await _uploaded(client, headers, key, groups=[str(others.id)]),
+        _map("groups-pending-readers", layer, groups=[str(readers.id)]),
+        _map("groups-pending-others", layer, groups=[str(others.id)]),
+    )
+
+    [(gap_layer, gap)] = _layer_gaps(without)
+    assert gap_layer == "parks"
+    assert (readers.name in gap, others.name in gap) == (True, False)
+    assert "Road centerlines" in gap
+    assert _layer_gaps(shared) == []
+    assert await test_db_session.scalar(select(func.count()).select_from(Map)) == 0
+
+
+async def test_a_dry_run_judges_a_layer_on_the_groups_a_replacement_leaves(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """The dataset is shared with the map's group now, and the same request
+    shares it with another group only."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, reader = await _editor(client, test_db_session, admin_auth_header)
+    _, other = await _editor(client, test_db_session, admin_auth_header)
+    readers = await _group(test_db_session, reader.id)
+    others = await _group(test_db_session, other.id)
+    key = "groups-pending-update"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "restricted", "published"
+    )
+    test_db_session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=readers.id))
+    await test_db_session.commit()
+    layer = _layer(dataset_id=str(dataset_id))
+
+    without, shared = await _dry_run_maps(
+        test_db_session,
+        user,
+        await _uploaded(client, admin_auth_header, key, groups=[str(others.id)]),
+        _map("groups-pending-readers", layer, groups=[str(readers.id)]),
+        _map("groups-pending-others", layer, groups=[str(others.id)]),
+    )
+
+    [(gap_layer, gap)] = _layer_gaps(without)
+    assert (gap_layer, readers.name in gap) == ("parks", True)
+    assert _layer_gaps(shared) == []
+    assert await _dataset_grants(test_db_session, dataset_id) == {readers.id}
+
+
+@pytest.mark.parametrize(
+    "publishes",
+    [
+        {"visibility": "private"},
+        {"visibility": "internal", "publication": {"intent": "draft"}},
+    ],
+    ids=["private", "draft"],
+)
+async def test_a_dry_run_warns_for_an_organization_map_over_a_dataset_it_cant_read(
+    client, admin_auth_header, test_db_session, clean_tables, publishes
+):
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    hidden_key, open_key = "groups-pending-hidden", "groups-pending-open"
+    hidden = await _uploaded(client, headers, hidden_key, **publishes)
+    opened = await _uploaded(client, headers, open_key, visibility="internal")
+    request = _entries_request(
+        hidden,
+        dry_run=True,
+        maps=[
+            _map(
+                "groups-pending-organization",
+                _layer("hidden", dataset_key=hidden_key),
+                _layer("open", dataset_key=open_key),
+                visibility="internal",
+            )
+        ],
+    )
+    request.datasets.append(_entries_request(opened).datasets[0])
+
+    response, _ = await _apply_entries(test_db_session, editor, request)
+
+    assert [result.action for result in response.results] == ["create", "create"]
+    [checked] = response.maps
+    [(gap_layer, gap)] = _layer_gaps(checked)
+    assert gap_layer == "hidden"
+    assert "everyone in your organization" in gap
+
+
+async def test_a_dry_run_judges_a_publish_keys_held_back_group_as_held_back(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """The key may not add the map's group to the dataset, so the dataset
+    keeps its groups and that group's members won't see the layer."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, reader = await _editor(client, test_db_session, admin_auth_header)
+    key = "groups-pending-held"
+    dataset_id, kept = await _restricted_to(test_db_session, user, key)
+    added = await _group(test_db_session, user.id, reader.id)
+    entry = await _uploaded(
+        client, admin_auth_header, key, groups=[str(kept.id), str(added.id)]
+    )
+    layer = _layer(dataset_id=str(dataset_id))
+
+    with _publish_key(test_db_session):
+        without, shared = await _dry_run_maps(
+            test_db_session,
+            user,
+            entry,
+            _map("groups-pending-added", layer, groups=[str(added.id)]),
+            _map("groups-pending-kept", layer, groups=[str(kept.id)]),
+        )
+
+    [(gap_layer, gap)] = _layer_gaps(without)
+    assert (gap_layer, added.name in gap) == ("parks", True)
+    assert _layer_gaps(shared) == []
+
+
+async def test_a_dry_run_judges_a_draft_shared_with_the_maps_group_as_unread(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """Until it is published only its owner and admins read a dataset,
+    whatever groups its entry shares it with."""
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    _, reader = await _editor(client, test_db_session, admin_auth_header)
+    readers = await _group(test_db_session, editor.id, reader.id)
+    key = "groups-pending-draft"
+    entry = await _uploaded(
+        client,
+        headers,
+        key,
+        visibility="private",
+        groups=[str(readers.id)],
+        publication={"intent": "draft"},
+    )
+
+    [checked] = await _dry_run_maps(
+        test_db_session,
+        editor,
+        entry,
+        _map(
+            "groups-pending-draft-map",
+            _layer(dataset_key=key),
+            groups=[str(readers.id)],
+        ),
+    )
+
+    [(gap_layer, gap)] = _layer_gaps(checked)
+    assert (gap_layer, readers.name in gap) == ("parks", True)
+
+
+async def test_a_dry_run_counts_the_publisher_as_reading_the_dataset_it_creates(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    _, reader = await _editor(client, test_db_session, admin_auth_header)
+    alone = await _group(test_db_session, editor.id)
+    readers = await _group(test_db_session, editor.id, reader.id)
+    key = "groups-pending-owner"
+    layer = _layer(dataset_key=key)
+
+    own, shared = await _dry_run_maps(
+        test_db_session,
+        editor,
+        await _uploaded(client, headers, key, visibility="private"),
+        _map("groups-pending-own", layer, groups=[str(alone.id)]),
+        _map("groups-pending-shared", layer, groups=[str(readers.id)]),
+    )
+
+    assert _layer_gaps(own) == []
+    [(gap_layer, gap)] = _layer_gaps(shared)
+    assert (gap_layer, readers.name in gap) == ("parks", True)
+
+
+@pytest.mark.parametrize("to_another_group", [True, False], ids=["swapped", "removed"])
+async def test_a_dry_run_counts_a_role_grant_a_removed_groups_members_keep(
+    client, admin_auth_header, test_db_session, clean_tables, to_another_group
+):
+    """The entry takes the editors' group off the dataset, and the editor
+    role's grant still lets them read it; with no group left that grant is
+    also what keeps the dataset restricted."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, editor = await _editor(client, test_db_session, admin_auth_header)
+    _, viewer_id = await create_user(client, admin_auth_header, "viewer")
+    _, other = await _editor(client, test_db_session, admin_auth_header)
+    editors = await _group(test_db_session, editor.id)
+    viewers = await _group(test_db_session, uuid.UUID(viewer_id))
+    others = await _group(test_db_session, other.id)
+    key = "groups-pending-role"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "restricted", "published"
+    )
+    editor_role = await test_db_session.scalar(
+        select(Role.id).where(Role.name == "editor")
+    )
+    test_db_session.add_all(
+        [
+            DatasetGroupGrant(dataset_id=dataset_id, group_id=editors.id),
+            DatasetGroupGrant(dataset_id=dataset_id, group_id=viewers.id),
+            DatasetGrant(dataset_id=dataset_id, role_id=editor_role),
+        ]
+    )
+    await test_db_session.commit()
+    layer = _layer(dataset_id=str(dataset_id))
+
+    by_role, without = await _dry_run_maps(
+        test_db_session,
+        user,
+        await _uploaded(
+            client,
+            admin_auth_header,
+            key,
+            groups=[str(others.id)] if to_another_group else [],
+        ),
+        _map("groups-pending-editors", layer, groups=[str(editors.id)]),
+        _map("groups-pending-viewers", layer, groups=[str(viewers.id)]),
+    )
+
+    assert _layer_gaps(by_role) == []
+    [(gap_layer, gap)] = _layer_gaps(without)
+    assert (gap_layer, viewers.name in gap) == ("parks", True)
+
+
+async def test_a_dry_run_judges_a_kept_layer_on_the_pending_dataset_it_moves_to(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """A kept publish points a layer's key at a dataset the same request
+    creates: the layer stays on its dataset until that one exists, and shows
+    it once the maps are sent again."""
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    stored_id = await _dataset(
+        test_db_session, editor.id, visibility="internal", name="Stored parks"
+    )
+    await _apply(
+        test_db_session,
+        editor,
+        _map(
+            "groups-pending-move",
+            _layer(dataset_id=str(stored_id)),
+            visibility="internal",
+        ),
+    )
+    key = "groups-pending-moved-to"
+
+    [checked] = await _dry_run_maps(
+        test_db_session,
+        editor,
+        await _uploaded(client, headers, key, visibility="private"),
+        _map(
+            "groups-pending-move",
+            _layer(dataset_key=key),
+            styling="keep",
+            visibility="internal",
+        ),
+    )
+
+    assert (checked.action, checked.styling) == ("update", "kept")
+    [(gap_layer, gap)] = _layer_gaps(checked)
+    assert gap_layer == "parks"
+    assert ("Road centerlines" in gap, "Stored parks" in gap) == (True, False)
+
+
+async def test_a_dry_run_leaves_a_planned_groups_members_to_the_permission_authority(
+    client, admin_auth_header, test_db_session, clean_tables, monkeypatch
+):
+    """An authority that narrows the community answer, as an overlay may,
+    is asked about the groups the entry plans: it admits their members, and
+    its denial of one of them stands."""
+    from app.modules.catalog import authorization
+    from app.modules.catalog.maps import manifest_sharing
+    from app.platform.extensions import DefaultPermissionExtension, RecordAudience
+
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, reader = await _editor(client, test_db_session, admin_auth_header)
+    _, denied = await _editor(client, test_db_session, admin_auth_header)
+    admitted = await _group(test_db_session, reader.id)
+    narrowed = await _group(test_db_session, reader.id, denied.id)
+    key = "groups-pending-authority"
+    layer = _layer(dataset_key=key)
+
+    class _DeniesAMember(DefaultPermissionExtension):
+        async def record_audience(self, query, user_cls, *, grant_cls=None):
+            community = await super().record_audience(
+                query, user_cls, grant_cls=grant_cls
+            )
+            return RecordAudience(
+                users=community.users & (user_cls.id != denied.id),
+                includes_anonymous=community.includes_anonymous,
+            )
+
+    for module in (authorization, manifest_sharing):
+        monkeypatch.setattr(module, "get_permission_extension", _DeniesAMember)
+
+    reads, without = await _dry_run_maps(
+        test_db_session,
+        user,
+        await _uploaded(
+            client,
+            admin_auth_header,
+            key,
+            groups=[str(admitted.id), str(narrowed.id)],
+        ),
+        _map("groups-pending-admitted", layer, groups=[str(admitted.id)]),
+        _map("groups-pending-narrowed", layer, groups=[str(narrowed.id)]),
+    )
+
+    assert _layer_gaps(reads) == []
+    [(gap_layer, gap)] = _layer_gaps(without)
+    assert (gap_layer, narrowed.name in gap) == ("parks", True)
+
+
+async def test_a_dry_run_judges_a_reused_job_on_the_groups_it_will_publish(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """A queued replacement kept groups A and B, and B was taken off the
+    dataset before it ran: the job won't restore B, so the same manifest sent
+    again answers for a dataset shared with A only."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    _, reader = await _editor(client, test_db_session, admin_auth_header)
+    _, other = await _editor(client, test_db_session, admin_auth_header)
+    kept = await _group(test_db_session, reader.id)
+    revoked = await _group(test_db_session, other.id)
+    key = "groups-pending-reused"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "restricted", "published"
+    )
+    test_db_session.add_all(
+        [
+            DatasetGroupGrant(dataset_id=dataset_id, group_id=kept.id),
+            DatasetGroupGrant(dataset_id=dataset_id, group_id=revoked.id),
+        ]
+    )
+    await test_db_session.commit()
+    entry = await _uploaded(
+        client, admin_auth_header, key, groups=[str(kept.id), str(revoked.id)]
+    )
+    queued, task = await _queue_update(test_db_session, user, entry)
+    assert (queued.action, _codes(queued)) == ("update", [])
+    await test_db_session.execute(
+        delete(DatasetGroupGrant).where(
+            DatasetGroupGrant.dataset_id == dataset_id,
+            DatasetGroupGrant.group_id == revoked.id,
+        )
+    )
+    await test_db_session.commit()
+    layer = _layer(dataset_id=str(dataset_id))
+
+    response, _ = await _apply_entries(
+        test_db_session,
+        user,
+        _entries_request(
+            entry,
+            dry_run=True,
+            maps=[
+                _map("groups-pending-reused-kept", layer, groups=[str(kept.id)]),
+                _map("groups-pending-reused-gone", layer, groups=[str(revoked.id)]),
+            ],
+        ),
+    )
+
+    [reused] = response.results
+    assert (reused.action, reused.job_id) == ("skip", queued.job_id)
+    _assert_maps_written(response.maps)
+    reads, without = response.maps
+    assert _layer_gaps(reads) == []
+    [(gap_layer, gap)] = _layer_gaps(without)
+    assert (gap_layer, revoked.name in gap) == ("parks", True)
+    assert reused.groups == [kept.name]
+    job = await _run_update(test_db_session, queued, task)
+    assert (job.status, job.error_message) == ("complete", None)
+    assert await _dataset_grants(test_db_session, dataset_id) == {kept.id}
+
+
+async def test_a_dry_run_over_a_reused_job_follows_a_renamed_group(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """A queued job shares by group id, so a rename since changes neither
+    the job reused nor who reads the layer."""
+    _stage_fixture()
+    user = await _admin(test_db_session)
+    _, reader = await _editor(client, test_db_session, admin_auth_header)
+    _, other = await _editor(client, test_db_session, admin_auth_header)
+    shared = await _group(test_db_session, user.id, reader.id)
+    others = await _group(test_db_session, user.id, other.id)
+    key = "groups-pending-renamed"
+    entry = _entry(key, visibility="private", groups=[str(shared.id)])
+    job = await _in_flight(
+        test_db_session,
+        user,
+        entry,
+        manifest_version="2",
+        manifest_requested_visibility="private",
+        visibility="private",
+        manifest_groups=[str(shared.id)],
+    )
+    job_id = job.id
+    renamed = f"zeta-{uuid.uuid4().hex[:8]}"
+    await _commit(update(Group).where(Group.id == shared.id).values(name=renamed))
+    layer = _layer(dataset_key=key)
+
+    response, _ = await _apply_entries(
+        test_db_session,
+        user,
+        _entries_request(
+            entry,
+            dry_run=True,
+            maps=[
+                _map("groups-pending-renamed-map", layer, groups=[str(shared.id)]),
+                _map("groups-pending-others-map", layer, groups=[str(others.id)]),
+            ],
+        ),
+    )
+
+    [reused] = response.results
+    assert (reused.action, reused.job_id) == ("skip", job_id)
+    assert reused.groups == [renamed]
+    _assert_maps_written(response.maps)
+    reads, without = response.maps
+    assert (reads.groups, _layer_gaps(reads)) == ([renamed], [])
+    [(gap_layer, gap)] = _layer_gaps(without)
+    assert (gap_layer, others.name in gap) == ("parks", True)
+
+
+async def test_a_reused_job_isnt_answered_for_once_edit_metadata_is_revoked(
+    client, admin_auth_header, test_db_session, clean_tables, monkeypatch
+):
+    """The job will keep the dataset's groups, which the entry can't promise,
+    so the entry is refused and its layer has no dataset to be judged on."""
+    _stage_fixture()
+    headers, editor = await _editor(client, test_db_session, admin_auth_header)
+    mine = await _group(test_db_session, editor.id)
+    key = "groups-pending-revoked-permission"
+    entry = await _uploaded(client, headers, key, groups=[str(mine.id)])
+    [queued] = (await _apply_entries(test_db_session, editor, _entries_request(entry)))[
+        0
+    ].results
+    assert queued.action == "create"
+    _editors_without(monkeypatch, "edit_metadata")
+
+    response, _ = await _apply_entries(
+        test_db_session,
+        editor,
+        _entries_request(
+            entry,
+            dry_run=True,
+            maps=[
+                _map(
+                    "groups-pending-revoked-map",
+                    _layer(dataset_key=key),
+                    groups=[str(mine.id)],
+                )
+            ],
+        ),
+    )
+
+    [refused] = response.results
+    assert (refused.action, refused.errors) == (
+        "error",
+        ["Missing permission: edit_metadata"],
+    )
+    [checked] = response.maps
+    assert checked.action == "error"
+    assert ("A052", "parks") in [(m.code, m.layer) for m in checked.messages]
+    assert _layer_gaps(checked) == []
+
+
+# A queued replacement's share, one row per way it can end: the dataset's
+# level and groups when the entry was applied, the groups the entry names,
+# whether a publish key applied it, what changed before the job runs, and the
+# groups the dataset is left with. "held-back" rows publish with group b held
+# back, which the dry run warns of with A056; "refused" rows fail the job with
+# GroupsOutsideEntry and leave the groups as they were.
+_QUEUED_SHARES = {
+    "unchanged": ("restricted", "ab", "ab", False, None, "published", "ab"),
+    "revoked-since": ("restricted", "ab", "ab", False, "revoke-b", "held-back", "a"),
+    "granted-since": ("restricted", "a", "a", False, "grant-c", "published", "a"),
+    "swap": ("restricted", "a", "b", False, None, "published", "b"),
+    "removed": ("restricted", "a", "", False, None, "published", ""),
+    "narrowed-addition": ("internal", "a", "ab", False, "narrow", "held-back", "a"),
+    "narrowed-swap": ("internal", "a", "b", False, "narrow", "refused", "a"),
+    "key-addition": ("restricted", "a", "ab", True, None, "held-back", "a"),
+    "key-addition-granted-since": (
+        "restricted",
+        "a",
+        "ab",
+        True,
+        "grant-c",
+        "refused",
+        "ac",
+    ),
+}
+
+
+def _job_refusals(answer) -> list[tuple[str, str]]:
+    """The A056 an entry carries for a matched job that will be refused."""
+    return [
+        (m.code, m.severity)
+        for m in answer.messages
+        if "will not replace its data" in m.message
+    ]
+
+
+def _assert_held_back_b(answer, groups, *, held_back: bool) -> None:
+    """The answer warns A056 that group b is held back, and of nothing else."""
+    assert [(m.code, m.severity) for m in answer.messages] == (
+        [("A056", "warning")] if held_back else []
+    ), answer.messages
+    if held_back:
+        assert groups["b"].name in answer.messages[0].message
+
+
+async def _change_dataset(session, dataset_id, change, groups) -> None:
+    if change == "revoke-b":
+        await session.execute(
+            delete(DatasetGroupGrant).where(
+                DatasetGroupGrant.dataset_id == dataset_id,
+                DatasetGroupGrant.group_id == groups["b"].id,
+            )
+        )
+    elif change == "grant-c":
+        session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=groups["c"].id))
+    elif change == "narrow":
+        await _set_record(session, dataset_id, "restricted", "published")
+    await session.commit()
+
+
+@pytest.mark.parametrize(
+    ("level", "granted", "named", "by_key", "change", "outcome", "left_with"),
+    list(_QUEUED_SHARES.values()),
+    ids=list(_QUEUED_SHARES),
+)
+async def test_a_dry_run_over_a_queued_replacement_answers_as_its_job_ends(
+    client,
+    admin_auth_header,
+    test_db_session,
+    clean_tables,
+    level,
+    granted,
+    named,
+    by_key,
+    change,
+    outcome,
+    left_with,
+):
+    """The same manifest sent again as a dry run while its replacement is
+    queued names the groups the job then leaves, and is refused where the
+    job is."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    groups = {letter: await _group(test_db_session, user.id) for letter in "abc"}
+    key = f"groups-queued-{uuid.uuid4().hex[:8]}"
+    dataset_id = await _manifest_dataset(test_db_session, user, key, level, "published")
+    test_db_session.add_all(
+        DatasetGroupGrant(dataset_id=dataset_id, group_id=groups[letter].id)
+        for letter in granted
+    )
+    await test_db_session.commit()
+    entry = await _uploaded(
+        client,
+        admin_auth_header,
+        key,
+        groups=[str(groups[letter].id) for letter in named],
+    )
+
+    def scope():
+        return _publish_key(test_db_session) if by_key else contextlib.nullcontext()
+
+    with scope():
+        queued, task = await _queue_update(test_db_session, user, entry)
+    assert queued.action == "update", queued
+    await _change_dataset(test_db_session, dataset_id, change, groups)
+
+    with scope():
+        response, _ = await _apply_entries(
+            test_db_session, user, _entries_request(entry, dry_run=True)
+        )
+    [answer] = response.results
+    # A refused dry run rolled the session back, which expires the user row.
+    user = await _admin_user(test_db_session)
+    with scope():
+        applied, _ = await _apply_entries(
+            test_db_session, user, _entries_request(entry)
+        )
+    [again] = applied.results
+    if outcome == "refused" and by_key:
+        # The share planned now is refused too, so the job isn't this entry's.
+        assert again.errors == ["dataset_busy"], again
+    else:
+        assert (again.action, again.job_id) == ("skip", queued.job_id)
+        assert _job_refusals(again) == (
+            [("A056", "warning")] if outcome == "refused" else []
+        )
+
+    if outcome != "refused":
+        assert (answer.action, answer.job_id) == ("skip", queued.job_id)
+        assert sorted(answer.groups) == sorted(groups[g].name for g in left_with)
+        _assert_held_back_b(answer, groups, held_back=outcome == "held-back")
+        job = await _run_update(test_db_session, queued, task)
+        assert (job.status, job.error_message) == ("complete", None)
+        # A key's share held back at the apply stores none, so its job has
+        # nothing left to hold back.
+        assert await _held_back_warnings(job) == (
+            [{"group_ids": [str(groups["b"].id)], "reason": "held_back"}]
+            if outcome == "held-back" and not by_key
+            else []
+        )
+    else:
+        assert answer.action == "error", answer
+        with pytest.raises(ValueError, match="groups this publish leaves out"):
+            await _run_update(test_db_session, queued, task)
+        assert (await _failed_job(test_db_session, queued)).status == "failed"
+    assert await _dataset_grants(test_db_session, dataset_id) == {
+        groups[letter].id for letter in left_with
+    }
+
+
+async def test_a_dry_run_refuses_a_queued_replacement_its_job_will_refuse(
+    client, admin_auth_header, test_db_session, clean_tables
+):
+    """An internal dataset shared with A, a replacement queued for B, then the
+    dataset narrowed: the job holds the swap back and keeps A, which the entry
+    leaves out, so the dry run refuses the entry with A056 and its layer has
+    no dataset to be judged on. The apply still answers for the queued job,
+    with the refusal as a warning."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    kept = await _group(test_db_session, user.id)
+    named = await _group(test_db_session, user.id)
+    key = "groups-queued-refused"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "internal", "published"
+    )
+    test_db_session.add(DatasetGroupGrant(dataset_id=dataset_id, group_id=kept.id))
+    await test_db_session.commit()
+    entry = await _uploaded(client, admin_auth_header, key, groups=[str(named.id)])
+    queued, _ = await _queue_update(test_db_session, user, entry)
+    assert queued.action == "update", queued
+    await _set_record(test_db_session, dataset_id, "restricted", "published")
+    layer = _layer(dataset_key=key)
+    maps = [_map("groups-queued-refused-map", layer, groups=[str(named.id)])]
+
+    response, _ = await _apply_entries(
+        test_db_session, user, _entries_request(entry, dry_run=True, maps=maps)
+    )
+
+    [refused] = response.results
+    assert refused.action == "error"
+    assert [(m.code, m.severity) for m in refused.messages] == [("A056", "error")]
+    assert "made visible to fewer people" in refused.messages[0].message
+    [checked] = response.maps
+    assert ("A052", "parks") in [(m.code, m.layer) for m in checked.messages]
+    assert _layer_gaps(checked) == []
+
+    # The refused entry rolled the session back, which expires the user row.
+    user = await _admin_user(test_db_session)
+    response, _ = await _apply_entries(test_db_session, user, _entries_request(entry))
+
+    [reused] = response.results
+    assert (reused.action, reused.job_id) == ("skip", queued.job_id)
+    assert reused.groups == [kept.name]
+    assert [(m.code, m.severity) for m in reused.messages] == [("A056", "warning")]
+    assert reused.messages[0].message == refused.messages[0].message
+
+
+@pytest.mark.skipif(shutil.which("ogr2ogr") is None, reason="needs ogr2ogr")
+@pytest.mark.requires_ogr2ogr
+@pytest.mark.parametrize(
+    ("level", "granted", "named", "change", "accepted", "left_with"),
+    [
+        ("restricted", "ab", "ab", "revoke-b", True, "a"),
+        ("internal", "a", "b", "narrow", False, "a"),
+    ],
+    ids=["revoked-since", "narrowed-swap"],
+)
+async def test_a_dry_run_over_a_held_replacement_answers_as_its_accept_ends(
+    test_db_session, clean_tables, level, granted, named, change, accepted, left_with
+):
+    """A dry run of a held replacement's unchanged entry names the groups
+    Accept leaves the dataset with, and is refused where Accept's publish is."""
+    user = await _admin_user(test_db_session)
+    groups = {letter: await _group(test_db_session, user.id) for letter in "ab"}
+    request = ManifestApplyRequest.model_validate(
+        {
+            "manifest_version": "2",
+            "catalog": {"title": "Manifest catalog"},
+            "client": {"id": "geolens-qgis", "version": "0.2.0"},
+            "datasets": [
+                {
+                    **_held_entry(
+                        _HELD_KEY, title="Resurveyed roads", intent="published"
+                    ),
+                    "groups": [str(groups[letter].id) for letter in named],
+                }
+            ],
+        }
+    )
+    held = await _held_apply(
+        test_db_session,
+        request,
+        visibility=level,
+        group_ids=[groups[letter].id for letter in granted],
+    )
+    await _change_dataset(test_db_session, held.dataset_id, change, groups)
+
+    with _reupload_task():
+        response = await apply_manifest(
+            test_db_session,
+            request.model_copy(update={"dry_run": True}),
+            held.user,
+            _held_http_request(),
+        )
+    [answer] = response.results
+    # A refused dry run rolled the session back, which expires the user row.
+    held = dataclasses.replace(held, user=await _admin_user(test_db_session))
+    with _reupload_task():
+        applied = await apply_manifest(
+            test_db_session, request, held.user, _held_http_request()
+        )
+    [again] = applied.results
+    assert (again.action, again.run_id) == ("blocked", held.run_id)
+    assert _job_refusals(again) == ([] if accepted else [("A056", "warning")])
+    if not accepted:
+        # An Accept would roll back, so the answer is the dataset as it stands.
+        assert (again.visibility, again.groups) == ("restricted", [groups["a"].name])
+    held = dataclasses.replace(held, user=await _admin_user(test_db_session))
+
+    if accepted:
+        assert (answer.action, answer.run_id) == ("blocked", held.run_id)
+        assert sorted(answer.groups) == sorted(groups[g].name for g in left_with)
+        _assert_held_back_b(answer, groups, held_back=True)
+        job = await _accept(test_db_session, held, publish_key=False)
+        assert (job.status, job.error_message) == ("complete", None)
+    else:
+        assert answer.action == "error", answer
+        assert [(m.code, m.severity) for m in answer.messages] == [("A056", "error")]
+        with pytest.raises(ValueError, match="groups this publish leaves out"):
+            await _accept(test_db_session, held, publish_key=False)
+    assert await _dataset_grants(test_db_session, held.dataset_id) == {
+        groups[letter].id for letter in left_with
+    }
+
+
+_NEW_OWNERS_MAP = "Plans of the new owner"
+
+
+async def _pass_to_a_new_owner(client, admin_auth_header, session, dataset_id):
+    """Transfer the dataset to an editor whose organization-wide map shows
+    it, so unpublishing it would strand that map's other readers."""
+    _, owner = await _editor(client, session, admin_auth_header)
+    await _editor(client, session, admin_auth_header)
+    record_id = select(Dataset.record_id).where(Dataset.id == dataset_id)
+    await session.execute(
+        update(Record)
+        .where(Record.id == record_id.scalar_subquery())
+        .values(created_by=owner.id)
+    )
+    owners_map = Map(name=_NEW_OWNERS_MAP, created_by=owner.id, visibility="internal")
+    session.add(owners_map)
+    await session.flush()
+    session.add(MapLayer(map_id=owners_map.id, dataset_id=dataset_id))
+    await session.commit()
+
+
+@pytest.mark.parametrize("queued", [True, False], ids=["in-flight", "fresh"])
+async def test_a_former_owner_learns_nothing_of_the_new_owners_maps(
+    client, admin_auth_header, test_db_session, clean_tables, queued
+):
+    """The dataset passed to another owner, with or without its replacement
+    still in flight: the former owner sending the same entry again is
+    answered MANIFEST_KEY_NOT_OWNED, before the new owner's shared maps are
+    judged, and no answer names them."""
+    _stage_fixture()
+    user = await _admin_user(test_db_session)
+    key = f"groups-transferred-{'queued' if queued else 'fresh'}"
+    dataset_id = await _manifest_dataset(
+        test_db_session, user, key, "internal", "published"
+    )
+    entry = await _uploaded(
+        client, admin_auth_header, key, publication={"intent": "draft"}
+    )
+    if queued:
+        result, _ = await _queue_update(test_db_session, user, entry)
+        assert result.action == "update", result
+    await _pass_to_a_new_owner(client, admin_auth_header, test_db_session, dataset_id)
+
+    for dry_run in (True, False):
+        user = await _admin_user(test_db_session)
+        response, _ = await _apply_entries(
+            test_db_session, user, _entries_request(entry, dry_run=dry_run)
+        )
+        [refused] = response.results
+        assert (refused.action, refused.message) == ("error", MANIFEST_KEY_NOT_OWNED)
+        assert _NEW_OWNERS_MAP not in response.model_dump_json()
+
+
+async def test_a_dataset_deleted_before_its_owner_is_read_is_not_owned():
+    """A record gone before the admit reads its owner answers
+    MANIFEST_KEY_NOT_OWNED, not the ORM's message."""
+    from sqlalchemy.exc import InvalidRequestError
+
+    from app.processing.ingest.manifest_service import (
+        ManifestSourceError,
+        _admit_key_dataset,
+    )
+
+    db = AsyncMock()
+    db.refresh.side_effect = InvalidRequestError("Could not refresh instance")
+    dataset = type("D", (), {"id": uuid.uuid4(), "record": object()})()
+    user = type("U", (), {"id": uuid.uuid4()})()
+    with pytest.raises(ManifestSourceError, match=re.escape(MANIFEST_KEY_NOT_OWNED)):
+        await _admit_key_dataset(db, dataset, user)

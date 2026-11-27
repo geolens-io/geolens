@@ -868,12 +868,13 @@ class ManifestApplyEntryResult(BaseModel):
     _pending: bool = PrivateAttr(default=False)
     _pending_visibility: str | None = PrivateAttr(default=None)
     # What a version 2 entry decided, once it has: the visibility its job
-    # writes (None keeps the dataset's), the group names it shares with (None
-    # keeps the dataset's groups), and whether a role grant keeps the dataset
-    # restricted without groups. Not part of the response.
+    # writes (None keeps the dataset's), the groups it shares with, by name
+    # and by id (None keeps the dataset's groups), and whether a role grant
+    # keeps the dataset restricted without groups. Not part of the response.
     _decided: bool = PrivateAttr(default=False)
     _decided_visibility: str | None = PrivateAttr(default=None)
     _planned_groups: list[str] | None = PrivateAttr(default=None)
+    _planned_group_ids: list[uuid.UUID] | None = PrivateAttr(default=None)
     _role_granted: bool = PrivateAttr(default=False)
 
     def mark_pending(self, visibility: str | None) -> None:
@@ -890,12 +891,17 @@ class ManifestApplyEntryResult(BaseModel):
         return self._pending_visibility
 
     def decide(
-        self, visibility: str | None, groups: list[str] | None, role_granted: bool
+        self,
+        visibility: str | None,
+        groups: list[str] | None,
+        role_granted: bool,
+        group_ids: list[uuid.UUID] | None = None,
     ) -> None:
         """Record what the entry decided its job publishes."""
         self._decided = True
         self._decided_visibility = visibility
         self._planned_groups = groups
+        self._planned_group_ids = group_ids
         self._role_granted = role_granted
 
     @property
@@ -909,6 +915,10 @@ class ManifestApplyEntryResult(BaseModel):
     @property
     def planned_groups(self) -> list[str] | None:
         return self._planned_groups
+
+    @property
+    def planned_group_ids(self) -> list[uuid.UUID] | None:
+        return self._planned_group_ids
 
     @property
     def role_granted(self) -> bool:

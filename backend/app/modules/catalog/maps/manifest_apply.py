@@ -25,7 +25,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.identity import Identity
 from app.core.permissions import EDIT_METADATA
-from app.core.processing_port import MINTED_SHARE_KEY
+from app.core.processing_port import MINTED_SHARE_KEY, PendingManifestDataset
 from app.core.record_types import capabilities
 from app.modules.auth import permissions as auth_permissions
 from app.modules.auth.schemas import GroupRef
@@ -88,11 +88,13 @@ from app.modules.catalog.maps.manifest_visibility import (
     planned_public,
 )
 from app.modules.catalog.maps.manifest_sharing import (
+    ShownDataset,
     group_messages,
     layer_sharing_gaps,
     lock_entry_groups,
     more_visible,
     plan_map_groups,
+    planned_dataset,
     share_map,
     with_groups,
 )
@@ -178,7 +180,7 @@ class _Request:
     user: Identity
     dry_run: bool
     dataset_ids_by_key: Mapping[str, uuid.UUID]
-    pending_datasets: Mapping[str | uuid.UUID, tuple[str | None, str]]
+    pending_datasets: Mapping[str | uuid.UUID, PendingManifestDataset]
     unsettled_dataset_ids: Collection[uuid.UUID]
     datasets: Mapping[uuid.UUID, _Dataset]
     basemap_ids: set[str]
@@ -544,24 +546,39 @@ def _shown_datasets(
     stored: Sequence[tuple[MapLayer, _Dataset | None]],
     unsettled: Collection[uuid.UUID],
     request: _Request,
-) -> list[tuple[str | None, uuid.UUID, _Dataset]]:
+    named_pending: Mapping[str, ShownDataset],
+) -> list[ShownDataset]:
     """Each layer the planned map shows, by key (None for one added in
-    GeoLens), with its dataset when the caller reads it and this request
-    doesn't publish it: those keep their own audience whatever the map's. A
-    layer the apply keeps shows its stored dataset."""
+    GeoLens), with its dataset: one this request publishes as its entry
+    leaves it, and any other when the caller reads it, which keeps its own
+    audience whatever the map's. ``named_pending`` holds, by layer key, the
+    dataset the manifest names when this request publishes it. A layer shows
+    that dataset once the publish is done, a kept layer still on another
+    dataset in the plan included, since it moves there when the maps are
+    sent again. Any other layer the apply keeps shows its stored dataset."""
     readable = {
         **{layer.dataset_id: dataset for layer, dataset in stored if dataset},
         **datasets,
     }
     shown = []
     for layer, key in zip(plan.layers, plan.layer_keys, strict=False):
+        if key in named_pending:
+            shown.append(named_pending[key])
+            continue
         dataset = readable.get(layer.dataset_id)
-        if (
-            dataset is not None
-            and layer.dataset_id not in request.pending_datasets
-            and layer.dataset_id not in unsettled
-        ):
-            shown.append((key, layer.dataset_id, dataset))
+        planned = request.pending_datasets.get(layer.dataset_id)
+        if planned is not None:
+            shown.append(planned_dataset(key, layer.dataset_id, dataset, planned))
+        elif dataset is not None and layer.dataset_id not in unsettled:
+            shown.append(
+                ShownDataset(
+                    key,
+                    layer.dataset_id,
+                    dataset.title,
+                    dataset.visibility,
+                    dataset.record_status,
+                )
+            )
     return shown
 
 
@@ -571,7 +588,7 @@ async def _plan_sharing(
     request: _Request,
     plan: _Plan,
     shows_non_public: bool,
-    shown: Sequence[tuple[str | None, uuid.UUID, _Dataset]],
+    shown: Sequence[ShownDataset],
     messages: list[dict[str, Any]],
 ) -> tuple[str, list[GroupRef]]:
     """Plan who reads the map: the visibility it stores and its groups,
@@ -610,8 +627,22 @@ async def _plan_sharing(
         now, visibility, added_groups=bool(plan.share and plan.share.added)
     ):
         messages.append(more_visible(entry, visibility, groups))
-    messages.extend(await layer_sharing_gaps(session, shown, visibility, groups))
+    messages.extend(
+        await layer_sharing_gaps(session, shown, visibility, groups, request.user.id)
+    )
     return visibility, groups
+
+
+def _name_pending(
+    named_pending: dict[str, ShownDataset],
+    key: str,
+    dataset_id: uuid.UUID | None,
+    dataset: _Dataset | None,
+    planned: PendingManifestDataset | None,
+) -> None:
+    """Record the dataset a layer names when this request publishes it."""
+    if planned is not None:
+        named_pending[key] = planned_dataset(key, dataset_id, dataset, planned)
 
 
 async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _Plan:
@@ -681,6 +712,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
     layers: list[MapLayerInput] = []
     keys: list[str] = []
     non_public_by_key: dict[str, bool] = {}
+    named_pending: dict[str, ShownDataset] = {}
     targets: dict[str, Target] = {}
     datasets, unsettled = request.datasets, request.unsettled_dataset_ids
     if not request.dry_run:
@@ -718,6 +750,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
             layers.append(stored_layer)
             keys.append(layer.key)
             targets[layer.key] = Target(dataset_id, dataset, stored_layer)
+            _name_pending(named_pending, layer.key, dataset_id, dataset, planned)
     plan = _Plan(result={}, map_obj=map_obj, styling_applied=styling_applied)
     plan.notes = managed_notes(
         map_obj.notes if map_obj is not None else None,
@@ -843,7 +876,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
         for key, non_public in non_public_by_key.items()
         if styling_applied or key not in unmoved
     )
-    shown = _shown_datasets(plan, datasets, stored, unsettled, request)
+    shown = _shown_datasets(plan, datasets, stored, unsettled, request, named_pending)
     stored_visibility, groups = await _plan_sharing(
         session, entry, request, plan, shows_non_public, shown, messages
     )
@@ -1154,7 +1187,7 @@ async def apply_manifest_maps(
     *,
     dry_run: bool,
     dataset_ids_by_key: Mapping[str, uuid.UUID],
-    pending_datasets: Mapping[str | uuid.UUID, tuple[str | None, str]],
+    pending_datasets: Mapping[str | uuid.UUID, PendingManifestDataset],
     unsettled_dataset_ids: Collection[uuid.UUID],
     public_fallback: str | None,
     client: Any,
@@ -1165,12 +1198,12 @@ async def apply_manifest_maps(
     ``dataset_ids_by_key`` holds the dataset each layer's ``dataset_key``
     names; an absent key reads like a missing dataset. ``pending_datasets``
     are the request's own dataset entries that will change their dataset, by
-    key and by the dataset's id, each with the visibility (None keeps the
-    dataset's) and status it publishes: a layer naming one whose dataset it
-    can't read is checked without columns instead of refused, and the map's
-    visibility is judged on what the entry publishes. A layer on a dataset in
-    ``unsettled_dataset_ids`` and not pending reads like a missing dataset.
-    ``client`` is the request's ``ManifestClient``.
+    key and by the dataset's id, each with the visibility, status, title and
+    groups it publishes: a layer naming one whose dataset it can't read is
+    checked without columns instead of refused, and the map's visibility and
+    its readers' access to the layer are judged on what the entry publishes.
+    A layer on a dataset in ``unsettled_dataset_ids`` and not pending reads
+    like a missing dataset. ``client`` is the request's ``ManifestClient``.
 
     A dry run writes nothing; the caller rolls the session back. An apply
     commits each map that checked clean, and rolls back a map with an error
