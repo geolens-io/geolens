@@ -7,6 +7,7 @@
  * but no toast) and GREEN post-fix.
  */
 import { render, fireEvent, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { InlineEdit } from '@/components/dataset/InlineEdit';
 
 vi.mock('react-i18next', () => ({
@@ -317,5 +318,39 @@ describe('InlineEdit without edit rights', () => {
     expect(container).toHaveTextContent('common:notSet');
     expect(container).not.toHaveTextContent('Add a description...');
     expect(container.querySelector('[role="button"]')).toBeNull();
+  });
+});
+
+describe('InlineEdit focus on activation', () => {
+  it.each([
+    ['Enter', false, '{Enter}'],
+    ['Space', false, ' '],
+    ['Enter', true, '{Enter}'],
+  ])('keeps every keystroke typed right after %s opens the editor (multiline: %s)', async (_name, multiline, key) => {
+    const user = userEvent.setup();
+    const { container } = render(
+      <InlineEdit value="old" onSave={vi.fn()} canEdit multiline={multiline} saveOnBlur />,
+    );
+
+    const trigger = container.querySelector('[role="button"]') as HTMLElement;
+    trigger.focus();
+    await user.keyboard(key);
+    await user.keyboard('Up');
+
+    const field = container.querySelector(multiline ? 'textarea' : 'input') as HTMLInputElement;
+    expect(field).toHaveFocus();
+    expect(field.value).toBe('Up');
+  });
+
+  it('selects the existing text when a pointer opens the editor and stays open', async () => {
+    const user = userEvent.setup();
+    const { container } = render(<InlineEdit value="old text" onSave={vi.fn()} canEdit />);
+
+    await user.click(container.querySelector('[role="button"]') as HTMLElement);
+
+    const input = container.querySelector('input') as HTMLInputElement;
+    expect(input).toHaveFocus();
+    expect(input.selectionStart).toBe(0);
+    expect(input.selectionEnd).toBe('old text'.length);
   });
 });

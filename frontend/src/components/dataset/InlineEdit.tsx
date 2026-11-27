@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect, useCallback } from 'react';
+import { useState, useRef, useEffect, useLayoutEffect, useCallback } from 'react';
 import { useTranslation } from 'react-i18next';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -72,15 +72,12 @@ export function InlineEdit({
     }
   }, [value, editing, emitDirtyChange]);
 
-  // Focus input after entering edit mode, using requestAnimationFrame
-  // to avoid the activation click triggering an immediate blur
-  useEffect(() => {
+  // Focus synchronously when the editor mounts: the trigger that had focus is
+  // gone by then, so a deferred focus would send the next keystroke to <body>.
+  useLayoutEffect(() => {
     if (editing) {
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-        // Select all text for easy replacement
-        inputRef.current?.select();
-      });
+      inputRef.current?.focus();
+      inputRef.current?.select();
     }
   }, [editing]);
 
