@@ -364,17 +364,33 @@ export async function getMapShareToken(mapId: string): Promise<ShareTokenRespons
   return apiFetch<ShareTokenResponse | null>(`/maps/${encodeURIComponent(mapId)}/share/`);
 }
 
-export async function uploadThumbnail(mapId: string, dataUri: string): Promise<void> {
+export async function uploadThumbnail(
+  mapId: string,
+  dataUri: string,
+  expectedUpdatedAt?: string,
+): Promise<void> {
   await apiFetch(`/maps/${encodeURIComponent(mapId)}/thumbnail/`, {
     method: 'PUT',
-    body: JSON.stringify({ data_uri: dataUri }),
+    body: JSON.stringify(
+      expectedUpdatedAt !== undefined
+        ? { data_uri: dataUri, expected_updated_at: expectedUpdatedAt }
+        : { data_uri: dataUri },
+    ),
   });
 }
 
-export async function uploadOgImage(mapId: string, dataUri: string): Promise<void> {
+export async function uploadOgImage(
+  mapId: string,
+  dataUri: string,
+  expectedUpdatedAt?: string,
+): Promise<void> {
   await apiFetch(`/maps/${encodeURIComponent(mapId)}/og-image/`, {
     method: 'PUT',
-    body: JSON.stringify({ data_uri: dataUri }),
+    body: JSON.stringify(
+      expectedUpdatedAt !== undefined
+        ? { data_uri: dataUri, expected_updated_at: expectedUpdatedAt }
+        : { data_uri: dataUri },
+    ),
   });
 }
 

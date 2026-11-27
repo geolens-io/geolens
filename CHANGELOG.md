@@ -23,6 +23,7 @@ and releases use semantic versioning.
 ### Changed
 - Embedded maps ask for Ctrl + scroll (Cmd on a Mac) or two fingers, so they no longer trap a host page's scrolling; opened directly, an embed behaves as before.
 - The catalog's Type filter shows each type's icon, so the Compact view's icons have a key.
+- `PUT /maps/{id}/thumbnail/` and `PUT /maps/{id}/og-image/` accept an optional `expected_updated_at` timestamp and reject stale uploads with 409 `stale_write`.
 - The reload prompt shown after an upgrade now says the site was updated, instead of announcing a new version of GeoLens.
 - `PUT /maps/{id}` with a view field or `basemap_style` waits at most two seconds for a map another change holds, then answers 409, as layer saves already do; it used to wait for the other change to finish.
 - A collection's update time, shown on its search card and used by the Collections page's "Last updated" sort, now moves when datasets are added to or removed from it, and just after a member dataset is deleted.
