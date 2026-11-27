@@ -316,11 +316,7 @@ describe('DatasetPage editable affordance integration', () => {
 
     const summaryInput = screen.getByDisplayValue('Original summary');
 
-    // InlineEdit focuses and selects on the next animation frame; typing before
-
-    // that lets the late select() swallow the first typed character.
-
-    await waitFor(() => expect(summaryInput).toHaveFocus());
+    expect(summaryInput).toHaveFocus();
     await user.clear(summaryInput);
     await user.type(summaryInput, 'Updated summary pending save');
     await user.keyboard('{Control>}{Enter}{/Control}');
@@ -345,11 +341,7 @@ describe('DatasetPage editable affordance integration', () => {
 
     const secondEditInput = screen.getByDisplayValue('Original summary');
 
-    // InlineEdit focuses and selects on the next animation frame; typing before
-
-    // that lets the late select() swallow the first typed character.
-
-    await waitFor(() => expect(secondEditInput).toHaveFocus());
+    expect(secondEditInput).toHaveFocus();
     await user.clear(secondEditInput);
     await user.type(secondEditInput, 'Summary that will be canceled');
     await user.keyboard('{Control>}{Enter}{/Control}');

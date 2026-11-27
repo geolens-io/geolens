@@ -322,6 +322,14 @@ describe('InlineEdit without edit rights', () => {
 });
 
 describe('InlineEdit focus on activation', () => {
+  // A frame callback that never runs: only focus taken synchronously on mount passes.
+  beforeEach(() => {
+    vi.stubGlobal('requestAnimationFrame', () => 0);
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
   it.each([
     ['Enter', false, '{Enter}'],
     ['Space', false, ' '],
