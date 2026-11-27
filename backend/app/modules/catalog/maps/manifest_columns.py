@@ -12,9 +12,13 @@ same walk.
 from __future__ import annotations
 
 import re
-from collections.abc import Callable, Generator
+from collections.abc import Callable, Generator, Mapping, Sequence
+from dataclasses import dataclass
 from typing import Any
 
+from pydantic import ValidationError
+
+from app.modules.catalog.maps.arcgis_webmap.fields import FieldNames
 from app.modules.catalog.maps.schemas import MapLayerInput
 
 Rename = Callable[[str], str]
@@ -422,8 +426,15 @@ def rename_layer_columns(layer: MapLayerInput, rename: Rename) -> MapLayerInput:
     if popup is not None:
         popup = popup.model_copy(
             update={
+                # Two references can resolve to one column; the popup takes
+                # each field once.
                 "visible_fields": (
-                    [rename(name) if name else name for name in popup.visible_fields]
+                    list(
+                        dict.fromkeys(
+                            rename(name) if name else name
+                            for name in popup.visible_fields
+                        )
+                    )
                     if popup.visible_fields is not None
                     else None
                 ),
@@ -526,3 +537,99 @@ def emitted_columns(style_layer: dict[str, Any]) -> set[str]:
             _tokens(value, _LAYOUT_TOKEN, collector)
     _filter(style_layer.get("filter"), collector)
     return collector.names
+
+
+@dataclass(frozen=True)
+class ColumnRepair:
+    """What repairing a layer's column references against stored columns did.
+
+    ``repaired`` maps each referenced name that changed to the stored name it
+    now reads. ``unrepaired`` maps each referenced name left as it was to why
+    it stayed: ``"missing"`` when no stored column resolves it, ``"ambiguous"``
+    when more than one stored column matches it ignoring case, ``"invalid"``
+    when the renamed layer would not validate. ``refused`` says why the
+    renamed layer would not validate, and is None otherwise.
+    """
+
+    repaired: dict[str, str]
+    unrepaired: dict[str, str]
+    refused: str | None = None
+
+
+def repair_layer_columns(
+    layer: MapLayerInput,
+    columns: Sequence[Mapping[str, Any]] | None,
+) -> tuple[MapLayerInput, ColumnRepair]:
+    """``layer`` with each column reference rewritten to the stored name.
+
+    A reference is rewritten to the stored column ``FieldNames`` resolves it
+    to from the dataset's ``column_info``: the column whose recorded
+    ``source_name`` it is first, then the exact name, then the laundered
+    name, then the one column equal to it ignoring case. A reference that
+    already names a stored column stays, even when another column records
+    that name as its source field: the layer already reads a real column,
+    and moving it would point it at a different column. Two columns that
+    name each other would swap the reference on every run without that
+    rule. A reference that resolves to nothing is kept and reported
+    ``"missing"``, unless more than one stored column matches it ignoring
+    case, when it is ``"ambiguous"``, so a repair never guesses between two
+    columns. With no columns recorded the names cannot be judged, so the
+    layer is left as it was. ``layer`` itself is left as it was.
+
+    The renamed layer is validated as a stored layer is read back. A stored
+    name can be longer than the name it replaces, so a rename can push a
+    bounded field such as the popup title past its limit; when the renamed
+    layer would not validate, ``layer`` is returned as it was, every name
+    the repair would have changed is reported ``"invalid"``, and
+    ``refused`` says why.
+    """
+    if not columns:
+        return layer, ColumnRepair(repaired={}, unrepaired={})
+    stored = FieldNames(columns)
+    by_folded: dict[str, set[str]] = {}
+    stored_names: set[str] = set()
+    for column in columns:
+        if not isinstance(column, Mapping):
+            continue
+        name = column.get("name")
+        if isinstance(name, str):
+            by_folded.setdefault(name.casefold(), set()).add(name)
+            stored_names.add(name)
+    repaired: dict[str, str] = {}
+    unrepaired: dict[str, str] = {}
+
+    def rename(name: str) -> str:
+        if not name:
+            return name
+        if name in stored_names:
+            return name
+        resolved = stored.stored(name)
+        if resolved is not None:
+            if resolved != name:
+                repaired[name] = resolved
+            return resolved
+        if name not in unrepaired:
+            unrepaired[name] = (
+                "ambiguous"
+                if len(by_folded.get(name.casefold(), set())) > 1
+                else "missing"
+            )
+        return name
+
+    renamed = rename_layer_columns(layer, rename)
+    if not repaired:
+        return renamed, ColumnRepair(repaired=repaired, unrepaired=unrepaired)
+    try:
+        # ``rename_layer_columns`` copies without validating.
+        MapLayerInput.model_validate(renamed.model_dump())
+    except ValidationError as exc:
+        refused = "; ".join(
+            f"{'.'.join(str(part) for part in error['loc'])}: {error['msg']}"
+            for error in exc.errors(include_input=False)[:3]
+        )
+        return layer, ColumnRepair(
+            repaired={},
+            unrepaired={**unrepaired, **dict.fromkeys(repaired, "invalid")},
+            refused=refused,
+        )
+    return renamed, ColumnRepair(repaired=repaired, unrepaired=unrepaired)
