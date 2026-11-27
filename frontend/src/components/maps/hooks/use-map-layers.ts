@@ -10,7 +10,7 @@ import { mixedLinesLayerId, mixedPointsLayerId } from '@/components/builder/laye
 import { describeLayers, getSourceIdForLayer } from '@/components/builder/layer-description';
 import type { SyncLayerInput } from '@/components/builder/map-sync';
 import { normalizeRasterBounds } from '@/components/builder/layer-adapters/shared';
-import { DEFAULT_HILLSHADE_PAINT } from '@/components/builder/layer-adapters/builder-defaults';
+import { DEFAULT_HILLSHADE_PAINT, rasterSourceMinzoom } from '@/components/builder/layer-adapters/builder-defaults';
 
 /** Empty GeoJSON FeatureCollection */
 const EMPTY_FC: GeoJSON.FeatureCollection = { type: 'FeatureCollection', features: [] };
@@ -149,9 +149,7 @@ export function useMapLayers({
   const vectorLayersAdded = useRef(false);
   const rasterLayersAdded = useRef(false);
   const rasterInstalledMinzoom = useRef(0);
-  // The token's floor is where the raster is about 128 px across; a preview can
-  // be only ~90 px tall once fitted, so it floors two zooms lower (~32 px).
-  const sourceMinzoom = isDem ? 0 : Math.max(0, rasterMinzoom - 2);
+  const sourceMinzoom = isDem ? 0 : rasterSourceMinzoom(rasterMinzoom);
   // MapLibre renders attribution as innerHTML. See lib/attribution-safety.
   const safeAttribution = toMapLibreAttribution(attribution);
 

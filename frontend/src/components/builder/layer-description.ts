@@ -19,7 +19,7 @@ import { getCompanionLayerIds } from './companion-ids';
 import { getClusterSourceOptions } from './layer-adapters/cluster-adapter';
 import { resolveHeightColumn } from './layer-adapters/fill-adapter';
 import { buildColormapTileUrl } from './layer-adapters/raster-adapter';
-import { FULL_ZOOM_RANGE } from './layer-adapters/builder-defaults';
+import { FULL_ZOOM_RANGE, rasterSourceMinzoom } from './layer-adapters/builder-defaults';
 import { getAdapter } from './layer-adapters/registry';
 import { convertFilter } from '@maplibre/maplibre-gl-style-spec';
 import { filterSpec, getBuilderStyleConfig, normalizeRasterBounds, resolveAdapterType } from './layer-adapters/shared';
@@ -412,7 +412,7 @@ function rasterSource(
   const spec = {
     tiles: [url.startsWith('http') ? url : `${ctx.origin}${url}`],
     tileSize: template.tile_size ?? 256,
-    minzoom: savedZoom ? 0 : (template.minzoom ?? 0),
+    minzoom: savedZoom ? 0 : rasterSourceMinzoom(template.minzoom ?? 0),
     maxzoom: template.maxzoom ?? 18,
     ...(bounds ? { bounds } : {}),
     ...(attribution ? { attribution } : {}),

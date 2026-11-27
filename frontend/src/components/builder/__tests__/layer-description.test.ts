@@ -1,7 +1,8 @@
 import type { FilterSpecification } from 'maplibre-gl';
 import type { MapLayerResponse } from '@/types/api';
 import { SAVED_LAYERS, savedLayer, toSharedLayer } from '@/test/fixtures/saved-layers';
-import { RENDER_CONTEXTS } from '@/test/fixtures/render-contexts';
+import type { TileToken } from '@/api/tiles';
+import { RENDER_CONTEXTS, fixtureToken } from '@/test/fixtures/render-contexts';
 import { sanitizeNullableNumericFilter } from '@/lib/maplibre-filter-utils';
 import { toViewerSyncInput } from '@/components/viewer/ViewerMap';
 import { toSyncInput } from '../map-sync';
@@ -213,5 +214,33 @@ describe('clusterTileFilter', () => {
   it('leaves a filter off when the columns the URL also carries push it past a request line', () => {
     const cols = Array.from({ length: 350 }, (_, i) => `a_rather_long_attribute_column_name_${i}`);
     expect(clusterTileFilter(layer, base, cols)).toEqual({ omitted: 'too-large' });
+  });
+});
+
+describe('raster source minzoom', () => {
+  const rasterContext = (layer: MapLayerResponse, minzoom: number): RenderContext => ({
+    ...RENDER_CONTEXTS.builder,
+    tokens: new Map([[layer.dataset_id, { ...fixtureToken(layer), minzoom } as TileToken]]),
+  });
+  const sourceMinzoom = (layer: MapLayerResponse, minzoom: number) => {
+    const sources = describeLayers([toSyncInput(layer)], rasterContext(layer, minzoom)).sources;
+    return (sources.values().next().value as { minzoom?: number }).minzoom;
+  };
+
+  it('floors a raster source two zooms below the token minzoom', () => {
+    expect(sourceMinzoom(SAVED_LAYERS.raster, 8)).toBe(6);
+  });
+
+  it('never goes below zero', () => {
+    expect(sourceMinzoom(SAVED_LAYERS.raster, 1)).toBe(0);
+  });
+
+  it('gives a layer with a saved zoom range no source floor', () => {
+    const layer = savedLayer({ ...SAVED_LAYERS.raster, layout: { _minzoom: 5 } });
+    expect(sourceMinzoom(layer, 8)).toBe(0);
+  });
+
+  it('floors a hillshade source the same way', () => {
+    expect(sourceMinzoom(SAVED_LAYERS.hillshadeDem, 8)).toBe(6);
   });
 });

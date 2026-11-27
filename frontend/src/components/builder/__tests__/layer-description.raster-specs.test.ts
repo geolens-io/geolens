@@ -388,8 +388,8 @@ describe('a raster source minzoom against a saved zoom range', () => {
     return (sources.get(described.sourceId) as { minzoom?: number }).minzoom;
   };
 
-  it('uses the token floor when the layer saves no zoom range', () => {
-    expect(minzoomOf(raster)).toBe(8);
+  it('floors two zooms below the token when the layer saves no zoom range', () => {
+    expect(minzoomOf(raster)).toBe(6);
   });
 
   it('lets a saved range below the floor draw', () => {
