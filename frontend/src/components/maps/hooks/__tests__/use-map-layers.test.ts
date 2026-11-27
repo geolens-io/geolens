@@ -213,7 +213,7 @@ describe('useMapLayers raster tile source cache-busting', () => {
 
   describe('raster tile floor', () => {
     const URL = '/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png';
-    type Opts = { rasterMinzoom?: number; rasterTokenSettled?: boolean; isDem?: boolean };
+    type Opts = { rasterMinzoom?: number; rasterTokenSettled?: boolean; isDem?: boolean; rasterTileUrl?: string };
 
     // A map that remembers its sources, so a re-add is observable.
     function stateMap() {
@@ -305,6 +305,13 @@ describe('useMapLayers raster tile source cache-busting', () => {
       expect(sources.get('raster-tile-source')?.minzoom).toBe(7);
       rerender({ rasterMinzoom: 0, rasterTokenSettled: true });
       expect(map.removeSource).toHaveBeenCalledWith('raster-tile-source');
+      expect(sources.get('raster-tile-source')?.minzoom).toBe(0);
+    });
+
+    it('re-adds the source when the tile URL and the floor change together', () => {
+      const { sources, rerender } = setup({ rasterMinzoom: 9, rasterTokenSettled: true });
+      expect(sources.get('raster-tile-source')?.minzoom).toBe(7);
+      rerender({ rasterTileUrl: '/raster-tiles/dataset-1/tiles/{z}/{x}/{y}.png?v=2', rasterMinzoom: 0, rasterTokenSettled: true });
       expect(sources.get('raster-tile-source')?.minzoom).toBe(0);
     });
   });

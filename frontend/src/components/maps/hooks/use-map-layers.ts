@@ -388,8 +388,9 @@ export function useMapLayers({
     const map = mapRef.current;
     if (!map || !rasterTileUrl || !rasterTokenSettled) return;
     const install = () => {
+      // Judged from the installed source, not rasterLayersAdded: a tile URL
+      // change clears that flag but leaves the old source in place.
       if (
-        rasterLayersAdded.current &&
         rasterInstalledMinzoom.current !== sourceMinzoom &&
         map.getSource('raster-tile-source')
       ) {

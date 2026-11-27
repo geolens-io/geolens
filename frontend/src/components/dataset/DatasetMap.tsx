@@ -283,7 +283,8 @@ export const DatasetMap = memo(function DatasetMap({
     tileVersion,
     tileToken,
     rasterMinzoom: rasterMinzoomFromToken(rawTileToken, tileTokenFailed),
-    rasterTokenSettled: tileKind !== 'raster' || !!rawTileToken || tileTokenFailed,
+    // No dataset id means no token request, so there is nothing to wait for.
+    rasterTokenSettled: tileKind !== 'raster' || !datasetId || !!rawTileToken || tileTokenFailed,
     tileConfigCdnBaseUrl: tileConfig?.cdn_base_url ?? undefined,
     mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
     mvtSourceLayerReady: tileConfigReady,
