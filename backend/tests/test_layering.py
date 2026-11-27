@@ -1381,7 +1381,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/db/tenant_adoption.py": 1256,
     # CQL2 parsing, feature-filter validation, record-filter literal handling and
     # the requester's spatial extent share one pygeofilter walk.
-    "backend/app/standards/ogc/filtering.py": 1208,
+    "backend/app/standards/ogc/filtering.py": 1340,
     # Auth routes (sign-in, sessions, API keys, password) share one router and its
     # rate-limit and cookie helpers.
     "backend/app/modules/auth/router.py": 1541,

@@ -15,7 +15,7 @@ import json
 import math
 import re
 import uuid
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 from decimal import Decimal
 from collections.abc import Callable
 from typing import Any
@@ -311,6 +311,137 @@ def _refuse_non_predicate_operands(root: Any) -> None:
         )
 
 
+# pg types of the queryables above, in the vocabulary the feature-filter
+# literal checks use.
+_QUERYABLE_PG_TYPES = {
+    "title": "text",
+    "description": "text",
+    "geometry_type": "text",
+    "srid": "integer",
+    "source_organization": "text",
+    "license": "text",
+    "created": "timestamp with time zone",
+    "updated": "timestamp with time zone",
+    "data_vintage_start": "date",
+    "data_vintage_end": "date",
+}
+
+
+def _literal_fits(value: Any, pg_type: str) -> bool:
+    if pg_type == "text":
+        return isinstance(value, str)
+    if pg_type == "integer":
+        return isinstance(value, (int, float)) and not isinstance(value, bool)
+    return isinstance(value, date)  # datetime is a date
+
+
+def _interval_fits(value: Any) -> bool:
+    from pygeofilter.values import Interval
+
+    if isinstance(value, Interval):
+        return all(
+            end is None or isinstance(end, (date, timedelta))
+            for end in (value.start, value.end)
+        )
+    return isinstance(value, date)
+
+
+def _mistyped_temporal_errors(node: Any) -> list[str]:
+    from pygeofilter import ast as pgf_ast
+
+    for attr, other in ((node.lhs, node.rhs), (node.rhs, node.lhs)):
+        pg_type = (
+            _QUERYABLE_PG_TYPES.get(attr.name)
+            if isinstance(attr, pgf_ast.Attribute)
+            else None
+        )
+        if pg_type is None or isinstance(other, pgf_ast.Node):
+            continue
+        if pg_type not in ("timestamp with time zone", "date"):
+            return [f"a temporal predicate does not apply to the {pg_type} property"]
+        if not _interval_fits(other):
+            return [f"temporal literal {other!r} is not a date or timestamp"]
+    return []
+
+
+def _mistyped_like_errors(node: Any, pg_type: str | None) -> list[str]:
+    if pg_type and pg_type != "text":
+        return ["LIKE only applies to string properties"]
+    if (
+        pg_type
+        and isinstance(node.pattern, (str, int, float, bool, list))
+        and not isinstance(node.pattern, str)
+    ):
+        return ["LIKE pattern must be a string"]
+    return []
+
+
+def _mistyped_literal_errors(node: Any) -> list[str]:
+    """The literal-type errors of one node comparing a queryable with literals.
+
+    Only a bare queryable against plain literals is judged. Functions,
+    arithmetic, other properties and unknown names are left to the evaluator.
+    """
+    from pygeofilter import ast as pgf_ast
+
+    def queryable(operand: Any) -> str | None:
+        if isinstance(operand, pgf_ast.Attribute):
+            return _QUERYABLE_PG_TYPES.get(operand.name)
+        return None
+
+    def literal(operand: Any) -> bool:
+        return isinstance(operand, (str, int, float, bool, date, list))
+
+    def judge(pg_type: str, values: list[Any]) -> list[str]:
+        return [
+            f"literal {v!r} does not match the property's {pg_type} type"
+            for v in values
+            if literal(v) and not _literal_fits(v, pg_type)
+        ]
+
+    if isinstance(node, pgf_ast.Comparison):
+        for attr, other in ((node.lhs, node.rhs), (node.rhs, node.lhs)):
+            if pg_type := queryable(attr):
+                return judge(pg_type, [other])
+    elif isinstance(node, pgf_ast.Between):
+        operands = [node.lhs, node.low, node.high]
+        for i, attr in enumerate(operands):
+            if pg_type := queryable(attr):
+                return judge(pg_type, operands[:i] + operands[i + 1 :])
+    elif isinstance(node, pgf_ast.In):
+        if pg_type := queryable(node.lhs):
+            return judge(pg_type, list(node.sub_nodes))
+    elif isinstance(node, pgf_ast.Like):
+        return _mistyped_like_errors(node, queryable(node.lhs))
+    elif isinstance(node, pgf_ast.TemporalPredicate):
+        return _mistyped_temporal_errors(node)
+    return []
+
+
+def _refuse_mistyped_literals(root: Any) -> None:
+    """Raise HTTPException(400) where a literal doesn't fit its queryable.
+
+    PostgreSQL would otherwise refuse the comparison at execution, which
+    surfaces as a 500. Iterative, like the other walks over a filter near the
+    length cap.
+    """
+    from pygeofilter import ast as pgf_ast
+
+    errors: list[str] = []
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        errors.extend(_mistyped_literal_errors(node))
+        pending.extend(
+            child for child in node.get_sub_nodes() if isinstance(child, pgf_ast.Node)
+        )
+    if errors:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid CQL2 expression: " + "; ".join(sorted(set(errors))),
+        )
+
+
 @functools.cache
 def _extent_evaluator() -> type:
     from pygeofilter import ast as pgf_ast
@@ -410,6 +541,7 @@ def apply_cql2_filter(
         _pin_timestamptz_literals(ast)
         _refuse_non_predicate_operands(ast)
         _refuse_scalar_geometry(ast)
+        _refuse_mistyped_literals(ast)
         sa_filter = _extent_evaluator()(extent_match).evaluate(ast)
     except HTTPException:
         raise
