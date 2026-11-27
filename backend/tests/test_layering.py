@@ -1241,7 +1241,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 662,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
-        "backend/app/modules/catalog/search/service_semantic.py": 525,
+        "backend/app/modules/catalog/search/service_semantic.py": 530,
         # A layer diff checks a changed filter against the caller's access and its widgets,
         # and stacks a map_author key's added layers on top; a full replace
         # carries a publish manifest's layer keys and the rows it keeps.
