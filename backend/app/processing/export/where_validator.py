@@ -25,7 +25,11 @@ from sqlglot import exp
 from sqlglot.dialects.postgres import Postgres
 from sqlglot.tokens import Token, TokenType
 
-from app.processing.export.where_grammar import pg_operator_split, render_filter
+from app.processing.export.where_grammar import (
+    RENDER_MAX_DEPTH,
+    pg_operator_split,
+    render_filter,
+)
 
 # Strict allowlist: every node type found during an AST walk of the WHERE
 # subtree must be an instance of one of these.
@@ -284,7 +288,10 @@ def canonical_where(where: str, columns: Sequence[str] | None = None) -> str:
         ValueError: ``where`` is outside the filter language.
     """
     rendered = render_filter(where, columns)
-    _validated_condition(rendered)
-    if render_filter(rendered) != rendered:
+    try:
+        _validated_condition(rendered)
+    except RecursionError as exc:
+        raise ValueError(_REFUSED.format("nesting too deep")) from exc
+    if render_filter(rendered, max_depth=RENDER_MAX_DEPTH) != rendered:
         raise ValueError(_REFUSED.format("expression the server cannot re-render"))
     return rendered

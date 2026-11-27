@@ -227,21 +227,105 @@ def test_malformed_conditions_are_refused_not_repaired(where):
         ("gid > .5", '("gid" > 0.5)'),
         ("gid < 5.", '("gid" < 5.0)'),
         ("GID = - 3", '("gid" = -3)'),
-        ("mixed = 1", '("Mixed" = 1)'),
         ('"Mixed" = 1', '("Mixed" = 1)'),
+        ('"Owner\'s Name" IS NULL', '("Owner\'s Name" IS NULL)'),
+        ("(gid) >= 10", '("gid" >= 10)'),
+        ("gid >= (10)", '("gid" >= 10)'),
+        ("((gid)) IN ((1), (-2))", '("gid" IN (1, -2))'),
+        ("gid BETWEEN (1) AND (2)", '("gid" BETWEEN 1 AND 2)'),
+        ("(name) LIKE ('a%')", "(\"name\" LIKE 'a%')"),
         ('"a ""b"" c" = \'x\'\'y\'', '("a ""b"" c" = \'x\'\'y\')'),
     ],
 )
 def test_names_resolve_to_the_dataset_columns(where, rendered):
-    columns = [{"name": n} for n in ("show", "name", "gid", "Mixed", 'a "b" c')]
+    names = ("show", "name", "gid", "Mixed", 'a "b" c', "Owner's Name")
+    columns = [{"name": n} for n in names]
     assert validate_where_clause(where, columns) == rendered
 
 
-@pytest.mark.parametrize("where", ["limit = 1", "SELECT = 1", "dup = 1", '"GID" = 1'])
+@pytest.mark.parametrize(
+    "where", ["limit = 1", "SELECT = 1", "dup = 1", '"GID" = 1', "mixed = 1"]
+)
 def test_names_that_are_not_one_column_are_refused(where):
-    columns = [{"name": n} for n in ("limit", "select", "gid", "Dup", "DUP")]
+    columns = [{"name": n} for n in ("limit", "select", "gid", "Dup", "DUP", "Mixed")]
     with pytest.raises(ValueError):
         validate_where_clause(where, columns)
+
+
+def test_an_unquoted_name_never_resolves_to_a_column_of_another_case():
+    """PostgreSQL reads ``gid`` as the table's own ``gid``, which a format's
+    column list may leave out, and never as ``"GID"``."""
+    with pytest.raises(ValueError, match="Unknown column: gid"):
+        validate_where_clause("gid = 7", [{"name": "GID"}])
+    assert validate_where_clause('"GID" = 7', [{"name": "GID"}]) == '("GID" = 7)'
+
+
+@pytest.mark.parametrize(
+    "where",
+    [
+        "(gid = 1) = TRUE",
+        "(NOT gid) = 1",
+        "(gid OR gid) = 1",
+        "((gid) = 1) = 1",
+        "gid IN ((1, 2))",
+        "gid = -(1)",
+        "gid = (1",
+    ],
+)
+def test_parentheses_wrap_an_operand_only_whole(where):
+    with pytest.raises(ValueError):
+        validate_where_clause(where, [{"name": "gid"}])
+
+
+@pytest.mark.parametrize(
+    "shape",
+    [
+        lambda n: "NOT " * n + "gid = 1",
+        lambda n: "(" * n + "gid = 1" + " OR gid = 2)" * n,
+        lambda n: "gid = " + "(" * n + "1" + ")" * n,
+        lambda n: "NOT (" * (n // 2) + "gid = 1 OR gid = 2" + ")" * (n // 2),
+    ],
+)
+def test_nesting_is_accepted_to_a_fixed_depth_and_refused_past_it(shape):
+    from app.processing.export.where_grammar import MAX_DEPTH
+
+    validate_where_clause(shape(MAX_DEPTH), [{"name": "gid"}])
+    with pytest.raises(ValueError, match="nesting too deep"):
+        validate_where_clause(shape(MAX_DEPTH + 2), [{"name": "gid"}])
+
+
+def test_a_render_too_deep_for_the_second_parser_is_refused(monkeypatch):
+    from app.processing.export import where_validator
+
+    def exhausted(_rendered):
+        raise RecursionError
+
+    monkeypatch.setattr(where_validator, "_validated_condition", exhausted)
+    with pytest.raises(ValueError, match="nesting too deep"):
+        canonical_where("gid = 1")
+
+
+def _split_one_operator_at_a_time(run: str) -> list[str]:
+    """PostgreSQL's scanner rule, applied to each operator in turn."""
+    operators = []
+    while run:
+        size = len(run)
+        if not set(run[: size - 1]) & set("~!@#^&|`?%"):
+            while size > 1 and run[size - 1] in "+-":
+                size -= 1
+        operators.append(run[:size])
+        run = run[size:]
+    return operators
+
+
+def test_an_operator_run_splits_as_postgresql_splits_it():
+    from itertools import product
+
+    from app.processing.export.where_grammar import pg_operator_split
+
+    for size in range(1, 6):
+        for run in map("".join, product("=<>!~+-", repeat=size)):
+            assert pg_operator_split(run) == _split_one_operator_at_a_time(run), run
 
 
 @pytest.mark.parametrize(
@@ -316,7 +400,9 @@ def test_a_render_that_does_not_reproduce_itself_is_refused(monkeypatch):
 
     real = where_validator.render_filter
     monkeypatch.setattr(
-        where_validator, "render_filter", lambda w, c=None: real(w, c) + " AND TRUE"
+        where_validator,
+        "render_filter",
+        lambda w, c=None, **_: real(w, c) + " AND TRUE",
     )
     with pytest.raises(ValueError, match="Disallowed expression"):
         canonical_where("pop > 1")
@@ -628,7 +714,7 @@ class _FilterGenerator:
             )
         if self.chance(0.1):
             return f"- {abs(int(n))}" if self.chance(0.5) else f"-({n})"
-        return n
+        return f"(({n}))" if self.chance(0.06) else n
 
     def integer(self) -> str:
         if self.chance(0.5):
@@ -659,7 +745,7 @@ class _FilterGenerator:
             )
             if self.chance(0.08):
                 return self.pick(f"-{col}", f"+{col}", f"{col}::text", f"{col} + 1")
-            return col
+            return f"({col})" if self.chance(0.1) else col
         return self.number()
 
     def text(self) -> str:
@@ -789,6 +875,9 @@ _SUPPORTED = [
     "pop = -5",
     "pop=-5",
     "pop > - 3",
+    "(pop) >= 10",
+    "pop >= (10)",
+    "(pop) IS NOT NULL AND gid IN ((1), (2))",
 ]
 
 

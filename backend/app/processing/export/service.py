@@ -277,20 +277,14 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     if not column_info:
         raise ValueError("Cannot filter: no column info available")
 
-    # Pre-parse rejection of meta-SQL tokens, for a clearer error than the
-    # parser's.
+    # Refused anywhere in the text, inside a quoted value or name too, with
+    # a clearer error than the parser's.
     if ";" in where:
         raise ValueError("WHERE clause must not contain statement terminator ';'")
     if "--" in where:
         raise ValueError("WHERE clause must not contain SQL line comment '--'")
     if "/*" in where or "*/" in where:
         raise ValueError("WHERE clause must not contain SQL block comment '/* */'")
-    # Unbalanced single-quote check — count unescaped quotes; legal usage is
-    # always even (open + close). SQL '' is the escape sequence so we collapse
-    # those first.
-    quote_count = where.replace("''", "").count("'")
-    if quote_count % 2 != 0:
-        raise ValueError("WHERE clause has unbalanced single-quotes")
 
     # Every name must resolve to one of this dataset's columns; the render
     # names each by its real column name.

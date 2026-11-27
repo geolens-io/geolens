@@ -160,9 +160,7 @@ class TestWhereClauseStringLiterals:
         assert "unknown column" not in str(exc.value).lower()
 
     def test_identifiers_split_by_a_literal_do_not_fuse(self):
-        """Masking preserves width, so `na'x'me` cannot become the column
-        `name`. The AST gate rejects this shape first; the assertion is that
-        no layer accepts it."""
+        """`na'x'me` is three tokens, never the column `name`."""
         with pytest.raises(ValueError):
             validate_where_clause("na'x'me = 1", COLS)
 
@@ -170,14 +168,18 @@ class TestWhereClauseStringLiterals:
 
     def test_quote_in_a_double_quoted_identifier_does_not_hide_a_column(self):
         """A single quote inside a double-quoted identifier opens no literal
-        in Postgres, so it must open no mask either: the code after it stays
-        visible to the walk."""
-        with pytest.raises(ValueError, match="Unknown column"):
-            validate_where_clause('"name\'" = 1 AND secret = 1 AND "name\'" = 1', COLS)
+        in Postgres, so the names after it are still checked."""
+        with pytest.raises(ValueError, match="Unknown column: secret"):
+            validate_where_clause(
+                '"name\'" = 1 AND secret = 1 AND "name\'" = 1',
+                [*COLS, {"name": "name'"}],
+            )
 
     def test_lone_quote_in_a_double_quoted_identifier_does_not_hide_a_column(self):
-        with pytest.raises(ValueError, match="Unknown column"):
-            validate_where_clause('"\'" = 1 AND secret = 1 AND "\'" = 1', COLS)
+        with pytest.raises(ValueError, match="Unknown column: secret"):
+            validate_where_clause(
+                '"\'" = 1 AND secret = 1 AND "\'" = 1', [*COLS, {"name": "'"}]
+            )
 
     def test_double_quoted_identifier_beside_a_literal_accepted(self):
         validate_where_clause("\"name\" = 'x'", COLS)
