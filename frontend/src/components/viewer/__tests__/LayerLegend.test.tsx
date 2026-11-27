@@ -181,7 +181,7 @@ describe('LayerLegend notes under an entry', () => {
   it('draws the cluster swatches with the cluster circle stroke', () => {
     renderLegend([SAVED_LAYERS.serverCluster]);
 
-    const circle = entry('Street trees').getByText('< 100').closest('li')!.querySelector('circle');
+    const circle = entry('Street trees').getByText('< 100').closest('li')!.querySelector('circle:not(.hidden)');
     expect(circle).toHaveAttribute('fill', '#bbf7d0');
     expect(circle).toHaveAttribute('stroke', MAP_COLORS.cluster.stroke);
   });
