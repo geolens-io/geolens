@@ -203,7 +203,13 @@ class _Parser:
 
     def keyword(self, word: str, offset: int = 0) -> bool:
         token = self.peek(offset)
-        return token is not None and token.kind == "word" and token.text.upper() == word
+        # Folded as PostgreSQL folds it: ``ıs`` upper-cases to IS in Unicode,
+        # but PostgreSQL reads it as a name.
+        return (
+            token is not None
+            and token.kind == "word"
+            and _fold(token.text) == word.lower()
+        )
 
     def take(self) -> _Token:
         token = self.peek()
@@ -321,13 +327,13 @@ class _Parser:
         if token.kind == "ident":
             return _quote(self.resolve(token.text, quoted=True))
         if token.kind == "word":
-            upper = token.text.upper()
-            if upper in ("TRUE", "FALSE", "NULL"):
-                return upper
+            folded = _fold(token.text)
+            if folded in ("true", "false", "null"):
+                return folded.upper()
             following = self.peek()
             if following is not None and following.kind == "(":
                 raise ValueError(_REFUSED.format("function call"))
-            if token.text.lower() in _RESERVED_WORDS:
+            if folded in _RESERVED_WORDS:
                 raise ValueError(_REFUSED.format(token.text))
             return _quote(self.resolve(token.text, quoted=False))
         raise ValueError(_SYNTAX.format(f"unexpected {token.text!r}"))

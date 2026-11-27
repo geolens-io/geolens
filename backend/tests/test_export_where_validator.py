@@ -269,6 +269,23 @@ def test_unquoted_value_keywords_are_refused(where):
         validate_where_clause(where, columns)
 
 
+@pytest.mark.parametrize(
+    "where",
+    [
+        # Unicode upper-casing turns each of these into a keyword; PostgreSQL
+        # folds only ASCII and reads them as names.
+        "pop \u0131s NULL",
+        "pop \u0131n (1, 2)",
+        "pop = 1 \u0131s NOT NULL",
+        "name l\u0131ke 'a%'",
+        "pop = fal\u017fe",
+    ],
+)
+def test_words_that_only_unicode_case_mapping_makes_keywords_are_refused(where):
+    with pytest.raises(ValueError):
+        validate_where_clause(where, [{"name": "pop"}, {"name": "name"}])
+
+
 @pytest.mark.anyio
 @pytest.mark.parametrize(
     "where",
