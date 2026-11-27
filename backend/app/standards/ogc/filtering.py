@@ -9,6 +9,7 @@ query execution.
 Only CQL2 is supported; the legacy CQL1/WFS 2.0 syntax is rejected.
 """
 
+import contextlib
 import functools
 import json
 import math
@@ -74,6 +75,31 @@ FIELD_MAPPING = {
     "data_vintage_end": Record.temporal_end,
     "geometry": Record.spatial_extent,  # spatial predicates
 }
+
+
+# Failures the pure translation steps raise when a decoded filter has the wrong
+# shape: a non-iterable member list, an unhashable property name, a missing key,
+# the wrong arity. None of these code paths touch the database or authorization.
+_MALFORMED_FILTER_ERRORS = (
+    TypeError,
+    ValueError,
+    KeyError,
+    IndexError,
+    AttributeError,
+)
+
+
+@contextlib.contextmanager
+def _malformed_filter_is_400():
+    try:
+        yield
+    except HTTPException:
+        raise
+    except _MALFORMED_FILTER_ERRORS as e:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Invalid CQL2 expression: {e}",
+        ) from e
 
 
 def _refuse_nul_in_json(node: Any) -> None:
@@ -151,7 +177,7 @@ def parse_cql2_filter(filter_expr: str, filter_lang: str) -> Any:
                 )
             _refuse_nul_in_json(filter_dict)
             filter_dict = _normalize_cql2_json(filter_dict)
-        except (json.JSONDecodeError, RecursionError) as e:
+        except (ValueError, RecursionError) as e:  # JSONDecodeError is a ValueError
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid CQL2 expression: {e}",
@@ -261,6 +287,30 @@ def _refuse_scalar_geometry(node: Any, parent: Any = None) -> None:
             _refuse_scalar_geometry(sub, node)
 
 
+def _refuse_non_predicate_operands(root: Any) -> None:
+    """Raise ValueError where NOT, AND or OR is applied to a non-predicate.
+
+    A boolean literal is a valid operand. No queryable here is boolean, so any
+    other literal or a property operand only fails later, as a type error from
+    PostgreSQL. Iterative, like the other walks over a filter near the length
+    cap.
+    """
+    from pygeofilter import ast as pgf_ast
+
+    pending = [root]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, (pgf_ast.Not, pgf_ast.Combination)):
+            for operand in node.get_sub_nodes():
+                if not isinstance(
+                    operand, (pgf_ast.Condition, pgf_ast.Predicate, bool)
+                ):
+                    raise ValueError("logical operators take predicates as operands")
+        pending.extend(
+            child for child in node.get_sub_nodes() if isinstance(child, pgf_ast.Node)
+        )
+
+
 @functools.cache
 def _extent_evaluator() -> type:
     from pygeofilter import ast as pgf_ast
@@ -356,10 +406,13 @@ def apply_cql2_filter(
         HTTPException(400): On invalid CQL2 expression or filter translation error.
     """
     ast = parse_cql2_filter(filter_expr, filter_lang)
-    _pin_timestamptz_literals(ast)
     try:
+        _pin_timestamptz_literals(ast)
+        _refuse_non_predicate_operands(ast)
         _refuse_scalar_geometry(ast)
         sa_filter = _extent_evaluator()(extent_match).evaluate(ast)
+    except HTTPException:
+        raise
     except Exception as e:  # broad: to_filter errors vary by unsupported CQL2 shape
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -728,7 +781,10 @@ def _checked_temporal(value, pg_type: str, errors: list[str]):
         and isinstance(value, datetime)
         and value.tzinfo is not None
     ):
-        return value.astimezone(timezone.utc).replace(tzinfo=None)
+        try:
+            return value.astimezone(timezone.utc).replace(tzinfo=None)
+        except OverflowError:
+            errors.append(f"{value.isoformat()} is outside the supported years in UTC")
     elif pg_type == "timestamp with time zone":
         # Naive values bind in the database session's TimeZone; pin UTC.
         if isinstance(value, datetime) and value.tzinfo is None:
@@ -957,7 +1013,8 @@ def parse_feature_cql2(filter_expr: str, filter_lang: str) -> Any:
         filter_expr = _quote_single_char_attributes(filter_expr)
     ast_root = parse_cql2_filter(filter_expr, filter_lang)
     try:
-        return _rewrite_text_bbox_literals(ast_root)
+        with _malformed_filter_is_400():
+            return _rewrite_text_bbox_literals(ast_root)
     except RecursionError:
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
@@ -1022,7 +1079,8 @@ def compile_feature_cql2_ast(
     from sqlalchemy import types as sa_types
     from sqlalchemy.dialects import postgresql
 
-    _refuse_unsupported_filter(ast_root, queryables)
+    with _malformed_filter_is_400():
+        _refuse_unsupported_filter(ast_root, queryables)
 
     # The asyncpg dialect casts every bind to its
     # SQLAlchemy type ($1::FLOAT ...), and a float8-cast bind against a REAL
