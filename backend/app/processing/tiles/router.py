@@ -1293,7 +1293,7 @@ async def raster_tile_proxy(
     default is used in place of the value sent.
 
     Responds 204 when the tile falls outside the raster, 400 for an
-    unsupported format, 401 when a request that no capability authorized
+    unsupported format or an out-of-range tile coordinate, 401 when a request that no capability authorized
     carried a credential which did not resolve, 403 when the embed token is
     invalid or expired or a multi-tenant request arrives with no tenant
     context, 422 for an out-of-range stretch parameter, 429 with
@@ -1351,6 +1351,9 @@ async def raster_tile_proxy(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported tile format: {fmt!r}",
         )
+    # Before the access check, like the vector route: the answer depends only on
+    # the path, so it cannot reveal whether the dataset exists.
+    _validate_tile_coordinates(z, x, y)
 
     # Effective bounds are resolved once, where activity is decided: an
     # inactive parameter's value is always the absent default. Otherwise

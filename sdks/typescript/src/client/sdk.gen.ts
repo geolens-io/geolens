@@ -7072,7 +7072,7 @@ export const clusterTileEndpointTilesClustersTablePathZXYPbfGet = <ThrowOnError 
  * default is used in place of the value sent.
  *
  * Responds 204 when the tile falls outside the raster, 400 for an
- * unsupported format, 401 when a request that no capability authorized
+ * unsupported format or an out-of-range tile coordinate, 401 when a request that no capability authorized
  * carried a credential which did not resolve, 403 when the embed token is
  * invalid or expired or a multi-tenant request arrives with no tenant
  * context, 422 for an out-of-range stretch parameter, 429 with
