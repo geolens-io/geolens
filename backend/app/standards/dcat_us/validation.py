@@ -13,6 +13,48 @@ from referencing.jsonschema import DRAFT202012
 from app.standards.dcat_us.schemas import get_schema_definition, load_schema_definitions
 
 
+def _format_checker() -> FormatChecker:
+    """The stock checker, with ASCII IRIs settled by the fast URI check.
+
+    The ``rfc3987_syntax`` IRI parser costs tens of milliseconds a value, which
+    adds up to seconds across a catalog feed's distribution URLs. A string that
+    passes the URI grammar is a valid IRI, so only the rest reach the parser.
+    """
+    checker = FormatChecker()
+    for iri_format, uri_format in (("iri", "uri"), ("iri-reference", "uri-reference")):
+        slow, fast = checker.checkers.get(iri_format), checker.checkers.get(uri_format)
+        if slow is not None and fast is not None:
+            checker.checks(iri_format, raises=slow[1])(
+                _ascii_fast_path(fast[0], slow[0])
+            )
+    return checker
+
+
+def _is_plain_ascii(value: str) -> bool:
+    # The URI regex's `$` tolerates a trailing newline and its IPv6 literal
+    # check is looser than the IRI parser's, so whitespace, control characters
+    # and bracketed hosts take the stock path.
+    return (
+        value.isascii()
+        and value.isprintable()
+        and " " not in value
+        and "[" not in value
+    )
+
+
+def _ascii_fast_path(fast, slow):
+    def check(instance: object) -> bool:
+        if isinstance(instance, str) and _is_plain_ascii(instance):
+            try:
+                if fast(instance):
+                    return True
+            except ValueError:
+                pass
+        return slow(instance)
+
+    return check
+
+
 @lru_cache(maxsize=1)
 def _schema_registry() -> Registry:
     resources = [
@@ -29,7 +71,7 @@ def _validator(schema_name: str) -> Draft202012Validator:
     return Draft202012Validator(
         schema,
         registry=_schema_registry(),
-        format_checker=FormatChecker(),
+        format_checker=_format_checker(),
     )
 
 

@@ -83,3 +83,48 @@ def test_plain_distribution_url_is_unchanged():
     assert out["accessURL"] == url
     assert out["accessService"][0]["endpointURL"] == [url]
     assert "description" not in out
+
+
+def test_ascii_iris_skip_the_slow_iri_parser(monkeypatch):
+    import jsonschema._format as jsonschema_format
+
+    calls = []
+    real = jsonschema_format._rfc3987_is_valid_syntax
+
+    def spy(rule, value):
+        calls.append(value)
+        return real(rule, value)
+
+    monkeypatch.setattr(jsonschema_format, "_rfc3987_is_valid_syntax", spy)
+    from app.standards.dcat_us import validation
+
+    validation._validator.cache_clear()
+    try:
+        report = validate_dcat_us3({"@id": "https://example.org/id/1?a=b"}, "Dataset")
+        assert "$.@id" not in _paths(report)
+        assert calls == []
+
+        validate_dcat_us3({"@id": "https://example.org/é"}, "Dataset")
+        assert calls == ["https://example.org/é"]
+    finally:
+        validation._validator.cache_clear()
+
+
+@pytest.mark.parametrize("iri_format", ["iri", "iri-reference"])
+@pytest.mark.parametrize(
+    "value",
+    [
+        "https://example.org/download.csv\n",
+        "https://[::ffff:192.168.001.1]/",
+        "https://example.org/a\tb",
+        "https://example.org/a b",
+        "https://example.org/a\rb",
+    ],
+)
+def test_fast_path_rejects_what_the_stock_checker_rejects(iri_format, value):
+    from jsonschema import FormatChecker
+
+    from app.standards.dcat_us.validation import _format_checker
+
+    assert FormatChecker().conforms(value, iri_format) is False
+    assert _format_checker().conforms(value, iri_format) is False
