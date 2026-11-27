@@ -412,7 +412,7 @@ function rasterSource(
   const spec = {
     tiles: [url.startsWith('http') ? url : `${ctx.origin}${url}`],
     tileSize: template.tile_size ?? 256,
-    minzoom: savedZoom ? 0 : hillshade ? (template.minzoom ?? 0) : rasterSourceMinzoom(template.minzoom ?? 0),
+    minzoom: savedZoom ? 0 : rasterSourceMinzoom(template.minzoom ?? 0),
     maxzoom: template.maxzoom ?? 18,
     ...(bounds ? { bounds } : {}),
     ...(attribution ? { attribution } : {}),

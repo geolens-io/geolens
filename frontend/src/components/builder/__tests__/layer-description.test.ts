@@ -240,7 +240,7 @@ describe('raster source minzoom', () => {
     expect(sourceMinzoom(layer, 8)).toBe(0);
   });
 
-  it('keeps an elevation source at the token minzoom', () => {
-    expect(sourceMinzoom(SAVED_LAYERS.hillshadeDem, 8)).toBe(8);
+  it('floors a hillshade source the same way', () => {
+    expect(sourceMinzoom(SAVED_LAYERS.hillshadeDem, 8)).toBe(6);
   });
 });
