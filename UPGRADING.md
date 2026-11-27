@@ -195,6 +195,17 @@ every instance, API and worker, before you upload a large version 2 batch.
 A plain upload or URL import at the account's dataset cap is now accepted and
 refused at commit, with the same 422, where it used to be refused at upload.
 
+A dataset export's `where` filter now accepts one condition in a stated
+filter language, and anything else answers 400: comparisons, `AND`, `OR`,
+`NOT`, `IN`, `BETWEEN`, `LIKE`, `ILIKE` and `IS`, column names, plain string
+and number literals, and parentheses. Check saved export links and scripts
+before you upgrade. Text after the condition is refused, and so are function
+calls, the symbolic pattern operators (`~~`, `~~*`; write `LIKE` and
+`ILIKE`), a chained comparison such as `a < b = c`, and a condition nested
+more than 16 levels deep. A mixed-case column needs double quotes, and so
+does a column named with a reserved word such as `"order"`. There is no
+deprecation window, because the old reading can't be kept safely.
+
 A table registered on 1.35 gets `geom_4326` as a stored generated column, and
 1.34 can't edit its features. Finish upgrading every instance before you
 register tables, and expect feature edits on them to fail after a rollback to
