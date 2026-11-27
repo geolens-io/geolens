@@ -7,6 +7,13 @@ describe('NotFoundPage', () => {
     expect(screen.getByText('404')).toBeInTheDocument();
   });
 
+  it('hides the decorative numeral and keeps it at a readable contrast', () => {
+    render(<NotFoundPage />);
+    const numeral = screen.getByText('404');
+    expect(numeral).toHaveAttribute('aria-hidden', 'true');
+    expect(numeral).not.toHaveClass('text-muted-foreground/50');
+  });
+
   it('renders translated title', () => {
     render(<NotFoundPage />);
     expect(screen.getByText('Page not found')).toBeInTheDocument();

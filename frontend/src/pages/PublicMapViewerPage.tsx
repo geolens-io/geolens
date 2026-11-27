@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useMemo, useRef, useState } from 'react';
 import { useParams } from 'react-router';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useMap } from '@/hooks/use-maps';
+import { ApiError } from '@/api/client';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 // Lazy so the map-vendor chunk is deferred until rendering is imminent.
 const ViewerMap = lazy(() =>
@@ -31,7 +32,10 @@ function PublicMapViewer() {
   const { t } = useTranslation('common');
   const { id } = useParams<{ id: string }>();
   const { data, isLoading, isError, error } = useMap(id);
-  useDocumentTitle(data?.name ?? t('common:pageTitle.map'));
+  const isNotFound = error instanceof ApiError && error.status === 404;
+  useDocumentTitle(
+    isNotFound ? t('common:pageTitle.mapNotFound') : (data?.name ?? t('common:pageTitle.map')),
+  );
 
   const layers = useMemo(
     () => (data?.layers ?? []).map(toSharedLayer),

@@ -34,6 +34,7 @@ and releases use semantic versioning.
 
 ### Fixed
 - `geolens logout` now ends the stored login's session on the server before it deletes the local credentials, so a saved refresh token can no longer be used after logging out. If the server cannot be reached, the local credentials are still deleted and the command warns that the session may still be active. API-key logins have no session and make no server call.
+- A missing map or dataset now sets a "not found" browser tab title instead of the generic "Map" or "Dataset". The large "404" on the unknown-page screen and the back links on the missing-dataset and missing-collection pages now meet the contrast minimum; the back links are outline buttons beside Retry, which wrap onto a second line on a narrow screen.
 - Going Back to the catalog, or using the skip link, no longer erases the router's history entry state, so Back from a page with unsaved work asks before dropping the draft, as it does elsewhere.
 - Raster tiles with a percentile or standard-deviation stretch no longer draw with the wrong colors when one band has no usable range. The stretch now applies only when every band has one, and falls back to the default range otherwise.
 - Exporting a dataset with a very long title, about 250 bytes or more, no longer fails in every format. The file is built under a fixed name and the title only names the download.

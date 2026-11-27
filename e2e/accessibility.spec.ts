@@ -236,6 +236,43 @@ test.describe('Accessibility - WCAG 2AA', () => {
           expect(results.violations, formatViolations(results.violations)).toEqual([]);
         });
 
+        const missingId = '00000000-0000-0000-0000-000000000000';
+        for (const [name, path] of [
+          ['unknown route', '/no-such-page'],
+          ['missing dataset', `/datasets/${missingId}`],
+          ['missing collection', `/collections/${missingId}`],
+          ['missing map', `/maps/${missingId}`],
+        ] as const) {
+          test(`${name} not-found page has no accessibility violations`, async ({ page }) => {
+            await page.goto(path);
+            await page.waitForLoadState('networkidle');
+            await waitForLoadingIndicatorsToClear(page);
+
+            const results = await new AxeBuilder({ page })
+              .withTags(wcagTags)
+              .analyze();
+
+            expect(results.violations, formatViolations(results.violations)).toEqual([]);
+          });
+        }
+
+        test('not-found recovery buttons fit a 320 px screen in German', async ({ page }) => {
+          await page.setViewportSize({ width: 320, height: 700 });
+          await page.addInitScript(() => localStorage.setItem('i18nextLng', 'de'));
+          for (const path of [`/collections/${missingId}`, `/datasets/${missingId}`]) {
+            await page.goto(path);
+            await page.waitForLoadState('networkidle');
+            const actions = page.getByRole('alert').locator('a, button');
+            await expect(actions.first()).toBeVisible();
+            for (const box of await actions.evaluateAll((els) =>
+              els.map((el) => el.getBoundingClientRect()).map((r) => ({ left: r.left, right: r.right })),
+            )) {
+              expect(box.left).toBeGreaterThanOrEqual(0);
+              expect(box.right).toBeLessThanOrEqual(320);
+            }
+          }
+        });
+
         test('public saved-map output has no accessibility violations', async ({ page }) => {
           await page.goto(`/m/${shareToken}`);
           await expect(page.getByText(builderMapName)).toBeVisible({ timeout: 15_000 });
