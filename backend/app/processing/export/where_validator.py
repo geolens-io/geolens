@@ -20,6 +20,8 @@ import re
 
 import sqlglot
 from sqlglot import exp
+from sqlglot.dialects.postgres import Postgres
+from sqlglot.tokens import Token, TokenType
 
 # Strict allowlist: every node type found during an AST walk of the WHERE
 # subtree must be an instance of one of these.
@@ -92,6 +94,129 @@ _NOT_KEEPS_MEANING_UNDER: tuple[type, ...] = (
 )
 
 
+# The filter language at the token level, checked before sqlglot normalizes
+# anything: each operator in its standard spelling only. sqlglot reads some
+# PostgreSQL spellings as something else (``~~`` as LIKE, ``!!`` as two NOTs,
+# ``|>`` as pipe syntax) and drops others (unary ``+``), so only the spellings
+# below are accepted.
+_KEYWORD_TOKENS: dict[str, TokenType] = {
+    "AND": TokenType.AND,
+    "OR": TokenType.OR,
+    "NOT": TokenType.NOT,
+    "IN": TokenType.IN,
+    "BETWEEN": TokenType.BETWEEN,
+    "LIKE": TokenType.LIKE,
+    "ILIKE": TokenType.ILIKE,
+    "IS": TokenType.IS,
+    "NULL": TokenType.NULL,
+    "TRUE": TokenType.TRUE,
+    "FALSE": TokenType.FALSE,
+}
+_OPERATOR_TOKENS: dict[TokenType, frozenset[str]] = {
+    TokenType.EQ: frozenset({"="}),
+    TokenType.NEQ: frozenset({"<>", "!="}),
+    TokenType.LT: frozenset({"<"}),
+    TokenType.LTE: frozenset({"<="}),
+    TokenType.GT: frozenset({">"}),
+    TokenType.GTE: frozenset({">="}),
+    TokenType.DASH: frozenset({"-"}),
+}
+_WORD_RE = re.compile(r"[^\W\d][\w$]*\Z")
+_NUMBER_RE = re.compile(r"\d+(\.\d+)?\Z")
+_REFUSED = "Disallowed expression in WHERE clause: {}"
+_SINGLE = "Only a single WHERE expression is allowed"
+
+
+def _pg_operator_split(run: str) -> list[str]:
+    """How PostgreSQL's lexer splits a run of adjacent operator characters.
+
+    A run is one operator, except that a trailing ``+``/``-`` is split off
+    when the run has none of ``~!@#^&|`?%`` before it.
+    """
+    operators = []
+    while run:
+        size = len(run)
+        if size > 1 and run[-1] in "+-" and not set(run[:-1]) & set("~!@#^&|`?%"):
+            while size > 1 and run[size - 1] in "+-":
+                size -= 1
+        operators.append(run[:size])
+        run = run[size:]
+    return operators
+
+
+def _check_operator_runs(tokens: list[Token]) -> None:
+    """Refuse adjacent operators PostgreSQL would lex as one (``!=-``, ``<>=``)."""
+    index = 0
+    while index < len(tokens):
+        end = index
+        while (
+            end + 1 < len(tokens)
+            and tokens[end].token_type in _OPERATOR_TOKENS
+            and tokens[end + 1].token_type in _OPERATOR_TOKENS
+            and tokens[end].end + 1 == tokens[end + 1].start
+        ):
+            end += 1
+        if end > index:
+            texts = [t.text for t in tokens[index : end + 1]]
+            if _pg_operator_split("".join(texts)) != texts:
+                raise ValueError(_REFUSED.format("operator " + "".join(texts)))
+        index = end + 1
+
+
+def _token_identifier(token: Token) -> str | None:
+    """Check a token other than a bracket or comma; return it if it names a column."""
+    kind, spelling = token.token_type, token.text
+    if kind in _OPERATOR_TOKENS:
+        if spelling not in _OPERATOR_TOKENS[kind]:
+            raise ValueError(_REFUSED.format(f"operator {spelling}"))
+        return None
+    if kind == TokenType.STRING or (
+        kind == TokenType.NUMBER and _NUMBER_RE.match(spelling)
+    ):
+        return None
+    if kind == TokenType.IDENTIFIER:
+        return spelling
+    if _WORD_RE.match(spelling):
+        keyword = _KEYWORD_TOKENS.get(spelling.upper())
+        if keyword is None:
+            return spelling
+        if kind == keyword:
+            return None
+    if kind.name.endswith("STRING") or kind == TokenType.NUMBER:
+        raise ValueError(_REFUSED.format(f"literal {spelling}"))
+    if any(ch.isalpha() for ch in spelling):
+        raise ValueError(_SINGLE)
+    raise ValueError(_REFUSED.format(f"operator {spelling}"))
+
+
+def _identifier_tokens(where: str) -> list[str]:
+    """Check every token against the filter language; return the identifiers."""
+    try:
+        tokens = Postgres().tokenize(where)
+    except sqlglot.errors.TokenError as exc:
+        raise ValueError(f"Invalid WHERE syntax: {exc}") from exc
+    identifiers: list[str] = []
+    depth = 0
+    for token in tokens:
+        if token.comments:
+            raise ValueError(_SINGLE)
+        if token.token_type == TokenType.L_PAREN:
+            depth += 1
+        elif token.token_type == TokenType.R_PAREN:
+            depth -= 1
+            if depth < 0:
+                raise ValueError(_REFUSED.format("unbalanced parenthesis"))
+        elif token.token_type == TokenType.SEMICOLON:
+            raise ValueError(_SINGLE)
+        elif token.token_type == TokenType.COMMA:
+            if depth == 0:
+                raise ValueError(_SINGLE)
+        elif (name := _token_identifier(token)) is not None:
+            identifiers.append(name)
+    _check_operator_runs(tokens)
+    return identifiers
+
+
 def _validated_condition(where: str) -> exp.Expression:
     """Parse and validate ``where``; return its condition node.
 
@@ -99,6 +224,7 @@ def _validated_condition(where: str) -> exp.Expression:
     """
     if not where or not where.strip():
         raise ValueError("Empty WHERE expression")
+    identifiers = _identifier_tokens(where)
 
     wrapped = f"SELECT 1 FROM _t WHERE {where}"
     try:
@@ -155,6 +281,11 @@ def _validated_condition(where: str) -> exp.Expression:
                 "Disallowed expression in WHERE clause: table-qualified "
                 "column reference (only unqualified column names are accepted)"
             )
+    # Every word that isn't an operator must be read as a column; a word
+    # sqlglot turns into something else (``ISNULL``, ``UNKNOWN``) is refused.
+    columns = [c.name for c in where_node.find_all(exp.Column)]
+    if sorted(columns) != sorted(identifiers):
+        raise ValueError(_REFUSED.format("unsupported keyword"))
     return where_node.this
 
 
@@ -185,6 +316,15 @@ def canonical_where(where: str) -> str:
 
     Raises ValueError via validate_where_ast on any disallowed construct.
     """
+    rendered = _render(where)
+    # The render is run in the caller's place, so it must itself be a valid
+    # filter that renders to itself.
+    if _render(rendered) != rendered:
+        raise ValueError(_REFUSED.format("expression the server cannot re-render"))
+    return rendered
+
+
+def _render(where: str) -> str:
     condition = _validated_condition(where)
     # Deepest first, so an outer NOT wraps an inner one already grouped.
     for node in reversed(list(condition.find_all(exp.Not))):

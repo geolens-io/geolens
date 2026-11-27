@@ -212,6 +212,39 @@ def test_text_after_the_condition_is_refused(where):
         validate_where_ast(where)
 
 
+def test_a_render_that_does_not_reproduce_itself_is_refused(monkeypatch):
+    from app.processing.export import where_validator
+
+    real = where_validator._render
+    monkeypatch.setattr(where_validator, "_render", lambda w: real(w) + " AND TRUE")
+    with pytest.raises(ValueError, match="Disallowed expression"):
+        canonical_where("pop > 1")
+
+
+def test_unquoted_non_ascii_column_names_are_accepted():
+    assert canonical_where("名前 = 'x' AND café > 1") == "名前 = 'x' AND café > 1"
+
+
+@pytest.mark.parametrize(
+    "where",
+    [
+        "pop > 10,",
+        "pop > 10 |> WHERE pop < 20",
+        "gid > 0 AND +'01' = '1'",
+        "!!'roads' = terms",
+        "name ~~ 'A%' IN (TRUE)",
+        "name ~~* 'a%'",
+        "name !~~ 'a%'",
+        "pop!=-5",
+        "pop <>= 5",
+    ],
+)
+def test_operators_outside_the_standard_spellings_are_refused(where):
+    columns = [{"name": n} for n in ("pop", "gid", "name", "terms")]
+    with pytest.raises(ValueError):
+        validate_where_clause(where, columns)
+
+
 @pytest.mark.parametrize(
     "where",
     [
@@ -428,3 +461,205 @@ class TestEndpoint:
         assert resp.status_code in (400, 422), (
             f"Expected 400/422 for function call, got {resp.status_code}: {resp.text}"
         )
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Differential: an accepted filter's render selects what PostgreSQL selects for
+# the filter as written.
+# ─────────────────────────────────────────────────────────────────────────────
+
+_TABLE_SQL = (
+    "SELECT coalesce(array_agg(gid ORDER BY gid), '{{}}') FROM (VALUES "
+    "(1, 10, 'ab', true, true), (2, -3, 'b', true, false), "
+    "(3, 0, NULL, false, true), (4, NULL, 'a', false, false), "
+    "(5, 25, 'Ax', NULL, true), (6, 7, 'z%', true, NULL), "
+    "(7, 10, '', NULL, NULL)) AS t(gid, pop, name, active, flag) WHERE {}"
+)
+_TABLE_COLUMNS = [
+    {"name": "gid"},
+    {"name": "pop"},
+    {"name": "name"},
+    {"name": "active"},
+    {"name": "flag"},
+]
+
+
+class _FilterGenerator:
+    """Random filters over ``_TABLE_SQL``'s columns, supported and exotic spellings."""
+
+    def __init__(self, seed: int):
+        import random
+
+        self.rng = random.Random(seed)
+
+    def pick(self, *options):
+        return self.rng.choice(options)
+
+    def chance(self, p: float) -> bool:
+        return self.rng.random() < p
+
+    def gap(self) -> str:
+        return "" if self.chance(0.2) else " "
+
+    def number(self) -> str:
+        n = str(self.rng.randint(-5, 30))
+        if self.chance(0.08):
+            return self.pick(f"+{n}", f"{n}.5", f".{abs(int(n))}", f"'{n}'")
+        if self.chance(0.1):
+            return f"- {abs(int(n))}" if self.chance(0.5) else f"-({n})"
+        return n
+
+    def integer(self) -> str:
+        if self.chance(0.5):
+            col = self.pick("gid", "pop", '"pop"')
+            if self.chance(0.08):
+                return self.pick(f"-{col}", f"+{col}", f"{col}::text", f"{col} + 1")
+            return col
+        return self.number()
+
+    def text(self) -> str:
+        if self.chance(0.5):
+            return "name"
+        literal = self.pick("'a%'", "'A%'", "'b'", "'z%'", "''", "'O''x'", "'%'")
+        if self.chance(0.05):
+            return self.pick("E'a'", "$$a$$", "'a' || 'b'")
+        return literal
+
+    def boolean(self, depth: int) -> str:
+        if depth > 0 and self.chance(0.3):
+            return f"({self.predicate(depth - 1)})"
+        return self.pick("active", "flag", "TRUE", "FALSE", "NULL", "true")
+
+    def comparison_op(self) -> str:
+        if self.chance(0.06):
+            return self.pick("==", "=<", "!=-", "<>=", "^=")
+        return self.pick("=", "<>", "!=", "<", "<=", ">", ">=")
+
+    def predicate(self, depth: int) -> str:
+        shapes = ["cmp", "text", "bool", "in", "between", "like", "is"]
+        if depth > 0:
+            shapes += ["not", "and", "or", "paren", "operand", "operand"]
+        shape = self.rng.choice(shapes)
+        op = self.comparison_op()
+        g = self.gap()
+        if shape == "cmp":
+            return f"{self.integer()}{g}{op}{g}{self.integer()}"
+        if shape == "text":
+            return f"{self.text()} {op} {self.text()}"
+        if shape == "bool":
+            return f"{self.boolean(depth)} {op} {self.boolean(depth)}"
+        neg = "NOT " if self.chance(0.4) else ""
+        if shape == "in":
+            items = ", ".join(self.number() for _ in range(self.rng.randint(1, 3)))
+            if self.chance(0.2):
+                return f"{self.boolean(depth)} {neg}IN (TRUE, flag)"
+            return f"{self.integer()} {neg}IN ({items})"
+        if shape == "between":
+            return f"{self.integer()} {neg}BETWEEN {self.number()} AND {self.number()}"
+        if shape == "like":
+            op = self.pick("LIKE", "ILIKE", "like", "~~", "~~*", "!~~")
+            if op.startswith(("~", "!")):
+                neg = ""
+            return f"name {neg}{op} {self.text()}"
+        if shape == "is":
+            subject = self.pick("active", "flag", "name", "pop")
+            target = self.pick("NULL", "TRUE", "FALSE", "null")
+            if self.chance(0.06):
+                return self.pick(f"{subject} ISNULL", f"{subject} IS UNKNOWN")
+            return f"{subject} IS {neg}{target}"
+        sub = self.predicate(depth - 1)
+        if shape == "not":
+            return self.pick(f"NOT {sub}", f"not {sub}", "!!active", f"NOT NOT {sub}")
+        if shape in ("and", "or"):
+            return f"{sub} {shape.upper()} {self.predicate(depth - 1)}"
+        if shape == "paren":
+            return f"({sub})"
+        # A predicate as an operand, the shapes where grouping matters.
+        return f"{sub} {self.comparison_op()} {self.boolean(depth)}"
+
+    def filter(self) -> str:
+        where = self.predicate(self.rng.randint(0, 3))
+        if self.chance(0.05):
+            where += self.pick(",", " |> WHERE gid > 1", " LIMIT 1", ";", " , 1")
+        return where
+
+
+async def _run_filter(session, condition: str):
+    """``(rows, None)`` or ``(None, sqlstate)`` for a WHERE condition."""
+    from sqlalchemy import text
+    from sqlalchemy.exc import DBAPIError
+
+    sql = _TABLE_SQL.format(condition).replace(":", "\\:")
+    try:
+        async with session.begin_nested():
+            return (await session.execute(text(sql))).scalar_one(), None
+    except DBAPIError as exc:
+        return None, getattr(exc.orig, "sqlstate", None) or "unknown"
+
+
+_SUPPORTED = [
+    "pop > 1000",
+    "1=1",
+    "name = ' :name'",
+    "name = 'O''Brien Park'",
+    "name != 'Nowhere Road'",
+    "pop >= 10",
+    "pop >= -3",
+    "name IS NOT NULL",
+    "gid IN (1, 2, 3)",
+    "name LIKE 'A%'",
+    "name NOT LIKE 'a%'",
+    "gid NOT IN (1)",
+    "gid BETWEEN 0 AND 10",
+    "gid NOT BETWEEN 2 AND 3",
+    "active = true",
+    "active IS TRUE",
+    "NOT NOT (pop > 1)",
+    "((((pop > 1))))",
+    "(pop > 1 OR gid < 2) AND NOT name = 'x'",
+    "pop <> 10 and gid <= 5 or name = 'b'",
+    "\"name\" = 'b'",
+    "pop = -5",
+    "pop=-5",
+    "pop > - 3",
+]
+
+
+@pytest.mark.anyio
+async def test_supported_filters_are_accepted_and_select_the_same_rows(
+    test_db_session,
+):
+    for where in _SUPPORTED:
+        rendered = validate_where_clause(where, _TABLE_COLUMNS)
+        original = await _run_filter(test_db_session, where)
+        assert original[1] is None, where
+        assert await _run_filter(test_db_session, rendered) == original, where
+
+
+@pytest.mark.anyio
+async def test_accepted_filters_select_what_postgresql_selects(test_db_session):
+    generator = _FilterGenerator(seed=4192)
+    counts = {"accepted": 0, "refused": 0, "refused_postgres_runs": 0}
+    failures = []
+    for _ in range(400):
+        where = generator.filter()
+        original = await _run_filter(test_db_session, where)
+        try:
+            rendered = validate_where_clause(where, _TABLE_COLUMNS)
+        except ValueError:
+            counts["refused"] += 1
+            counts["refused_postgres_runs"] += original[1] is None
+            continue
+        counts["accepted"] += 1
+        render = await _run_filter(test_db_session, rendered)
+        if original[1] == "42601":
+            failures.append((where, rendered, "PostgreSQL can't parse the original"))
+        elif original[1] is not None:
+            # A type error: no rows to compare, but the render must fail too.
+            if render[1] is None:
+                failures.append((where, rendered, f"original {original[1]}"))
+        elif render != original:
+            failures.append((where, rendered, f"{original[0]} vs {render}"))
+    print(counts)
+    assert failures == []
+    assert counts["accepted"] >= 100 and counts["refused"] >= 20, counts
