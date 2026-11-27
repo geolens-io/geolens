@@ -228,8 +228,11 @@ class TestAuthCommandExitCodes:
         assert result.exit_code == 2
 
     def test_logout_after_login_succeeds(
-        self, runner, tmp_xdg_home, mock_keyring
+        self, runner, tmp_xdg_home, mock_keyring, monkeypatch
     ) -> None:
+        monkeypatch.setattr(
+            "geolens_cli.main._revoke_server_session", lambda _instance: True
+        )
         runner.invoke(app, ["login", "https://x.example.com", "--token", "abc.def.ghi"])
         result = runner.invoke(app, ["logout"])
         assert result.exit_code == 0, result.output

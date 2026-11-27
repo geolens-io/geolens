@@ -582,6 +582,7 @@ def test_every_cleanup_caller_takes_the_row_lock_1778() -> None:
         "manifest_apply.py::_apply_map",
         "router.py::delete_map_endpoint",
         "router.py::store_map_image",
+        "service_images.py::clear_images_after_dataset_delete",
     }, sorted(callers)
     unlocked = [
         where

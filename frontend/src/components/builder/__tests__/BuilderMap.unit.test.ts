@@ -98,7 +98,6 @@ describe('terrain helpers', () => {
 
     ensureRasterDemTerrainSource(map as never, '/raster-tiles/dem/tiles/{z}/{x}/{y}.png', {
       tileSize: 512,
-      minzoom: 2,
       maxzoom: 14,
       bounds: [-113, 36, -111.5, 37],
     });
@@ -107,7 +106,7 @@ describe('terrain helpers', () => {
       type: 'raster-dem',
       tiles: [`${window.location.origin}/raster-tiles/dem/tiles/{z}/{x}/{y}.png`],
       tileSize: 512,
-      minzoom: 2,
+      minzoom: 0,
       maxzoom: 14,
       bounds: [-113, 36, -111.5, 37],
       encoding: 'mapbox',

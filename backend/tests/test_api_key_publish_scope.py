@@ -721,7 +721,7 @@ async def test_lowering_visibility_revokes_links_by_the_locked_read(
     """A map published while the update waited for the lock still loses its links."""
     from sqlalchemy import update
 
-    from app.modules.catalog.maps import service_groups
+    from app.modules.catalog.maps import service_groups, service_links
     from app.modules.catalog.maps.models import Map
 
     headers, _ = owner
@@ -742,7 +742,7 @@ async def test_lowering_visibility_revokes_links_by_the_locked_read(
         revoked.append(revoked_map_id)
 
     monkeypatch.setattr(service_groups, "lock_map_layers", published_while_waiting)
-    monkeypatch.setattr(service_groups, "revoke_share_token_by_map", record_revoke)
+    monkeypatch.setattr(service_links, "revoke_share_token_by_map", record_revoke)
     try:
         resp = await client.put(
             f"/maps/{map_id}", json={"visibility": "private"}, headers=headers
@@ -1266,7 +1266,8 @@ def test_the_preview_image_refusal_is_rechecked_under_the_asset_lock():
 
     from app.modules.catalog.maps.router import store_map_image, upload_og_image
 
-    assert '"og_image", user)' in inspect.getsource(upload_og_image)
+    assert "store_map_image(" in inspect.getsource(upload_og_image)
+    assert '"og_image",' in inspect.getsource(upload_og_image)
     source = inspect.getsource(store_map_image)
     locked = source.index("locked = await lock_map_for_asset_write(db, map_id)")
     refused = source.index("refuse_publish_key(", locked)
@@ -1670,7 +1671,8 @@ def test_the_thumbnail_refusal_is_rechecked_under_the_asset_lock():
 
     from app.modules.catalog.maps.router import store_map_image, upload_thumbnail
 
-    assert '"thumbnail", user)' in inspect.getsource(upload_thumbnail)
+    assert "store_map_image(" in inspect.getsource(upload_thumbnail)
+    assert '"thumbnail",' in inspect.getsource(upload_thumbnail)
     source = inspect.getsource(store_map_image)
     locked = source.index("locked = await lock_map_for_asset_write(db, map_id)")
     refused = source.index("refuse_publish_key(", locked)

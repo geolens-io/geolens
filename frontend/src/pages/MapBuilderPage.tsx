@@ -154,7 +154,10 @@ export function MapBuilderPage() {
   // not offer a path around that boundary under a customized role matrix.
   const { can } = usePermissions();
   const canSaveDataset = can('upload') && can('export');
-  useDocumentTitle(mapData?.name ?? t('common:pageTitle.mapBuilder'));
+  const mapNotFound = error instanceof ApiError && error.status === 404;
+  useDocumentTitle(
+    mapNotFound ? t('common:pageTitle.mapNotFound') : (mapData?.name ?? t('common:pageTitle.mapBuilder')),
+  );
 
   // Three-column layout: isRail (sidebar→64px at <1100px), isEditorHidden (flyout hidden at <800px)
   const { isRail, isEditorHidden, isMobile } = useBuilderLayout();

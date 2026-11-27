@@ -25,7 +25,7 @@ export function ErrorState({ message, title, onRetry, action, className }: Error
       {title && <h2 className="text-lg font-semibold mb-1">{title}</h2>}
       <p className="text-sm text-destructive">{message}</p>
       {(onRetry || action) && (
-        <div className="mt-4 flex items-center justify-center gap-2">
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
           {onRetry && (
             <Button variant="outline" size="sm" onClick={onRetry}>
               <RotateCw className="me-2 size-4" />

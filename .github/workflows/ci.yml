@@ -510,6 +510,7 @@ jobs:
             backup:
               - 'scripts/backup-entrypoint.sh'
               - 'scripts/restore.sh'
+              - 'scripts/init-db.sh'
               - 'scripts/lib/configure-runtime-db-role.sh'
               - 'scripts/tests/test-backup-restore-roundtrip.sh'
               # The bundled-mode leg restores through the REAL

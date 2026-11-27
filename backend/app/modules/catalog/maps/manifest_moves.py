@@ -4,7 +4,7 @@ keeps its styling only where that styling fits the dataset."""
 from __future__ import annotations
 
 import uuid
-from collections.abc import Collection, Iterable, Iterator, Mapping
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from typing import Any, NamedTuple
 
 from app.core.csv_safety import NUMERIC_SQL_TYPES
@@ -39,6 +39,7 @@ from app.modules.catalog.maps.manifest_columns import (
 )
 from app.modules.catalog.maps.manifest_layers import kept_layer
 from app.modules.catalog.maps.manifest_messages import (
+    DATASET_NOT_READY,
     MOVED_LAYER_RESTYLED,
     OTHER_REFUSAL,
     listed,
@@ -329,6 +330,33 @@ async def widening_moves(
     if kept:
         return await widening_pairs(session, pairs)
     return await stranding_moves(session, dashboard, pairs)
+
+
+def unsettled_sources(
+    stored: Sequence[tuple[MapLayer, Any]],
+    targets: Mapping[str, Target],
+    busy: Collection[uuid.UUID],
+    pending: Mapping[str | uuid.UUID, tuple[str | None, str]],
+) -> list[dict[str, Any]]:
+    """A052 for each layer the publish would move off a dataset in ``busy``,
+    one a pending or running job writes, that the request doesn't plan.
+    The move waits for that job, as a layer onto such a dataset does: judged
+    on the dataset as it was before the job, it could replace the layer's
+    styling and remove its widgets for good. Only moves between datasets the
+    caller can read are named."""
+    return [
+        message(
+            DATASET_NOT_READY,
+            "error",
+            f"Layer {short(layer.manifest_key)} can't move to the dataset the "
+            "manifest names yet: the dataset it is on hasn't finished "
+            "publishing.",
+            fix="Send the maps again once its job finishes.",
+            layer=layer.manifest_key,
+        )
+        for layer, _, _ in _moving(stored, targets)
+        if layer.dataset_id in busy and layer.dataset_id not in pending
+    ]
 
 
 def _stranded(layer: MapLayer) -> dict[str, Any]:

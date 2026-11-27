@@ -971,7 +971,14 @@ async def upload_thumbnail(
     Accepts a data:image/ URI, decodes the base64 payload, writes the image
     bytes to the configured storage provider, and stores the storage key.
     """
-    await store_map_image(db, map_id, request.data_uri, "thumbnail", user)
+    await store_map_image(
+        db,
+        map_id,
+        request.data_uri,
+        "thumbnail",
+        user,
+        expected_updated_at=request.expected_updated_at,
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 
@@ -1036,7 +1043,14 @@ async def upload_og_image(
     vs ThumbnailUploadRequest) to avoid relaxing the locked thumbnail
     contract. Auth and PIL-verify rules are identical to upload_thumbnail.
     """
-    await store_map_image(db, map_id, request.data_uri, "og_image", user)
+    await store_map_image(
+        db,
+        map_id,
+        request.data_uri,
+        "og_image",
+        user,
+        expected_updated_at=request.expected_updated_at,
+    )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
 

@@ -195,6 +195,7 @@ describe('MapViewerGate', () => {
     renderRoute();
 
     expect(screen.getByRole('heading', { name: /map not found/i })).toBeInTheDocument();
+    expect(document.title).toBe('Map not found - GeoLens');
     expect(screen.queryByRole('alert')).not.toBeInTheDocument();
     expect(screen.queryByTestId('builder-page')).not.toBeInTheDocument();
     expect(screen.queryByTestId('public-map-page')).not.toBeInTheDocument();

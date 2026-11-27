@@ -3,7 +3,7 @@
 Tests
 -----
 Tile path binder + schema-qualified queries:
-  T1A: set_tenant_role_for_tile_request is a no-op in single_tenant (no SQL issued).
+  T1A: set_tenant_role_for_tile_request binds only geolens_reader in single_tenant.
   T1B: set_tenant_role_for_tile_request in multi_tenant issues SET LOCAL ROLE + SET LOCAL search_path
        and the live DB reflects the per-tenant role and schema.
   T1C: _build_tile_query renders schema-qualified FROM clause ("data_t_..._001"."table") in multi_tenant.
@@ -59,18 +59,22 @@ async def _get_test_db_url() -> str:
 # ---------------------------------------------------------------------------
 
 
-class TestSetTenantRoleSingleTenantNoOp:
-    """T1A: set_tenant_role_for_tile_request is a no-op in single_tenant."""
+class TestSetTenantRoleSingleTenant:
+    """T1A: set_tenant_role_for_tile_request binds only geolens_reader in single_tenant."""
 
     @pytest.mark.asyncio
-    async def test_binder_noop_in_single_tenant(self, monkeypatch):
-        """In single_tenant, binder returns without executing any SQL."""
+    async def test_binder_sets_only_reader_role_in_single_tenant(self, monkeypatch):
+        """In single_tenant, binder issues one SET LOCAL ROLE geolens_reader."""
         monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: False)
         from app.processing.tiles.pool import set_tenant_role_for_tile_request
 
         mock_conn = AsyncMock()
         await set_tenant_role_for_tile_request(mock_conn, _TENANT_A)
-        mock_conn.execute.assert_not_awaited()
+        mock_conn.execute.assert_awaited_once()
+        (sql,) = mock_conn.execute.await_args.args
+        assert "SET LOCAL ROLE geolens_reader;" in sql
+        assert "search_path" not in sql
+        assert "_t_" not in sql
 
     @pytest.mark.asyncio
     async def test_binder_noop_when_tenant_id_none(self, monkeypatch):

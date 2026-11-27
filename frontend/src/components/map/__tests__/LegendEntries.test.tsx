@@ -64,7 +64,7 @@ describe('LegendClassesList', () => {
     expect(screen.getByText('Color: Depth')).toBeInTheDocument();
     expect(screen.getAllByText('< 6')).toHaveLength(1);
     expect(screen.getByText('≥ 50')).toBeInTheDocument();
-    const circles = Array.from(container.querySelectorAll('svg[viewBox="0 0 24 24"] circle'));
+    const circles = Array.from(container.querySelectorAll('svg[viewBox="0 0 24 24"] circle:not(.hidden)'));
     expect(circles.map((circle) => [circle.getAttribute('r'), circle.getAttribute('fill')])).toEqual([
       ['4', '#ef4444'],
       ['8', '#ef4444'],
@@ -80,7 +80,7 @@ describe('LegendClassesList', () => {
     );
 
     expect(screen.getByText('Width: Flow')).toBeInTheDocument();
-    const lines = Array.from(container.querySelectorAll('line'));
+    const lines = Array.from(container.querySelectorAll('line:not(.hidden)'));
     expect(lines.map((line) => [line.getAttribute('stroke-width'), line.getAttribute('stroke')])).toEqual([
       ['1', '#0284c7'],
       ['6', '#0284c7'],
@@ -276,7 +276,7 @@ describe('GeometrySwatch — points', () => {
         />
       </>,
     );
-    const [ringed, ringless] = Array.from(container.querySelectorAll('circle'));
+    const [ringed, ringless] = Array.from(container.querySelectorAll('circle:not(.hidden)'));
     expect(ringed).toHaveAttribute('stroke', '#ea580c');
     expect(ringed).toHaveAttribute('stroke-width', '2');
     expect(ringless).not.toHaveAttribute('stroke');
@@ -308,5 +308,124 @@ describe('HeatmapLegend', () => {
     expect(gradientOf({ colors: ['#dc2626'], stops: [0], mode: 'interpolate' })).toBe(
       'linear-gradient(to right, rgb(220, 38, 38) 0%, rgb(220, 38, 38) 100%)',
     );
+  });
+});
+
+describe('legend swatches in forced colors', () => {
+  const KEEP = 'forced-color-adjust-none';
+
+  function entry(mode: 'categorical' | 'graduated', target: LegendClasses['target']): LegendClasses {
+    return {
+      mode,
+      target,
+      title: 'class',
+      items: [{ color: '#ff5a5f', label: 'A', size: 6 }],
+      breaks: [],
+    };
+  }
+
+  it('keeps the data colour on polygon swatches and gives them an edge', () => {
+    const { container } = render(
+      <LegendClassesList geometryType="Polygon" classes={[entry('categorical', 'color')]} />,
+    );
+    const swatch = container.querySelector('li > div') as HTMLElement;
+    expect(swatch).toHaveClass(KEEP, 'forced-colors:outline-[CanvasText]');
+  });
+
+  it('keeps the authored stroke of a stroke-only polygon on a protected, edged swatch', () => {
+    const { container } = render(
+      <LegendClassesList
+        geometryType="Polygon"
+        style={legendSwatch({ fillOpacity: 0, stroke: { color: '#ff5a5f', width: 2 } })}
+        classes={[entry('categorical', 'color')]}
+      />,
+    );
+    const swatch = container.querySelector('li > div') as HTMLElement;
+    expect(swatch).toHaveClass('border', KEEP, 'forced-colors:outline-[CanvasText]');
+    expect(swatch.style.borderColor).toBe('rgb(255, 90, 95)');
+  });
+
+  it.each([
+    ['Point', 'color', 'categorical'],
+    ['LineString', 'color', 'graduated'],
+    ['Point', 'radius', 'graduated'],
+    ['LineString', 'width', 'graduated'],
+  ] as const)('keeps the data colour on %s %s swatches', (geometryType, target, mode) => {
+    const { container } = render(
+      <LegendClassesList geometryType={geometryType} classes={[entry(mode, target)]} />,
+    );
+    const svg = container.querySelector('li > svg') as SVGElement;
+    expect(svg).toHaveClass(KEEP);
+    const underlay = svg.firstElementChild as SVGElement;
+    expect(underlay).toHaveClass('hidden', 'forced-colors:block');
+    expect(underlay.getAttribute('class')).toMatch(/(fill|stroke)-\[CanvasText\]/);
+  });
+
+  it.each([
+    ['LineString', 'color', 'graduated'],
+    ['LineString', 'width', 'graduated'],
+  ] as const)('blends a translucent %s %s swatch against the background, not its halo', (geometryType, target, mode) => {
+    const { container } = render(
+      <LegendClassesList geometryType={geometryType} style={legendSwatch({ fillOpacity: 0.5 })} classes={[entry(mode, target)]} />,
+    );
+    const [, knockout, line] = Array.from(container.querySelectorAll('li > svg line'));
+    expect(knockout).toHaveClass('hidden', 'forced-colors:block', 'stroke-[Canvas]');
+    expect(knockout.getAttribute('stroke-width')).toBe(line.getAttribute('stroke-width'));
+    expect(line.getAttribute('stroke-opacity')).toBe('0.5');
+  });
+
+  it.each([
+    ['Point', 'radius'],
+    ['LineString', 'width'],
+  ] as const)('gives a zero-size %s %s class no halo', (geometryType, target) => {
+    const classes: LegendClasses[] = [{ ...entry('graduated', target), items: [{ color: '#ff5a5f', label: 'A', size: 0 }] }];
+    const { container } = render(<LegendClassesList geometryType={geometryType} classes={classes} />);
+    expect(container.querySelectorAll('li > svg .hidden')).toHaveLength(0);
+  });
+
+  it('draws a hollow point halo as an unfilled ring outside the fill', () => {
+    const { container } = render(
+      <LegendClassesList
+        geometryType="Point"
+        style={legendSwatch({ fillOpacity: 0 })}
+        classes={[entry('categorical', 'color')]}
+      />,
+    );
+    const halo = container.querySelector('li > svg > circle.hidden') as SVGElement;
+    expect(halo.getAttribute('fill')).toBe('none');
+    expect(halo.getAttribute('class')).toContain('stroke-[CanvasText]');
+    expect(Number(halo.getAttribute('r'))).toBeGreaterThan(5);
+  });
+
+  it.each([
+    ['point', 'Point', 'color', 5],
+    ['radius', 'Point', 'radius', 6],
+  ] as const)('places the %s halo outside a 4 px and a 10 px authored stroke', (_n, geometryType, target, fillR) => {
+    for (const width of [4, 10]) {
+      const { container, unmount } = render(
+        <LegendClassesList
+          geometryType={geometryType}
+          style={legendSwatch({ stroke: { color: '#000', width } })}
+          classes={[entry('graduated', target)]}
+        />,
+      );
+      const halo = container.querySelector('li > svg > circle.hidden') as SVGElement;
+      // The authored ring reaches fillR + width / 2, so the halo must sit beyond it.
+      expect(Number(halo.getAttribute('r'))).toBeGreaterThan(fillR + width / 2);
+      expect(container.querySelector('li > svg')).toHaveClass('forced-colors:overflow-visible');
+      unmount();
+    }
+  });
+
+  it('keeps the colours on the heatmap ramp and gives it an edge', () => {
+    const { container } = render(
+      <HeatmapLegend
+        name="Heat"
+        ramp={{ colors: ['#0000ff', '#ff0000'], stops: [0, 1], mode: 'interpolate', name: null, reversed: false }}
+        lowLabel="Low"
+        highLabel="High"
+      />,
+    );
+    expect(container.querySelector('.h-3.rounded-sm.w-full')).toHaveClass(KEEP, 'forced-colors:outline-[CanvasText]');
   });
 });

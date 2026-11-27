@@ -10,13 +10,15 @@ from dataclasses import dataclass
 from typing import Any
 
 import structlog
-from sqlalchemy import func, select
+from sqlalchemy import Uuid, any_, bindparam, func, select
+from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 from sqlalchemy.sql.elements import ColumnElement, Label
 from sqlalchemy.sql.selectable import Select
 
 from app.core.db import release_connection
+from app.core.db.pg_ranges import INT8_MAX
 from app.core.db.sqlstate import is_query_canceled
 from app.core.persistent_config import SEMANTIC_SEARCH_ENABLED
 from app.modules.auth.models import User
@@ -312,7 +314,11 @@ class SemanticArm:
 
     def clause(self) -> ColumnElement[bool]:
         """Record.id predicate for the vector arm; the caller applies vetting."""
-        return Record.id.in_([uuid_mod.UUID(rid) for rid in self.ordered_ids])
+        # One array bind; a per-id IN list exceeds asyncpg's 32,767 limit.
+        ids = [uuid_mod.UUID(rid) for rid in self.ordered_ids]
+        return Record.id == any_(
+            bindparam("semantic_ids", ids, type_=ARRAY(Uuid), unique=True)
+        )
 
 
 @dataclass(frozen=True)
@@ -411,7 +417,10 @@ async def resolve_semantic_arm(
                 )
             ).scalar_one()
             exact = emb_rows <= _EXACT_SEMANTIC_COUNT_MAX_ROWS
-            window = depth if exact else max(depth, _APPROXIMATE_CANDIDATE_WINDOW)
+            window = min(
+                depth if exact else max(depth, _APPROXIMATE_CANDIDATE_WINDOW),
+                INT8_MAX,
+            )
             await get_catalog_port().set_hnsw_recall(session)
             distance = RecordEmbedding.embedding.cosine_distance(query_vector)
             # Restricting to the vetted set BEFORE the top-k cut keeps a nearer
@@ -485,7 +494,7 @@ async def _run_rrf_merge(
     vector_ranks = semantic.ranks(page_end)
 
     # FTS-ranked ids, deep enough to cover the requested page plus RRF headroom.
-    fts_cap = max(page_end * 3, 100)
+    fts_cap = min(max(page_end * 3, 100), INT8_MAX)
     fts_stmt = (
         stmt.with_only_columns(Dataset.record_id)
         .order_by(rank_col.desc())

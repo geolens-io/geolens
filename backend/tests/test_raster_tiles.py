@@ -1152,6 +1152,23 @@ def test_stretch_rescale_keeps_extreme_bounds_intact(stretch, band, expected):
     )
 
 
+@pytest.mark.parametrize("stretch", ["percentile", "stddev"])
+def test_stretch_rescale_is_empty_unless_every_band_has_a_range(stretch):
+    from app.processing.tiles.router import _compute_stretch_rescale
+
+    good = {"percentile_2": 10, "percentile_98": 200, "mean": 50, "std": 20}
+    flat = {"percentile_2": 0, "percentile_98": 0, "mean": 5, "std": 0}
+
+    def rescale(bands, n):
+        return _compute_stretch_rescale(
+            bands, stretch, n, pmin=2.0, pmax=98.0, sigma=2.0
+        )
+
+    assert rescale([good, flat, good], 3) == []
+    assert rescale([good, good], 3) == []
+    assert len(rescale([good, good, good], 3)) == 3
+
+
 @pytest.mark.asyncio
 async def test_concurrent_band_stats_lookups_share_one_titiler_call(monkeypatch):
     """Tiles that miss the cache together trigger a single statistics scan."""
@@ -1459,3 +1476,55 @@ class TestSignedRasterTileTemplate:
 
         assert resp.status_code == 200
         assert asset.asset_uri in resp.headers["x-geolens-asset-openpath"]
+
+
+class TestRasterMinzoom:
+    """A by-reference raster's source floor follows its Web Mercator size, so a
+    zoomed-out view stops requesting tiles that show a speck."""
+
+    @staticmethod
+    def _asset(storage_backend="remote"):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(storage_backend=storage_backend)
+
+    @staticmethod
+    def _minzoom(asset, bounds, maxzoom=14, **kwargs):
+        from app.processing.tiles.router import _raster_minzoom_from_metadata
+
+        return _raster_minzoom_from_metadata(asset, bounds, maxzoom, **kwargs)
+
+    # A 110 km Sentinel-2 scene near 41 N: 1.31 degrees wide, 0.99 tall.
+    SENTINEL = [-74.65, 40.5, -73.34, 41.49]
+
+    def test_a_sentinel_scene_floors_at_seven(self):
+        assert self._minzoom(self._asset(), self.SENTINEL) == 7
+
+    def test_the_same_ground_size_floors_lower_near_the_pole(self):
+        # 110 km at 80 N spans ~6.3 degrees of longitude and ~1 of latitude.
+        polar = [10.0, 80.0, 16.3, 81.0]
+        equator = [10.0, 0.0, 11.0, 1.0]
+        assert self._minzoom(self._asset(), equator) == 7
+        assert self._minzoom(self._asset(), polar) == 4
+
+    def test_a_whole_world_extent_gets_zero(self):
+        assert self._minzoom(self._asset(), [-180, -85, 180, 85]) == 0
+
+    def test_a_seam_crossing_extent_uses_its_honest_width(self):
+        spanned = [-180.0, 10.0, 180.0, 11.0]
+        assert self._minzoom(self._asset(), spanned) == 0
+        assert self._minzoom(self._asset(), spanned, lon_span=2.0) == 6
+
+    def test_the_floor_never_exceeds_maxzoom(self):
+        assert self._minzoom(self._asset(), self.SENTINEL, maxzoom=3) == 3
+
+    @pytest.mark.parametrize("bounds", [None, [1, 1, 1, 1], [0, 0, 1]])
+    def test_missing_or_degenerate_bounds_give_zero(self, bounds):
+        assert self._minzoom(self._asset(), bounds) == 0
+
+    @pytest.mark.parametrize("backend", ["local", "s3"])
+    def test_managed_rasters_keep_minzoom_zero(self, backend):
+        assert self._minzoom(self._asset(backend), self.SENTINEL) == 0
+
+    def test_no_asset_gives_zero(self):
+        assert self._minzoom(None, self.SENTINEL) == 0

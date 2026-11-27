@@ -121,6 +121,7 @@ const CURRENT_AUDIT_ACTIONS = [
   'map.import_style',
   'map.patch_layers',
   'map.remove_layer',
+  'map.repair_stored_layers',
   'map.revoke_share',
   'map.share',
   'map.transfer_owner',

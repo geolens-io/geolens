@@ -13,6 +13,8 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import DataError
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from app.core.db.pg_ranges import INT8_MAX
+from app.core.temporal import temporal_interval
 from app.core.identity import Identity
 from app.core.record_types import (
     RASTER_FAMILY_RECORD_TYPES,
@@ -165,8 +167,15 @@ async def _handle_search(
     external_ids: tuple[str, ...] | None = None,
     resource_types: frozenset[str] | None = None,
     extra_pagination_params: dict[str, str | list[str]] | None = None,
+    page_collections: bool = False,
 ) -> OGCFeatureCollectionResponse:
-    """Parse parameters, run search, and return OGC FeatureCollection."""
+    """Parse parameters, run search, and return OGC FeatureCollection.
+
+    With ``page_collections`` (OGC API Records), matching collections follow
+    the datasets in one sequence sliced by ``offset`` and ``limit``, so no
+    page holds more than ``limit`` items. Without it, the catalog's own
+    search adds up to five matching collections to its first page.
+    """
     public_api_url = await get_public_api_url(db, request=request)
     # Raster/VRT raster_tiles assets are served at the
     # public APP origin (/raster-tiles/...), not the /api origin.
@@ -208,7 +217,8 @@ async def _handle_search(
         # skip both reads.
         semantic_enabled_for_key = await SEMANTIC_SEARCH_ENABLED.get(db)
         cache_key = search_cache.build_cache_key(
-            endpoint="search",
+            # Records pages collections differently, so it can't share entries.
+            endpoint="records" if page_collections else "search",
             filters=filters,
             user_roles=user_roles,
             public_api_url=public_api_url,
@@ -294,12 +304,14 @@ async def _handle_search(
     collections_applicable = collections_in_scope and not params.record_type
     collections_paginated = bool(
         collections_applicable
-        and (collection_type_requested or collection_ids is not None)
+        and (
+            page_collections or collection_type_requested or collection_ids is not None
+        )
     )
 
-    # Retain the five-item page-0 augmentation for native text search.
-    # Explicit Records collection filters participate in the combined
-    # dataset-first result set, including its count and pagination.
+    # The catalog's own text search adds up to five collections to page 0.
+    # Records and explicit collection filters page collections after the
+    # datasets, counted in the total and the next link.
     page0_collection_cap = 5
 
     async def _collection_total() -> int:
@@ -323,8 +335,10 @@ async def _handle_search(
             matched_all_types += await _collection_total()
 
     if collections_paginated:
-        collection_limit = max(0, params.limit - len(features))
         collection_offset = max(0, params.offset - total)
+        collection_limit = max(
+            0, min(params.limit - len(features), collection_total - collection_offset)
+        )
     else:
         collection_limit = page0_collection_cap if params.offset == 0 else 0
         collection_offset = 0
@@ -345,7 +359,11 @@ async def _handle_search(
     active_params = params.active_pagination_params()
     if extra_pagination_params:
         active_params.update(extra_pagination_params)
-    base_path = "/collections/datasets/items"
+    # Each route's links stay on that route, since the two page collections
+    # differently.
+    base_path = (
+        "/collections/datasets/items" if page_collections else "/search/datasets/"
+    )
 
     links = [
         OGCRecordLink(
@@ -700,12 +718,7 @@ async def _build_collection_metadata(
         row.temporal_start is not None or row.temporal_end is not None
     ):
         temporal_extent = {
-            "interval": [
-                [
-                    row.temporal_start.isoformat() if row.temporal_start else "..",
-                    row.temporal_end.isoformat() if row.temporal_end else "..",
-                ]
-            ]
+            "interval": temporal_interval(row.temporal_start, row.temporal_end)
         }
 
     extent = {}
@@ -839,7 +852,10 @@ async def list_collections(
     request: Request,
     response: Response,
     offset: int = Query(
-        0, ge=0, description="Pagination offset for per-dataset collections"
+        0,
+        ge=0,
+        le=INT8_MAX,
+        description="Pagination offset for per-dataset collections",
     ),
     limit: int = Query(
         50, ge=1, le=200, description="Max per-dataset collections to return"
@@ -908,16 +924,9 @@ async def list_collections(
                 }
         if ds.record.temporal_start is not None or ds.record.temporal_end is not None:
             extent["temporal"] = {
-                "interval": [
-                    [
-                        ds.record.temporal_start.isoformat()
-                        if ds.record.temporal_start
-                        else "..",
-                        ds.record.temporal_end.isoformat()
-                        if ds.record.temporal_end
-                        else "..",
-                    ]
-                ]
+                "interval": temporal_interval(
+                    ds.record.temporal_start, ds.record.temporal_end
+                )
             }
 
         # Raster/VRT have no feature table -> mirror the detail
@@ -1264,6 +1273,7 @@ async def collection_items(
         external_ids=parsed_external_ids,
         resource_types=resource_types,
         extra_pagination_params=pagination_params,
+        page_collections=True,
     )
     return JSONResponse(
         content=result.model_dump(mode="json"),

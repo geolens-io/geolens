@@ -6,6 +6,7 @@ import { patternPreviewStyle } from '@/lib/fill-pattern-preview';
 import type { MapLayerResponse } from '@/types/api';
 import { legendFacts, rampGradient } from './legend-facts';
 import type { LegendFacts, LegendRamp, LegendSwatch } from './legend-facts';
+import { KEEP_DATA_COLOR, KNOCKOUT, SWATCH_EDGE, UNDERLAY } from './LegendEntries';
 
 /** Shape hints for the icon glyph. Its stroke, fill opacity and pattern come from the layer's legend swatch. */
 interface StyleHints {
@@ -102,7 +103,7 @@ function HeatmapIcon({ colors, layerId, opacityStyle, ramp }: IconSubProps) {
   const stops = ramp ? rampGradient(ramp) : colors.map((color, i) => ({ color, offset: i / (colors.length - 1) }));
   return (
     <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center" style={opacityStyle}>
-      <svg width="14" height="14" viewBox="0 0 14 14" className="h-3.5 w-3.5">
+      <svg width="14" height="14" viewBox="0 0 14 14" className={`h-3.5 w-3.5 ${KEEP_DATA_COLOR} ${SWATCH_EDGE}`}>
         <defs>
           <radialGradient id={gradientId}>
             {stops.map(({ color, offset }, i) => (
@@ -129,7 +130,9 @@ function LineIcon({ colors, layerId, opacityStyle, styleHints, swatch, discrete 
 
   return (
     <span className="relative inline-flex h-3.5 w-3.5 items-center justify-center" style={opacityStyle}>
-      <svg width="14" height="14" viewBox="0 0 14 14" className="h-3.5 w-3.5">
+      <svg width="14" height="14" viewBox="0 0 14 14" className={`h-3.5 w-3.5 ${KEEP_DATA_COLOR}`}>
+        <line x1="1" y1="7" x2="13" y2="7" strokeWidth={svgStrokeWidth + 2} strokeLinecap="round" strokeDasharray={dashArray} className={`${UNDERLAY} stroke-[CanvasText]`} />
+        <line x1="1" y1="7" x2="13" y2="7" strokeWidth={svgStrokeWidth} strokeLinecap="round" strokeDasharray={dashArray} className={KNOCKOUT} />
         {hasGradient && (
           <defs>
             {/* userSpaceOnUse, not the objectBoundingBox default: a horizontal
@@ -156,6 +159,12 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, swatch, isPoint,
     sizeClass = styleHints.radius <= 3 ? 'h-2.5 w-2.5' : styleHints.radius > 7 ? 'h-4.5 w-4.5' : 'h-3.5 w-3.5';
   }
   const Icon = isPoint ? Circle : Pentagon;
+  // A ring-less glyph gets a system-coloured stroke; an authored ring stays as
+  // drawn and gets an edge outside the glyph, which leaves a translucent fill's
+  // colour alone.
+  const glyphEdge = swatch?.stroke
+    ? `${SWATCH_EDGE}${isPoint ? ' forced-colors:rounded-full' : ''}`
+    : 'forced-colors:[stroke:CanvasText] forced-colors:[stroke-width:1.5px]';
   const ring = swatch?.stroke ?? null;
   const fillOpacity = fillOpacityOf(swatch);
 
@@ -172,7 +181,7 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, swatch, isPoint,
     if (fillOpacity !== undefined) patternFillStyle.opacity = fillOpacity;
     return (
       <span
-        className="relative inline-block h-3.5 w-3.5 shrink-0 overflow-hidden rounded-sm border"
+        className={`relative inline-block h-3.5 w-3.5 shrink-0 overflow-hidden rounded-sm border ${KEEP_DATA_COLOR} ${SWATCH_EDGE}`}
         style={{
           borderColor: ring?.color ?? 'transparent',
           ...opacityStyle,
@@ -191,7 +200,7 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, swatch, isPoint,
       <span style={opacityStyle} className="inline-flex">
         {/* fillOpacity on the SVG fill, not the span: a stroke-only style
             (fill-opacity: 0) must leave the outline visible. */}
-        <Icon className={sizeClass} fill={color} fillOpacity={fillOpacity} {...stroke} />
+        <Icon className={`${sizeClass} ${KEEP_DATA_COLOR} ${glyphEdge}`} fill={color} fillOpacity={fillOpacity} {...stroke} />
       </span>
     );
   }
@@ -202,14 +211,14 @@ function ShapeIcon({ colors, layerId, opacityStyle, styleHints, swatch, isPoint,
   return (
     <span className="relative inline-flex" style={opacityStyle}>
       <span className={`relative inline-flex ${sizeClass}`}>
-        <svg width="0" height="0" className="absolute">
+        <svg width="0" height="0" className={`absolute ${KEEP_DATA_COLOR}`}>
           <defs>
             <linearGradient id={gradientId}>
               {gradientStops(colors, discrete)}
             </linearGradient>
           </defs>
         </svg>
-        <Icon className={sizeClass} fill={`url(#${gradientId})`} fillOpacity={fillOpacity} {...stroke} />
+        <Icon className={`${sizeClass} ${KEEP_DATA_COLOR} ${glyphEdge}`} fill={`url(#${gradientId})`} fillOpacity={fillOpacity} {...stroke} />
       </span>
     </span>
   );

@@ -8,11 +8,9 @@ see public + their owned private + any restricted records granted to their roles
 from __future__ import annotations
 
 import json
-import re
 import time
 import uuid
 from collections.abc import Sequence
-from datetime import datetime
 from typing import Any, TypeVar
 
 from urllib.parse import urlencode
@@ -21,12 +19,16 @@ from fastapi import APIRouter, Depends, HTTPException, Query, Request, status
 from fastapi.responses import JSONResponse
 from starlette.responses import Response
 from pydantic import BaseModel, Field, field_validator
+import shapely
+from shapely.errors import ShapelyError
 from sqlalchemy import func, or_, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.orm import selectinload
 
 from app.modules.catalog.collections.models import Collection, CollectionDataset
+from app.core.temporal import temporal_interval
 from app.core.config import settings
+from app.core.db.pg_ranges import INT8_MAX
 from app.core.identity import Identity
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES
 from app.core.statement_timeout import bound_anonymous_reads, bound_every_read
@@ -62,6 +64,7 @@ from app.platform.cache import (
 from app.platform.extensions import get_catalog_port
 from app.standards.ogc.errors import ERROR_RESPONSES_PUBLIC, NOT_FOUND_RESPONSE
 from app.standards.ogc.utils import (
+    validate_rfc3339_datetime,
     content_language_for_record_languages,
     link_header_value,
     parse_accept_languages,
@@ -212,9 +215,7 @@ def _parse_extent_row(
     temporal_extent = None
     spatial_extent = rollup_bbox(ext_row[:6]) if ext_row else None
     if ext_row and (ext_row[6] is not None or ext_row[7] is not None):
-        t_start = ext_row[6].isoformat() + "T00:00:00Z" if ext_row[6] else None
-        t_end = ext_row[7].isoformat() + "T00:00:00Z" if ext_row[7] else None
-        temporal_extent = [t_start, t_end]
+        temporal_extent = temporal_interval(ext_row[6], ext_row[7])[0]
     license = _collapse_licenses(ext_row[8]) if ext_row else None
     return spatial_extent, temporal_extent, license
 
@@ -399,64 +400,6 @@ async def _visible_derived_from_id(
     )
     found = (await db.execute(stmt)).scalars().first()
     return str(source_id) if found is not None else None
-
-
-# RFC 3339 date-time as required by the STAC API spec: full date + time with a
-# Z or numeric UTC offset. The shared parse_ogc_datetime is deliberately more
-# lenient (day-granular, bare dates), so STAC validates syntax first.
-_RFC3339_DATETIME_RE = re.compile(
-    r"^\d{4}-\d{2}-\d{2}[Tt]\d{2}:\d{2}:\d{2}(\.\d+)?([Zz]|[+-]\d{2}:\d{2})$"
-)
-
-
-def _validate_stac_datetime(datetime_str: str) -> str:
-    """Enforce STAC's strict RFC 3339 datetime syntax, returning a normalized
-    value (empty open-interval ends become ``..``) for the shared parser."""
-
-    def _parse_side(part: str) -> datetime | None:
-        if part in ("", ".."):
-            return None
-        if not _RFC3339_DATETIME_RE.match(part):
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid RFC 3339 datetime: {part!r}",
-            )
-        try:
-            # RFC 3339 allows lowercase t/z; fromisoformat does not.
-            return datetime.fromisoformat(part.upper())
-        except ValueError as e:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Invalid RFC 3339 datetime: {e}",
-            )
-
-    if "/" in datetime_str:
-        parts = datetime_str.split("/")
-        if len(parts) != 2:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid datetime interval: expected exactly one '/'",
-            )
-        start, end = (_parse_side(p) for p in parts)
-        if start is None and end is None:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid datetime interval: both ends are open",
-            )
-        if start is not None and end is not None and start > end:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="Invalid datetime interval: start is after end",
-            )
-        return f"{parts[0] or '..'}/{parts[1] or '..'}"
-
-    _parse_side(datetime_str)
-    if datetime_str == "..":
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Invalid datetime: '..' is only valid inside an interval",
-        )
-    return datetime_str
 
 
 def _base_published_raster_query(
@@ -1085,6 +1028,7 @@ async def get_collection_items(
     offset: int = Query(
         0,
         ge=0,
+        le=INT8_MAX,
         description=(
             "Legacy offset-based pagination. The page size is capped at "
             f"{_STAC_MAX_LIMIT}; the rel=next link advances one page at a "
@@ -1452,8 +1396,18 @@ def _build_search_filters(
             intersects if isinstance(intersects, str) else json.dumps(intersects)
         )
         try:
+            parsed = json.loads(intersects_str)
+            if isinstance(parsed, dict) and parsed.get("type") in (
+                "Feature",
+                "FeatureCollection",
+            ):
+                raise ValueError("expected a GeoJSON geometry, not a Feature")
+            # PostGIS reads GeoJSON members case-insensitively and honours a
+            # crs member, so it only ever sees what shapely parsed. Doubles and
+            # Z survive the round trip.
+            intersects_str = shapely.to_geojson(shapely.from_geojson(intersects_str))
             check_wrap_turns(json.loads(intersects_str))
-        except (ValueError, TypeError) as e:
+        except (ValueError, TypeError, ShapelyError) as e:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail=f"Invalid intersects geometry: {e}",
@@ -1767,6 +1721,7 @@ async def search_get(
     offset: int = Query(
         0,
         ge=0,
+        le=INT8_MAX,
         description=(
             "Legacy offset-based pagination. The page size is capped at "
             f"{_STAC_MAX_LIMIT}; a high offset is costly to serve."
@@ -1835,6 +1790,7 @@ class StacSearchBody(BaseModel):
     offset: int = Field(
         default=0,
         ge=0,
+        le=INT8_MAX,
         description="Number of items to skip for pagination.",
     )
 
@@ -1898,7 +1854,7 @@ def _apply_datetime_filter(stmt, datetime_str: str):
     """
     from app.modules.catalog.search.service import parse_ogc_datetime, utc_midnight
 
-    datetime_str = _validate_stac_datetime(datetime_str.strip())
+    datetime_str = validate_rfc3339_datetime(datetime_str.strip())
     start, end = parse_ogc_datetime(datetime_str)
 
     # For records without temporal bounds, filter by created_at, matching the

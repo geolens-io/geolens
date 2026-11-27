@@ -14,6 +14,12 @@ glyph host for every label on the map; on blank and raster basemaps, labels use
 fonts bundled with the frontend and need no outbound call. See the Air-gap
 checklist below to close that off.
 
+Reading an uploaded file makes no outbound connection. Files are read from
+local staging, and GDAL's HTTP client is sent to a proxy address that refuses
+every connection, so a URL written inside a file, such as a GeoJSON CRS link or
+a GML schema include, is never fetched. Proxy variables in the API or worker
+environment don't apply to these reads.
+
 ## Egress matrix
 
 | Feature | Env var(s) | Destination | Required? | Air-gap note |

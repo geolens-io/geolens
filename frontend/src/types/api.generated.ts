@@ -1654,11 +1654,12 @@ export interface paths {
          * List OGC features
          * @description OGC API Features items endpoint -- returns GeoJSON FeatureCollection for a dataset.
          *
-         *     Note: ``datetime`` is accepted per OGC API Features Core but acts as a
-         *     no-op for per-dataset feature queries.  Per-dataset feature tables contain
-         *     user-uploaded data with no standard temporal column, so the spec provision
-         *     "if the collection does not include temporal information, the datetime
-         *     parameter SHALL be ignored" applies (OGC 17-069r4 §7.15.5).
+         *     Note: a well-formed ``datetime`` is accepted per OGC API Features Core but
+         *     acts as a no-op for per-dataset feature queries.  Per-dataset feature
+         *     tables contain user-uploaded data with no standard temporal column, so the
+         *     spec provision "if the collection does not include temporal information,
+         *     the datetime parameter SHALL be ignored" applies (OGC 17-069r4 §7.15.5).
+         *     A malformed ``datetime`` is refused with 400.
          */
         get: operations["get_collection_items_collections__dataset_id__items_get"];
         put?: never;
@@ -6475,7 +6476,7 @@ export interface paths {
          *     default is used in place of the value sent.
          *
          *     Responds 204 when the tile falls outside the raster, 400 for an
-         *     unsupported format, 401 when a request that no capability authorized
+         *     unsupported format or an out-of-range tile coordinate, 401 when a request that no capability authorized
          *     carried a credential which did not resolve, 403 when the embed token is
          *     invalid or expired or a multi-tenant request arrives with no tenant
          *     context, 422 for an out-of-range stretch parameter, 429 with
@@ -15122,6 +15123,11 @@ export interface components {
         OgImageUploadRequest: {
             /** Data Uri */
             data_uri: string;
+            /**
+             * Expected Updated At
+             * @description The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             */
+            expected_updated_at?: string | null;
         };
         /** PermissionsResponse */
         PermissionsResponse: {
@@ -18575,6 +18581,11 @@ export interface components {
         ThumbnailUploadRequest: {
             /** Data Uri */
             data_uri: string;
+            /**
+             * Expected Updated At
+             * @description The map's `updated_at` the caller read. When set and the map has changed since, nothing is written and the answer is 409 with `detail.code` `stale_write`. Omit it to write unconditionally.
+             */
+            expected_updated_at?: string | null;
         };
         /** TileConfigResponse */
         TileConfigResponse: {

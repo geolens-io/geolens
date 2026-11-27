@@ -234,7 +234,11 @@ export function DatasetPage() {
   const isDrawing = useDrawingStore((s) => s.isDrawing);
   const isGeometryEditDirty = useDrawingStore((s) => s.isEditDirty);
   const hasUnsavedMapWork = useDrawingStore((s) => s.hasUnsavedMapWork);
-  useDocumentTitle(dataset?.title ?? t('common:pageTitle.dataset'));
+  // A 404 wins over a cached title: the page shows the error even when an
+  // earlier load is still cached.
+  useDocumentTitle(
+    notFound ? t('common:pageTitle.datasetNotFound') : (dataset?.title ?? t('common:pageTitle.dataset')),
+  );
 
   const {
     stagePendingDraft,
@@ -392,13 +396,12 @@ export function DatasetPage() {
           message={error instanceof Error ? error.message : t('page.errorMessage')}
           onRetry={notFound ? undefined : () => refetch()}
           action={
-            <Link
-              to="/"
-              className="text-sm text-primary hover:underline inline-flex items-center gap-1 transition-colors duration-150"
-            >
-              <ArrowLeft className="h-4 w-4 rtl-mirror" />
-              {t('page.backToSearch')}
-            </Link>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/">
+                <ArrowLeft className="me-2 size-4 rtl-mirror" />
+                {t('page.backToSearch')}
+              </Link>
+            </Button>
           }
         />
       </PageShell>

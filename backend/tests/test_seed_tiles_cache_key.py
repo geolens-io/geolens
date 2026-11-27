@@ -268,3 +268,27 @@ async def test_a_dataset_replaced_while_its_tile_renders_is_not_cached(
         assert await cache.get(key, 0, 0, 0) is None
     finally:
         await _drop_table(test_db_session, table)
+
+
+async def test_a_seeded_tile_renders_as_the_tile_reader_role(
+    test_db_session, monkeypatch
+):
+    dataset = await _public_point_dataset(test_db_session)
+    cache = InMemoryTileCacheProvider()
+    render_tile = tile_service.get_tile
+    render_roles: list[str] = []
+
+    async def render_and_record_role(pool, *args, **kwargs):
+        executor = kwargs.get("conn") or pool
+        render_roles.append(await executor.fetchval("SELECT current_user"))
+        return await render_tile(pool, *args, **kwargs)
+
+    monkeypatch.setattr("app.core.tenancy.is_multi_tenant", lambda: False)
+    monkeypatch.setattr(tile_service, "get_tile", render_and_record_role)
+    try:
+        seeded, errors = await _seed_tiles(cache, dataset, [(0, 0, 0)])
+
+        assert (seeded, errors) == (1, 0)
+        assert render_roles == ["geolens_reader"]
+    finally:
+        await _drop_table(test_db_session, dataset.table_name)

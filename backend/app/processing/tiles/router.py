@@ -1,6 +1,7 @@
 """FastAPI tile endpoint serving vector tiles via PostGIS ST_AsMVT."""
 
 import asyncio
+import functools
 import gzip
 import math
 import threading
@@ -30,7 +31,7 @@ from sqlalchemy.orm import joinedload
 
 from app.core.url_redaction import redact_exception_text
 from app.core.geo import extent_lon_span, extent_to_span_bbox, raster_crs_facts
-from app.core.identity import Identity
+from app.core.identity import Identity, IdentitySnapshot
 from app.core.raster_bands import is_palette_raster
 from app.core.record_types import RASTER_FAMILY_RECORD_TYPES, capabilities
 from app.core.tile_scope import (
@@ -66,6 +67,7 @@ from app.platform.extensions import (
     get_processing_port,
 )
 from app.platform.service_endpoints import MAX_QUERY_FIELDS
+from app.platform.storage.raster_relay import is_relay_url
 from app.platform.storage.titiler_url import build_titiler_cog_url
 from app.processing.tiles import remote_sources
 from app.processing.raster.models import RasterAsset
@@ -496,6 +498,46 @@ def _raster_maxzoom_from_metadata(
     return max(0, min(_MAX_RASTER_MAXZOOM, zoom))
 
 
+_MERCATOR_MAX_LAT = 85.0511287798
+
+
+def _mercator_y(lat: float) -> float:
+    lat = max(-_MERCATOR_MAX_LAT, min(_MERCATOR_MAX_LAT, lat))
+    return math.log(math.tan(math.pi / 4 + math.radians(lat) / 2))
+
+
+def _raster_minzoom_from_metadata(
+    asset: RasterAsset | None,
+    bounds: list[float] | None,
+    maxzoom: int,
+    *,
+    lon_span: float | None = None,
+) -> int:
+    """Lowest zoom a raster source requests tiles at.
+
+    A by-reference COG read costs a slow remote request per tile, and far
+    below the zoom where the raster fits one tile those tiles show a speck.
+    The floor is the zoom where the raster's larger Web Mercator side is one
+    256 px tile, less one level, so the layer stays drawn until it is about
+    128 px across. A source draws nothing below its minzoom, so managed
+    rasters, which read quickly, keep 0, as does a raster without usable
+    bounds. ``lon_span`` is the honest width of a seam-crossing extent.
+    """
+    if asset is None or asset.storage_backend != "remote":
+        return 0
+    if not bounds or len(bounds) != 4:
+        return 0
+    west, south, east, north = bounds
+    width_deg = lon_span if lon_span is not None else east - west
+    height = _mercator_y(north) - _mercator_y(south)
+    # Fractions of the world's width and height; a Mercator world is square.
+    fraction = max(width_deg / 360.0, height / (2 * math.pi))
+    if not math.isfinite(fraction) or fraction <= 0:
+        return 0
+    one_tile_zoom = math.floor(math.log2(1 / fraction))
+    return max(0, min(maxzoom, one_tile_zoom - 1))
+
+
 def _titiler_render_params(band_count: int | None, dtype: str | None) -> str:
     """Build titiler query string for band selection and rescaling.
 
@@ -630,16 +672,15 @@ def _compute_stretch_rescale(
     """Compute Titiler ``rescale=lo,hi`` fragments from band statistics.
 
     percentile → [percentile_<pmin>, percentile_<pmax>]. stddev → [mean ±
-    sigma·σ] clamped to [min, max]. One fragment per band (up to n_bands);
-    empty when stats are insufficient (caller falls back to minmax).
+    sigma·σ] clamped to [min, max]. One fragment per band; empty unless every
+    band has a usable range, since a short list makes Titiler apply band 1's
+    range to all bands (caller falls back to minmax).
     """
     pmin_key = _percentile_key(pmin)
     pmax_key = _percentile_key(pmax)
     parts: list[str] = []
     for i in range(n_bands):
-        if i >= len(bands):
-            break
-        b = bands[i]
+        b = bands[i] if i < len(bands) else {}
         if stretch == "percentile":
             lo = b.get(pmin_key)
             hi = b.get(pmax_key)
@@ -647,7 +688,7 @@ def _compute_stretch_rescale(
             mean = b.get("mean")
             std = b.get("std")
             if mean is None or std is None:
-                continue
+                return []
             lo = mean - sigma * std
             hi = mean + sigma * std
             bmin, bmax = b.get("min"), b.get("max")
@@ -656,7 +697,7 @@ def _compute_stretch_rescale(
             if bmax is not None:
                 hi = min(hi, bmax)
         if lo is None or hi is None or not (lo < hi):
-            continue
+            return []
         # A literal "+" in an exponent would be read as a space in the query.
         parts.append(f"rescale={quote(str(lo))},{quote(str(hi))}")
     return parts
@@ -834,6 +875,8 @@ async def _resolve_raster_meta(
     db: AsyncSession,
     dataset_id: uuid.UUID,
     requested_version: str | None = None,
+    *,
+    reread: bool = False,
 ) -> _RasterMeta:
     """Look up raster dataset/asset metadata with a short in-memory cache.
 
@@ -846,7 +889,8 @@ async def _resolve_raster_meta(
     Each dataset has one snapshot. A ``requested_version`` newer than it
     re-reads the row as ``_cached_snapshot`` describes, so a replace is picked
     up by the first request that names its version; an equal, older or
-    unreadable one is served the snapshot.
+    unreadable one is served the snapshot. ``reread`` asks for a snapshot read
+    after the call, under the same once-per-interval bound.
 
     Raises HTTPException(404) when the dataset is missing, is not a raster,
     or has no raster asset.
@@ -861,10 +905,23 @@ async def _resolve_raster_meta(
         cache_key,
         db,
         names_newer=lambda meta: (
-            version is not None and int(version) > meta.tile_cache_version
+            reread or (version is not None and int(version) > meta.tile_cache_version)
         ),
         read=lambda: _read_raster_meta(db, dataset_id, tenant_id),
     )
+
+
+async def _reread_raster_meta(db: AsyncSession, dataset_id: uuid.UUID) -> bool:
+    """Replace the cached raster snapshot with a fresh read; False if the read failed.
+
+    It decides nothing about access: the caller authorizes again through the
+    snapshot it leaves behind.
+    """
+    try:
+        await _resolve_raster_meta(db, dataset_id, reread=True)
+    except HTTPException:
+        return False
+    return True
 
 
 async def _signed_template_authorizes(
@@ -1276,7 +1333,7 @@ async def raster_tile_proxy(
     default is used in place of the value sent.
 
     Responds 204 when the tile falls outside the raster, 400 for an
-    unsupported format, 401 when a request that no capability authorized
+    unsupported format or an out-of-range tile coordinate, 401 when a request that no capability authorized
     carried a credential which did not resolve, 403 when the embed token is
     invalid or expired or a multi-tenant request arrives with no tenant
     context, 422 for an out-of-range stretch parameter, 429 with
@@ -1334,6 +1391,9 @@ async def raster_tile_proxy(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail=f"Unsupported tile format: {fmt!r}",
         )
+    # Before the access check, like the vector route: the answer depends only on
+    # the path, so it cannot reveal whether the dataset exists.
+    _validate_tile_coordinates(z, x, y)
 
     # Effective bounds are resolved once, where activity is decided: an
     # inactive parameter's value is always the absent default. Otherwise
@@ -1367,6 +1427,10 @@ async def raster_tile_proxy(
                 detail=f"sigma must be > 0; got sigma={eff_sigma}",
             )
 
+    # Authorizing rolls the session back, which expires an ORM user, and the
+    # check after a replace reads the caller again.
+    if user is not None:
+        user = IdentitySnapshot.of(user)
     auth_resp = await raster_auth_check(request, dataset_id, user, db)
     open_path = auth_resp.headers.get("X-GeoLens-Asset-OpenPath")
     if not open_path:
@@ -1374,6 +1438,86 @@ async def raster_tile_proxy(
             status_code=status.HTTP_404_NOT_FOUND, detail="No raster asset"
         )
 
+    tile = functools.partial(
+        _fetch_raster_tile,
+        dataset_id=dataset_id,
+        z=z,
+        x=x,
+        y=y,
+        fmt=fmt,
+        colormap_name=colormap_name,
+        stretch=stretch,
+        eff_pmin=eff_pmin,
+        eff_pmax=eff_pmax,
+        eff_sigma=eff_sigma,
+    )
+    resp, cache_status = await tile(auth_resp, open_path)
+    # A replace deletes the old managed COG when it commits, while this
+    # process's snapshot can still name it for up to its TTL. Titiler answers a
+    # missing file with a 500, so the snapshot is re-read and the request
+    # authorized again from it; only a snapshot naming another file earns the
+    # one further render. A relay address is never stable, so it is not compared.
+    if (
+        resp.status_code == 500
+        and not is_relay_url(open_path)
+        and await _reread_raster_meta(db, dataset_id)
+    ):
+        auth_resp = await raster_auth_check(request, dataset_id, user, db)
+        fresh_path = auth_resp.headers.get("X-GeoLens-Asset-OpenPath")
+        if fresh_path and fresh_path != open_path:
+            resp, cache_status = await tile(auth_resp, fresh_path)
+
+    # Private/restricted rasters must never be retained by the shared nginx
+    # cache, whose key carries no auth. `no-store` makes nginx skip caching
+    # (frontend/nginx.conf honors it); only public datasets are cacheable.
+    if cache_status == "public":
+        cache_control = public_cache_control(3600)
+    else:
+        cache_control = "private, no-store"
+
+    if resp.status_code == 404:
+        # A tile outside the raster extent; clients ask for each empty child
+        # of an empty parent, so the 204 is cacheable like a tile with data.
+        return Response(
+            status_code=status.HTTP_204_NO_CONTENT,
+            headers={"Cache-Control": cache_control},
+        )
+    if resp.status_code != 200:
+        # Logged so upstream titiler failures are diagnosable from logs alone.
+        logger.warning(
+            "Raster tile fetch returned non-200",
+            dataset_id=str(dataset_id),
+            z=z,
+            x=x,
+            y=y,
+            status_code=resp.status_code,
+        )
+        raise HTTPException(status_code=resp.status_code, detail="Tile fetch failed")
+
+    return Response(
+        content=resp.content,
+        media_type=resp.headers.get("content-type", "image/png"),
+        headers={"Cache-Control": cache_control},
+    )
+
+
+async def _fetch_raster_tile(
+    auth_resp: Response,
+    open_path: str,
+    *,
+    dataset_id: uuid.UUID,
+    z: int,
+    x: int,
+    y: int,
+    fmt: str,
+    colormap_name: str | None,
+    stretch: str | None,
+    eff_pmin: float,
+    eff_pmax: float,
+    eff_sigma: float,
+) -> tuple[httpx.Response, str]:
+    """Render one tile of ``open_path`` in Titiler with the render parameters
+    ``auth_resp`` carries, returning Titiler's response and the cache scope."""
     render_params = auth_resp.headers.get("X-GeoLens-Render-Params", "")
     # Carries the dataset's public/private cache scope through to the tile
     # response so private rasters are never stored by a shared cache; defaults
@@ -1419,7 +1563,10 @@ async def raster_tile_proxy(
         render_params = _apply_stretch_rescale(render_params, [])
     elif stretch and stretch != "minmax" and not render_params.startswith("algorithm="):
         bands = await _fetch_band_statistics(open_path, eff_pmin, eff_pmax)
-        n_bands = min(band_count or 1, 3)
+        # Two bands without a selection are grayscale plus alpha.
+        n_bands = render_params.count("bidx=") or (
+            1 if band_count == 2 else min(band_count or 1, 3)
+        )
         rescale_parts = (
             _compute_stretch_rescale(
                 bands, stretch, n_bands, pmin=eff_pmin, pmax=eff_pmax, sigma=eff_sigma
@@ -1427,6 +1574,8 @@ async def raster_tile_proxy(
             if bands
             else []
         )
+        if not rescale_parts and auth_resp.headers.get(_DATA_RANGE_HEADER):
+            rescale_parts = _data_range_rescale(bands or [], n_bands)
         if rescale_parts:
             render_params = _apply_stretch_rescale(render_params, rescale_parts)
         else:
@@ -1512,38 +1661,7 @@ async def raster_tile_proxy(
             detail="Tile service unavailable",
         )
 
-    # Private/restricted rasters must never be retained by the shared nginx
-    # cache, whose key carries no auth. `no-store` makes nginx skip caching
-    # (frontend/nginx.conf honors it); only public datasets are cacheable.
-    if cache_status == "public":
-        cache_control = public_cache_control(3600)
-    else:
-        cache_control = "private, no-store"
-
-    if resp.status_code == 404:
-        # A tile outside the raster extent; clients ask for each empty child
-        # of an empty parent, so the 204 is cacheable like a tile with data.
-        return Response(
-            status_code=status.HTTP_204_NO_CONTENT,
-            headers={"Cache-Control": cache_control},
-        )
-    if resp.status_code != 200:
-        # Logged so upstream titiler failures are diagnosable from logs alone.
-        logger.warning(
-            "Raster tile fetch returned non-200",
-            dataset_id=str(dataset_id),
-            z=z,
-            x=x,
-            y=y,
-            status_code=resp.status_code,
-        )
-        raise HTTPException(status_code=resp.status_code, detail="Tile fetch failed")
-
-    return Response(
-        content=resp.content,
-        media_type=resp.headers.get("content-type", "image/png"),
-        headers={"Cache-Control": cache_control},
-    )
+    return resp, cache_status
 
 
 async def _refused_mosaics(db: AsyncSession, datasets: list["Any"]) -> set[uuid.UUID]:
@@ -1627,6 +1745,9 @@ def _build_tile_token_for_dataset(
         # The raster template is signed too. A raster has no table_name, so the
         # dataset id is the resource string, and it is tenant-bound. Mirrored
         # byte for byte at the verify site in `_resolve_raster_access`.
+        raster_maxzoom = _raster_maxzoom_from_metadata(
+            raster_asset, bounds, lon_span=lon_span
+        )
         raster_exp = round_expiry()
         raster_scope = signed_scope(str(dataset.id))
         raster_sig = generate_tile_signature(raster_scope, raster_exp)
@@ -1654,10 +1775,10 @@ def _build_tile_token_for_dataset(
             scope=raster_scope,
             expires_in=raster_exp - int(time.time()),
             bounds=bounds,
-            minzoom=0,
-            maxzoom=_raster_maxzoom_from_metadata(
-                raster_asset, bounds, lon_span=lon_span
+            minzoom=_raster_minzoom_from_metadata(
+                raster_asset, bounds, raster_maxzoom, lon_span=lon_span
             ),
+            maxzoom=raster_maxzoom,
             tile_size=256,
             format="png",
         )
@@ -2512,8 +2633,8 @@ async def _acquire_and_serve_tile(
         async with pool.acquire(timeout=TILE_POOL_ACQUIRE_TIMEOUT_SECONDS) as tile_conn:
             try:
                 async with tile_conn.transaction():
-                    # Bound before the tile query; a no-op in single_tenant or
-                    # when tid is None.
+                    # Bound before the tile query: geolens_reader in
+                    # single_tenant, the tenant reader role in multi_tenant.
                     await set_tenant_role_for_tile_request(tile_conn, tid)
                     tile = await query_callable(pool, tile_conn)
             except asyncio.TimeoutError:

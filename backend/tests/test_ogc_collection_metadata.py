@@ -8,7 +8,7 @@ Verifies:
   - Empty catalog returns gracefully without extent/summaries
   - Collection links use absolute URLs
   - list_collections includes dynamic metadata
-  - Open-ended temporal bounds use ".." notation
+  - Temporal bounds are RFC 3339 date-times; an open bound is null
 """
 
 import uuid
@@ -172,8 +172,8 @@ async def test_collection_has_temporal_extent(client: AsyncClient, test_db_sessi
     assert len(interval) >= 1
     # Aggregated interval must encompass both datasets' ranges
     # (other datasets in the DB may widen the range further)
-    assert interval[0][0] <= "2019-06-01"
-    assert interval[0][1] >= "2023-03-15"
+    assert interval[0][0] <= "2019-06-01T00:00:00Z"
+    assert interval[0][1] >= "2023-03-15T23:59:59Z"
 
 
 # ---------------------------------------------------------------------------
@@ -361,7 +361,7 @@ async def test_collection_temporal_open_ended(client: AsyncClient, test_db_sessi
     data = resp.json()
     if "extent" in data and "temporal" in data["extent"]:
         interval = data["extent"]["temporal"]["interval"]
-        # The end bound should be either ".." or a date string
+        # The end bound is null or a date-time string
         # Since other test datasets may contribute an end date,
         # just verify the structure is valid
         assert isinstance(interval, list)
@@ -403,8 +403,8 @@ async def test_per_dataset_collection_has_extent_in_list(
     assert "temporal" in entry["extent"]
     interval = entry["extent"]["temporal"]["interval"]
     assert isinstance(interval, list) and len(interval) >= 1
-    assert interval[0][0] == "2021-03-01"
-    assert interval[0][1] == "2022-06-30"
+    assert interval[0][0] == "2021-03-01T00:00:00Z"
+    assert interval[0][1] == "2022-06-30T23:59:59Z"
 
 
 @pytest.mark.anyio
@@ -452,5 +452,68 @@ async def test_per_dataset_collection_detail_has_temporal_extent(
     assert "temporal" in data["extent"]
     interval = data["extent"]["temporal"]["interval"]
     assert isinstance(interval, list) and len(interval) >= 1
-    assert interval[0][0] == "2020-05-15"
-    assert interval[0][1] == "2023-11-30"
+    assert interval[0][0] == "2020-05-15T00:00:00Z"
+    assert interval[0][1] == "2023-11-30T23:59:59Z"
+
+
+_RFC3339 = r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}Z$"
+
+
+def _assert_interval_shape(extent: dict) -> list:
+    import re
+
+    interval = extent["temporal"]["interval"]
+    assert isinstance(interval, list) and len(interval) == 1
+    assert len(interval[0]) == 2
+    for bound in interval[0]:
+        assert bound is None or re.match(_RFC3339, bound), bound
+    return interval[0]
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize(
+    ("start", "end", "expected"),
+    [
+        (date(2020, 1, 1), None, ["2020-01-01T00:00:00Z", None]),
+        (None, date(2020, 12, 31), [None, "2020-12-31T23:59:59Z"]),
+        (
+            date(2020, 1, 1),
+            date(2020, 12, 31),
+            ["2020-01-01T00:00:00Z", "2020-12-31T23:59:59Z"],
+        ),
+    ],
+)
+async def test_feature_collection_temporal_bounds_are_rfc3339_or_null(
+    client: AsyncClient, test_db_session, start, end, expected
+):
+    admin_id = await get_user_id(test_db_session, "admin")
+    ds = await _create_dataset(
+        test_db_session,
+        created_by=admin_id,
+        name=f"Temporal Shape {start} {end}",
+        data_vintage_start=start,
+        data_vintage_end=end,
+    )
+
+    detail = await client.get(f"/collections/{ds.id}")
+    assert detail.status_code == 200
+    assert _assert_interval_shape(detail.json()["extent"]) == expected
+
+    entry = await _find_collection_entry(client, str(ds.id))
+    assert entry is not None
+    assert _assert_interval_shape(entry["extent"]) == expected
+
+
+def test_rfc3339_bound_converts_datetimes_to_utc():
+    from datetime import datetime, timedelta, timezone
+
+    from app.core.temporal import rfc3339_bound, temporal_interval
+
+    offset = timezone(timedelta(hours=-5))
+    assert (
+        rfc3339_bound(datetime(2020, 1, 1, 22, 30, tzinfo=offset))
+        == "2020-01-02T03:30:00Z"
+    )
+    assert rfc3339_bound(datetime(2020, 1, 1, 8, 0)) == "2020-01-01T08:00:00Z"
+    assert rfc3339_bound(None) is None
+    assert temporal_interval(None, None) == [[None, None]]

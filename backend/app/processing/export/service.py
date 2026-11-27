@@ -347,6 +347,9 @@ def validate_where_clause(where: str, column_info: list[dict] | None) -> str:
     return where
 
 
+_DOWNLOAD_STEM_MAX_BYTES = 150
+
+
 def export_descriptor(dataset_name: str, format_key: str) -> tuple[str, str]:
     """The download's ``(filename, media_type)``, derived without exporting.
 
@@ -357,6 +360,9 @@ def export_descriptor(dataset_name: str, format_key: str) -> tuple[str, str]:
         ValueError: If format_key is not a supported export format.
     """
     safe_name = re.sub(r"[^\w\-.]", "_", dataset_name)
+    # A long title would otherwise grow the percent-encoded Content-Disposition
+    # past the proxy's response-header buffer. Cut on a character boundary.
+    safe_name = safe_name.encode()[:_DOWNLOAD_STEM_MAX_BYTES].decode(errors="ignore")
 
     if format_key == "parquet":
         return f"{safe_name}.parquet", PARQUET_MEDIA_TYPE
@@ -453,13 +459,15 @@ async def export_dataset(
             # event loop, drained on cancellation so the `except BaseException`
             # rmtree below can't delete temp_dir while the zip thread still
             # writes into it.
-            zip_path = os.path.join(temp_dir, filename)
+            zip_path = os.path.join(temp_dir, "archive.zip")
             await run_in_thread_draining(_zip_export_files, temp_dir, zip_path)
 
             return zip_path, filename, media_type
 
         # Single-file formats
-        output_path = os.path.join(temp_dir, filename)
+        # The title can exceed the filesystem name limit, so it only names the
+        # download, never the file on disk.
+        output_path = os.path.join(temp_dir, f"export{ext}")
         await run_ogr2ogr_export(
             table_name,
             output_path,
@@ -479,6 +487,7 @@ async def export_dataset(
             numeric_columns=numeric_column_names(column_info),
             layer_name=dataset_name,
             xy=xy,
+            tileset_name=os.path.splitext(filename)[0],
         )
         if format_key == "gpkg":
             # Off the event loop: a SQLite write over a file that can be

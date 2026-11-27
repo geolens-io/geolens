@@ -849,10 +849,10 @@ async def get_tile(
             zooms (e.g. data-driven styling columns). Unioned with the
             base selection; validated against ``columns``.
         cols_only: Project exactly ``additional_columns``, none of the defaults.
-        conn: Optional already-acquired asyncpg connection to reuse. Pass one
-            that already had ``set_tenant_role_for_tile_request`` called inside
-            an open transaction so the per-tenant role/search_path survive.
-            None uses a transient connection from the pool.
+        conn: Already-acquired asyncpg connection to reuse. Pass one that
+            already had ``set_tenant_role_for_tile_request`` called inside an
+            open transaction, so the query runs as the tile reader role.
+            None queries the pool directly as its login, with no reader role.
         schema: Data schema name; defaults to ``"data"`` (single_tenant). In
             multi_tenant, pass ``tenant_data_schema(tid)`` so the FROM
             clause is explicitly schema-qualified.

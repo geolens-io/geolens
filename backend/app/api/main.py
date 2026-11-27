@@ -17,12 +17,13 @@ redirect_tempfile_to_staging(settings.upload_staging_dir)
 # S3 endpoint derived into AWS_* env, and subprocesses inherit os.environ.
 configure_gdal_s3_env(settings)
 
-from fastapi import FastAPI, Request, status
+from fastapi import Depends, FastAPI, Request, status
 from fastapi.responses import JSONResponse
 from sqlalchemy import text
 from starlette.middleware.gzip import DEFAULT_EXCLUDED_CONTENT_TYPES, GZipMiddleware
 from starlette.middleware.sessions import SessionMiddleware
 
+from app.api.query_guard import refuse_nul_in_query
 from app.api.router import api_router
 from app.api.openapi_contract import _iter_api_routes, install_standards_aware_openapi
 from app.observability.metrics import (
@@ -1053,7 +1054,8 @@ app.add_middleware(
 app.add_middleware(NoCompressionByPathMiddleware)
 app.add_middleware(DynamicCORSMiddleware)
 
-app.include_router(api_router)
+# On the API routes, not the app, so the liveness probe keeps no dependencies.
+app.include_router(api_router, dependencies=[Depends(refuse_nul_in_query)])
 
 
 def _clone_api_route(

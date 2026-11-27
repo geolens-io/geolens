@@ -62,6 +62,7 @@ import {
 } from '@/components/viewer/layer-identity';
 import { getClusterSourceEligibility, getClusterSourceStrategy, shouldFetchClusterGeoJson } from '@/components/builder/cluster-source';
 import { MapDataPanel } from '@/components/viewer/MapDataPanel';
+import { useDataPanelClearance } from '@/components/viewer/useDataPanelClearance';
 import { offersTable } from '@/components/viewer/map-data-table';
 import {
   toAccessibleMapFeatures,
@@ -224,6 +225,7 @@ export const ViewerMap = memo(function ViewerMap({
   // each remount opens it again.
   const shellRef = useRef<HTMLDivElement>(null);
   useEffect(() => (shellRef.current ? keepCompactAttributionFolded(shellRef.current) : undefined), []);
+  const reportDataPanelHeight = useDataPanelClearance(shellRef, onDataPanelHeightChange);
   const managedSourcesRef = useRef<Set<string>>(new Set());
   const prevOrderKeyRef = useRef('');
   const [mapReady, setMapReady] = useState(false);
@@ -1323,7 +1325,7 @@ export const ViewerMap = memo(function ViewerMap({
           embedToken={embedToken}
           onClose={closeDataPanel}
           onListShownChange={setDataListShown}
-          onHeightChange={onDataPanelHeightChange}
+          onHeightChange={reportDataPanelHeight}
         />
       )}
     </div>

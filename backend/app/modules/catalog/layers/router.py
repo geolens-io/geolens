@@ -314,9 +314,9 @@ async def alter_column_type_endpoint(
             detail=str(exc),
         )
     except DBAPIError as exc:
-        # Route through the shared classifier like add/rename/
-        # drop, so a lock timeout or connection failure during ALTER TYPE is a
-        # 503, while cast failures ("abc" → integer) stay 400 with the message.
+        # The shared classifier, as for add/rename/drop: a connection failure
+        # during ALTER TYPE is a 503 and a failed cast ("abc" → integer) a 400.
+        # A held table never gets here; the bounded lock answers 409.
         await _raise_ddl_db_error(db, exc, "Type change")
 
     logger.info(

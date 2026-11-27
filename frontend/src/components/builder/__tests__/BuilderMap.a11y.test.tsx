@@ -718,7 +718,6 @@ describe('BuilderMap terrain activation', () => {
 
     expect(ensureRasterDemTerrainSource).toHaveBeenCalledWith(mapState.fakeMap, terrainToken.tile_url, {
       tileSize: 256,
-      minzoom: 0,
       maxzoom: 17,
       bounds: [-74.05, 44.08, -73.85, 44.32],
       // The DEM's required credit. This fixture's layer

@@ -268,8 +268,10 @@ async def _follow_next_links(
             return pages
         assert len(pages) < 10, "next links never ran out"
         target = urlsplit(href)
-        assert target.path.endswith(_ITEMS_PATH)
-        response = await client.get(f"{_ITEMS_PATH}?{target.query}", headers=headers)
+        # A next link stays on the route that was asked: native search and
+        # OGC Records page collections differently.
+        assert target.path.endswith(path)
+        response = await client.get(f"{path}?{target.query}", headers=headers)
 
 
 def _page_titles(pages: list[dict]) -> list[str]:

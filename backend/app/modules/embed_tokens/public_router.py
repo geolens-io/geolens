@@ -13,14 +13,16 @@ auth_request lets the shell load; an invalid token gets a fail-closed
 
 import hashlib
 from datetime import datetime, timezone
+from urllib.parse import parse_qsl
 
-from fastapi import APIRouter, Depends, Query, Response
+from fastapi import APIRouter, Depends, Query, Request, Response
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.dependencies import get_db
 from app.modules.embed_tokens.models import EmbedToken
 from app.modules.embed_tokens.service import build_embed_frame_ancestors
+from app.platform.service_endpoints import MAX_QUERY_FIELDS
 
 router = APIRouter(prefix="/embed", tags=["Embed Tokens"])
 
@@ -36,8 +38,28 @@ _BASE_EMBED_CSP = (
 )
 
 
+def embed_token_from_query(query: str) -> str | None:
+    """Return the ``et`` value the viewer page reads from a raw query string.
+
+    ``parse_qsl`` decodes names and splits on ``&`` only, as the browser's
+    ``URLSearchParams`` does. Returns ``""`` when there is no ``et``, and
+    ``None`` when the query names ``et`` more than once or in another case,
+    or has more than ``MAX_QUERY_FIELDS`` fields: the page takes the first
+    ``et``, so any second reading must not decide the framing policy.
+    """
+    try:
+        qs = parse_qsl(query, keep_blank_values=True, max_num_fields=MAX_QUERY_FIELDS)
+    except ValueError:
+        return None
+    values = [(name, value) for name, value in qs if name.lower() == "et"]
+    if len(values) > 1 or any(name != "et" for name, _ in values):
+        return None
+    return values[0][1] if values else ""
+
+
 @router.get("/frame-policy", include_in_schema=False)
 async def embed_frame_policy(
+    request: Request,
     response: Response,
     token: str = Query(default=""),
     db: AsyncSession = Depends(get_db),
@@ -46,15 +68,25 @@ async def embed_frame_policy(
 
     Always 200; the framing decision is carried in the
     ``Content-Security-Policy`` and ``X-Embed-Frame-Ancestors`` headers.
+    The edge sends the shell's raw query in ``X-Embed-Query``; when present it
+    decides the token, and ``token`` is read only from an edge that predates it.
     """
-    if not token:
+    embed_token: str | None = token
+    shell_query = request.headers.get("x-embed-query")
+    if shell_query is not None:
+        embed_token = embed_token_from_query(shell_query)
+    if embed_token is None:
+        frame_ancestors = build_embed_frame_ancestors(
+            is_valid=False, allowed_origins=None
+        )
+    elif not embed_token:
         # No embed token: a plain share view or a public embed without domain
         # locking, so framing stays open. Fail-closed 'none' is reserved for a
         # token that is present but invalid/revoked/expired. Private data stays
         # protected at the tile layer (X-Embed-Token validation).
         frame_ancestors = ""
     else:
-        token_hash = hashlib.sha256(token.encode()).hexdigest()
+        token_hash = hashlib.sha256(embed_token.encode()).hexdigest()
         now = datetime.now(timezone.utc)
         result = await db.execute(
             select(EmbedToken).where(
@@ -75,5 +107,7 @@ async def embed_frame_policy(
     response.headers["Content-Security-Policy"] = csp
     # Just the directive (possibly empty) for the nginx auth_request_set copy.
     response.headers["X-Embed-Frame-Ancestors"] = frame_ancestors
+    # The answer depends on X-Embed-Query, which a URL-keyed cache would miss.
+    response.headers["Cache-Control"] = "no-store"
     response.status_code = 200
     return response

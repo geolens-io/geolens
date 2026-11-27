@@ -10,6 +10,7 @@ from typing import Literal
 from fastapi import HTTPException, Query, status
 from pydantic import BaseModel, field_validator
 
+from app.core.db.pg_ranges import INT8_MAX
 from app.core.geo import check_wrap_turns
 from app.core.record_types import RECORD_TYPES
 from app.modules.catalog.features.service import parse_bbox
@@ -80,7 +81,7 @@ class SearchQueryParams(BaseModel):
         description="Sort: relevance, date_added, name, last_updated",
     )
     sort_desc: bool | None = Query(None, description="Sort direction override")
-    offset: int = Query(0, ge=0, description="Pagination offset")
+    offset: int = Query(0, ge=0, le=INT8_MAX, description="Pagination offset")
     limit: int = Query(
         10,
         ge=1,

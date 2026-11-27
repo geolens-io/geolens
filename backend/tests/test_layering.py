@@ -691,6 +691,7 @@ def test_no_external_imports_of_maps_private_service_modules() -> None:
         "service_shared",
         "service_crud",
         "service_diff",
+        "service_images",
         "service_layers",
         "service_public",
     }
@@ -1218,7 +1219,7 @@ def test_analysis_sql_facade_guard_sees_every_bypass_shape() -> None:
 def test_decomposed_service_modules_stay_within_size_budgets() -> None:
     """Keep split service modules and their stable facades bounded."""
     facade_line_budgets = {
-        "backend/app/modules/catalog/maps/service.py": 132,
+        "backend/app/modules/catalog/maps/service.py": 142,
         "backend/app/modules/catalog/search/service.py": 80,
         "backend/app/modules/catalog/datasets/domain/service.py": 154,
         "backend/app/processing/ai/chat_service.py": 487,
@@ -1230,7 +1231,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Preview operations share one sandbox concurrency and serialization boundary.
         "backend/app/modules/catalog/datasets/domain/service_analysis.py": 612,
         # Database commits and object publication/rollback form one asset lifecycle.
-        "backend/app/modules/catalog/maps/service_crud.py": 850,
+        "backend/app/modules/catalog/maps/service_crud.py": 854,
         # Page search and its counts share one candidate and semantic-window selection.
         "backend/app/modules/catalog/search/service_datasets.py": 316,
         # Shared-map audience decisions stay behind the permission extension seam,
@@ -1241,7 +1242,7 @@ def test_decomposed_service_modules_stay_within_size_budgets() -> None:
         # Record assembly keeps one format and asset branch per record type.
         "backend/app/modules/catalog/search/service_records.py": 662,
         # Embedding resolution, the vector arm and the RRF merge share one semantic-mode decision.
-        "backend/app/modules/catalog/search/service_semantic.py": 521,
+        "backend/app/modules/catalog/search/service_semantic.py": 530,
         # A layer diff checks a changed filter against the caller's access and its widgets,
         # and stacks a map_author key's added layers on top; a full replace
         # carries a publish manifest's layer keys and the rows it keeps.
@@ -1333,7 +1334,7 @@ _OPEN_CORE_SIZE_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/maps/style_sanitizers.py": 151,
     "backend/app/modules/catalog/maps/router_assets.py": 190,
     "backend/app/modules/catalog/maps/router_sharing.py": 510,
-    "backend/app/modules/catalog/search/query_params.py": 205,
+    "backend/app/modules/catalog/search/query_params.py": 206,
     "backend/app/modules/catalog/search/router_saved.py": 113,
     "backend/app/modules/admin/router_operations.py": 348,
     "backend/app/modules/settings/router_public.py": 189,
@@ -1359,9 +1360,10 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # One map's check, plan and write: the styling decision, layer matching, the
     # history event, the share link and the result's visibility, groups and
     # removed layers share the row lock the apply holds, which is also where its
-    # groups are planned, its moved layers are judged and a dry run judges a
-    # layer on a dataset the same request publishes.
-    "backend/app/modules/catalog/maps/manifest_apply.py": 1224,
+    # groups are planned, its moved layers are judged or wait for their
+    # source's job, and a dry run judges a layer on a dataset the same request
+    # publishes.
+    "backend/app/modules/catalog/maps/manifest_apply.py": 1244,
     # The publish manifest's request and response models in one place, which
     # the vendored wire schema, the contract snapshot and both SDKs are held to.
     "backend/app/processing/ingest/manifest_schemas.py": 1046,
@@ -1388,17 +1390,17 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/core/db/tenant_adoption.py": 1256,
     # CQL2 parsing, feature-filter validation, record-filter literal handling and
     # the requester's spatial extent share one pygeofilter walk.
-    "backend/app/standards/ogc/filtering.py": 1111,
+    "backend/app/standards/ogc/filtering.py": 1343,
     # Auth routes (sign-in, sessions, API keys, password) share one router and its
     # rate-limit and cookie helpers.
     "backend/app/modules/auth/router.py": 1541,
     # The app object, its middleware and exception handlers, route registration
     # and the lifespan stay together to keep their order; the capability 401
     # mapping stays here because this module is already reviewed for embed tokens.
-    "backend/app/api/main.py": 1296,
+    "backend/app/api/main.py": 1298,
     # Map request validation and published response contracts share this module,
     # including the visibility a client that hasn't opted in reads.
-    "backend/app/modules/catalog/maps/schemas.py": 1622,
+    "backend/app/modules/catalog/maps/schemas.py": 1638,
     # Metadata facade preserves the import and patch surface used by extensions and
     # callers.
     "backend/app/processing/ingest/metadata.py": 169,
@@ -1477,11 +1479,12 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # live and kept-version storage.
     "backend/app/modules/admin/service.py": 1090,
     # Ingest admission, staging, job settlement and table registration share one
-    # orchestration boundary.
-    "backend/app/processing/ingest/service.py": 1597,
+    # orchestration boundary. Registration creates geom_4326 as a stored
+    # generated column rather than filling it with a full-table UPDATE.
+    "backend/app/processing/ingest/service.py": 1607,
     # The PostGIS strategy: geometry and gid repair, the snapshot measurement and
     # its catalog writes.
-    "backend/app/processing/ingest/tasks_postgis_refresh.py": 700,
+    "backend/app/processing/ingest/tasks_postgis_refresh.py": 704,
     # Dataset request and verification response families share this public contract.
     "backend/app/modules/catalog/datasets/domain/schemas.py": 2033,
     # Records, datasets and their grant, translation and attribute children map
@@ -1495,19 +1498,19 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/auth/dependencies.py": 1012,
     # Map endpoints share response assembly, visibility and ownership checks,
     # and the map_author key's limits on the routes it may write.
-    "backend/app/modules/catalog/maps/router.py": 1326,
+    "backend/app/modules/catalog/maps/router.py": 1340,
     # Feature writes, single and batch, share the dataset guards, the database
     # error mapping and the catalog refresh; create also carries idempotent
     # repeats and the dry run.
     "backend/app/modules/catalog/features/router.py": 1766,
     # Native search and OGC Records share visibility, query parsing and pagination;
     # the collections routes also answer under the desktop entry's gate.
-    "backend/app/modules/catalog/search/router.py": 1476,
+    "backend/app/modules/catalog/search/router.py": 1486,
     # STAC endpoints share visibility, extent, lineage and pagination conformance rules.
-    "backend/app/standards/stac/router.py": 1942,
+    "backend/app/standards/stac/router.py": 1898,
     # Authorization, acquisition order and cache rehydration share this route boundary;
     # the Enterprise overlay pins _check_cold_rehydrate here.
-    "backend/app/processing/tiles/router.py": 3012,
+    "backend/app/processing/tiles/router.py": 3133,
     # SQL allowlisting and cost validation must share canonical AST resolution.
     "backend/app/platform/sandbox/validator.py": 1766,
     # AI orchestration coordinates tool execution, usage accounting, pool-connection
@@ -1517,7 +1520,7 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     "backend/app/modules/catalog/records/service.py": 871,
     # Export formats and catalog feeds share visibility, lineage, raster-asset
     # presence and private-artifact authorization.
-    "backend/app/modules/catalog/datasets/api/router_export.py": 1638,
+    "backend/app/modules/catalog/datasets/api/router_export.py": 1642,
     # Artifact selection, atomic publication, range reads and eviction share one cache
     # protocol.
     "backend/app/processing/export/artifact_cache.py": 620,
@@ -1529,8 +1532,15 @@ _MODULE_LOC_CAPS: dict[str, int] = {
     # inserts reuse the single-insert validation, batch deletes the prior-envelope
     # capture, and the create dry run checks the table's kind, insert triggers
     # and rules, and the shapes that run user code on insert, with the same
-    # catalog probes. A streamed page is read in byte-bounded batches.
-    "backend/app/modules/catalog/features/service.py": 1811,
+    # catalog probes. A streamed page is read in byte-bounded batches. Writes
+    # also probe whether geom_4326 is a stored generated column, so the
+    # insert/update pair writes geom only and lets it derive itself, and
+    # name the table when that column is missing outright. The dry-run
+    # probe exempts a geom_4326 generated with one of registration's two
+    # expressions, since it runs only PostGIS functions on geom, and only
+    # when every function the expression depends on is built in or an
+    # extension's.
+    "backend/app/modules/catalog/features/service.py": 1915,
     # Dataset visibility, the VRT member counts and extents each requester may
     # see, which groups can't read a dataset, as stored or as a publish plans
     # it, and whether one dataset's readers reach past another's, today or by
@@ -2876,6 +2886,7 @@ _STANDARDS_MODULE_IMPORT_SURFACE: dict[str, set[str]] = {
         "app.modules.catalog.datasets.domain.models",
         "app.modules.catalog.features.schemas",
         "app.modules.catalog.features.service",
+        "app.modules.catalog.search.service",
     },
     "ogc/schemas.py": {
         "app.modules.catalog.features.schemas",

@@ -62,7 +62,7 @@ def proxy(monkeypatch):
             transport=ASGITransport(app=app), base_url="http://test"
         ) as client:
             return await client.get(
-                f"/tiles/raster-proxy/{uuid.uuid4()}/1/2/3.png{query}"
+                f"/tiles/raster-proxy/{uuid.uuid4()}/2/1/1.png{query}"
             )
 
     return fetch

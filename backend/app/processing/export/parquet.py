@@ -664,7 +664,7 @@ async def export_parquet(
     temp_dir = str(exports_root / uuid.uuid4().hex)
     os.mkdir(temp_dir)
     filename, _ = export_descriptor(dataset_name, "parquet")
-    output_path = os.path.join(temp_dir, filename)
+    output_path = os.path.join(temp_dir, "export.parquet")
     sink = _GeoParquetWriter(output_path, attr_names, _geometry_column_name(attr_names))
 
     async def _declare_and_write() -> None:

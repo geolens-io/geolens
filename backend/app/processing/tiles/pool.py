@@ -197,34 +197,20 @@ async def _init_tile_connection(conn: asyncpg.Connection) -> None:
     await _assert_multi_tenant_tile_role(conn)
 
 
-async def _setup_tile_connection(conn: asyncpg.Connection) -> None:
-    """Drop tile connections to the read-only ``geolens_reader`` role.
-
-    ``scripts/init-db.sh`` creates ``geolens_reader`` (NOLOGIN) with SELECT
-    on every table in the ``data`` schema. The app user has broader
-    privileges by default; running the tile path as ``geolens_reader``
-    scopes any SQL injection in the tile composition layer to read-only.
-
-    Runs before every ``pool.acquire()`` returns (the ``setup`` kwarg to
-    ``asyncpg.create_pool``; ``init`` is the once-per-connection hook), and
-    asyncpg's ``RESET ALL`` on release clears ``ROLE``, so each acquire sets it
-    afresh. In multi-tenant mode it does nothing:
-    ``set_tenant_role_for_tile_request`` binds the tenant role inside each tile
-    handler transaction. Failures here log and skip so the tile path keeps
-    working where the role doesn't exist (legacy upgrades).
-    """
-    from app.core.tenancy import is_multi_tenant
-
-    if is_multi_tenant():
-        # Physical connection init verified the dedicated login. Per-request
-        # transactions select only the active tenant reader role below.
-        return
-
+async def _set_local_reader_role(conn: asyncpg.Connection) -> None:
+    # One round trip on success; the savepoint keeps a refused SET LOCAL from
+    # aborting the tile transaction.
     try:
-        await conn.execute("SET ROLE geolens_reader")
+        await conn.execute(
+            "SAVEPOINT tile_reader_role; "
+            "SET LOCAL ROLE geolens_reader; "
+            "RELEASE SAVEPOINT tile_reader_role"
+        )
     except asyncpg.PostgresError as exc:
+        await conn.execute("ROLLBACK TO SAVEPOINT tile_reader_role")
         logger.warning(
-            "Tile pool could not SET ROLE geolens_reader; running as app user",
+            "Tile request could not SET LOCAL ROLE geolens_reader; "
+            "running as the pool login",
             error=str(exc),
         )
 
@@ -242,9 +228,6 @@ async def init_tile_pool() -> asyncpg.Pool:
         "min_size": settings.tile_pool_min_size,
         "max_size": settings.tile_pool_max_size,
         "command_timeout": TILE_POOL_COMMAND_TIMEOUT_SECONDS,
-        # Drops privileges to geolens_reader on every acquire so tile-path
-        # SQL runs read-only against the data schema.
-        "setup": _setup_tile_connection,
         "init": _init_tile_connection,
     }
 
@@ -283,38 +266,35 @@ def get_tile_pool() -> asyncpg.Pool:
 async def set_tenant_role_for_tile_request(
     conn: asyncpg.Connection, tenant_id: str | None
 ) -> None:
-    """Issue SET LOCAL ROLE + SET LOCAL search_path inside a tile request transaction.
+    """Bind the tile request's read-only role inside its transaction.
 
-    Must be called after the request transaction begins (inside a tile
-    handler), not in the pool setup callback (``_setup_tile_connection``),
-    which runs on every acquire but can't see per-request tenant state.
-    Called once per tile request, inside a single
-    ``async with conn.transaction()`` block, so both role and search_path
-    survive that transaction under PgBouncer transaction-mode.
+    Must be called after the request transaction begins. Every binding is
+    ``SET LOCAL``, so it ends with that transaction and never outlives it on
+    the server connection, which a transaction-mode pooler may hand to an API
+    or worker client next.
 
-    single_tenant or tenant_id is None: no-op — ``SET ROLE`` was already
-    handled by ``_setup_tile_connection`` at pool setup time.
+    single_tenant: ``SET LOCAL ROLE geolens_reader``. ``scripts/init-db.sh``
+    creates that role with SELECT on the ``data`` schema only, so tile SQL
+    can't write or read the catalog. Where the role is missing or the login
+    can't assume it, the bind is rolled back to a savepoint, a warning is
+    logged and the tile runs as the pool login.
 
-    multi_tenant: issues
+    multi_tenant with a tenant: issues
         SET LOCAL ROLE geolens_reader_t_{tid}
         SET LOCAL search_path = data_t_{tid}, public, pg_catalog
+    and fails the request if either fails. The explicit schema
+    qualification in the query (``tenant_data_schema(tid).table``) is the
+    primary isolation control; search_path is defense-in-depth.
 
-    so tile SQL uses the per-tenant schema and the per-tenant reader role.
-    The explicit schema qualification in the query
-    (``tenant_data_schema(tid).table``) is the primary isolation control;
-    search_path is defense-in-depth.
-
-    Parameters
-    ----------
-    conn:
-        Open asyncpg connection.  Must already be inside a transaction.
-    tenant_id:
-        UUID string for the active tenant, or ``None`` (returns immediately).
+    multi_tenant with ``tenant_id`` None: no-op.
     """
     from app.core.db.tenant_schema import tenant_data_schema, tenant_reader_role
     from app.core.tenancy import is_multi_tenant
 
-    if not is_multi_tenant() or tenant_id is None:
+    if not is_multi_tenant():
+        await _set_local_reader_role(conn)
+        return
+    if tenant_id is None:
         return
 
     role = tenant_reader_role(tenant_id)

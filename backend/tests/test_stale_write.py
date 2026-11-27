@@ -391,3 +391,110 @@ async def test_a_layer_only_edit_moves_the_map_version(
     )
     assert stale.status_code == 409, stale.text
     assert stale.json()["detail"]["code"] == "stale_write"
+
+
+_TINY_PNG_DATA_URI = (
+    "data:image/png;base64,"
+    "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+)
+
+
+@pytest.mark.parametrize("endpoint", ["thumbnail", "og-image"])
+@pytest.mark.parametrize("expected", ["current", "older", "absent"])
+async def test_a_map_image_upload_honors_expected_updated_at(
+    client: AsyncClient, admin_auth_header: dict, endpoint: str, expected: str
+) -> None:
+    created, owner_headers, _, _ = await _map(client, admin_auth_header)
+    edit = await client.put(
+        f"/maps/{created['id']}", json={"name": "Edited"}, headers=owner_headers
+    )
+    assert edit.status_code == 200, edit.text
+
+    body: dict[str, str] = {"data_uri": _TINY_PNG_DATA_URI}
+    if expected == "current":
+        body["expected_updated_at"] = edit.json()["updated_at"]
+    elif expected == "older":
+        body["expected_updated_at"] = created["updated_at"]
+
+    resp = await client.put(
+        f"/maps/{created['id']}/{endpoint}/",
+        json=body,
+        headers=owner_headers,
+    )
+
+    if expected == "older":
+        assert resp.status_code == 409, resp.text
+        assert resp.json()["detail"]["code"] == "stale_write"
+    else:
+        assert resp.status_code == 204, resp.text
+
+
+@pytest.mark.parametrize("endpoint", ["thumbnail", "og-image"])
+async def test_a_map_image_upload_held_before_a_layer_move_is_refused_after(
+    client: AsyncClient,
+    admin_auth_header: dict,
+    test_db_session,
+    monkeypatch,
+    endpoint: str,
+) -> None:
+    """Hold an upload in flight while another writer moves the layer, then release it."""
+    from app.platform.storage.provider import get_storage
+
+    admin_id = await get_user_id(test_db_session, "admin")
+    private_ds = await _create_dataset(
+        test_db_session, created_by=admin_id, visibility="private"
+    )
+    public_ds = await _create_dataset(
+        test_db_session, created_by=admin_id, visibility="public"
+    )
+    created = await create_map_via_api(client, admin_auth_header)
+    map_id = created["id"]
+    added = await client.post(
+        f"/maps/{map_id}/layers",
+        json={"dataset_id": str(private_ds.id)},
+        headers=admin_auth_header,
+    )
+    assert added.status_code == 201, added.text
+    layer_id = added.json()["id"]
+    captured_at = (
+        await client.get(f"/maps/{map_id}", headers=admin_auth_header)
+    ).json()["updated_at"]
+
+    storage = get_storage()
+    real_put = storage.put
+    upload_started = asyncio.Event()
+    release_upload = asyncio.Event()
+
+    async def held_put(key: str, data: bytes, *args, **kwargs):
+        upload_started.set()
+        await asyncio.wait_for(release_upload.wait(), timeout=20)
+        return await real_put(key, data, *args, **kwargs)
+
+    monkeypatch.setattr(storage, "put", held_put)
+
+    upload_task = asyncio.create_task(
+        client.put(
+            f"/maps/{map_id}/{endpoint}/",
+            json={"data_uri": _TINY_PNG_DATA_URI, "expected_updated_at": captured_at},
+            headers=admin_auth_header,
+        )
+    )
+    try:
+        await asyncio.wait_for(upload_started.wait(), timeout=20)
+        moved = await client.put(
+            f"/maps/{map_id}",
+            json={
+                "layers": [{"id": layer_id, "dataset_id": str(public_ds.id)}],
+                "visibility": "public",
+            },
+            headers=admin_auth_header,
+        )
+        assert moved.status_code == 200, moved.text
+    finally:
+        release_upload.set()
+
+    resp = await asyncio.wait_for(upload_task, timeout=20)
+    assert resp.status_code == 409, resp.text
+    assert resp.json()["detail"]["code"] == "stale_write"
+    image = await client.get(f"/maps/{map_id}/{endpoint}/", headers=admin_auth_header)
+    assert image.status_code == 404

@@ -1298,6 +1298,35 @@ async def test_a_layer_past_the_size_cap_once_renamed_is_refused(
     assert await _count(test_db_session, Map, "qgis-map-big") == 0
 
 
+async def test_a_popup_title_past_its_limit_once_renamed_is_refused(
+    test_db_session, clean_tables
+):
+    admin = await _admin(test_db_session)
+    dataset = await create_dataset(
+        test_db_session,
+        created_by=admin.id,
+        column_info=[{"name": "src_geom", "type": "text", "source_name": "geom"}],
+    )
+    await test_db_session.commit()
+    # 480 characters as sent, 800 with the stored name; the limit is 500.
+    popup = {"enabled": True, "expression": "{geom}" * 80}
+
+    [result] = (
+        await _apply(
+            test_db_session,
+            admin,
+            _map(
+                "qgis-map-popup",
+                _layer(dataset_id=str(dataset.id), popup_config=popup),
+            ),
+        )
+    ).maps
+
+    assert (result.action, _codes(result)) == ("error", [("A099", "error", "parks")])
+    assert "popup_config" in result.messages[0].message
+    assert await _count(test_db_session, Map, "qgis-map-popup") == 0
+
+
 async def test_a_reupload_in_flight_holds_a_layer_named_by_id(
     test_db_session, clean_tables
 ):

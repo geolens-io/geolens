@@ -20,7 +20,7 @@ import { DrawingToolbar } from '@/components/drawing/DrawingToolbar';
 import { AttributeForm } from '@/components/drawing/AttributeForm';
 import { useTileToken, useInvalidateTileTokens } from '@/hooks/use-tile-token';
 import { isSessionRenewalPending, useTileAuthRecovery, useVisibleTileTokenRefresh } from '@/hooks/use-tile-auth-recovery';
-import { useMapLayers, getSourceLayerName, previewSourceId } from '@/components/maps/hooks/use-map-layers';
+import { useMapLayers, rasterMinzoomFromToken, getSourceLayerName, previewSourceId } from '@/components/maps/hooks/use-map-layers';
 import { computeLargeExtentView, isLargeExtent, isWorldSpanningExtent } from '@/lib/map-extent';
 import { splitBbox, toFitBounds } from '@/lib/bbox';
 import { findElevationColumn } from '@/lib/geo-utils';
@@ -192,7 +192,7 @@ export const DatasetMap = memo(function DatasetMap({
   const tileConfigRef = useRef(tileConfig);
   tileConfigRef.current = tileConfig;
   const tileKind = recordTypeCapabilities(recordType).tileToken;
-  const { data: rawTileToken } = useTileToken(tileKind ? datasetId : undefined);
+  const { data: rawTileToken, isError: tileTokenFailed } = useTileToken(tileKind ? datasetId : undefined);
   // Raster tokens are a separate payload (preformatted tile_url) consumed via
   // the rasterTileUrl prop; the hooks downstream expect the vector shape.
   const tileToken = rawTileToken?.kind === 'vector' ? rawTileToken : null;
@@ -282,6 +282,9 @@ export const DatasetMap = memo(function DatasetMap({
     bounds: bbox,
     tileVersion,
     tileToken,
+    rasterMinzoom: rasterMinzoomFromToken(rawTileToken, tileTokenFailed),
+    // No dataset id means no token request, so there is nothing to wait for.
+    rasterTokenSettled: tileKind !== 'raster' || !datasetId || !!rawTileToken || tileTokenFailed,
     tileConfigCdnBaseUrl: tileConfig?.cdn_base_url ?? undefined,
     mvtSourceLayerPrefix: tileConfig?.mvt_source_layer_prefix,
     mvtSourceLayerReady: tileConfigReady,

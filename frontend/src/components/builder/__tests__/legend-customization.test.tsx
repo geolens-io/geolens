@@ -153,7 +153,7 @@ describe('classes in both legends', () => {
     const container = draw(magnitudeCircles);
 
     expect(screen.queryByText(/viewer\.legend\.colorLabel/)).not.toBeInTheDocument();
-    const sizes = Array.from(container.querySelectorAll('svg[viewBox="0 0 24 24"]:not(.lucide) circle'));
+    const sizes = Array.from(container.querySelectorAll('svg[viewBox="0 0 24 24"]:not(.lucide) circle:not([fill="none"])'));
     expect(sizes.map((circle) => circle.getAttribute('fill'))).toEqual(['#fee8c8', '#fdbb84', '#e34a33']);
   });
 
@@ -167,7 +167,7 @@ describe('classes in both legends', () => {
   it.each(Object.entries(legends))('%s legend draws zoom-faded categories at the opacity they fade in to', (_legend, draw) => {
     const container = draw(ZOOM_FADED_STATIONS);
 
-    const chips = Array.from(container.querySelectorAll('svg[viewBox="0 0 14 14"] circle'));
+    const chips = Array.from(container.querySelectorAll('svg[viewBox="0 0 14 14"] circle:not([fill="none"])'));
     expect(chips.map((chip) => [chip.getAttribute('fill'), chip.getAttribute('fill-opacity')])).toEqual([
       ['#22c55e', '0.95'],
       ['#a3e635', '0.95'],

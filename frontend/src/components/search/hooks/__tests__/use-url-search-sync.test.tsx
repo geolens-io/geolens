@@ -60,11 +60,23 @@ describe('useUrlSearchSync', () => {
 
     await waitFor(() => {
       expect(replaceStateSpy).toHaveBeenLastCalledWith(
-        null,
+        window.history.state,
         '',
         '/?q=roads&keywords=wetlands',
       );
     });
+  });
+
+  it('keeps the router history state when it rewrites the address', () => {
+    window.history.replaceState({ idx: 3, key: 'abc', usr: null }, '', '/');
+    act(() => {
+      useSearchStore.setState({ q: 'parks' });
+    });
+
+    renderHook(() => useUrlSearchSync());
+
+    expect(window.location.search).toBe('?q=parks');
+    expect(window.history.state).toEqual({ idx: 3, key: 'abc', usr: null });
   });
 
   describe('address after hydration, with no later store change', () => {

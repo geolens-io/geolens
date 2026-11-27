@@ -37,6 +37,13 @@ From your install directory:
 ./scripts/upgrade.sh 1.2.4      # or an explicit target version
 ```
 
+In a git checkout the script first fetches the target release tag so the
+compose files and mounted scripts match it. If that fetch fails, the script
+stops before changing anything; retry once the network is back. To upgrade with
+the compose files, scripts and `db/postgresql.conf` already on disk instead, add
+`--keep-current-files` (`./scripts/upgrade.sh --keep-current-files 1.2.4`) and
+review those files against the release afterwards.
+
 The script pulls the images while the app keeps serving, stops `api` and
 `worker`, takes a verified `pg_dump -Fc` to
 `backups/pre-upgrade/<db>_pre_<old>_to_<new>_<timestamp>.dump`, runs the

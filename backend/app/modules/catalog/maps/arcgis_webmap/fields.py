@@ -36,11 +36,15 @@ class FieldNames:
                 continue
             name, source = c["name"], c.get("source_name")
             self._columns.add(name)
+            # Every stored name joins the ignore-case index, sourced or
+            # not: a layer can read a stored column by a case variant of
+            # its stored name even when ingest recorded a source name
+            # for it. Source-name matches are decided first in stored(),
+            # so this fallback never overrides one, ambiguous or not.
+            self._folded.setdefault(name.casefold(), set()).add(name)
             if isinstance(source, str):
                 self._by_source.setdefault(source, set()).add(name)
                 self._by_source_folded.setdefault(source.casefold(), set()).add(name)
-            else:
-                self._folded.setdefault(name.casefold(), set()).add(name)
         self._sourced = bool(self._by_source)
         self._path = path
         self._loss = loss
@@ -50,8 +54,9 @@ class FieldNames:
         """The column *name* is stored as: the column whose source field it is
         when columns record source names (an ambiguous match is None), else
         the same name, the name ingest gives the field when no column records
-        a source name, or the one column without a source name equal to it
-        ignoring case."""
+        a source name, or the one column equal to it ignoring case. A
+        source-name match is decided before the ignore-case fallback, so
+        the fallback never overrides one, ambiguous or not."""
         if not self._columns:
             return name
         if self._sourced:

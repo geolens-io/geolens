@@ -63,6 +63,22 @@ describe('DatasetPage load failures', () => {
     expect(useValidation).toHaveBeenLastCalledWith(undefined);
     expect(useDatasetJobStatus).toHaveBeenLastCalledWith(null);
     expect(useDatasetRefreshWatch).toHaveBeenLastCalledWith('');
+    expect(document.title).toBe('Dataset not found - GeoLens');
+  });
+
+  it('titles a 404 as not found even when an earlier load is cached', () => {
+    vi.mocked(useParams).mockReturnValue({ id: 'gone-id' });
+    vi.mocked(useDataset).mockReturnValue({
+      data: { id: 'gone-id', title: 'Old dataset title' },
+      isLoading: false,
+      error: new ApiError('Dataset not found', 404),
+      refetch: vi.fn(),
+    } as unknown as ReturnType<typeof useDataset>);
+
+    render(<DatasetPage />);
+
+    expect(screen.getByRole('alert')).toHaveTextContent('Dataset not found');
+    expect(document.title).toBe('Dataset not found - GeoLens');
   });
 
   it('keeps the retry button for other errors', () => {
@@ -72,5 +88,6 @@ describe('DatasetPage load failures', () => {
 
     expect(screen.getByRole('button', { name: /retry|try again/i })).toBeInTheDocument();
     expect(useValidation).toHaveBeenLastCalledWith('missing-id');
+    expect(document.title).toBe('Dataset - GeoLens');
   });
 });

@@ -45,7 +45,6 @@ from app.modules.catalog.maps.manifest_columns import (
 from app.modules.catalog.maps.manifest_layers import plan_layer_stack
 from app.modules.catalog.maps.manifest_republish import (
     ManagedNotes,
-    clear_map_images,
     loss_lines,
     managed_notes,
     publish_line,
@@ -80,6 +79,7 @@ from app.modules.catalog.maps.manifest_messages import (
 from app.modules.catalog.maps.manifest_moves import (
     Target,
     move_kept_layers,
+    unsettled_sources,
     widening_moves,
 )
 from app.modules.catalog.maps.manifest_share import ShareMint, mint_share_link
@@ -112,9 +112,11 @@ from app.modules.catalog.maps.schemas import (
 )
 from app.modules.catalog.maps.service import (
     bulk_check_dataset_access,
+    clear_map_images,
     discard_map_asset_objects,
     lock_map_for_asset_write,
     check_map_ownership,
+    links_retired_last,
     lock_map_layers,
     record_map_history_event,
 )
@@ -337,9 +339,10 @@ async def _writable_map(
 
 async def _stored_layers(
     session: AsyncSession, map_id: uuid.UUID, user: Identity
-) -> list[tuple[MapLayer, _Dataset | None]]:
+) -> tuple[list[tuple[MapLayer, _Dataset | None]], set[uuid.UUID]]:
     """The map's layers in draw order, each with its dataset when the caller
-    can read it, as stored now rather than as the session last loaded them."""
+    can read it, as stored now rather than as the session last loaded them,
+    and which of those datasets a pending or running job still writes."""
     layers = (
         (
             await session.execute(
@@ -352,10 +355,15 @@ async def _stored_layers(
         .scalars()
         .all()
     )
+    # Asked before the datasets are read: a job commits its dataset before it
+    # is marked finished, so one finished by now left the dataset read below.
+    busy = await datasets_with_jobs_in_flight(
+        session, {layer.dataset_id for layer in layers}
+    )
     datasets = await _readable_datasets(
         session, (layer.dataset_id for layer in layers), user
     )
-    return [(layer, datasets.get(layer.dataset_id)) for layer in layers]
+    return [(layer, datasets.get(layer.dataset_id)) for layer in layers], busy
 
 
 async def _lock_map_key(session: AsyncSession, key: str) -> None:
@@ -762,7 +770,7 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
     stored: list[tuple[MapLayer, _Dataset | None]] = []
     retained_non_public = False
     if map_obj is not None:
-        stored = await _stored_layers(session, map_obj.id, user)
+        stored, busy = await _stored_layers(session, map_obj.id, user)
         listed = {layer.key for layer in entry.layers}
         # The stored layers the map goes on showing with their own dataset; a
         # listed one shows the manifest's, counted below.
@@ -775,16 +783,26 @@ async def _check_map(session: AsyncSession, entry: Any, request: _Request) -> _P
                 or (layer.manifest_key not in listed and entry.styling == "keep")
             )
         )
+        # Only a job that is running or queued: an entry that failed queued
+        # none, so the dataset it would have replaced is settled.
+        waiting = unsettled_sources(stored, targets, busy, request.pending_datasets)
+        messages.extend(waiting)
+        # A move that waits for its source's job is judged once it can be made.
+        movable = {
+            key: target
+            for key, target in targets.items()
+            if key not in {m["layer"] for m in waiting}
+        }
         try:
             moves = move_kept_layers(
                 stored,
-                targets,
+                movable,
                 map_obj.dashboard_config,
                 kept=not styling_applied,
                 widening=await widening_moves(
                     session,
                     stored,
-                    targets,
+                    movable,
                     map_obj.dashboard_config,
                     kept=not styling_applied,
                 ),
@@ -1099,13 +1117,15 @@ async def _apply_map(session: AsyncSession, entry: Any, request: _Request) -> di
         if plan.result["action"] == "error":
             await session.rollback()
             return plan.result
-        result = await _write_map(session, entry, request, plan)
-        cleared: list[str] = []
-        had_thumbnail = False
-        if plan.moves_dataset:
-            locked = await lock_map_for_asset_write(session, result["map_id"])
-            had_thumbnail = locked.thumbnail_uri is not None
-            cleared = await clear_map_images(session, result["map_id"], locked)
+        # The share step and the image lock can refuse after the map narrows.
+        async with links_retired_last(session):
+            result = await _write_map(session, entry, request, plan)
+            cleared: list[str] = []
+            had_thumbnail = False
+            if plan.moves_dataset:
+                locked = await lock_map_for_asset_write(session, result["map_id"])
+                had_thumbnail = locked.thumbnail_uri is not None
+                cleared = await clear_map_images(session, result["map_id"], locked)
         await session.commit()
     except HTTPException as exc:
         await session.rollback()

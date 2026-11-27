@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useQuery, useMutation, useQueryClient, keepPreviousData, type QueryClient } from '@tanstack/react-query';
 import { queryKeys } from '@/lib/query-keys';
+import { refreshTileToken } from '@/hooks/use-tile-token';
 import { ApiError } from '@/api/client';
 import {
   createDataset,
@@ -482,6 +483,8 @@ export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
     //     RelatedRecordsPanel section renders, stale after a data replace.
     //   - relationships.listPrefix: every list carries its relationships'
     //     `broken` flag, which a replace of either endpoint changes.
+    //   - tileTokens.token: a raster's token carries its zoom floor, which a
+    //     refresh can change (the signature itself does not).
     //
     // Left alone:
     //   - refreshRunsPrefix: this is the query driving this effect.
@@ -492,12 +495,10 @@ export function useDatasetRefreshWatch(datasetId: string): DatasetRefreshWatch {
     //     aliases these two under the shared 'datasets' root.
     //   - search.facets / search.summary: different roots than search.all, and
     //     no other "this dataset's data changed" mutation touches them.
-    //   - tileTokens.*: the credential doesn't change; the backend busts tile
-    //     caches with a version-bumped URL carried on the (already invalidated)
-    //     detail response.
     //   - everything else in query-keys.ts: different domain.
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.detail(datasetId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.versionsPrefix(datasetId) });
+    void refreshTileToken(queryClient, datasetId);
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.rowsPrefix(datasetId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.attributes(datasetId) });
     queryClient.invalidateQueries({ queryKey: queryKeys.datasets.validation(datasetId) });

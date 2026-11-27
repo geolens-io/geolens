@@ -1,6 +1,7 @@
 """KML and KMZ exports written by LIBKML, read back with OGR."""
 
 import json
+import os
 from pathlib import Path
 import shutil
 import subprocess
@@ -190,3 +191,62 @@ async def test_columns_named_like_kml_elements_stay_attributes(
     assert data["ints"] == "(3:1,2,3)"
     assert data["reals"] == "(2:1.5,2.5)"
     assert data["words"] == "(2:x,y)"
+
+
+@pytest.mark.anyio
+@pytest.mark.parametrize("fmt", ["geojson", "shp"])
+async def test_export_of_a_very_long_title_still_writes_and_keeps_the_download_name(
+    test_db_session, monkeypatch, tmp_path, fmt
+):
+    from app.processing.export import service as export_service
+
+    monkeypatch.setattr(export_service.settings, "upload_staging_dir", str(tmp_path))
+    table = await _make_table(test_db_session, "Point", 4326, _ROWS)
+    title = "東京都の公園と緑地の分布データ" * 6
+    try:
+        path, filename, _media = await export_service.export_dataset(
+            table, title, fmt, schema="data"
+        )
+    finally:
+        await _drop_table(test_db_session, table)
+
+    assert len(os.path.basename(path).encode()) <= 255
+    assert os.path.getsize(path) > 0
+    assert filename.startswith("東京都")
+    assert len(export_service.safe_content_disposition(filename)) < 1024
+
+
+@pytest.mark.anyio
+async def test_pmtiles_export_names_the_tileset_after_the_dataset(
+    test_db_session, monkeypatch, tmp_path
+):
+    from app.processing.export import service as export_service
+
+    monkeypatch.setattr(export_service.settings, "upload_staging_dir", str(tmp_path))
+    table = await _make_table(test_db_session, "Point", 3857, _ROWS)
+    try:
+        path, filename, _media = await export_service.export_dataset(
+            table, "Seeds", "pmtiles", schema="data"
+        )
+    finally:
+        await _drop_table(test_db_session, table)
+
+    assert filename == "Seeds.pmtiles"
+    info = subprocess.run(
+        ["ogrinfo", "-so", "-al", path], check=True, capture_output=True, text=True
+    ).stdout
+    assert "name=Seeds" in info
+
+
+@pytest.mark.parametrize("fmt", ["geojson", "shp", "parquet", "pmtiles"])
+def test_download_header_stays_small_for_a_500_character_cjk_title(fmt):
+    from app.processing.export.service import (
+        export_descriptor,
+        safe_content_disposition,
+    )
+
+    filename, _media = export_descriptor("東" * 500, fmt)
+
+    assert len(safe_content_disposition(filename)) < 1024
+    assert filename.startswith("東")
+    assert filename.endswith((".geojson", ".zip", ".parquet", ".pmtiles"))
