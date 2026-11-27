@@ -58,12 +58,9 @@ export function CollectionDetailPage() {
           message={error instanceof Error ? error.message : t('detail.notFoundMessage')}
           onRetry={() => refetch()}
           action={
-            <Link
-              to="/collections"
-              className="text-sm text-primary hover:underline inline-flex items-center gap-1"
-            >
-              {t('detail.backToCollections')}
-            </Link>
+            <Button variant="outline" size="sm" asChild>
+              <Link to="/collections">{t('detail.backToCollections')}</Link>
+            </Button>
           }
         />
       </PageShell>

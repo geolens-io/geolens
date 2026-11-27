@@ -7,6 +7,7 @@ import { useDocumentTitle } from '@/hooks/use-document-title';
 import { useViewerLayers } from '@/components/viewer/hooks/use-viewer-layers';
 import type { ViewerMap } from '@/components/viewer/ViewerMap';
 import type { LayerLegend } from '@/components/viewer/LayerLegend';
+import { ApiError } from '@/api/client';
 import type { MapResponse } from '@/types/api';
 
 const viewerMapMock = vi.hoisted(() => ({
@@ -163,6 +164,32 @@ describe('PublicMapViewerPage', () => {
     await screen.findByTestId('viewer-map');
 
     expect(vi.mocked(useDocumentTitle)).toHaveBeenLastCalledWith('Public map');
+  });
+
+  it('titles a missing map as not found', () => {
+    mockedUseMap.mockReturnValue({
+      data: undefined,
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Not Found', 404),
+    } as unknown as ReturnType<typeof useMap>);
+
+    renderPage();
+
+    expect(vi.mocked(useDocumentTitle)).toHaveBeenLastCalledWith('Map not found');
+  });
+
+  it('titles a 404 as not found even when an earlier load is cached', () => {
+    mockedUseMap.mockReturnValue({
+      data: { id: 'map-1', name: 'Old map name', layers: [] },
+      isLoading: false,
+      isError: true,
+      error: new ApiError('Not Found', 404),
+    } as unknown as ReturnType<typeof useMap>);
+
+    renderPage();
+
+    expect(vi.mocked(useDocumentTitle)).toHaveBeenLastCalledWith('Map not found');
   });
 
   it('hands the legend what the viewer map reports drawing', async () => {

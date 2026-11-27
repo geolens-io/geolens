@@ -60,7 +60,13 @@ export function MapViewerGate() {
     (hasToken && !user) ||
     (shouldCheckAccess && accessQuery.isLoading) ||
     (shouldCheckAccess && accessQuery.isError);
-  useDocumentTitle(isOwnLoadingOrError ? t('pageTitle.map') : null);
+  const isAccessCheckNotFound =
+    accessQuery.error instanceof ApiError && accessQuery.error.status === 404;
+  useDocumentTitle(
+    isOwnLoadingOrError
+      ? t(shouldCheckAccess && accessQuery.isError && isAccessCheckNotFound ? 'pageTitle.mapNotFound' : 'pageTitle.map')
+      : null,
+  );
 
   // React.lazy() fires its import() only at first render of <MapBuilderPage/>,
   // so on the likely-editor path the chunk download would serialize BEHIND the
@@ -86,8 +92,6 @@ export function MapViewerGate() {
   // A failed check offers a retry so an editor is never silently downgraded.
   // A 404 is final for a missing or hidden map, and it has to win over the
   // last good access data React Query keeps across a failed refetch.
-  const isAccessCheckNotFound =
-    accessQuery.error instanceof ApiError && accessQuery.error.status === 404;
   if (shouldCheckAccess && accessQuery.isError && isAccessCheckNotFound) {
     return <MapUnavailableState error={accessQuery.error} mapId={id} />;
   }

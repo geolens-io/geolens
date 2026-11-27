@@ -7,6 +7,7 @@ import { MapBuilderPage } from '@/pages/MapBuilderPage';
 import { AnalysisJobWatcher } from '@/components/analysis/AnalysisJobWatcher';
 import { useJobStatus } from '@/components/import/hooks/use-ingest';
 import { ApiError } from '@/api/client';
+import { useDocumentTitle } from '@/hooks/use-document-title';
 import type { Map as MaplibreMap } from 'maplibre-gl';
 import { useDatasetRows } from '@/components/dataset/hooks/use-dataset';
 import { useUpdateFeature } from '@/hooks/use-features';
@@ -345,6 +346,14 @@ describe('MapBuilderPage header actions', () => {
     mockUseParams.mockReturnValue({ id: 'map-2' });
     rerender(<MapBuilderPage />);
     await waitFor(() => expect(builderMapMounts.count).toBeGreaterThan(mountsOnOpen));
+  });
+
+  it('titles a map-detail 404 as not found even when the map is cached', () => {
+    mockMapQuery = { ...loadedMapQuery, error: new ApiError('Not Found', 404) };
+
+    render(<MapBuilderPage />, { route: '/maps/map-1' });
+
+    expect(vi.mocked(useDocumentTitle)).toHaveBeenLastCalledWith('common:pageTitle.mapNotFound');
   });
 
   it('surfaces share as a primary desktop action for existing maps', async () => {
