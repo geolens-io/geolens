@@ -424,3 +424,40 @@ async def test_build_cache_key_isolates_preferred_languages():
 
     assert key_fr != key_de
     assert key_fr == key_fr_again
+
+
+@pytest.mark.anyio
+async def test_build_cache_key_never_matches_a_pre_versioned_key():
+    """Keys from the release before key versioning never match.
+
+    That release's native search cached next links that point at the Records
+    route, which now pages collections differently. A shared cache must not
+    hand those entries to an upgraded API during a rolling upgrade.
+    """
+    import dataclasses
+    import hashlib
+    import json
+
+    from app.modules.catalog.search.service import SearchFilters
+    from app.platform.cache.tenant import tenant_cache_key
+
+    filters = SearchFilters()
+    legacy_payload = {
+        "filters": dataclasses.asdict(filters),
+        "endpoint": "search",
+        "roles": [],
+        "public_api_url": "",
+        "public_app_url": "",
+        "preferred_languages": (),
+    }
+    legacy_digest = hashlib.sha1(
+        json.dumps(legacy_payload, default=str, sort_keys=True).encode(),
+        usedforsecurity=False,
+    ).hexdigest()
+    legacy_key = tenant_cache_key(f"catalog:search:search:{legacy_digest}")
+
+    key = search_cache.build_cache_key(
+        endpoint="search", filters=filters, user_roles=set()
+    )
+
+    assert key != legacy_key

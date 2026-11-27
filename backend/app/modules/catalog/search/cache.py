@@ -21,11 +21,14 @@ from app.platform.cache import (
 logger = structlog.stdlib.get_logger(__name__)
 
 SEARCH_CACHE_TTL = 30  # seconds
+# Raised when a cached response changes shape, so a shared cache never serves
+# an entry an older release wrote during a rolling upgrade.
+_KEY_VERSION = 2
 _COLLECTION_META_CACHE: dict[str, tuple[float, dict]] = {}
 _COLLECTION_META_TTL = 60
 _COLLECTION_META_MAX_SIZE = 200
 
-EndpointKind = Literal["search", "facets"]
+EndpointKind = Literal["search", "records", "facets"]
 
 
 def is_anon_cacheable(user: Identity | None) -> bool:
@@ -87,6 +90,7 @@ def build_cache_key(
     is preserved, not sorted.
     """
     payload: dict[str, object] = {
+        "key_version": _KEY_VERSION,
         "filters": dataclasses.asdict(filters),
         "endpoint": endpoint,
         "roles": sorted(user_roles),
