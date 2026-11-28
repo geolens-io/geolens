@@ -1,10 +1,10 @@
 """ogr2ogr exports disable reading GDAL layer metadata from the database.
 
 GDAL's PostgreSQL driver reads layer metadata from the ogr_system_tables
-schema. When that schema exists and the app role has no USAGE on it,
-LIBKML-based exports (KML, KMZ) fail with exit 1 (#4192). Passing
---config OGR_PG_ENABLE_METADATA NO prevents ogr2ogr from reading or
-creating ogr_system_tables during export.
+schema when it exists. Nothing reads this metadata during export, and the
+runtime role may not have USAGE on that schema; passing
+--config OGR_PG_ENABLE_METADATA NO avoids the lookup and its permission
+warning.
 """
 
 from pathlib import Path

@@ -444,9 +444,10 @@ async def run_ogr2ogr_export(
         output_path,
         pg_conn,
         # GDAL's PostgreSQL driver reads layer metadata from ogr_system_tables
-        # if the schema exists. The app role has no USAGE on it, and LIBKML
-        # asks the source layer for metadata, causing KML/KMZ exports to fail
-        # (#4192). Ingest already disables metadata with this option.
+        # if the schema exists. Nothing reads this metadata during export, and
+        # the runtime role may not have USAGE on that schema; disabling it
+        # avoids the lookup and its permission warning. Ingest already sets
+        # this option.
         "--config",
         "OGR_PG_ENABLE_METADATA",
         "NO",
