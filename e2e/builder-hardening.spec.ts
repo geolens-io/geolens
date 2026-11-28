@@ -142,6 +142,17 @@ async function seedFolderGroup(
   expect(response.ok(), `Seed folder group failed: ${response.status()} ${await response.text()}`).toBe(true);
 }
 
+const ONE_PIXEL_PNG =
+  'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==';
+
+async function seedThumbnail(request: APIRequestContext, mapId: string) {
+  const response = await request.put(`${BASE_URL}/api/maps/${mapId}/thumbnail/`, {
+    headers: authHeaders(),
+    data: { data_uri: ONE_PIXEL_PNG },
+  });
+  expect(response.ok(), `Seed thumbnail failed: ${response.status()} ${await response.text()}`).toBe(true);
+}
+
 async function createLayeredMap(
   request: APIRequestContext,
   name: string,
@@ -207,6 +218,10 @@ test.describe('Builder residual-risk hardening', () => {
       const groupId = `group-${Date.now()}`;
       const groupName = 'Large mixed group';
       await seedFolderGroup(request, mapId, groupedChildren, groupId, groupName);
+      // The builder captures a thumbnail when it opens a map that has none,
+      // and the server refuses that upload with 409 when an edit lands first.
+      // The duplicate below can be that edit, so this map starts with one.
+      await seedThumbnail(request, mapId);
       await page.setViewportSize({ width: 1440, height: 900 });
       await page.goto(`/maps/${mapId}`);
       await waitForBuilder(page);
