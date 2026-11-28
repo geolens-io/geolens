@@ -871,6 +871,30 @@ class TestDashboardConfigApi:
         owner = (await client.get(f"/maps/{map_id}", headers=admin_auth_header)).json()
         assert len(owner["dashboard_config"]["widgets"]) == 2
 
+    async def test_a_share_link_with_no_visible_layer_still_shows_text(
+        self, client: AsyncClient, admin_auth_header: dict, test_db_session
+    ):
+        admin_id = await get_user_id(test_db_session, "admin")
+        dataset = await create_dataset(test_db_session, created_by=admin_id)
+        map_id, (layer,) = await _map_with_layers(
+            client, admin_auth_header, dataset, visibility="public"
+        )
+        note, on_layer = _widget("markdown"), _widget("indicator", layer)
+        resp = await client.put(
+            f"/maps/{map_id}",
+            json={"dashboard_config": {"widgets": [note, on_layer]}},
+            headers=admin_auth_header,
+        )
+        assert resp.status_code == 200, resp.text
+        share = await client.post(f"/maps/{map_id}/share/", headers=admin_auth_header)
+        assert share.status_code in (200, 201), share.text
+        await _make_private(test_db_session, dataset)
+
+        shared = await client.get(f"/maps/shared/{share.json()['token']}")
+        assert shared.status_code == 200, shared.text
+        assert shared.json()["layers"] == []
+        assert _ids(shared.json()["dashboard_config"]["widgets"]) == [note["id"]]
+
     async def test_an_editor_save_keeps_widgets_on_layers_they_cannot_read(
         self, client: AsyncClient, admin_auth_header: dict, test_db_session
     ):
