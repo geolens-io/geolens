@@ -188,9 +188,9 @@ A finished upload for a new dataset that nothing has imported yet now waits 24
 hours, or `PENDING_JOB_TIMEOUT_SECONDS` plus an hour if that is longer, before
 the stale sweep cancels it, when its file is staged on disk. That is every
 upload unless storage is S3, which holds the file in the bucket and already
-used that cutoff. A replacement of an existing dataset keeps the ordinary
-timeout. The staging directory can hold such files for that long. An API
-instance or worker still on 1.34 cancels a finished upload after
+used that cutoff. A replacement of an existing dataset that is staged on disk
+keeps the ordinary timeout. The staging directory can hold such files for that
+long. An API instance or worker still on 1.34 cancels a finished upload after
 `PENDING_JOB_TIMEOUT_SECONDS` itself, an hour by default, so finish upgrading
 every instance, API and worker, before you upload a large version 2 batch.
 
